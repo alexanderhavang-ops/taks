@@ -1,0 +1,26 @@
+# Minimal packages for a TAK node (Ubuntu 22.04)
+# This list is intentionally small; we’ll grow it only when we prove we need more.
+
+# Base tooling
+ca-certificates
+curl
+jq
+openssl
+unzip
+
+# Java runtime for TAK
+default-jre-headless
+
+# PostgreSQL local on node
+postgresql
+postgresql-client
+
+# NGINX edge
+nginx
+
+# Config manipulation/validation (optional but useful)
+xmlstarlet
+
+# NOTE: Let's Encrypt is NOT offline-friendly. In offline mode, you’ll use internal CA instead.
+# certbot
+# python3-certbot-nginx
