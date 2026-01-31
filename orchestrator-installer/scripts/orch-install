@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ENV_FILE="${ENV_FILE:-/etc/tak-orch/install.env}"
+
+log(){ echo "[$(date -Is)] $*"; }
+die(){ echo "ERROR: $*" >&2; exit 1; }
+
+require_root(){ [[ $EUID -eq 0 ]] || die "must run as root"; }
+
+load_env(){
+  [[ -f "$ENV_FILE" ]] || die "missing env file: $ENV_FILE"
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  : "${FQDN:?}" "${LE_EMAIL:?}"
+}
+
+pkg_install(){
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get install -y \
+    git awscli jq dnsutils \
+    nginx certbot python3-certbot-nginx \
+    ca-certificates curl unzip
+  systemctl enable --now nginx
+}
+
+plan(){
+  require_root
+  load_env
+  log "Plan: ensure baseline packages + nginx enabled for $FQDN"
+}
+
+apply(){
+  require_root
+  load_env
+  pkg_install
+  log "DONE: baseline packages installed"
+}
+
+verify(){
+  require_root
+  load_env
+  nginx -v
+  certbot --version
+  aws --version
+  systemctl is-active --quiet nginx || die "nginx not active"
+  log "OK: nginx active"
+}
+
+case "${1:-}" in
+  plan) plan ;;
+  apply) apply ;;
+  verify) verify ;;
+  *) echo "usage: orch-install {plan|apply|verify}" ; exit 2 ;;
+esac
