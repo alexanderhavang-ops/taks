@@ -1,0 +1,46 @@
+# --- secrets / keys / cert material (NEVER COMMIT) ---
+**/*.key
+**/*.pem
+**/*.p12
+**/*.pfx
+**/*.jks
+**/*.keystore
+**/*.csr
+**/*.crl
+**/*.der
+**/*.p7b
+**/*.p7c
+**/*.pkcs12
+**/00_CA/**
+**/ca.*              # ca.key, ca.crt, ca.srl etc
+**/truststore*.jks
+**/takserver*.jks
+
+# --- env / config that may contain secrets ---
+**/install.env
+**/*.env
+**/.env
+**/*secrets*
+**/*secret*
+
+# --- cloud-init / logs / outputs ---
+**/cloud-init-output.log
+**/cloud-init*.log
+**/logs/**
+**/*.log
+
+# --- OS / editor junk ---
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# --- Python / Node / build artifacts (if/when added) ---
+__pycache__/
+*.pyc
+node_modules/
+dist/
+build/
