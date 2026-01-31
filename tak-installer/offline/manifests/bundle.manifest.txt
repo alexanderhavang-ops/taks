@@ -1,0 +1,8 @@
+# Offline bundle expected layout:
+
+bundle/
+  debs/                # Ubuntu .deb packages + dependencies
+  tak/
+    takserver.deb      # takserver_5.6-RELEASE6_all.deb (renamed to stable name)
+  tools/
+    takctl.tgz         # optional: takctl offline package (later)
