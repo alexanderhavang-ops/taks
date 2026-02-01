@@ -36,3 +36,11 @@ build/
 
 # Exception: Python module named services.crl (NOT a certificate revocation list)
 !takctl/takctl/services.crl
+
+# takctl generated/runtime junk
+takctl/ignite/work/
+takctl/backup/
+takctl/secrets/
+
+# local battalion/site-specific nginx vhosts (never commit)
+infra/nginx/local/

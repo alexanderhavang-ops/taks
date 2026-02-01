@@ -14,8 +14,12 @@ fi
 sec() { echo; echo "## $*"; }
 cmd() {
   local title="$1"; shift
-  echo; echo "### ${title}"
-  echo 
+  echo
+  echo "### ${title}"
+  echo "```"
+  echo "+ $*"
+  ( "$@" 2>&1 || true )
+  echo "```"
 }
 
 {
@@ -28,12 +32,12 @@ cmd() {
   sec "Host basics"
   cmd "id / date / uname" bash -lc "id; date -u; uname -a"
   cmd "os-release" bash -lc "cat /etc/os-release || true"
-  cmd "cpu flags (short)" bash -lc "lscpu | egrep -i \"Model name|Flags\" | sed -n \"1,3p\" || true"
+  cmd "cpu flags (short)" bash -lc "lscpu | egrep -i "Model name|Flags" | sed -n "1,3p" || true"
 
   sec "Mounts + disk"
   cmd "lsblk" bash -lc "lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT || true"
   cmd "findmnt /opt/llm" bash -lc "findmnt /opt/llm || true"
-  cmd "ls /opt/llm" bash -lc "ls -la /opt/llm 2>/dev/null | sed -n \"1,120p\" || true"
+  cmd "ls /opt/llm" bash -lc "ls -la /opt/llm 2>/dev/null | sed -n "1,120p" || true"
   cmd "ls /opt/llm/models" bash -lc "ls -la /opt/llm/models 2>/dev/null || true"
 
   sec "LLM service"
@@ -44,14 +48,14 @@ cmd() {
   sec "Nginx (if installed)"
   cmd "nginx version" bash -lc "nginx -v 2>&1 || true"
   cmd "nginx status" bash -lc "systemctl --no-pager --full status nginx || true"
-  cmd "nginx grep (takctl/llm)" bash -lc "grep -RIn -- \"takctl|llm|proxy_pass|/takctl|/llm\" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | sed -n \"1,200p\" || true"
+  cmd "nginx grep (takctl/llm)" bash -lc "grep -RIn -- "takctl|llm|proxy_pass|/takctl|/llm" /etc/nginx/sites-enabled /etc/nginx/conf.d 2>/dev/null | sed -n "1,200p" || true"
 
   sec "TAK hints (if present)"
   cmd "takserver status" bash -lc "systemctl --no-pager --full status takserver || true"
-  cmd "CoreConfig.xml grep" bash -lc "if [ -f /opt/tak/CoreConfig.xml ]; then egrep -n \"certificateSigning|crl|UserAuthentication|security|tls\" /opt/tak/CoreConfig.xml | sed -n \"1,220p\"; else echo \"no /opt/tak/CoreConfig.xml\"; fi"
+  cmd "CoreConfig.xml grep" bash -lc "if [ -f /opt/tak/CoreConfig.xml ]; then egrep -n "certificateSigning|crl|UserAuthentication|security|tls" /opt/tak/CoreConfig.xml | sed -n "1,220p"; else echo "no /opt/tak/CoreConfig.xml"; fi"
 
-  sec "Repo snapshot (if run inside git)"
-  cmd "git rev/status" bash -lc "git rev-parse --is-inside-work-tree >/dev/null 2>&1 && { git rev-parse HEAD; git status --porcelain; } || echo \"not a git worktree\""
+  sec "Repo snapshot"
+  cmd "git rev/status" bash -lc "git rev-parse --is-inside-work-tree >/dev/null 2>&1 && { git rev-parse HEAD; git status --porcelain; } || echo "not a git worktree""
 
   sec "Architecture notes"
   cat <<'NOTES'
