@@ -81,6 +81,11 @@ server {
     return 200 "ok\n";
   }
 
+  location /healthz {
+    return 200 "ok\n";
+    add_header Content-Type text/plain;
+  }
+
   location / {
     return 200 "orchestrator: nginx up (API/UI pending)\n";
     add_header Content-Type text/plain;

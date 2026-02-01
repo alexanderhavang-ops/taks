@@ -1,0 +1,13 @@
+[Unit]
+Description=TAK Orchestrator API (stub)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+ExecStart=/usr/local/sbin/tak-orch-stub.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

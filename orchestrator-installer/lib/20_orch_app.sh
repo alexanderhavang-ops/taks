@@ -22,5 +22,5 @@ orch_app_install(){
 
 orch_app_verify(){
   systemctl is-active --quiet tak-orch.service || die "tak-orch.service not active"
-  curl -fsS http://127.0.0.1:9000/healthz >/dev/null || die "orch app healthz failed"
+  curl -fsS https://${FQDN}/healthz >/dev/null || die "orch app healthz failed"
 }
