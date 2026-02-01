@@ -9,6 +9,8 @@ source "$LIB_DIR/00_core.sh"
 # shellcheck disable=SC1091
 source "$LIB_DIR/10_packages.sh"
 # shellcheck disable=SC1091
+source "$LIB_DIR/20_orch_app.sh"
+# shellcheck disable=SC1091
 source "$LIB_DIR/30_nginx_le.sh"
 
 plan(){
@@ -21,6 +23,7 @@ apply(){
   require_root
   load_env
   pkg_install
+  orch_app_install
   ensure_webroot
   nginx_quarantine_conflicts
   write_nginx_canonical
@@ -34,6 +37,7 @@ verify(){
   load_env
   systemctl is-active --quiet nginx || die "nginx not active"
   [[ -f "/etc/letsencrypt/live/${FQDN}/fullchain.pem" ]] || die "LE cert missing for ${FQDN}"
+  orch_app_verify
   curl -skI "https://${FQDN}/" | head -n 5
   log "OK: ${FQDN} responds on 443 with LE cert present"
 }
