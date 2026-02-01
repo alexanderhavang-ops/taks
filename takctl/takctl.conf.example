@@ -1,0 +1,33 @@
+[takctl]
+# DB access mode:
+# - psql_sudo : runs "sudo -u <sudo_user> psql ..." (no password needed if local trust works)
+# - psycopg2  : uses TCP connection; requires password unless local auth permits
+db_mode = psycopg2
+
+db_name = cot
+db_host = 127.0.0.1
+db_port = 5432
+db_user = takctl_crl_ro
+db_password =
+
+sudo_user = postgres
+
+coreconfig_path = /opt/tak/CoreConfig.xml
+ca_dir = /opt/tak/certs/files/00_CA
+crl_path = /opt/tak/certs/files/ca.crl
+
+crl_sign_helper = /usr/local/sbin/takctl-crl-sign
+crl_sign_helper_timeout_sec = 60
+
+# CA signing keystore used for CRL generation
+# This typically matches <certificateSigning> TAKServerCAConfig in CoreConfig.xml
+ca_signing_p12 = /opt/tak/certs/files/00_CA/ca-signing.p12
+ca_signing_p12_pass =
+ca_signing_alias = tak-ca
+
+# How long CRLs should be valid (days)
+crl_days = 30
+
+tak_service = takserver
+
+audit_log = /opt/tak/tools/takctl/takctl.audit.log
