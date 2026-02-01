@@ -9,7 +9,8 @@ pkg_install_online(){
     default-jre-headless \
     postgresql postgresql-client \
     nginx \
-    xmlstarlet
+    xmlstarlet \
+    certbot python3-certbot-nginx
 }
 
 require_offline_bundle(){
