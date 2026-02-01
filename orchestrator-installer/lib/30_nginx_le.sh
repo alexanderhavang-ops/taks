@@ -56,6 +56,16 @@ server {
   ssl_certificate     /etc/letsencrypt/live/${FQDN}/fullchain.pem;
   ssl_certificate_key /etc/letsencrypt/live/${FQDN}/privkey.pem;
 
+  location /orch/hello {
+    # receive node call-home POSTs (best-effort)
+    access_log /var/log/tak-orch/hello.log combined;
+    error_log  /var/log/tak-orch/hello.error.log;
+
+    # also dump request body into a file (requires ngx_http_lua_module normally; so we keep it simple)
+    # NGINX cannot natively log request bodies without extras; we at least log metadata.
+    return 200 "ok\n";
+  }
+
   location / {
     return 200 "orchestrator: nginx up (API/UI pending)\n";
     add_header Content-Type text/plain;
