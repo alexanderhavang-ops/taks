@@ -1,11 +1,20 @@
 # Chatpack
 
-`tools/chatpack` generates a single Markdown file that captures the current repo state
-(architecture notes + key code/config) so a new ChatGPT chat can pick up instantly.
+This repo keeps a ChatGPT-ready context pack up to date.
 
-Usage:
-  tools/chatpack > chatpack/latest.md
+## Generate snapshot
+- Writes `chatpack/latest.md` by default:
 
-Tips:
-- Keep secrets out of the repo; chatpack does light redaction but is not a vault.
-- Prefer stable paths; if you move files, update tools/chatpack.
+  tools/chatpack-orchestrator generate
+  # or:
+  tools/chatpack generate
+
+## Print to stdout (for copy/paste)
+  tools/chatpack-orchestrator print --include-tree
+
+## Append journal entries (so future chats can extend context)
+  tools/chatpack-orchestrator append --title "..." --text "..."
+  tools/chatpack-orchestrator append --title "..." --file orchestrator-installer/scripts/orch-install
+
+Notes:
+- Redaction is best-effort and not a vault. Don’t store secrets in-repo.
