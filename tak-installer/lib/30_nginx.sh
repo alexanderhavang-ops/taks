@@ -54,8 +54,8 @@ server {
   server_name ${FQDN};
 
   # Placeholder cert paths (next step will install real certs)
-  ssl_certificate     /etc/ssl/certs/ssl-cert-snakeoil.pem;
-  ssl_certificate_key /etc/ssl/private/ssl-cert-snakeoil.key;
+  ssl_certificate     ${TLS_CERT};
+  ssl_certificate_key ${TLS_KEY};
 
   location /Marti/ {
     proxy_pass https://127.0.0.1:8447/Marti/;

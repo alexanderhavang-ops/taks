@@ -13,6 +13,8 @@ source "$LIB_DIR/10_install_mechanics.sh"
 source "$LIB_DIR/20_cert_layout.sh"
 # shellcheck disable=SC1091
 source "$LIB_DIR/30_nginx.sh"
+# shellcheck disable=SC1091
+source "$LIB_DIR/40_certs.sh"
 
 plan(){
   require_root
@@ -58,6 +60,7 @@ apply(){
   esac
 
   cert_layout_create
+  certs_prepare
   nginx_quarantine_conflicts
   write_nginx_taknode_canonical
   nginx_reload_safe
