@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ENV_FILE="${ENV_FILE:-/etc/tak/install.env}"
+
+log(){ echo "[$(date -Is)] $*"; }
+die(){ echo "ERROR: $*" >&2; exit 1; }
+require_root(){ [[ $EUID -eq 0 ]] || die "must run as root"; }
+
+load_env(){
+  # env file optional for now (we're focusing on offline install mechanics)
+  if [[ -f "$ENV_FILE" ]]; then
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+  fi
+
+  INSTALL_MODE="${INSTALL_MODE:-offline}"   # default offline for this step
+  BUNDLE_TGZ="${BUNDLE_TGZ:-}"              # optional: path to tar.gz
+  BUNDLE_DIR="${BUNDLE_DIR:-/opt/taks/offline-bundle}"  # extracted bundle root
+}
+
+require_offline_bundle(){
+  if [[ -n "$BUNDLE_TGZ" ]]; then
+    [[ -f "$BUNDLE_TGZ" ]] || die "BUNDLE_TGZ not found: $BUNDLE_TGZ"
+    mkdir -p "$BUNDLE_DIR"
+    log "Extracting bundle: $BUNDLE_TGZ -> $BUNDLE_DIR"
+    tar -C "$BUNDLE_DIR" -xzf "$BUNDLE_TGZ"
+  fi
+
+  [[ -d "$BUNDLE_DIR/debs" ]] || die "missing bundle debs dir: $BUNDLE_DIR/debs"
+  [[ -f "$BUNDLE_DIR/tak/takserver.deb" ]] || die "missing TAK deb: $BUNDLE_DIR/tak/takserver.deb"
+}
+
+offline_install_debs(){
+  log "Offline installing OS deps from: $BUNDLE_DIR/debs"
+  shopt -s nullglob
+  local debs=( "$BUNDLE_DIR/debs"/*.deb )
+  shopt -u nullglob
+  [[ ${#debs[@]} -gt 0 ]] || die "no .deb files in $BUNDLE_DIR/debs"
+
+  # dpkg doesn't resolve dependencies. With a full closure present, repeated passes usually converge.
+  local pass
+  for pass in 1 2 3 4 5; do
+    log "dpkg pass $pass/5"
+    set +e
+    dpkg -i "$BUNDLE_DIR/debs"/*.deb >/tmp/tak-offline-dpkg.$pass.log 2>&1
+    rc=$?
+    dpkg --configure -a >>/tmp/tak-offline-dpkg.$pass.log 2>&1
+    rc2=$?
+    set -e
+
+    if [[ $rc -eq 0 && $rc2 -eq 0 ]]; then
+      log "dpkg converged successfully"
+      return 0
+    fi
+
+    log "dpkg not yet clean (rc=$rc rc2=$rc2); continuing"
+  done
+
+  die "offline deb install did not converge after 5 passes. See /tmp/tak-offline-dpkg.*.log"
+}
+
+offline_install_tak(){
+  # idempotent: skip if takserver already installed
+  if dpkg -s takserver >/dev/null 2>&1; then
+    log "TAK already installed (dpkg)."
+    return 0
+  fi
+
+  log "Installing TAK deb: $BUNDLE_DIR/tak/takserver.deb"
+  dpkg -i "$BUNDLE_DIR/tak/takserver.deb" || die "TAK deb install failed (see dpkg output)"
+}
+
+plan(){
+  require_root
+  load_env
+  log "Plan: INSTALL_MODE=$INSTALL_MODE BUNDLE_DIR=$BUNDLE_DIR"
+  if [[ "$INSTALL_MODE" == "offline" ]]; then
+    log "Would: extract bundle (if BUNDLE_TGZ set), dpkg-install debs, install takserver.deb"
+  else
+    die "online mode not implemented in this step"
+  fi
+}
+
+apply(){
+  require_root
+  load_env
+
+  if [[ "$INSTALL_MODE" != "offline" ]]; then
+    die "This step implements offline mode only. Set INSTALL_MODE=offline."
+  fi
+
+  require_offline_bundle
+  offline_install_debs
+  offline_install_tak
+
+  log "DONE: offline base deps + TAK installed"
+}
+
+verify(){
+  require_root
+  load_env
+  dpkg -s takserver >/dev/null 2>&1 || die "takserver not installed"
+  log "OK: takserver package installed"
+}
+
+case "${1:-}" in
+  plan) plan ;;
+  apply) apply ;;
+  verify) verify ;;
+  *) echo "usage: tak-install {plan|apply|verify}" ; exit 2 ;;
+esac
