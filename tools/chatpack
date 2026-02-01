@@ -8,7 +8,6 @@ ts="$(date -Is)"
 rev="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 
-# Print file with header. Missing files are noted, not fatal.
 print_file(){
   local path="$1"
   echo
@@ -22,13 +21,12 @@ print_file(){
   fi
 }
 
-# Light redaction. Do NOT rely on this for real secrets.
 redact(){
   sed -E \
     -e 's/(AWS_SECRET_ACCESS_KEY|aws_secret_access_key)[[:space:]]*=[[:space:]]*.*/\1=REDACTED/gI' \
     -e 's/(AWS_ACCESS_KEY_ID|aws_access_key_id)[[:space:]]*=[[:space:]]*.*/\1=REDACTED/gI' \
-    -e 's/(password|PASS|passphrase)[[:space:]]*=[[:space:]]*.*/\1=REDACTED/g' \
-    -e 's/(Authorization: Bearer )[A-Za-z0-9\._-]+/\1REDACTED/g'
+    -e 's/([Pp]assword|PASS|passphrase)[[:space:]]*=[[:space:]]*.*/\1=REDACTED/g' \
+    -e 's/(Authorization:[[:space:]]*Bearer)[[:space:]]+[A-Za-z0-9\._-]+/\1 REDACTED/g'
 }
 
 {
@@ -40,7 +38,7 @@ redact(){
   echo "- Revision: $rev"
   echo
   echo "## Intent"
-  echo "This bundle is meant to be pasted into a fresh ChatGPT chat so the model can continue work with full context."
+  echo "Paste this into a fresh ChatGPT chat to continue work with full context."
   echo
   echo "## Quick status"
   echo '```'
@@ -52,11 +50,12 @@ redact(){
   git --no-pager log -n 20 --oneline || true
   echo '```'
   echo
-  echo "## Repo tree (top-level)"
+  echo "## Repo tree (top-level, first 200 files)"
   echo '```'
-  (cd "$ROOT" && find . -maxdepth 2 -type f | sed 's|^\./||' | sort) | head -n 200
+  (find . -maxdepth 2 -type f | sed 's|^\./||' | sort) | head -n 200
   echo '```'
   echo
+
   echo "# Architecture / Notes"
   print_file "orchestrator-installer/docs/README.md"
   print_file "tak-installer/offline/README.md"
@@ -67,10 +66,10 @@ redact(){
   for f in orchestrator-installer/lib/*.sh; do
     print_file "$f"
   done
-  for f in orchestrator-installer/cloud-init/*.yaml 2>/dev/null; do
+  for f in orchestrator-installer/cloud-init/*.yaml; do
     print_file "$f"
   done
-  for f in orchestrator-installer/systemd/* 2>/dev/null; do
+  for f in orchestrator-installer/systemd/*; do
     print_file "$f"
   done
 
@@ -80,13 +79,11 @@ redact(){
   for f in tak-installer/lib/*.sh; do
     print_file "$f"
   done
-  for f in tak-installer/cloud-init/*.yaml 2>/dev/null; do
+  for f in tak-installer/cloud-init/*.yaml; do
     print_file "$f"
   done
-  for f in tak-installer/offline/apt-packages.txt 2>/dev/null; do
-    print_file "$f"
-  done
-  for f in tak-installer/offline/manifests/*.txt 2>/dev/null; do
+  print_file "tak-installer/offline/apt-packages.txt"
+  for f in tak-installer/offline/manifests/*.txt; do
     print_file "$f"
   done
 
@@ -94,3 +91,4 @@ redact(){
   echo "# Operator commands / runbooks (optional)"
   print_file "docs/README.md"
 } | redact
+

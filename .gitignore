@@ -44,3 +44,10 @@ __pycache__/
 node_modules/
 dist/
 build/
+
+# chatpack output
+chatpack/latest.md
+
+# offline bundle artifacts (generated)
+tak-installer/offline/bundle/
+taks-tak-offline-bundle-*.tar.gz
