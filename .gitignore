@@ -44,3 +44,5 @@ takctl/secrets/
 
 # local battalion/site-specific nginx vhosts (never commit)
 infra/nginx/local/
+takctl/ignite/
+takctl/takctl.conf
