@@ -8,15 +8,31 @@ die(){ echo "ERROR: $*" >&2; exit 1; }
 require_root(){ [[ $EUID -eq 0 ]] || die "must run as root"; }
 
 load_env(){
-  # env file optional for now (we're focusing on offline install mechanics)
+  # env file optional for now (we're focusing on install mechanics)
   if [[ -f "$ENV_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$ENV_FILE"
   fi
 
-  INSTALL_MODE="${INSTALL_MODE:-offline}"   # default offline for this step
+  INSTALL_MODE="${INSTALL_MODE:-online}"  # default online now
+
+  # Offline bundle inputs
   BUNDLE_TGZ="${BUNDLE_TGZ:-}"              # optional: path to tar.gz
   BUNDLE_DIR="${BUNDLE_DIR:-/opt/taks/offline-bundle}"  # extracted bundle root
+
+  # Online TAK deb location (we still require you to provide the deb)
+  TAK_DEB="${TAK_DEB:-/opt/tak/install/takserver_5.6-RELEASE6_all.deb}"
+}
+
+pkg_install_online(){
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -y
+  apt-get install -y \
+    ca-certificates curl jq openssl unzip \
+    default-jre-headless \
+    postgresql postgresql-client \
+    nginx \
+    xmlstarlet
 }
 
 require_offline_bundle(){
@@ -38,7 +54,6 @@ offline_install_debs(){
   shopt -u nullglob
   [[ ${#debs[@]} -gt 0 ]] || die "no .deb files in $BUNDLE_DIR/debs"
 
-  # dpkg doesn't resolve dependencies. With a full closure present, repeated passes usually converge.
   local pass
   for pass in 1 2 3 4 5; do
     log "dpkg pass $pass/5"
@@ -60,41 +75,57 @@ offline_install_debs(){
   die "offline deb install did not converge after 5 passes. See /tmp/tak-offline-dpkg.*.log"
 }
 
-offline_install_tak(){
-  # idempotent: skip if takserver already installed
+install_tak_deb(){
+  local deb="$1"
+  [[ -f "$deb" ]] || die "TAK deb not found: $deb"
+
   if dpkg -s takserver >/dev/null 2>&1; then
     log "TAK already installed (dpkg)."
     return 0
   fi
 
-  log "Installing TAK deb: $BUNDLE_DIR/tak/takserver.deb"
-  dpkg -i "$BUNDLE_DIR/tak/takserver.deb" || die "TAK deb install failed (see dpkg output)"
+  log "Installing TAK deb: $deb"
+  dpkg -i "$deb" || die "TAK deb install failed"
 }
 
 plan(){
   require_root
   load_env
-  log "Plan: INSTALL_MODE=$INSTALL_MODE BUNDLE_DIR=$BUNDLE_DIR"
-  if [[ "$INSTALL_MODE" == "offline" ]]; then
-    log "Would: extract bundle (if BUNDLE_TGZ set), dpkg-install debs, install takserver.deb"
-  else
-    die "online mode not implemented in this step"
-  fi
+  log "Plan: INSTALL_MODE=$INSTALL_MODE"
+
+  case "$INSTALL_MODE" in
+    offline)
+      log "Would: extract bundle (if BUNDLE_TGZ set), dpkg-install debs from $BUNDLE_DIR/debs, install $BUNDLE_DIR/tak/takserver.deb"
+      ;;
+    online)
+      log "Would: apt-get install deps, install TAK deb from $TAK_DEB"
+      ;;
+    *)
+      die "unknown INSTALL_MODE: $INSTALL_MODE"
+      ;;
+  esac
 }
 
 apply(){
   require_root
   load_env
 
-  if [[ "$INSTALL_MODE" != "offline" ]]; then
-    die "This step implements offline mode only. Set INSTALL_MODE=offline."
-  fi
+  case "$INSTALL_MODE" in
+    offline)
+      require_offline_bundle
+      offline_install_debs
+      install_tak_deb "$BUNDLE_DIR/tak/takserver.deb"
+      ;;
+    online)
+      pkg_install_online
+      install_tak_deb "$TAK_DEB"
+      ;;
+    *)
+      die "unknown INSTALL_MODE: $INSTALL_MODE"
+      ;;
+  esac
 
-  require_offline_bundle
-  offline_install_debs
-  offline_install_tak
-
-  log "DONE: offline base deps + TAK installed"
+  log "DONE: install mechanics complete (mode=$INSTALL_MODE)"
 }
 
 verify(){
