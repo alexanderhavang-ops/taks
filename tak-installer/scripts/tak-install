@@ -137,7 +137,9 @@ apply(){
       ;;
   esac
 
-  log "DONE: install mechanics complete (mode=$INSTALL_MODE)"
+  cert_layout_create
+
+  log "DONE: install mechanics + cert layout complete (mode=$INSTALL_MODE)"
 }
 
 verify(){
@@ -155,3 +157,36 @@ case "${1:-}" in
   verify) verify ;;
   *) echo "usage: tak-install {plan|apply|verify}" ; exit 2 ;;
 esac
+
+# --- filesystem layout (safe/idempotent) ---
+
+cert_layout_create(){
+  local root="/opt/tak/certs/files"
+
+  log "Ensuring cert layout under $root"
+
+  install -d -m 0755 "$root"
+  install -d -m 0750 "$root/00_CA"
+  install -d -m 0755 "$root/01_TRUST" "$root/02_SERVER" "$root/03_FEDERATION" \
+                    "$root/04_USERS" "$root/05_CSRS" "$root/06_CONFIG" \
+                    "$root/07_MISC" "$root/99_ARCHIVE"
+
+  # Create empty CRL file if missing (actual content generated later)
+  if [[ ! -f "$root/ca.crl" ]]; then
+    install -m 0644 /dev/null "$root/ca.crl"
+  fi
+
+  # Ownership: keep conservative defaults
+  # Private CA material locked down: root:root 0750
+  chown -R root:root "$root/00_CA"
+  chmod 0750 "$root/00_CA"
+
+  # Everything else readable by root; later we can chgrp to 'tak' once user exists
+  chown -R root:root \
+    "$root/01_TRUST" "$root/02_SERVER" "$root/03_FEDERATION" \
+    "$root/04_USERS" "$root/05_CSRS" "$root/06_CONFIG" \
+    "$root/07_MISC" "$root/99_ARCHIVE" "$root/ca.crl" || true
+
+  chmod 0644 "$root/ca.crl" || true
+}
+
