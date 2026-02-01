@@ -1,123 +1,16 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
-import hashlib
-import os
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
+# Make tak_installer importable regardless of cwd / install method.
+# Works for git checkout and for an extracted tarball.
+HERE = Path(__file__).resolve()
+PKG_ROOT = HERE.parent  # .../tak-installer
+sys.path.insert(0, str(PKG_ROOT))
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-INFRA_SYSTEMD = REPO_ROOT / "infra" / "systemd"
-UNIT_NAME = "takctl-web.service"
-UNIT_SRC = INFRA_SYSTEMD / UNIT_NAME
-UNIT_DST = Path("/etc/systemd/system") / UNIT_NAME
-
-
-def sha256_path(p: Path) -> str:
-    h = hashlib.sha256()
-    with p.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-def run(cmd: list[str], check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(cmd, text=True, capture_output=True, check=check)
-
-
-def diff_text(a: Path, b: Path) -> str:
-    # Use system diff if available (keeps output familiar)
-    try:
-        cp = run(["diff", "-u", str(a), str(b)], check=False)
-        return cp.stdout
-    except FileNotFoundError:
-        return "(diff not available)\n"
-
-
-def require_root_for_apply(dry_run: bool) -> None:
-    if dry_run:
-        return
-    if os.geteuid() != 0:
-        print("ERROR: apply (non-dry-run) must be run as root (sudo).", file=sys.stderr)
-        sys.exit(2)
-
-
-def cmd_apply(dry_run: bool) -> int:
-    print("tak-installer apply")
-    print(f"  dry-run: {dry_run}")
-    print()
-
-    if not UNIT_SRC.is_file():
-        print(f"ERROR: source unit not found: {UNIT_SRC}", file=sys.stderr)
-        return 1
-
-    print(f"Systemd unit: {UNIT_NAME}")
-    print(f"  src: {UNIT_SRC}")
-    print(f"  dst: {UNIT_DST}")
-
-    src_hash = sha256_path(UNIT_SRC)
-    print(f"  src sha256: {src_hash}")
-
-    if UNIT_DST.exists():
-        dst_hash = sha256_path(UNIT_DST)
-        print(f"  dst sha256: {dst_hash}")
-        if dst_hash == src_hash:
-            print("  status: up-to-date")
-            print()
-            print("No changes performed.")
-            return 0
-        else:
-            print("  status: differs")
-            print("  diff:")
-            d = diff_text(UNIT_DST, UNIT_SRC)
-            print(d if d else "(no diff output; files differ)")
-    else:
-        print("  status: not installed")
-
-    print()
-    if dry_run:
-        print("Would install/update the unit, then run:")
-        print("  systemctl daemon-reload")
-        print("  systemctl restart takctl-web")
-        print("No changes performed.")
-        return 0
-
-    # real apply
-    require_root_for_apply(dry_run=False)
-    UNIT_DST.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(UNIT_SRC, UNIT_DST)
-
-    # normalize perms/owner to match common systemd expectations
-    os.chmod(UNIT_DST, 0o644)
-
-    run(["systemctl", "daemon-reload"], check=True)
-    run(["systemctl", "restart", "takctl-web"]
-
-, check=False)  # service may not exist yet; don't brick apply
-
-    print("Applied.")
-    return 0
-
-
-def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="tak-installer", add_help=True)
-    sub = p.add_subparsers(dest="cmd", required=True)
-
-    ap = sub.add_parser("apply", help="Converge node into desired state")
-    ap.add_argument("--dry-run", action="store_true", help="Print intended changes, do not apply")
-    return p
-
-
-def main() -> int:
-    args = build_parser().parse_args()
-    if args.cmd == "apply":
-        return cmd_apply(dry_run=bool(args.dry_run))
-    return 0
-
+from tak_installer.cli import main  # noqa: E402
 
 if __name__ == "__main__":
     raise SystemExit(main())
