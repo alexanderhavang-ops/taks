@@ -98,8 +98,12 @@ class _Action:
                 src=repo / "infra" / "nginx" / "core" / "mime.types",
                 dst=Path("/etc/nginx/mime.types"),
             ),
+            _File(
+                name="conf.d/00-logformats.conf",
+                src=repo / "infra" / "nginx" / "core" / "conf.d" / "00-logformats.conf",
+                dst=Path("/etc/nginx/conf.d/00-logformats.conf"),
+            ),
         ]
-
     def inspect(self, ctx: Context) -> int:
         print("Nginx core (/etc/nginx/nginx.conf, mime.types)")
         for f in self._files(ctx):
