@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Make the python package importable without pip install
+export PYTHONPATH="${ROOT}/tools/chatpack_orchestrator:${PYTHONPATH:-}"
+
+exec /usr/bin/python3 -m chatpack_orchestrator "$@" --repo-root "$ROOT"

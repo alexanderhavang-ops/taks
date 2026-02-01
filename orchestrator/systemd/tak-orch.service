@@ -1,0 +1,14 @@
+[Unit]
+Description=TAK Orchestrator API (stub)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu
+ExecStart=/usr/bin/python3 -m http.server 9000 --bind 127.0.0.1
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

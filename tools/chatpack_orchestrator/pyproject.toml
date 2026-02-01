@@ -1,0 +1,9 @@
+[project]
+name = "chatpack-orchestrator"
+version = "0.1.0"
+description = "Generate and maintain ChatGPT-ready context packs for the TAK orchestrator repo."
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+chatpack-orchestrator = "chatpack_orchestrator.__main__:main"
