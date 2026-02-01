@@ -101,6 +101,12 @@ The installer must:
 - validate nginx config
 - reload nginx idempotently
 
+Nginx core ownership (installer-owned):
+- /etc/nginx/nginx.conf
+- /etc/nginx/mime.types
+- conf.d log_format files may exist; avoid duplicate log_format names
+
+
 Site-specific values (e.g. FQDN) must be rendered inputs,
 never hard-coded in git templates.
 
