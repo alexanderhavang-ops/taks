@@ -17,12 +17,27 @@ nginx_quarantine_conflicts(){
   shopt -u nullglob
 }
 
+
+choose_tls_paths(){
+  local le_cert="/etc/letsencrypt/live/${FQDN}/fullchain.pem"
+  local le_key="/etc/letsencrypt/live/${FQDN}/privkey.pem"
+
+  if [[ -f "$le_cert" && -f "$le_key" ]]; then
+    TLS_CERT="$le_cert"
+    TLS_KEY="$le_key"
+  else
+    TLS_CERT="/etc/ssl/certs/ssl-cert-snakeoil.pem"
+    TLS_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
+  fi
+}
+
 ensure_webroot(){
   mkdir -p /var/www/html/.well-known/acme-challenge
   chown -R www-data:www-data /var/www/html
 }
 
 write_nginx_canonical(){
+  choose_tls_paths
   local sa="/etc/nginx/sites-available"
   local se="/etc/nginx/sites-enabled"
   local name="orch-master"
@@ -53,8 +68,8 @@ server {
   listen 443 ssl http2;
   server_name ${FQDN};
 
-  ssl_certificate     /etc/letsencrypt/live/${FQDN}/fullchain.pem;
-  ssl_certificate_key /etc/letsencrypt/live/${FQDN}/privkey.pem;
+  ssl_certificate     ${TLS_CERT};
+  ssl_certificate_key ${TLS_KEY};
 
   location /orch/hello {
     # receive node call-home POSTs (best-effort)
@@ -89,6 +104,8 @@ CONF
 }
 
 le_cert_obtain(){
+  write_nginx_canonical
+  nginx_reload_safe
   if [[ -f "/etc/letsencrypt/live/${FQDN}/fullchain.pem" ]]; then
     log "LE cert already present for ${FQDN}"
     return 0
