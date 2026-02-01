@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+JAR="/opt/tak/utils/UserManager.jar"
+JAVA="/usr/bin/java"
+
+if [[ ! -r "$JAR" ]]; then
+  echo "ERR: missing $JAR" >&2
+  exit 2
+fi
+
+# Very small allowlist of subcommands to prevent "sudo java -jar ... anything"
+# Adjust as you add more operations.
+ALLOWED=(
+  "useradd"
+  "usermod"
+  "userdel"
+  "list"
+  "userlist"
+  "grouplist"
+  "groupadd"
+  "groupdel"
+  "groupmod"
+)
+
+subcmd="${1:-}"
+shift || true
+
+ok=0
+for a in "${ALLOWED[@]}"; do
+  [[ "$subcmd" == "$a" ]] && ok=1 && break
+done
+
+if [[ "$ok" != "1" ]]; then
+  echo "ERR: subcommand not allowed: $subcmd" >&2
+  echo "Allowed: ${ALLOWED[*]}" >&2
+  exit 3
+fi
+
+exec "$JAVA" -jar "$JAR" "$subcmd" "$@"

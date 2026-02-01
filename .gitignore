@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+.venv/
+.venv-*/
+.mypy_cache/
+.pytest_cache/
+
+# Editors/OS
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets / certs / generated
+*.p12
+*.jks
+*.pem
+*.key
+*.crt
+*.csr
+*.crl
+*.sqlite
+*.db
+*.log
+*.zip
+
+# Backups / temp
+*.bak*
+*.swp
+*.tmp
+
+# Exception: Python module named services.crl (NOT a certificate revocation list)
+!takctl/takctl/services.crl
