@@ -104,6 +104,7 @@ The installer must:
 Nginx core ownership (installer-owned):
 - /etc/nginx/nginx.conf
 - /etc/nginx/mime.types
+- /etc/nginx/conf.d/00-logformats.conf
 - conf.d log_format files may exist; avoid duplicate log_format names
 
 
