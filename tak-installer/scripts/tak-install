@@ -15,6 +15,9 @@ source "$LIB_DIR/20_cert_layout.sh"
 source "$LIB_DIR/30_nginx.sh"
 # shellcheck disable=SC1091
 source "$LIB_DIR/40_certs.sh"
+# shellcheck disable=SC1091
+source "$LIB_DIR/90_call_home.sh"
+# shellcheck disable=SC1091
 
 plan(){
   require_root
@@ -65,6 +68,7 @@ apply(){
   write_nginx_taknode_canonical
   nginx_reload_safe
 
+  call_home
   log "DONE: install mechanics + cert layout + nginx complete (mode=$INSTALL_MODE)"
 }
 
