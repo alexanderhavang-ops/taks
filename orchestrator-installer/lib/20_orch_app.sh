@@ -4,7 +4,7 @@ set -euo pipefail
 orch_app_install(){
   # place code
   install -d -m 0755 -o www-data -g www-data /opt/tak-orch
-  rsync -a --delete /home/ubuntu/taks/orchestrator/ /opt/tak-orch/orchestrator/
+  rsync -a --delete ${BASE_DIR}/../orchestrator/ /opt/tak-orch/orchestrator/
 
   # venv
   if [[ ! -d /opt/tak-orch/.venv ]]; then
@@ -15,7 +15,7 @@ orch_app_install(){
   /opt/tak-orch/.venv/bin/pip install "boto3" "fastapi" "uvicorn[standard]" >/dev/null
 
   # systemd
-  install -m 0644 /home/ubuntu/taks/orchestrator/systemd/tak-orch.service /etc/systemd/system/tak-orch.service
+  install -m 0644 ${BASE_DIR}/../orchestrator/systemd/tak-orch.service /etc/systemd/system/tak-orch.service
   systemctl daemon-reload
   systemctl enable --now tak-orch.service
 }
