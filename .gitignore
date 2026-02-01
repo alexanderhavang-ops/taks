@@ -51,3 +51,31 @@ chatpack/latest.md
 # offline bundle artifacts (generated)
 tak-installer/offline/bundle/
 taks-tak-offline-bundle-*.tar.gz
+
+# --- real ops configs (keep out of git; use *.example instead) ---
+installer/env
+takctl/takctl.conf
+CoreConfig.xml
+nginx/*.conf
+*.local
+*.runtime
+
+# --- crypto / cert material (never commit) ---
+*.p12
+*.pfx
+*.jks
+*.pem
+*.key
+*.crt
+*.cer
+*.der
+*.csr
+*.crl
+certs/
+pki/
+
+# offline bundles / large artifacts (publish via Releases, not git)
+*.tar
+*.tar.gz
+*.tgz
+taks-tak-offline-bundle-*.tar.gz
