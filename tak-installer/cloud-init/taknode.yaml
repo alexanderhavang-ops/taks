@@ -1,0 +1,55 @@
+#cloud-config
+package_update: true
+package_upgrade: false
+
+write_files:
+  - path: /etc/tak/install.env
+    permissions: "0640"
+    owner: root:root
+    content: |
+      # ==========================================================
+      # REQUIRED – set per TAK node (examples commented out)
+      # ==========================================================
+
+      #BATTALION=48hvbat
+      #BASE_DOMAIN=tak-hv-sandbox.se
+      #FQDN=48hvbat.tak-hv-sandbox.se
+      #LE_EMAIL=admin@tak-hv-sandbox.se
+
+      # ==========================================================
+      # OPTIONAL / defaults
+      # ==========================================================
+
+      # Public enrollment port exposed via nginx
+      PUBLIC_PORT_ENROLL=8446
+
+      # install mode: online | offline
+      INSTALL_MODE=online
+
+      # ONLINE mode:
+      # Path where the TAK server deb is already present on the node
+      TAK_DEB=/opt/tak/install/takserver_5.6-RELEASE6_all.deb
+
+      # OFFLINE mode:
+      # Where the offline bundle is extracted
+      BUNDLE_DIR=/opt/taks/offline-bundle
+      # Optional: if provided, bundle is extracted automatically
+      #BUNDLE_TGZ=/opt/taks/taks-tak-offline-bundle-jammy-YYYYMMDD.tar.gz
+
+  - path: /usr/local/sbin/tak-install
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      exec /opt/taks/taks-repo/tak-installer/scripts/tak-install "$@"
+
+runcmd:
+  - |
+    set -eux
+    # The orchestrator or operator must place the taks repo here
+    test -x /opt/taks/taks-repo/tak-installer/scripts/tak-install
+
+    install -d -m 0755 /opt/taks/logs /opt/tak/install
+    /usr/local/sbin/tak-install apply | tee /opt/taks/logs/tak-install.log
+    /usr/local/sbin/tak-install verify | tee -a /opt/taks/logs/tak-install.log
