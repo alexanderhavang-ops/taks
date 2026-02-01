@@ -46,3 +46,10 @@ takctl/secrets/
 infra/nginx/local/
 takctl/ignite/
 takctl/takctl.conf
+
+# Large/offline bundles (never commit)
+*.tar.gz
+*.tgz
+*.iso
+*.img
+*.qcow2
