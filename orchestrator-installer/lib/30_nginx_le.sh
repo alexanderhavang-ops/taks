@@ -108,3 +108,10 @@ le_cert_obtain(){
 
   [[ -f "$le_cert" && -f "$le_key" ]] || die "LE cert files missing after certbot"
 }
+
+
+nginx_reload_safe(){
+  nginx -t || die "nginx config invalid"
+  systemctl enable --now nginx
+  systemctl reload nginx
+}
