@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CMD="${1:-}"
+shift || true
+
+usage() {
+  cat <<EOF
+tak-installer
+
+Usage:
+  tak-installer apply [--dry-run]
+
+Description:
+  Converges a node into the desired TAKS operational state.
+  This tool is intended to be safe and idempotent.
+
+Status:
+  Installer skeleton only. No changes are applied yet.
+EOF
+}
+
+if [[ -z "$CMD" ]]; then
+  usage
+  exit 1
+fi
+
+case "$CMD" in
+  apply)
+    DRY_RUN=0
+    if [[ "${1:-}" == "--dry-run" ]]; then
+      DRY_RUN=1
+    fi
+
+    echo "tak-installer apply"
+    echo "  dry-run: $DRY_RUN"
+    echo
+    echo "Planned convergence steps (not yet implemented):"
+    echo "  - takctl runtime tree under /opt/tak/tools/takctl"
+    echo "  - takctl.conf rendering"
+    echo "  - systemd units (takctl-web.service)"
+    echo "  - nginx config for enrollment + takctl web UI"
+    echo "  - users/groups and permissions"
+    echo
+    echo "No changes performed."
+    ;;
+  *)
+    usage
+    exit 1
+    ;;
+esac
+
