@@ -8,20 +8,29 @@ die(){ echo "ERROR: $*" >&2; exit 1; }
 require_root(){ [[ $EUID -eq 0 ]] || die "must run as root"; }
 
 load_env(){
-  # env file optional for now (we're focusing on install mechanics)
   if [[ -f "$ENV_FILE" ]]; then
     # shellcheck disable=SC1090
     source "$ENV_FILE"
   fi
 
-  INSTALL_MODE="${INSTALL_MODE:-online}"  # default online now
+  INSTALL_MODE="${INSTALL_MODE:-online}"  # online|offline
 
   # Offline bundle inputs
-  BUNDLE_TGZ="${BUNDLE_TGZ:-}"              # optional: path to tar.gz
-  BUNDLE_DIR="${BUNDLE_DIR:-/opt/taks/offline-bundle}"  # extracted bundle root
+  BUNDLE_TGZ="${BUNDLE_TGZ:-}"
+  BUNDLE_DIR="${BUNDLE_DIR:-/opt/taks/offline-bundle}"
 
-  # Online TAK deb location (we still require you to provide the deb)
+  # Online TAK deb location (provided by operator/orchestrator)
   TAK_DEB="${TAK_DEB:-/opt/tak/install/takserver_5.6-RELEASE6_all.deb}"
+
+  # Optional
+  PUBLIC_PORT_ENROLL="${PUBLIC_PORT_ENROLL:-8446}"
+}
+
+require_identity(){
+  : "${BATTALION:?missing BATTALION in /etc/tak/install.env}"
+  : "${BASE_DOMAIN:?missing BASE_DOMAIN in /etc/tak/install.env}"
+  : "${FQDN:?missing FQDN in /etc/tak/install.env}"
+  : "${LE_EMAIL:?missing LE_EMAIL in /etc/tak/install.env}"
 }
 
 pkg_install_online(){
@@ -91,7 +100,9 @@ install_tak_deb(){
 plan(){
   require_root
   load_env
-  log "Plan: INSTALL_MODE=$INSTALL_MODE"
+  require_identity
+
+  log "Plan: INSTALL_MODE=$INSTALL_MODE FQDN=$FQDN"
 
   case "$INSTALL_MODE" in
     offline)
@@ -109,6 +120,7 @@ plan(){
 apply(){
   require_root
   load_env
+  require_identity
 
   case "$INSTALL_MODE" in
     offline)
@@ -131,6 +143,8 @@ apply(){
 verify(){
   require_root
   load_env
+  require_identity
+
   dpkg -s takserver >/dev/null 2>&1 || die "takserver not installed"
   log "OK: takserver package installed"
 }
