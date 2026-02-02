@@ -58,6 +58,16 @@ run "tcp 443 listening"  sudo -n ss -ltnp | grep -qE ':443\s'
 run "tcp 8446 listening" sudo -n ss -ltnp | grep -qE ':8446\s'
 run "tcp 8080 listening" sudo -n ss -ltnp | grep -qE ':8080\s'
 
+# takctl webUI smoke (through nginx 443 vhost)
+# Requires FQDN set (same as installer actions)
+if [[ -n "${FQDN:-}" ]]; then
+  run "takctl ui html"        curl -kfsS "https://127.0.0.1/takctl/" -H "Host: ${FQDN}" | head -n 2 | grep -qi '<!doctype html'
+  run "takctl api health"     curl -kfsS "https://127.0.0.1/takctl/api/health" -H "Host: ${FQDN}" | grep -q '"status":"ok"'
+else
+  say "WARN: FQDN not set; skipping takctl nginx mount smoke checks"
+fi
+
+
 say "result"
 if [[ "$fail" -eq 0 ]]; then
   echo "ALL GREEN"

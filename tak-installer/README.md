@@ -1,40 +1,227 @@
-TAK Installer (tak-installer)
+## Certificate handling
 
-Status (Feb 2026)
+The installer does not decide *which* certificate to use.
 
-A tak-installer skeleton exists in this repository.
+It:
+- Installs certificates provided by orchestrator
+- Verifies permissions and layout
+- Reloads nginx safely
+- Exposes verification data when possible
 
-Strategy:
-tak-installer apply is the single source of truth for converging a node.
+All policy decisions live above the installer layer.
 
-Inputs (planned)
+## takctl runtime deployment
 
-Site/battalion parameters (non-secret)
-Secrets via env or root-readable files
+The installer includes a dedicated action:
 
-What apply will converge (planned)
+- **Action ID:** `takctl-runtime`
+- **Purpose:** Converge takctl source → runtime
 
-takctl runtime tree under /opt/tak/tools/takctl
-takctl config file rendering
-systemd units (e.g. takctl-web.service)
-nginx config for enrollment + takctl WebUI
-users/groups + permissions
+### Behavior
+- Executes `/opt/taks/tak-installer/scripts/deploy-takctl-runtime`
+- Uses rsync with explicit excludes
+- Supports `--dry-run` and real apply
 
-Current implementation status
+### Order in plan
+This action must run **before**:
+- `systemd-takctl-web`
 
-The following entrypoint exists:
-  tak-installer apply [--dry-run]
+This guarantees that:
+- Code is deployed
+- Then systemd restarts the web backend against the updated code
 
-Current behavior:
-- apply --dry-run is implemented
-- No changes are applied yet
-- Installer currently prints the convergence plan only
+## Action Interface Contract
 
-What exists in git today (infra templates)
+All tak-installer actions must follow a strict discovery and execution contract.
 
-infra/systemd/takctl-web.service
-infra/nginx/server-443.conf.example
-infra/nginx/takctl-web.conf
-infra/nginx/local/* (site-specific; will be templated)
-infra/notes/architecture.md
+### Discovery
+- Actions are discovered from `tak_installer/actions/*.py`
+- Each module must export a global named `ACTION`
+- `ACTION` must define a unique `ID` string
+
+### Execution Interface
+Each action must implement:
+
+```python
+def inspect(self, ctx) -> int:
+    """Dry-run execution"""
+
+def apply(self, ctx) -> int:
+    """Real execution"""
+
+
+---
+
+## 2. Plan Files Are **Action IDs**, Not Filenames
+
+### What we learned
+Files in `plans/tak-node.d/*.action`:
+- Are **not code**
+- Are **not module names**
+- They contain **exactly one line**: the action `ID`
+
+The filename only controls **ordering**.
+
+### Where to document
+📄 `tak-installer/README.md`
+
+### Suggested text
+
+```markdown
+## Plan Files (`*.action`)
+
+Plan files define *execution order*, not behavior.
+
+- Filename controls ordering (lexicographic)
+- File contents must be the action ID
+- Empty lines and comments (`#`) are ignored
+
+Example:
+
+```text
+05-takctl-runtime.action
+------------------------
+takctl-runtime
+
+
+---
+
+## 3. Environment Variables Are the **Primary Installer Input API**
+
+### What we learned
+Critical actions **require env vars**, and will hard-fail without them:
+
+| Variable      | Used by               | Required |
+|---------------|----------------------|----------|
+| `FQDN`        | nginx.acme            | ✅ yes |
+| `TAKS_FQDN`   | nginx.acme (alt)      | optional |
+| `SRC_REPO`    | takctl-runtime        | optional |
+| `DST_RUNTIME` | takctl-runtime        | optional |
+| `DRY_RUN`     | takctl-runtime        | internal |
+
+No defaults. No prompts. Missing vars = crash.
+
+## Required Environment Variables
+
+The installer is intentionally non-interactive.
+All required inputs must be provided via environment variables.
+
+### Required
+- `FQDN`  
+  Fully-qualified domain name for this TAK node  
+  Example:
+  ```bash
+  export FQDN=46hvbat.tak-hv-sandbox.se
+
+
+---
+
+## 4. takctl Runtime Is **Deployed**, Not Installed
+
+### What we learned
+`/opt/tak/tools/takctl`:
+- Is **not** git-cloned
+- Is **not** pip-installed
+- Is **rsync-deployed** from `/opt/taks/takctl`
+- Preserves runtime state:
+  - `.venv`
+  - `secrets/`
+  - `takctl.conf`
+  - logs, backups, ignite state
+
+This is a **code sync**, not an install step.
+
+### Where to document
+📄 `docs/tak-node.md`  
+📄 `docs/orchestrator.md`
+
+### Suggested text
+
+```markdown
+## takctl Runtime Deployment Model
+
+The takctl runtime under `/opt/tak/tools/takctl` is deployed via rsync
+from the orchestration repository (`/opt/taks/takctl`).
+
+### Preserved Runtime State
+The following are never overwritten:
+- `.venv/`
+- `secrets/`
+- `takctl.conf`
+- `takctl.audit.log`
+- `backup/`
+- `ignite/work/`
+
+This allows safe redeploys during live operation.
+
+## Dry-Run Semantics
+
+`tak-installer apply --dry-run` executes the full action chain using
+each action’s `inspect(ctx)` method.
+
+Dry-run:
+- Validates environment variables
+- Executes scripts with `DRY_RUN=1`
+- Fails on missing inputs or paths
+
+Dry-run is a safety check, not a simulation.
+
+## Idempotence model (hash-based)
+
+Most actions compare source vs destination using SHA256 checksums:
+
+- `src sha256`: rendered template or source file
+- `dst sha256`: current filesystem state
+
+If hashes match → `status: up-to-date` and no changes occur.
+
+This makes applies deterministic and safe to repeat.
+
+
+## Required environment variables
+
+tak-installer is intentionally non-interactive. Actions may hard-fail if required
+inputs are missing.
+
+### FQDN
+Many nginx actions require the node FQDN for template rendering.
+
+Provide one of:
+
+- `FQDN` (preferred)
+- `TAKS_FQDN` (fallback)
+
+Example:
+
+```bash
+export FQDN=46hvbat.tak-hv-sandbox.se
+./tak-installer/tak-installer apply --dry-run
+
+
+## takctl Web UI integration
+
+The takctl UI is served behind the 443 nginx vhost and is mounted at:
+
+- `https://$FQDN/takctl/`
+
+The vhost is installer-owned and proxies:
+
+- `/takctl/` → `http://127.0.0.1:8080/` (takctl-web FastAPI backend)
+
+### Why `/` is 404 on 443
+
+The 443 vhost explicitly denies everything except `/takctl/`:
+
+- `/` returns 404 by design
+- WebTAK / Marti are exposed on the 8446 frontdoor vhost (not 443)
+
+### Frontend mount requirements
+
+Because the UI is mounted at `/takctl/`, the static frontend must:
+
+- Include `<base href="/takctl/">` in `index.html`
+- Use relative asset paths (e.g. `./app.js`, `./styles.css`)
+- Use relative API paths (e.g. `api/health`) or rewrite `/api/...` → `<mount>/api/...`
+
+This prevents requests from escaping the mount and hitting `/api/...` at the vhost root.
 

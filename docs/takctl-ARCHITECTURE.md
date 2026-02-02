@@ -74,3 +74,9 @@ The goal is to make it easy to:
 
 ## Change log (human)
 - Keep short notes of non-obvious changes here (proxy paths, service user changes, config moves).
+
+## Development + runtime invariants
+
+- **Runtime is authoritative:** systemd and production execution use `/opt/tak/tools/takctl`.
+- **Source is staging:** changes under `/opt/taks/takctl` take effect only after `tak-installer apply` (action `takctl-runtime`) converges source → runtime.
+- **Use the runtime venv:** run takctl with `/opt/tak/tools/takctl/.venv/bin/python` (system python is not supported).

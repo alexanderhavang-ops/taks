@@ -71,6 +71,14 @@ The installer is the single source of truth for converging:
 
 Manual rsync and ad-hoc changes are transitional only.
 
+RECENTLY RESOLVED (FEB 2026)
+---------------------------
+
+- takctl runtime ownership clarified
+- takctl deployment moved under tak-installer control
+- Runtime `/opt/tak/tools/takctl` is now converged via installer action `takctl-runtime`
+- systemd unit `takctl-web.service` depends on installer-managed code sync
+- nginx mount confirmed at `/takctl/`
 
 PRIVILEGED OPERATIONS (OPEN DESIGN)
 -----------------------------------
