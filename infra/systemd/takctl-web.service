@@ -1,0 +1,16 @@
+[Unit]
+Description=takctl web backend (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=tak
+WorkingDirectory=/opt/tak/tools/takctl
+Environment=TAKCTL_CONFIG=/opt/tak/tools/takctl/takctl.conf
+ExecStart=/opt/tak/tools/takctl/.venv/bin/uvicorn takctl.webapp:app --host 127.0.0.1 --port 8080
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

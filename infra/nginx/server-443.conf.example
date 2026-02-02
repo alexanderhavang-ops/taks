@@ -1,0 +1,29 @@
+# Example nginx vhost for TAK / takctl
+# Render from cloud-init or copy to infra/nginx/local/server-443.conf
+
+server {
+  listen 443 ssl http2;
+  listen [::]:443 ssl http2;
+
+  server_name __FQDN__;
+
+  ssl_certificate     __FULLCHAIN_PEM__;
+  ssl_certificate_key __PRIVKEY_PEM__;
+
+  ssl_session_timeout 1d;
+  ssl_session_cache shared:SSL:10m;
+
+  location /Marti/ {
+    proxy_pass https://__TAK_UPSTREAM_HOST__:__TAK_UPSTREAM_PORT__/Marti/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+
+  location /takctl/ {
+    proxy_pass http://127.0.0.1:__TAKCTL_WEB_PORT__/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+}

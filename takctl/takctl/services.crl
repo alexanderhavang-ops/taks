@@ -1,0 +1,287 @@
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+_SERIAL_RE = re.compile(r"Serial Number:\s*([0-9A-Fa-f]+)")
+
+
+class CrlError(RuntimeError):
+    """Short, actionable error for CLI/WebUI."""
+
+
+def _is_root() -> bool:
+    return os.geteuid() == 0
+
+
+def _which(cmd: str) -> Optional[str]:
+    from shutil import which
+
+    return which(cmd)
+
+
+def _run(cmd: list[str], *, check: bool = True, input_text: Optional[str] = None) -> str:
+    """
+    Run a command and return stdout+stderr as text.
+    """
+    p = subprocess.run(
+        cmd,
+        input=input_text,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        check=False,
+    )
+    if check and p.returncode != 0:
+        raise subprocess.CalledProcessError(p.returncode, cmd, output=p.stdout)
+    return p.stdout
+
+
+def _shorten(s: str, max_lines: int = 40) -> str:
+    lines = (s or "").splitlines()
+    if len(lines) <= max_lines:
+        return s
+    return "\n".join(lines[:max_lines] + ["…(truncated)…"])
+
+
+def _utc_mtime(path: Path) -> str:
+    st = path.stat()
+    dt = datetime.fromtimestamp(st.st_mtime, tz=timezone.utc)
+    return dt.isoformat()
+
+
+def _atomic_replace(src: Path, dst: Path) -> None:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(dst.name + ".tmp")
+    shutil.copy2(src, tmp)
+    os.replace(tmp, dst)
+
+
+def _parse_crl_serials(crl_path: Path) -> list[str]:
+    if not crl_path.exists():
+        return []
+    out = _run(["openssl", "crl", "-in", str(crl_path), "-noout", "-text"], check=True)
+    serials = _SERIAL_RE.findall(out)
+    return [s.upper() for s in serials]
+
+
+def _db_assert_schema(ctx) -> None:
+    """
+    Assert the expected TAK table/columns exist.
+
+    Your build:
+      public.certificate(certificate text, revocation_date timestamptz NULL)
+    """
+    # basic connectivity
+    try:
+        _ = ctx.db.scalar("SELECT current_user")
+    except Exception as e:
+        raise CrlError(
+            "DB connection failed using configured takctl db settings. "
+            "Check takctl.conf/db.env and role grants."
+        ) from e
+
+    # table exists?
+    exists = ctx.db.scalar(
+        """
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_schema='public' AND table_name='certificate'
+        """
+    )
+    if exists != "1":
+        raise CrlError("Expected table public.certificate does not exist in configured DB")
+
+    # columns exist?
+    rows = ctx.db.fetchall(
+        """
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='certificate'
+        """
+    )
+    cols = {r[0] for r in rows if r and r[0]}
+    need = {"certificate", "revocation_date"}
+    missing = sorted(list(need - cols))
+    if missing:
+        raise CrlError(f"public.certificate missing columns: {', '.join(missing)}")
+
+
+def _get_revoked_cert_pems_from_db(ctx) -> list[str]:
+    sql = """
+        SELECT certificate
+        FROM public.certificate
+        WHERE revocation_date IS NOT NULL
+    """
+    rows = ctx.db.fetchall(sql)
+    return [r[0] for r in rows if r and r[0]]
+
+
+def _ensure_ca_db_files(ca_dir: Path, *, force: bool) -> None:
+    """
+    OpenSSL CA database files used by openssl ca -revoke / -gencrl.
+    """
+    ca_dir.mkdir(parents=True, exist_ok=True)
+
+    index = ca_dir / "crl_index.txt"
+    attr = ca_dir / "crl_index.txt.attr"
+    crlnumber = ca_dir / "crlnumber"
+    newcerts = ca_dir / "newcerts"
+
+    newcerts.mkdir(parents=True, exist_ok=True)
+
+    if force:
+        index.write_text("", encoding="utf-8")
+        attr.write_text("unique_subject = no\n", encoding="utf-8")
+        crlnumber.write_text("1000\n", encoding="utf-8")
+        return
+
+    if not index.exists():
+        index.write_text("", encoding="utf-8")
+    if not attr.exists():
+        attr.write_text("unique_subject = no\n", encoding="utf-8")
+    if not crlnumber.exists():
+        crlnumber.write_text("1000\n", encoding="utf-8")
+
+
+def _preflight(ctx) -> None:
+    """
+    Fail fast with short actionable messages.
+    """
+    if not _which("openssl"):
+        raise CrlError("openssl not found in PATH")
+
+    ca_dir = Path(ctx.cfg.ca_dir)
+    conf = ca_dir / "openssl-crl.cnf"
+    crl_path = Path(ctx.cfg.crl_path)
+
+    # signer helper is optional in config; default to conventional path
+    helper = Path(getattr(ctx.cfg, "crl_sign_helper", "/opt/tak/tools/takctl/bin/takctl-crl-sign"))
+
+    if not ca_dir.exists():
+        raise CrlError(f"CA dir does not exist: {ca_dir}")
+    if not conf.exists() or not os.access(conf, os.R_OK):
+        raise CrlError(f"Missing/unreadable OpenSSL CRL config: {conf}")
+
+    crl_path.parent.mkdir(parents=True, exist_ok=True)
+    if not os.access(crl_path.parent, os.W_OK):
+        raise CrlError(f"CRL output directory not writable: {crl_path.parent}")
+
+    if _is_root():
+        key = ca_dir / "ca.key"
+        if not key.exists():
+            raise CrlError(f"CA private key missing: {key}")
+        if not os.access(key, os.R_OK):
+            raise CrlError(f"CA private key not readable by root (unexpected): {key}")
+    else:
+        # must use helper via sudo -n
+        if not helper.exists():
+            raise CrlError(f"Missing signer helper: {helper}")
+        if not os.access(helper, os.X_OK):
+            raise CrlError(f"Signer helper not executable: {helper}")
+
+        # verify sudo path is working (non-interactive)
+        try:
+            _run(["sudo", "-n", str(helper), str(ca_dir)], check=True, input_text="")
+        except subprocess.CalledProcessError as e:
+            raise CrlError(
+                "Signer helper failed via sudo -n. "
+                "Check sudoers and CA file perms.\n"
+                f"Command: sudo -n {helper} {ca_dir}\n"
+                f"Output:\n{_shorten(e.output or '')}"
+            ) from e
+
+    # DB schema sanity
+    _db_assert_schema(ctx)
+
+
+def crl_status(ctx) -> dict:
+    crl_path = Path(ctx.cfg.crl_path)
+    info: dict = {"crl_path": str(crl_path), "exists": crl_path.exists()}
+
+    if not crl_path.exists():
+        info.update({"mtime": None, "revoked_serials": 0, "sample_serials": []})
+        return info
+
+    serials = _parse_crl_serials(crl_path)
+    info.update(
+        {
+            "mtime": _utc_mtime(crl_path),
+            "revoked_serials": len(serials),
+            "sample_serials": serials[:10],
+        }
+    )
+    return info
+
+
+def rebuild_crl_from_db(ctx, *, force: bool = True) -> None:
+    """
+    Authoritative rebuild of CRL based on revoked certs in Postgres.
+    """
+    _preflight(ctx)
+
+    ca_dir = Path(ctx.cfg.ca_dir)
+    conf = ca_dir / "openssl-crl.cnf"
+    crl_dst = Path(ctx.cfg.crl_path)
+    helper = Path(getattr(ctx.cfg, "crl_sign_helper", "/opt/tak/tools/takctl/bin/takctl-crl-sign"))
+
+    revoked_pems = _get_revoked_cert_pems_from_db(ctx)
+
+    with tempfile.NamedTemporaryFile("wb", delete=False, suffix=".crl") as tf:
+        tmp_crl = Path(tf.name)
+
+    try:
+        if _is_root():
+            # root path: direct openssl
+            _ensure_ca_db_files(ca_dir, force=force)
+
+            for pem in revoked_pems:
+                with tempfile.NamedTemporaryFile("w", delete=False, suffix=".pem") as cf:
+                    cf.write(pem)
+                    cert_path = cf.name
+                try:
+                    _run(["openssl", "ca", "-config", str(conf), "-revoke", cert_path], check=True)
+                finally:
+                    try:
+                        os.unlink(cert_path)
+                    except FileNotFoundError:
+                        pass
+
+            _run(
+                ["openssl", "ca", "-config", str(conf), "-gencrl", "-out", str(tmp_crl)],
+                check=True,
+            )
+        else:
+            # non-root path: helper does revoke+gencrl and emits CRL to stdout
+            stdin_payload = ""
+            if revoked_pems:
+                stdin_payload = "\n".join(p.strip() for p in revoked_pems if p and p.strip()) + "\n"
+
+            try:
+                crl_text = _run(
+                    ["sudo", "-n", str(helper), str(ca_dir)],
+                    check=True,
+                    input_text=stdin_payload,
+                )
+            except subprocess.CalledProcessError as e:
+                raise CrlError(
+                    "CRL rebuild failed in signer helper.\n"
+                    f"Command: sudo -n {helper} {ca_dir}\n"
+                    f"Output:\n{_shorten(e.output or '')}"
+                ) from e
+
+            tmp_crl.write_text(crl_text, encoding="utf-8")
+
+        _atomic_replace(tmp_crl, crl_dst)
+    finally:
+        try:
+            tmp_crl.unlink(missing_ok=True)  # py3.10 ok
+        except Exception:
+            pass
+

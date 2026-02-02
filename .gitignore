@@ -1,4 +1,6 @@
-# --- secrets / keys / cert material (NEVER COMMIT) ---
+# ------------------------------------------------------------
+# Secrets / keys / cert material (NEVER COMMIT)
+# ------------------------------------------------------------
 **/*.key
 **/*.pem
 **/*.p12
@@ -11,25 +13,49 @@
 **/*.p7b
 **/*.p7c
 **/*.pkcs12
+
 **/00_CA/**
-**/ca.*              # ca.key, ca.crt, ca.srl etc
+**/ca.*                 # ca.key, ca.crt, ca.srl etc
 **/truststore*.jks
 **/takserver*.jks
+*.crt
+*.cer
 
-# --- env / config that may contain secrets ---
+# Common PKI dirs
+certs/
+pki/
+
+# ------------------------------------------------------------
+# Env / config that may contain secrets
+# ------------------------------------------------------------
 **/install.env
 **/*.env
 **/.env
 **/*secrets*
 **/*secret*
 
-# --- cloud-init / logs / outputs ---
+# Real ops configs (keep out of git; use *.example instead)
+installer/env
+takctl/takctl.conf
+CoreConfig.xml
+nginx/*.conf
+*.local
+*.runtime
+
+# local battalion/site-specific nginx vhosts (never commit)
+infra/nginx/local/
+
+# ------------------------------------------------------------
+# Logs / cloud-init / outputs
+# ------------------------------------------------------------
 **/cloud-init-output.log
 **/cloud-init*.log
 **/logs/**
 **/*.log
 
-# --- OS / editor junk ---
+# ------------------------------------------------------------
+# OS / editor junk
+# ------------------------------------------------------------
 .DS_Store
 Thumbs.db
 *.swp
@@ -38,44 +64,57 @@ Thumbs.db
 .vscode/
 .idea/
 
-# --- Python / Node / build artifacts (if/when added) ---
+# ------------------------------------------------------------
+# Python / build artifacts
+# ------------------------------------------------------------
 __pycache__/
 *.pyc
-node_modules/
+*.pyo
+*.pyd
+*.egg-info/
 dist/
 build/
+.venv/
+.venv-*/
+.mypy_cache/
+.pytest_cache/
 
+# Backups / temp
+*.bak*
+*.tmp
+
+# ------------------------------------------------------------
+# takctl generated/runtime junk
+# ------------------------------------------------------------
+# Exception: Python module named services.crl (NOT a certificate revocation list)
+!takctl/takctl/services.crl
+
+takctl/ignite/work/
+takctl/backup/
+takctl/secrets/
+takctl/ignite/
+
+# ------------------------------------------------------------
 # chatpack output
+# ------------------------------------------------------------
 chatpack/latest.md
 
-# offline bundle artifacts (generated)
+# ------------------------------------------------------------
+# Offline bundles / large artifacts (publish via Releases, not git)
+# ------------------------------------------------------------
 tak-installer/offline/bundle/
 taks-tak-offline-bundle-*.tar.gz
-
-# --- real ops configs (keep out of git; use *.example instead) ---
-installer/env
-takctl/takctl.conf
-CoreConfig.xml
-nginx/*.conf
-*.local
-*.runtime
-
-# --- crypto / cert material (never commit) ---
-*.p12
-*.pfx
-*.jks
-*.pem
-*.key
-*.crt
-*.cer
-*.der
-*.csr
-*.crl
-certs/
-pki/
-
-# offline bundles / large artifacts (publish via Releases, not git)
 *.tar
 *.tar.gz
 *.tgz
-taks-tak-offline-bundle-*.tar.gz
+*.iso
+*.img
+*.qcow2
+
+# ------------------------------------------------------------
+# Databases / archives (often local artifacts)
+# ------------------------------------------------------------
+*.sqlite
+*.db
+*.zip
+

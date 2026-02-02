@@ -1,0 +1,16 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+# Make tak_installer importable regardless of cwd / install method.
+# Works for git checkout and for an extracted tarball.
+HERE = Path(__file__).resolve()
+PKG_ROOT = HERE.parent  # .../tak-installer
+sys.path.insert(0, str(PKG_ROOT))
+
+from tak_installer.cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    raise SystemExit(main())
