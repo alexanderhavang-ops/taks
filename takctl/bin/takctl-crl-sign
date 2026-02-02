@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+CA_DIR="${1:-/opt/tak/certs/files/00_CA}"
+CONF="$CA_DIR/openssl-crl.cnf"
+KEY="$CA_DIR/ca.key"
+
+if [[ ! -r "$CONF" ]]; then
+  echo "ERR: missing/unreadable openssl config: $CONF" >&2
+  exit 2
+fi
+
+# Must remain root-readable only; do not loosen permissions.
+if [[ ! -r "$KEY" ]]; then
+  echo "ERR: missing/unreadable CA private key (expected root-readable): $KEY" >&2
+  exit 3
+fi
+
+# Ensure OpenSSL CA database artifacts exist
+touch "$CA_DIR/crl_index.txt" "$CA_DIR/crl_index.txt.attr" "$CA_DIR/crlnumber" "$CA_DIR/crl_serial.txt" >/dev/null 2>&1 || true
+mkdir -p "$CA_DIR/newcerts"
+
+# Read all stdin, extract cert PEM blocks, revoke each, then output a fresh CRL on stdout.
+python3 - "$CA_DIR" <<'PY'
+import sys, re, tempfile, subprocess, os
+
+ca_dir = sys.argv[1]
+conf = os.path.join(ca_dir, "openssl-crl.cnf")
+
+data = sys.stdin.read()
+pems = re.findall(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----\s*", data, re.S)
+
+# Revocation step is optional (allow empty stdin to mean "just gencrl")
+if pems:
+    for idx, pem in enumerate(pems, 1):
+        fd, path = tempfile.mkstemp(prefix=f"revoke_{idx}_", suffix=".pem")
+        os.write(fd, pem.encode("utf-8"))
+        os.close(fd)
+
+        cmd = ["openssl","ca","-config",conf,"-revoke",path]
+        p = subprocess.run(cmd, capture_output=True, text=True)
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+
+        if p.returncode != 0:
+            sys.stderr.write("ERR: openssl revoke failed\n")
+            sys.stderr.write(p.stdout)
+            sys.stderr.write(p.stderr)
+            sys.exit(5)
+
+    sys.stderr.write(f"OK: revoked {len(pems)} cert(s)\n")
+
+# Always generate CRL to stdout
+cmd = ["openssl","ca","-config",conf,"-gencrl"]
+p = subprocess.run(cmd, capture_output=True, text=True)
+if p.returncode != 0:
+    sys.stderr.write("ERR: openssl gencrl failed\n")
+    sys.stderr.write(p.stdout)
+    sys.stderr.write(p.stderr)
+    sys.exit(6)
+
+sys.stdout.write(p.stdout)
+PY

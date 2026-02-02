@@ -1,0 +1,108 @@
+TAKS – HANDOFF / CONTEXT FILE
+============================
+
+PURPOSE
+-------
+This file captures the current state, intent, and open decisions of the TAKS project.
+It is intended to be pasted into new ChatGPT chats to quickly re-establish context.
+
+This is a living document. Update it when architectural decisions change.
+
+
+PROJECT INTENT
+--------------
+TAKS is a control plane for operating TAK Server deployments.
+
+It is being developed and tested in a Swedish Hemvarnet context, but is NOT
+Hemvarnet-specific. The goal is to support:
+
+- single TAK Server nodes
+- clustered TAK Server deployments
+- federated TAK Server hierarchies
+
+Across airgapped, cloud (AWS), or hybrid environments.
+
+A first-class goal is to pair traditional TAK administration with GenAI-assisted
+operational views (Tactical Ops, Security Ops, System Health).
+
+
+SOURCE VS RUNTIME (NON-NEGOTIABLE)
+---------------------------------
+Source (git):
+  /opt/taks
+  - public/sanitizable
+  - no secrets, certs, hostnames, or battalion names
+
+Runtime (operational):
+  /opt/tak/tools/takctl
+  - what systemd runs
+  - contains venv, deployed code, logs, config
+  - drift is possible unless explicitly converged
+
+
+CURRENT REPO STRUCTURE (IMPORTANT)
+---------------------------------
+/opt/taks/
+  README.md                  High-level project overview
+  takctl/                    takctl Python package (CLI + WebUI backend)
+  infra/                     Generic systemd + nginx templates
+  tak-installer/             Node installer (Strategy 1 – apply-based)
+  docs/HANDOFF.txt           This file
+
+tak-installer status:
+  - Skeleton exists
+  - Entry point: tak-installer apply [--dry-run]
+  - Currently prints intended convergence steps only
+  - No infra or code changes applied yet
+
+
+DEPLOYMENT MODEL (LOCKED IN)
+----------------------------
+Strategy 1 is chosen:
+
+  tak-installer apply
+
+The installer is the single source of truth for converging:
+  - takctl runtime code
+  - takctl.conf rendering
+  - systemd units (e.g. takctl-web.service)
+  - nginx wiring for enrollment + WebUI
+  - users/groups and permissions
+
+Manual rsync and ad-hoc changes are transitional only.
+
+
+PRIVILEGED OPERATIONS (OPEN DESIGN)
+-----------------------------------
+Planned:
+  - single privileged ops broker (takctl-opsd)
+  - unix socket based
+  - handles CRL signing, user/group ops, service restarts
+
+Current reality:
+  - legacy CRL helper script exists
+  - broker is not implemented yet
+
+OPEN DECISION:
+  Implement broker now, or temporarily formalize legacy helper?
+
+
+KNOWN CURRENT STATE
+-------------------
+- takctl code is synced from /opt/taks to runtime via rsync (manual, for now)
+- takctl-web.service exists and runs via systemd
+- infra templates exist in git, but installer does not yet apply them
+- tak-installer skeleton committed and runnable
+
+
+NEXT INTENDED STEPS
+-------------------
+1) Implement first real tak-installer apply action:
+   - idempotent install/update of takctl-web.service
+
+2) Move nginx wiring under tak-installer control
+
+3) Decide and implement privileged ops model (broker vs helper)
+
+4) Remove manual deployment paths once apply is authoritative
+
