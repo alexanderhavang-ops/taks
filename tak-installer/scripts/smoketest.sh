@@ -39,19 +39,14 @@ run "nginx -t" sudo -n nginx -t >/dev/null 2>&1
 say "local backend"
 run "takctl health (127.0.0.1:8080)" curl -fsS --max-time 3 http://127.0.0.1:8080/api/health >/dev/null
 
-say "public vhosts"
-c="$(http_code "https://${FQDN}/takctl/api/health")"
-if acceptable "$c" 200; then ok "takctl via 443 (/takctl/api/health) http=$c"; else bad "takctl via 443 (/takctl/api/health) http=$c"; fi
-
-# For 8446 "frontdoor", we only assert that nginx+proxy is alive.
-# 200 is great; 301/302 are fine; 401/403 can be normal for Marti endpoints.
-c="$(http_code "https://${FQDN}:8446/Marti/api/version")"
-if acceptable "$c" 200 301 302 401 403; then
-  ok "frontdoor via 8446 (/Marti/api/version) http=$c"
+echo "\n== public vhosts =="
+# NOTE: Do not rely on DNS here. Force SNI+Host to $FQDN while connecting to localhost.
+if [[ -z "${FQDN:-}" ]]; then
+  say "WARN: FQDN not set; skipping public vhost checks"
 else
-  bad "frontdoor via 8446 (/Marti/api/version) http=$c"
+  run "takctl via 443 (/takctl/api/health)" bash -lc 'code="$(curl -kfsS --max-time 6 -o /dev/null -w "%{http_code}" --resolve "${FQDN}:443:127.0.0.1" "https://${FQDN}/takctl/api/health" || true)"; [[ "$code" = "200" ]] || { echo "http=$code"; exit 1; }'
+  run "frontdoor via 8446 (/Marti/api/version)" bash -lc 'code="$(curl -kfsS --max-time 6 -o /dev/null -w "%{http_code}" --resolve "${FQDN}:8446:127.0.0.1" "https://${FQDN}:8446/Marti/api/version" || true)"; [[ "$code" = "200" ]] || { echo "http=$code"; exit 1; }'
 fi
-
 say "ports (best-effort)"
 run "tcp 80 listening"   sudo -n ss -ltnp | grep -qE ':80\s'
 run "tcp 443 listening"  sudo -n ss -ltnp | grep -qE ':443\s'
