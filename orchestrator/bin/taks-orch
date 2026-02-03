@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Make imports deterministic (don’t rely on cwd / "" in sys.path)
+export PYTHONPATH="${ROOT}${PYTHONPATH:+:$PYTHONPATH}"
+
+exec "${ROOT}/.venv/bin/uvicorn" \
+  orchestrator_api.app:app \
+  --host 127.0.0.1 \
+  --port 8090

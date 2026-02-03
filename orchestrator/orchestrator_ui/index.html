@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TAKS Orchestrator</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 24px; max-width: 980px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    label { display:block; font-size: 12px; opacity: 0.75; margin-bottom: 4px; }
+    input { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; }
+    button { padding: 10px 14px; border: 0; border-radius: 10px; cursor: pointer; }
+    button.primary { background: #111; color: #fff; }
+    button.secondary { background: #eee; }
+    pre { background: #0b0f14; color: #d6e1ff; padding: 14px; border-radius: 12px; overflow:auto; }
+    .actions { display:flex; gap: 10px; margin-top: 12px; }
+    .small { font-size: 12px; opacity: 0.75; }
+  </style>
+</head>
+<body>
+  <h1>TAKS Orchestrator</h1>
+  <p class="small">Render cloud-init → validate/plan → AWS DryRun. Real launch is intentionally disabled (guard rail).</p>
+
+  <div class="row">
+    <div>
+      <label>Battalion</label>
+      <input id="battalion" value="48hvbat" />
+    </div>
+    <div>
+      <label>FQDN</label>
+      <input id="fqdn" value="48hvbat.tak-hv-sandbox.se" />
+    </div>
+    <div>
+      <label>Hostname</label>
+      <input id="hostname" value="tak-48hvbat" />
+    </div>
+    <div>
+      <label>Name tag</label>
+      <input id="name" value="tak-node-48hvbat" />
+    </div>
+    <div>
+      <label>Instance type</label>
+      <input id="instance_type" value="t3.micro" />
+    </div>
+  </div>
+
+  <div class="actions">
+    <button class="secondary" onclick="preview()">Preview</button>
+    <button class="primary" onclick="dryrun()">AWS Dry Run</button>
+    <button class="secondary" onclick="launch()">Launch (disabled)</button>
+  </div>
+
+  <h2>Output</h2>
+  <pre id="out">Ready.</pre>
+
+<script>
+async function call(path) {
+  const body = {
+    battalion: document.getElementById("battalion").value.trim(),
+    fqdn: document.getElementById("fqdn").value.trim(),
+    hostname: document.getElementById("hostname").value.trim(),
+    name: document.getElementById("name").value.trim(),
+    instance_type: document.getElementById("instance_type").value.trim(),
+  };
+  const r = await fetch(path, { method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify(body) });
+  const t = await r.text();
+  if (!r.ok) throw new Error(t);
+  return JSON.parse(t);
+}
+async function preview() {
+  try {
+    const j = await call("/api/v1/nodes/preview");
+    document.getElementById("out").textContent =
+      "PLAN:\\n" + JSON.stringify(j.plan, null, 2) + "\\n\\nCLOUD-INIT:\\n" + j.cloud_init;
+  } catch(e) { document.getElementById("out").textContent = "ERROR: " + e; }
+}
+async function dryrun() {
+  try {
+    const j = await call("/api/v1/nodes/dry-run");
+    document.getElementById("out").textContent = JSON.stringify(j, null, 2);
+  } catch(e) { document.getElementById("out").textContent = "ERROR: " + e; }
+}
+async function launch() {
+  document.getElementById("out").textContent = "Launch is disabled on purpose right now.";
+}
+</script>
+</body>
+</html>

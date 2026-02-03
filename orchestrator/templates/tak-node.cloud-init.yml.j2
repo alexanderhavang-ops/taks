@@ -1,0 +1,17 @@
+#cloud-config
+hostname: {{ hostname }}
+manage_etc_hosts: true
+
+package_update: false
+package_upgrade: false
+
+write_files:
+  - path: /etc/taks/node.env
+    permissions: "0644"
+    content: |
+      BATTALION={{ battalion }}
+      FQDN={{ fqdn }}
+      ROLE=tak-node
+
+runcmd:
+  - [ bash, -lc, "echo taks cloud-init ok > /var/log/taks-cloud-init.ok" ]
