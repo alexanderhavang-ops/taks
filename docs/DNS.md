@@ -53,7 +53,7 @@ This allows migration without downtime:
 
 ### Route53 hosted zone (AWS scope)
 
-Route53 is authoritative for the delegated cloud zone:
+If you choose AWS cloud-scoped DNS, Route53 is authoritative for the delegated cloud zone:
 
 - Hosted zone: `aws.tak-hv-sandbox.se`
 - Records may be managed by the orchestrator:
