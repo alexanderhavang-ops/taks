@@ -1,3 +1,7 @@
+> [!IMPORTANT] Non-authoritative
+> This document is **background**. For authoritative contracts, start at:
+> - `docs/contracts/README.md`
+
 # TAK Offline Bundle
 
 Goal: install a TAK node on Ubuntu 22.04 with no internet access.

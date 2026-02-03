@@ -1,3 +1,8 @@
+> [!IMPORTANT] Authoritative
+> This document defines the **DNS & naming contract** for TAKS.
+> Related authoritative contracts:
+> - `docs/contracts/README.md`
+
 # DNS & Naming Contract (Frozen)
 
 This project supports the idea of multiple clouds in the future. To avoid mixing concerns, we use a cloud-scoped delegated DNS zone per cloud.

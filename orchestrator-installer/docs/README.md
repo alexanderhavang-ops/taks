@@ -1,3 +1,7 @@
+> [!IMPORTANT] Non-authoritative
+> This document is **background**. For authoritative contracts, start at:
+> - `docs/contracts/README.md`
+
 # orchestrator-installer
 
 Installs the **taks orchestrator master** on an Ubuntu 22.04 EC2 instance.

@@ -1,3 +1,7 @@
+> [!IMPORTANT] Non-authoritative
+> This document is **background**. For authoritative contracts, start at:
+> - `docs/contracts/README.md`
+
 # taks-orchestrator
 
 This is the **orchestrator master**: it hosts the orchestration API/UI and is responsible for launching TAK nodes (AWS for now).
