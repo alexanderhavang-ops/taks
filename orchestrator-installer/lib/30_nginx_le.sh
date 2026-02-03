@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ensure_webroot(){
+  # Canonical webroot for ACME HTTP-01
   mkdir -p /var/www/html/.well-known/acme-challenge
   chown -R www-data:www-data /var/www/html || true
 }
@@ -14,6 +15,7 @@ choose_tls_paths(){
     TLS_CERT="$le_cert"
     TLS_KEY="$le_key"
   else
+    # fallback until LE succeeds
     TLS_CERT="/etc/ssl/certs/ssl-cert-snakeoil.pem"
     TLS_KEY="/etc/ssl/private/ssl-cert-snakeoil.key"
   fi
@@ -26,6 +28,9 @@ write_nginx_canonical(){
   local conf="/etc/nginx/sites-available/orch-master.conf"
   install -d -m 0755 /etc/nginx/sites-available /etc/nginx/sites-enabled
 
+  # One canonical vhost:
+  # - :80 serves ACME challenges + redirects everything else to https
+  # - :443 terminates TLS and proxies to orchestrator backend on 127.0.0.1:8090
   cat > "$conf" <<NGINX
 server {
   listen 80;
@@ -49,26 +54,30 @@ server {
   ssl_certificate     ${TLS_CERT};
   ssl_certificate_key ${TLS_KEY};
 
-  # simple endpoints for node call-home + health
+  # health lives at nginx level (useful even if backend is down)
   location /healthz {
     add_header Content-Type text/plain;
     return 200 "ok\n";
   }
 
-  location /orch/hello {
-    access_log /var/log/tak-orch/hello.log combined;
-    error_log  /var/log/tak-orch/hello.error.log;
-    add_header Content-Type text/plain;
-    return 200 "ok\n";
-  }
-
+  # Orchestrator backend (FastAPI)
   location / {
-    return 200 "orchestrator: nginx up (API/UI pending)\n";
+    proxy_http_version 1.1;
+
+    proxy_set_header Host              \$host;
+    proxy_set_header X-Real-IP         \$remote_addr;
+    proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+
+    proxy_pass http://127.0.0.1:8090;
+
+    proxy_read_timeout  60s;
+    proxy_send_timeout  60s;
   }
 }
 NGINX
 
-  ln -sf "$conf" /etc/nginx/sites-enabled/orch-master.conf
+  ln -sfn "$conf" /etc/nginx/sites-enabled/orch-master.conf
 }
 
 nginx_quarantine_conflicts(){
@@ -82,8 +91,8 @@ nginx_quarantine_conflicts(){
     if [[ "$(basename "$f")" == "orch-master.conf" ]]; then
       continue
     fi
-    # quarantine anything that could conflict with our ports
-    if grep -Eq "listen\s+80\b|listen\s+443\b|default_server|server_name\s+${FQDN}\b" "$f" 2>/dev/null; then
+    # quarantine anything that could conflict with our ports or name
+    if grep -Eq "listen[[:space:]]+80\\b|listen[[:space:]]+443\\b|default_server|server_name[[:space:]]+${FQDN}\\b" "$f" 2>/dev/null; then
       log "Quarantining enabled vhost: $f"
       mv -f "$f" "$q/$(basename "$f").$(date +%Y%m%d-%H%M%S)"
     fi
@@ -108,7 +117,6 @@ le_cert_obtain(){
 
   [[ -f "$le_cert" && -f "$le_key" ]] || die "LE cert files missing after certbot"
 }
-
 
 nginx_reload_safe(){
   nginx -t || die "nginx config invalid"
