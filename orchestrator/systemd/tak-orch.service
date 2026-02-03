@@ -6,9 +6,9 @@ After=network.target
 Type=simple
 User=ubuntu
 Group=ubuntu
-WorkingDirectory=/opt/taks/orchestrator
-Environment=PYTHONPATH=/opt/taks/orchestrator
-ExecStart=/opt/taks/orchestrator/.venv/bin/uvicorn --app-dir /opt/taks/orchestrator orchestrator_api.app:app --host 127.0.0.1 --port 8090
+WorkingDirectory=/opt/tak-orch/orchestrator
+Environment=PYTHONPATH=/opt/tak-orch/orchestrator
+ExecStart=/opt/tak-orch/.venv/bin/uvicorn --app-dir /opt/tak-orch/orchestrator orchestrator_api.app:app --host 127.0.0.1 --port 8090
 Restart=on-failure
 RestartSec=2
 

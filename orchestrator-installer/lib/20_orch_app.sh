@@ -15,12 +15,12 @@ orch_app_install(){
   /opt/tak-orch/.venv/bin/pip install "boto3" "fastapi" "uvicorn[standard]" >/dev/null
 
   # systemd
-  install -m 0644 ${BASE_DIR}/../orchestrator/systemd/tak-orch.service /etc/systemd/system/tak-orch.service
+  install -m 0644 ${BASE_DIR}/../orchestrator/systemd/tak-orch.service /etc/systemd/system/taks-orch.service
   systemctl daemon-reload
-  systemctl enable --now tak-orch.service
+  systemctl enable --now taks-orch.service
 }
 
 orch_app_verify(){
-  systemctl is-active --quiet tak-orch.service || die "tak-orch.service not active"
+  systemctl is-active --quiet taks-orch.service || die "taks-orch.service not active"
   curl -fsS https://${FQDN}/healthz >/dev/null || die "orch app healthz failed"
 }
