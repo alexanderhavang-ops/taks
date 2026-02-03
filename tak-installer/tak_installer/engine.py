@@ -80,7 +80,16 @@ def run_plan(ctx: Context, plan_ids: Iterable[str]) -> int:
         print()
         print(f"[{a.ID}]")
 
-        rc = a.inspect(ctx) if ctx.dry_run else a.apply(ctx)
+        try:
+            rc = a.inspect(ctx) if ctx.dry_run else a.apply(ctx)
+        except Exception as e:
+            msg = str(e).strip() or e.__class__.__name__
+            print(f"ERROR: action raised exception: {a.ID}: {msg}")
+            # Common hint for nginx actions
+            if "FQDN not set" in msg or "TAKS_FQDN" in msg:
+                print("HINT: export FQDN=<node-fqdn> (or TAKS_FQDN) before running tak-installer apply")
+            return 2
+
         if rc != 0:
             print(f"ERROR: action failed: {a.ID} (rc={rc})")
             return rc

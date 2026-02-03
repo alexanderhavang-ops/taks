@@ -135,3 +135,17 @@ RELATION TO OTHER DOCS
 
 - See docs/HANDOFF.txt for overall project state
 - See tak-installer/README.md for installer contract
+## Smoke tests: avoid DNS dependency (2026-02-02)
+
+The node smoketest must not depend on external DNS being correct (or caches expiring).
+
+When verifying nginx vhosts, force Host+SNI to the node FQDN but connect to localhost:
+
+- `curl --resolve "<FQDN>:443:127.0.0.1" https://<FQDN>/takctl/api/health`
+- `curl --resolve "<FQDN>:8446:127.0.0.1" https://<FQDN>:8446/Marti/api/version`
+
+This keeps the test deterministic even when:
+- Route53 / registrar delegation is in flux
+- client OS/browser DNS cache is stale
+- public IP has changed
+

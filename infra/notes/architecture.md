@@ -10,7 +10,7 @@
   - may proxy to LLM via nginx but does not host models/binaries
 
 - LLM host (48hvbat):
-  - /opt/llm is an attached EBS volume from a curated snapshot
+  - /opt/llm is a runtime-owned volume containing LLM binaries and models (not stored in git)
   - systemd unit llm-local runs llama.cpp server locally
   - health: /health (503 while loading model, then {"status":"ok"})
 
