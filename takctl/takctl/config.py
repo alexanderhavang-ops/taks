@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import socket
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -75,6 +76,11 @@ class Config:
     db_user: str = "postgres"
     db_password: Optional[str] = None
     sudo_user: str = "postgres"
+
+    # Identity (optional; used by /api/v1/meta and UI)
+    battalion: str = ""
+    fqdn: str = ""
+    hostname: str = ""
 
     # Paths
     coreconfig_path: str = "/opt/tak/CoreConfig.xml"
@@ -166,6 +172,10 @@ def load_config(path: Optional[str] = None) -> Config:
         return default
 
     cfg = Config(
+        battalion=get("battalion", ""),
+        fqdn=get("fqdn", ""),
+        hostname=get("hostname", socket.gethostname()),
+
         db_mode=get("db_mode", Config.db_mode),
         db_name=get("db_name", Config.db_name),
         db_host=get("db_host", Config.db_host),

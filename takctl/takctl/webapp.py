@@ -6,11 +6,15 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from takctl.api.health import router as health_router
+from takctl.api.meta import router as meta_router
 
 app = FastAPI(title="takctl-web")
 
 # API first (so it wins before the catch-all static mount)
 app.include_router(health_router, prefix="/api")
+app.include_router(health_router, prefix="/api/v1")
+app.include_router(meta_router, prefix="/api")
+app.include_router(meta_router, prefix="/api/v1")
 
 # Serve the web UI from takctl/web/
 WEB_DIR = Path(__file__).resolve().parents[1] / "web"
