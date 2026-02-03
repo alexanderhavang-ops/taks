@@ -18,6 +18,20 @@ Start here (these docs win on conflicts):
 Also authoritative:
 - `docs/DNS.md`
 
+## DNS & orchestration scopes (important)
+
+This repo intentionally supports **multiple DNS scopes**:
+
+- **Current / legacy (static):**
+  - `master.tak-hv-sandbox.se`
+  - `<battalion>.tak-hv-sandbox.se`
+
+- **Cloud-scoped (orchestration-ready):**
+  - `*.aws.tak-hv-sandbox.se` (Route53 + Elastic IP)
+  - future: `*.gcp.tak-hv-sandbox.se`, etc
+
+The orchestrator and installers must support **both models concurrently**.
+No automatic migration is assumed.
 
 ## Orchestrator web wiring (don’t guess)
 

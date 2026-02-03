@@ -6,12 +6,17 @@
 
 Installs the **taks orchestrator master** on an Ubuntu 22.04 EC2 instance.
 
-## Frozen DNS & naming
+## DNS scopes & assumptions
 
 See: `../../docs/DNS.md`
 
-This installer assumes AWS + Route53 for the delegated zone:
-- `aws.tak-hv-sandbox.se`
+This installer supports:
+
+- **Static DNS** (manually managed A/AAAA records)
+- **Cloud-scoped DNS** (e.g. Route53 for orchestration)
+
+Route53 is **only required** when using automated node
+provisioning and Elastic IP management.
 
 ## Required environment
 
@@ -21,6 +26,10 @@ Installer reads:
 Minimal required:
 - `FQDN` (public hostname of orchestrator, e.g. `master.aws.tak-hv-sandbox.se`)
 - `LE_EMAIL` (LetsEncrypt registration email)
+
+Valid examples:
+- `master.tak-hv-sandbox.se`
+- `master.aws.tak-hv-sandbox.se`
 
 Example:
 FQDN=master.aws.tak-hv-sandbox.se
