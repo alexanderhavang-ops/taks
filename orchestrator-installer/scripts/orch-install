@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+
+# repo root (used by lib/*.sh)
+export REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
 set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -10,6 +14,9 @@ LIB_DIR="$SELF_DIR/../lib"
 source "$LIB_DIR/00_core.sh"
 # shellcheck disable=SC1091
 source "$LIB_DIR/10_packages.sh"
+# shellcheck disable=SC1091
+source "$LIB_DIR/15_swap.sh"
+
 # shellcheck disable=SC1091
 source "$LIB_DIR/20_orch_app.sh"
 # shellcheck disable=SC1091
@@ -25,6 +32,7 @@ apply(){
   require_root
   load_env
   pkg_install
+  ensure_swap /swapfile 4
   orch_app_install
   install -d -m 0755 -o www-data -g www-data /var/log/tak-orch
   ensure_webroot
