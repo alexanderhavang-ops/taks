@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SRC_REPO="${SRC_REPO:-/opt/taks/takctl}"
+DST_RUNTIME="${DST_RUNTIME:-/opt/tak/tools/takctl}"
+
+# What we DO want from source:
+# - python package code (takctl/)
+# - web UI assets (web/)
+# - bin helpers (bin/)
+# - pyproject.toml
+# - scripts
+#
+# What we DO NOT want to clobber in runtime:
+# - .venv (runtime venv)
+# - secrets/ (db.env etc)
+# - takctl.conf (rendered/host-specific)
+# - takctl.audit.log (runtime log)
+# - backup/ ignite/work/ .pytest_cache/ __pycache__/ etc
+
+if [[ ! -d "$SRC_REPO" ]]; then
+  echo "ERROR: source takctl dir not found: $SRC_REPO" >&2
+  exit 2
+fi
+
+if [[ ! -d "$DST_RUNTIME" ]]; then
+  echo "ERROR: runtime takctl dir not found: $DST_RUNTIME" >&2
+  exit 3
+fi
+
+DRY="${DRY_RUN:-1}"
+
+# Apply-mode requires root (ownership normalization + potential service integration).
+# If invoked manually as non-root, re-exec once under sudo.
+if [[ "$DRY" != "1" ]]; then
+  if [[ "${EUID:-$(id -u)}" -ne 0 && "${TAKS_ELEVATED:-0}" != "1" ]]; then
+    echo "INFO: apply-mode requires root; re-exec with sudo"
+    exec sudo -E TAKS_ELEVATED=1 "$0"
+  fi
+fi
+
+RSYNC_OPTS=(
+  -a
+  --delete
+  --info=stats2
+  --human-readable
+  --no-perms
+  --no-owner
+  --no-group
+  --exclude ".venv/"
+  --exclude "secrets/"
+  --exclude "takctl.conf"
+  --exclude "takctl.audit.log"
+  --exclude "backup/"
+  --exclude "ignite/work/"
+  --exclude ".pytest_cache/"
+  --exclude "**/__pycache__/"
+  --exclude "**/*.pyc"
+  --exclude "takctl/webapp.py.bak.*"
+  --exclude "takctl/deps.py.bak.*"
+  --exclude "takctl/api/health.py.bak.*"
+)
+
+if [[ "$DRY" == "1" ]]; then
+  echo "== DRY RUN =="
+  RSYNC_OPTS+=(--dry-run)
+fi
+
+echo "SRC=$SRC_REPO"
+echo "DST=$DST_RUNTIME"
+echo
+
+rsync "${RSYNC_OPTS[@]}" \
+  "${SRC_REPO}/" \
+  "${DST_RUNTIME}/"
+
+
+# Normalize ownership/perms (apply only).
+if [[ "$DRY" != "1" ]]; then
+  chown -R tak:tak "${DST_RUNTIME}/takctl"
+  find "${DST_RUNTIME}/takctl" -type d -exec chmod 0755 {} \;
+  find "${DST_RUNTIME}/takctl" -type f -exec chmod 0644 {} \;
+fi
+
+
+
+# Post-sync sanity (apply only): ensure python modules are syntactically valid.
+# This prevents broken command modules from silently disappearing at runtime.
+if [[ "$DRY" != "1" ]]; then
+  VENV_PY="${DST_RUNTIME}/.venv/bin/python"
+  if [[ -x "$VENV_PY" ]]; then
+    echo
+    echo "== sanity: python compileall (runtime venv) =="
+    sudo -u tak PYTHONDONTWRITEBYTECODE=1 "$VENV_PY" -m compileall -q "${DST_RUNTIME}/takctl"
+  else
+    echo
+    echo "WARN: runtime venv not found at $VENV_PY; skipping compileall"
+  fi
+fi
+
+echo
+echo "OK: deploy completed (dry-run=$DRY)"
+

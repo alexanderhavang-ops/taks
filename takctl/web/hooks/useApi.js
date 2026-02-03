@@ -1,5 +1,26 @@
 const __apiCache = new Map();
 
+function _resolveUrl(url) {
+  if (!url) return url;
+
+  // Absolute URL -> keep
+  if (/^https?:\/\//i.test(url)) return url;
+
+  // If caller uses "/api/..." (absolute path), rewrite it to the current mount.
+  // Example: page is "/takctl/" => mount "/takctl"
+  const path = (window.location && window.location.pathname) ? window.location.pathname : "/";
+  const parts = path.split("/").filter(Boolean); // ["takctl", ...]
+  const mount = parts.length > 0 ? ("/" + parts[0]) : "";
+
+  if (url.startsWith("/")) {
+    // Only rewrite when we're actually mounted (e.g. /takctl)
+    return mount ? (mount + url) : url;
+  }
+
+  // Relative URL stays relative; <base href="/takctl/"> will do the right thing.
+  return url;
+}
+
 /**
  * useApi(url, opts?)
  * opts:
@@ -23,9 +44,11 @@ function useApi(url, opts) {
     const ac = new AbortController();
 
     async function run() {
+      const reqUrl = _resolveUrl(url);
+
       // Cache hit?
-      if (cacheMs > 0 && __apiCache.has(url)) {
-        const hit = __apiCache.get(url);
+      if (cacheMs > 0 && __apiCache.has(reqUrl)) {
+        const hit = __apiCache.get(reqUrl);
         if (hit && (Date.now() - hit.t) <= cacheMs) {
           alive && setState({ loading: false, data: hit.data, error: null });
           return;
@@ -35,7 +58,7 @@ function useApi(url, opts) {
       alive && setState(s => ({ loading: true, data: s.data, error: null }));
 
       try {
-        const r = await fetch(url, {
+        const r = await fetch(reqUrl, {
           signal: ac.signal,
           headers: { "Accept": "application/json" }
         });
@@ -48,7 +71,7 @@ function useApi(url, opts) {
           throw new Error((j && (j.detail || j.error)) || t || (r.status + " " + r.statusText));
         }
 
-        __apiCache.set(url, { t: Date.now(), data: j });
+        __apiCache.set(reqUrl, { t: Date.now(), data: j });
         alive && setState({ loading: false, data: j, error: null });
       } catch (err) {
         if (String(err && err.name) === "AbortError") return;
@@ -59,9 +82,7 @@ function useApi(url, opts) {
     run();
 
     let timer = null;
-    if (pollMs > 0) {
-      timer = setInterval(run, pollMs);
-    }
+    if (pollMs > 0) timer = setInterval(run, pollMs);
 
     return () => {
       alive = false;
