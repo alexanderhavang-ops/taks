@@ -1,3 +1,7 @@
+> [!IMPORTANT] Non-authoritative
+> This document is **background**. For authoritative contracts, start at:
+> - `docs/contracts/README.md`
+
 # Orchestrator Architecture
 
 The orchestrator is the control plane for TAKS.

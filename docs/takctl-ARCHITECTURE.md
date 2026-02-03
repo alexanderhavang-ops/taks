@@ -1,3 +1,7 @@
+> [!IMPORTANT] Non-authoritative
+> This document is **background**. For authoritative contracts, start at:
+> - `docs/contracts/README.md`
+
 # takctl / takctl-web architecture
 
 ## Purpose

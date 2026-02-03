@@ -1,3 +1,7 @@
+> [!IMPORTANT] Non-authoritative
+> This document is **background**. For authoritative contracts, start at:
+> - `docs/contracts/README.md`
+
 # Certificate Architecture
 
 TAKS manages TLS certificates for TAK nodes with a focus on:

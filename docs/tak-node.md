@@ -1,3 +1,7 @@
+> [!IMPORTANT] Non-authoritative
+> This document is **background**. For authoritative contracts, start at:
+> - `docs/contracts/README.md`
+
 # TAK Node Architecture
 
 Each TAK node is a fully installer-owned system.

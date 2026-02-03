@@ -1,3 +1,7 @@
+> [!IMPORTANT] Non-authoritative
+> This document is **background**. For authoritative contracts, start at:
+> - `docs/contracts/README.md`
+
 # LLM (llama.cpp) appliance notes
 
 This folder contains:
