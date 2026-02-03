@@ -194,4 +194,14 @@ If a node is offline:
 - Local LLM continues to work
 - Remote LLM is simply unavailable
 - No feature silently degrades without being reported
+## Deterministic node validation (2026-02-02)
+
+When diagnosing node reachability, prefer tests that do not rely on external DNS state.
+
+For nginx vhosts, you can force SNI+Host to the node FQDN while connecting to localhost using:
+
+- `curl --resolve "<FQDN>:443:127.0.0.1" https://<FQDN>/takctl/api/health`
+- `curl --resolve "<FQDN>:8446:127.0.0.1" https://<FQDN>:8446/Marti/api/version`
+
+This is the same technique used by tak-installer smoketests and is resilient to stale DNS caches.
 

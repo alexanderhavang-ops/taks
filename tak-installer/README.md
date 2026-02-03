@@ -224,4 +224,30 @@ Because the UI is mounted at `/takctl/`, the static frontend must:
 - Use relative API paths (e.g. `api/health`) or rewrite `/api/...` → `<mount>/api/...`
 
 This prevents requests from escaping the mount and hitting `/api/...` at the vhost root.
+## takctl webUI behind nginx (2026-02-02)
+
+### Where it lives
+
+- Public URL: **https://<FQDN>/takctl/**
+- Backend: `takctl-web.service` (uvicorn) on `127.0.0.1:8080`
+
+Nginx 443 site intentionally returns **404 for `/`** and only proxies the `/takctl/` subtree:
+
+- `/takctl/` → proxy_pass → `http://127.0.0.1:8080/`
+- everything else → `return 404;`
+
+This is deliberate so the node can later host other frontends on `/` (e.g. WebTAK) without ambiguity.
+
+### UI mounting rules
+
+Because the UI is mounted under a prefix:
+
+- **HTML must include**: `<base href="/takctl/">`
+- JS should call APIs using **relative paths** (e.g. `"api/health"`) so they resolve under the base.
+- If any component uses absolute paths (e.g. `"/api/..."`), it must be rewritten to the current mount.
+
+### Troubleshooting symptoms
+
+- `404 Not Found (nginx)` at `https://<FQDN>/` is expected.
+- Black screen at `/takctl/` usually means a JS runtime error. The first thing to check is the browser console and that `utils/format.js` defines the expected helpers (e.g. `h = React.createElement` if used).
 

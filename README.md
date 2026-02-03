@@ -107,3 +107,17 @@ cd /opt/taks
 export FQDN=46hvbat.tak-hv-sandbox.se
 ./tak-installer/tak-installer apply --dry-run
 
+## takctl webUI routing notes (2026-02-02)
+
+takctl-web is served **behind nginx** and is intentionally mounted under:
+
+- **https://<FQDN>/takctl/**
+
+The nginx 443 vhost denies `/` (returns 404) by design, because `/` will eventually be owned by other UIs (e.g. WebTAK) or a redirect policy.
+
+Key implications:
+
+- The browser entrypoint is **/takctl/**, not `/`.
+- The UI must work when mounted under a prefix (no absolute `/api/...` assumptions).
+- Use `<base href="/takctl/">` in the HTML so all relative asset URLs resolve correctly.
+

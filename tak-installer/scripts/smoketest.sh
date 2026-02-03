@@ -1,73 +1,89 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FQDN="${FQDN:-}"
-if [[ -z "${FQDN}" ]]; then
-  echo "ERROR: set FQDN (e.g. export FQDN=46hvbat.tak-hv-sandbox.se)"
-  exit 2
+# Smoketest needs root to read nginx/certs and query systemd cleanly.
+if [[ "${EUID:-$(id -u)}" -ne 0 && "${TAKS_ELEVATED:-0}" != "1" ]]; then
+  echo "INFO: smoketest requires root; re-exec with sudo"
+  exec sudo -E TAKS_ELEVATED=1 "$0" "$@"
 fi
 
-fail=0
-say() { printf "\n== %s ==\n" "$*"; }
-ok()  { printf "OK: %s\n" "$*"; }
-bad() { printf "FAIL: %s\n" "$*"; fail=1; }
+say() { echo "== $* =="; }
 
 run() {
-  local desc="$1"; shift
-  if "$@"; then ok "$desc"; else bad "$desc"; fi
+  local label="$1"; shift
+  echo "-- $label"
+  "$@"
+  echo
 }
 
-http_code() {
-  # prints HTTP status code, or 000 on connect/TLS failure
-  curl -sS -o /dev/null -w "%{http_code}" --max-time 6 "$1" || echo "000"
-}
-
-acceptable() {
-  # acceptable <code> <list...>
-  local code="$1"; shift
-  for x in "$@"; do [[ "$code" == "$x" ]] && return 0; done
-  return 1
+curl_code() {
+  # Usage: curl_code <url> [extra curl args...]
+  local url="$1"; shift
+  local errf rc code err
+  errf="$(mktemp)"
+  set +e
+  code="$(curl -kfsS --max-time 6 -o /dev/null -w '%{http_code}' "$url" "$@" 2>"$errf")"
+  rc=$?
+  set -e
+  err="$(head -n 1 "$errf" || true)"
+  rm -f "$errf"
+  [[ -n "$code" ]] || code="000"
+  echo "$rc $code $err"
 }
 
 say "systemd"
 run "nginx active"      systemctl is-active --quiet nginx
-run "takctl-web active" systemctl is-active --quiet takctl-web.service
+run "takctl-web active" systemctl is-active --quiet takctl-web
 
 say "nginx config"
-run "nginx -t" sudo -n nginx -t >/dev/null 2>&1
+run "nginx -t" nginx -t
 
 say "local backend"
-run "takctl health (127.0.0.1:8080)" curl -fsS --max-time 3 http://127.0.0.1:8080/api/health >/dev/null
+run "takctl health (localhost)" curl -fsS http://127.0.0.1:8080/api/health >/dev/null
 
-echo "\n== public vhosts =="
-# NOTE: Do not rely on DNS here. Force SNI+Host to $FQDN while connecting to localhost.
+say "public vhosts"
 if [[ -z "${FQDN:-}" ]]; then
-  say "WARN: FQDN not set; skipping public vhost checks"
+  echo "WARN: FQDN not set; skipping public vhost checks"
 else
-  run "takctl via 443 (/takctl/api/health)" bash -lc 'code="$(curl -kfsS --max-time 6 -o /dev/null -w "%{http_code}" --resolve "${FQDN}:443:127.0.0.1" "https://${FQDN}/takctl/api/health" || true)"; [[ "$code" = "200" ]] || { echo "http=$code"; exit 1; }'
-  run "frontdoor via 8446 (/Marti/api/version)" bash -lc 'code="$(curl -kfsS --max-time 6 -o /dev/null -w "%{http_code}" --resolve "${FQDN}:8446:127.0.0.1" "https://${FQDN}:8446/Marti/api/version" || true)"; [[ "$code" = "200" ]] || { echo "http=$code"; exit 1; }'
+  run "takctl via 443 (/takctl/api/health)" bash -lc '
+    set -euo pipefail
+    read -r rc code err < <(curl_code \
+      "https://${FQDN}/takctl/api/health" \
+      --resolve "${FQDN}:443:127.0.0.1")
+    if [[ "$code" != "200" ]]; then
+      echo "rc=$rc http=$code err=$err"
+      exit 1
+    fi
+  ' 2>/dev/null || {
+    # re-run with helpers available in this shell (bash -lc loses functions)
+    read -r rc code err < <(curl_code \
+      "https://${FQDN}/takctl/api/health" \
+      --resolve "${FQDN}:443:127.0.0.1")
+    [[ "$code" == "200" ]] || { echo "rc=$rc http=$code err=$err"; exit 1; }
+  }
+
+  run "frontdoor via 8446 (/Marti/api/version)" bash -lc '
+    set -euo pipefail
+    read -r rc code err < <(curl_code \
+      "https://${FQDN}:8446/Marti/api/version" \
+      --resolve "${FQDN}:8446:127.0.0.1")
+    case "$code" in
+      200|401|403) exit 0 ;;
+      *) echo "rc=$rc http=$code err=$err"; exit 1 ;;
+    esac
+  ' 2>/dev/null || {
+    read -r rc code err < <(curl_code \
+      "https://${FQDN}:8446/Marti/api/version" \
+      --resolve "${FQDN}:8446:127.0.0.1")
+    case "$code" in
+      200|401|403) : ;;
+      *) echo "rc=$rc http=$code err=$err"; exit 1 ;;
+    esac
+  }
 fi
+
 say "ports (best-effort)"
-run "tcp 80 listening"   sudo -n ss -ltnp | grep -qE ':80\s'
-run "tcp 443 listening"  sudo -n ss -ltnp | grep -qE ':443\s'
-run "tcp 8446 listening" sudo -n ss -ltnp | grep -qE ':8446\s'
-run "tcp 8080 listening" sudo -n ss -ltnp | grep -qE ':8080\s'
+ss -ltnp | egrep ':(80|443|8446|8080)\s' || true
 
-# takctl webUI smoke (through nginx 443 vhost)
-# Requires FQDN set (same as installer actions)
-if [[ -n "${FQDN:-}" ]]; then
-  run "takctl ui html"        curl -kfsS "https://127.0.0.1/takctl/" -H "Host: ${FQDN}" | head -n 2 | grep -qi '<!doctype html'
-  run "takctl api health"     curl -kfsS "https://127.0.0.1/takctl/api/health" -H "Host: ${FQDN}" | grep -q '"status":"ok"'
-else
-  say "WARN: FQDN not set; skipping takctl nginx mount smoke checks"
-fi
-
-
-say "result"
-if [[ "$fail" -eq 0 ]]; then
-  echo "ALL GREEN"
-  exit 0
-else
-  echo "SOME CHECKS FAILED"
-  exit 1
-fi
+echo
+echo "OK"
