@@ -12,7 +12,8 @@ orch_app_install(){
   fi
 
   /opt/tak-orch/.venv/bin/pip install --upgrade pip >/dev/null
-  /opt/tak-orch/.venv/bin/pip install "boto3" "fastapi" "uvicorn[standard]" >/dev/null
+  
+/opt/tak-orch/.venv/bin/pip install "boto3" "fastapi" "uvicorn[standard]" "jinja2" "pyyaml" >/dev/null
 
   # systemd
   install -m 0644 ${BASE_DIR}/../orchestrator/systemd/tak-orch.service /etc/systemd/system/taks-orch.service
