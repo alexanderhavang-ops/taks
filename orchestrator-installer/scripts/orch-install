@@ -46,11 +46,21 @@ apply(){
 verify(){
   require_root
   load_env
+
+  # nginx must be active and config-valid
   systemctl is-active --quiet nginx || die "nginx not active"
+  nginx -t >/dev/null 2>&1 || die "nginx config test failed"
+
+  # cert must exist for the public FQDN
   [[ -f "/etc/letsencrypt/live/${FQDN}/fullchain.pem" ]] || die "LE cert missing for ${FQDN}"
+
+  # backend must be up (systemd + local healthz)
   orch_app_verify
-  curl -skI "https://${FQDN}/" | head -n 5
-  log "OK: ${FQDN} responds on 443 with LE cert present"
+
+  # prove TLS vhost routes to backend (OpenAPI must exist)
+  curl -skf "https://${FQDN}/openapi.json" >/dev/null || die "openapi.json not reachable via nginx"
+
+  log "OK: ${FQDN} nginx+LE+backend verified"
 }
 
 case "${1:-}" in
