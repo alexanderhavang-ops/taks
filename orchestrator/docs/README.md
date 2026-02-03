@@ -6,16 +6,23 @@
 
 This is the **orchestrator master**: it hosts the orchestration API/UI and is responsible for launching TAK nodes (AWS for now).
 
-## Frozen DNS & naming
+## DNS scopes & naming
 
 See: `../../docs/DNS.md`
 
-We use a cloud-scoped delegated zone:
+The orchestrator supports **multiple DNS scopes**:
 
+### Current / static
+- Orchestrator: `master.tak-hv-sandbox.se`
+- Nodes: `<battalion>.tak-hv-sandbox.se`
+
+### Cloud-scoped (orchestration target)
 - Orchestrator: `master.aws.tak-hv-sandbox.se`
-- Nodes: `<battalion>.aws.tak-hv-sandbox.se` (e.g. `48hvbat.aws.tak-hv-sandbox.se`)
+- Nodes: `<battalion>.aws.tak-hv-sandbox.se`
 
-The orchestrator should use an Elastic IP.
+Cloud-scoped zones are intended for dynamic provisioning
+(Elastic IP, Route53 automation, etc), but are **not required**
+to run the orchestrator itself.
 
 ## Web wiring (current)
 
