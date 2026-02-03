@@ -118,3 +118,11 @@ taks-tak-offline-bundle-*.tar.gz
 *.db
 *.zip
 
+
+# --- local / runtime junk ---
+.venv/
+**/.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.bak.*
