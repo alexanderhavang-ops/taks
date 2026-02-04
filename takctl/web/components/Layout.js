@@ -7,12 +7,88 @@ function TabButton({ id, tab, setTab, label }) {
   }, label);
 }
 
-function Layout({ tab, setTab, health, children }) {
+/**
+ * Try loading an image with fallback extensions.
+ * Renders the first that loads, hides itself if none do.
+ */
+function ImgTry({ base, exts, alt, className, title }) {
+  let idx = 0;
+
+  function onError(e) {
+    idx += 1;
+    if (idx < exts.length) {
+      e.target.src = base + exts[idx];
+    } else {
+      try { e.target.style.display = "none"; } catch (_) {}
+    }
+  }
+
+  return h("img", {
+    src: base + exts[0],
+    alt: alt || "",
+    title: title || "",
+    className: className || "",
+    onError,
+  });
+}
+
+function BrandBlock({ brand }) {
+  // Optional slogan (runtime-provided later)
+  // e.g. document.body.dataset.taksSlogan = "Hemvärnet – överallt och alltid";
+  const slogan = (brand && brand.slogan) || "";
+
+  return h("div", { className: "brandblock" },
+
+    h("div", { className: "brand-left" },
+      h("div", { className: "brand-product" },
+        // Product-owned TAKS logo (git)
+        h("img", {
+          src: "./assets/taks-logo.png",
+          alt: "TAKS",
+          className: "logo logo-taks",
+          onError: (e) => {
+            try { e.target.style.display = "none"; } catch (_) {}
+          }
+        }),
+        h("div", { className: "brand-text" },
+          h("div", { className: "brand-title" }, (brand && brand.title) ? brand.title : "takctl"),
+          slogan ? h("div", { className: "brand-slogan" }, slogan) : null
+        )
+      )
+    ),
+
+    // Instance-owned logos (runtime state)
+    h("div", { className: "brand-right" },
+      h(ImgTry, {
+        base: "./assets/logo1",
+        exts: [".png", ".svg"],
+        alt: "Instance logo 1",
+        className: "logo logo-inst",
+        title: "Instance logo 1"
+      }),
+      h(ImgTry, {
+        base: "./assets/logo2",
+        exts: [".png", ".svg"],
+        alt: "Instance logo 2",
+        className: "logo logo-inst",
+        title: "Instance logo 2"
+      }),
+      h(ImgTry, {
+        base: "./assets/logo3",
+        exts: [".png", ".svg"],
+        alt: "Instance logo 3",
+        className: "logo logo-inst",
+        title: "Instance logo 3"
+      })
+    )
+  );
+}
+
+function Layout({ tab, setTab, health, brand, children }) {
   return h("div", { className: "app" },
 
-    // Top bar
     h("div", { className: "topbar" },
-      h("div", { className: "brand" }, "takctl"),
+      h(BrandBlock, { brand }),
 
       h("div", { className: "tabs" },
         h(TabButton, { id: "users", tab, setTab, label: "Users" }),
@@ -29,9 +105,9 @@ function Layout({ tab, setTab, health, children }) {
       )
     ),
 
-    // Main body (no left sidebar yet)
     h("div", { className: "body" },
       h("div", { className: "main" }, children)
     )
   );
 }
+

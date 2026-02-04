@@ -255,3 +255,10 @@ def list_users(coreconfig_path: str) -> List[UserAuthRecord]:
 def auth_file_path(coreconfig_path: str) -> str:
     return str(_resolve_auth_file_path(coreconfig_path))
 
+
+# -------------------------------------------------------------------
+# Back-compat alias required by takctl.webapp
+# -------------------------------------------------------------------
+
+def load_users(coreconfig_path: str = "/opt/tak/CoreConfig.xml"):
+    return load_user_auth_records(coreconfig_path)

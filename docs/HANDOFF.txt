@@ -80,6 +80,24 @@ RECENTLY RESOLVED (FEB 2026)
 - systemd unit `takctl-web.service` depends on installer-managed code sync
 - nginx mount confirmed at `/takctl/`
 
+## Python package layout (IMPORTANT)
+
+All runtime Python code lives under:
+
+  takctl/takctl/
+
+This is the *only* import root for the `takctl` package.
+Do NOT place Python modules under:
+
+  takctl/services/
+  takctl/web/
+  takctl/api/
+
+Those paths are non-packaged and will not be imported.
+
+Installers may copy files into /opt/tak/tools/takctl/,
+but the internal layout must preserve takctl/takctl/.
+
 PRIVILEGED OPERATIONS (OPEN DESIGN)
 -----------------------------------
 Planned:
@@ -113,4 +131,5 @@ NEXT INTENDED STEPS
 3) Decide and implement privileged ops model (broker vs helper)
 
 4) Remove manual deployment paths once apply is authoritative
+
 

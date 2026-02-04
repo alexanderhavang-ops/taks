@@ -4,6 +4,15 @@ import hashlib
 import subprocess
 from pathlib import Path
 
+import logging
+
+# Set up logging
+log = logging.getLogger(__name__)
+log.setLevel(logging.INFO)
+# Optional: add a handler if you want logs to go somewhere specific (e.g., a file)
+# logging.basicConfig(filename='/path/to/logfile.log', level=logging.INFO)
+
+
 
 def sha256_path(p: Path) -> str:
     h = hashlib.sha256()

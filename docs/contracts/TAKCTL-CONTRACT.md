@@ -38,7 +38,7 @@ Mount rule:
 
 Reads:
 - CoreConfig.xml and UserAuthenticationFile.xml (as referenced by CoreConfig)
-- DB read-only (where applicable)
+- DB access is read-only by default unless explicitly documented otherwise.
 
 Writes:
 - Must be mediated via controlled helper(s) + sudoers-limited scope.
@@ -62,3 +62,16 @@ takctl must fail loudly and clearly:
 - User not found
 
 No silent fallbacks.
+
+### API paths (internal vs public)
+
+Internal (loopback, uvicorn):
+- `http://127.0.0.1:8080/api/*`
+
+Public (via nginx mount prefix):
+- `https://<FQDN>/takctl/api/*`
+
+Versioned API may be exposed under:
+- `/api/v1/*`
+
+
