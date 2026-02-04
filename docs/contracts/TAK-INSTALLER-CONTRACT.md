@@ -12,6 +12,8 @@ Primary command:
 ## Inputs
 
 tak-installer is intentionally non-interactive.
+tak-installer must never prompt for input. Missing required inputs must hard-fail.
+
 
 Required inputs are provided via:
 - environment variables
@@ -40,6 +42,8 @@ Plan files:
 - Validates env vars and required paths
 - Must fail on missing inputs
 - Makes no changes
+- Dry-run must not mutate filesystem state (no writes, no chmod/chown, no reload/restart).
+
 
 Dry-run is a safety check, not a simulation.
 

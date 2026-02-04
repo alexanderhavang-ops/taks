@@ -3,8 +3,12 @@ function App() {
 
   // IMPORTANT: relative path so it works under /takctl/ mount
   const health = useApi("api/health", { cacheMs: 2000, pollMs: 10000 });
+  const meta   = useApi("api/meta",   { cacheMs: 60000, pollMs: 0 });
 
-  return h(Layout, { tab, setTab, health },
+  const brand =
+    (meta && meta.ok && meta.data && (meta.data.brand || meta.data)) || {};
+
+  return h(Layout, { tab, setTab, health, brand },
     tab === "users" && h(UsersView),
     tab === "clients" && h(ClientsView),
     tab === "crl" && h(CRLView),

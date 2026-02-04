@@ -79,3 +79,7 @@ A node is GREEN when:
 - nginx `-t` passes and reloads cleanly
 - 443 mount responds
 - 8446 front door responds
+
+### Exposure rule
+Only 80/443/8446 are intended to be internet-exposed. All other ports are loopback/LAN-only and must not be opened in security groups.
+
