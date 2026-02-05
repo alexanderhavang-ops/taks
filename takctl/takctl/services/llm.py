@@ -5,7 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from takctl.appctx import AppContext
-from takctl.render.plan import RenderPlan
+# NOTE: Optional import. LLM subsystem must not fail to load if render.plan moved/changed.
+try:
+    from takctl.render.plan import RenderPlan  # type: ignore
+except Exception:
+    RenderPlan = object  # type: ignore
+
 from takctl.render.tactical_json import build_tactical_plan
 
 from takctl.services.llm_http import http_get_json, http_post_json
