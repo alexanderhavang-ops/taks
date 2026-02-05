@@ -17,10 +17,7 @@ from takctl.api.meta import router as meta_router
 from takctl.web.api.llm_views import router as llm_router
 from takctl.services.userauth_file import load_users
 
-# NOTE:
-# - nginx mounts takctl under /takctl/ and proxies to backend /
-# - root_path tells FastAPI/Starlette that it is behind that prefix.
-app = FastAPI(title="takctl-web", root_path="/takctl")
+app = FastAPI(title="takctl-web")
 
 # ---------------------------------------------------------------------------
 # Session config (runtime-owned)
@@ -147,32 +144,19 @@ app.include_router(meta_router, prefix="/api/v1")
 
 app.include_router(llm_router)
 
-
 # ---------------------------------------------------------------------------
-# Static UI (runtime /opt/tak/tools/takctl/web)
+# Static UI
 # ---------------------------------------------------------------------------
 
+# Serve runtime web (copied by installer) first; fall back to package-relative.
 WEB_DIR = RUNTIME_DIR / "web"
 if not WEB_DIR.is_dir():
-    # dev fallback (shouldn't be used on node)
     WEB_DIR = Path(__file__).resolve().parents[2] / "web"
 
-
-def _staticfiles(directory: Path) -> StaticFiles:
-    """
-    Create StaticFiles with symlink following enabled.
-    Starlette has used follow_symlink / follow_symlinks across versions.
-    """
-    try:
-        return StaticFiles(directory=str(directory), html=True, follow_symlinks=True)  # type: ignore
-    except TypeError:
-        return StaticFiles(directory=str(directory), html=True, follow_symlink=True)  # type: ignore
-
-
 if WEB_DIR.is_dir():
-    app.mount("/", _staticfiles(WEB_DIR), name="web")
+    app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
 else:
+    # If this happens, the service should still start but UI will 500 on /
     @app.get("/")
-    def _no_web():
+    def _no_web_dir():
         raise HTTPException(status_code=500, detail=f"web dir not found: {WEB_DIR}")
-
