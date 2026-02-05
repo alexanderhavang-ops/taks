@@ -6,7 +6,11 @@ from pathlib import Path
 
 from fastapi import APIRouter
 
-from takctl import __version__
+try:
+    from takctl import __version__
+except Exception:
+    __version__ = "0.0.0-dev"
+
 from takctl.config import load_config
 
 router = APIRouter()
@@ -54,4 +58,3 @@ def meta():
         "slogan": brand.get("slogan", "") if isinstance(brand, dict) else "",
         "title": brand.get("title", "") if isinstance(brand, dict) else "",
     }
-
