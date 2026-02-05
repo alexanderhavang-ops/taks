@@ -13,6 +13,7 @@ from fastapi.staticfiles import StaticFiles
 
 from takctl.api.health import router as health_router
 from takctl.api.meta import router as meta_router
+from takctl.web.api.llm_views import router as llm_router
 from takctl.services.marti_auth import check_basic_auth
 
 app = FastAPI(title="takctl-web")
@@ -202,6 +203,8 @@ async def login(req: Request):
 # Keep legacy paths:
 app.include_router(health_router)
 app.include_router(meta_router)
+
+app.include_router(llm_router)
 
 # Preferred API namespace:
 app.include_router(health_router, prefix="/api")
