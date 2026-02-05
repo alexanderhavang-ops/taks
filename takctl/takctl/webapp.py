@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from takctl.api.health import router as health_router
 from takctl.api.meta import router as meta_router
-from takctl.services.marti_auth import check_basic_auth
+from takctl.services.marti_auth import check_userauthfile
 
 app = FastAPI(title="takctl-web")
 
@@ -183,12 +183,10 @@ async def login(req: Request):
     if not username or not password:
         raise HTTPException(status_code=400, detail="username and password required")
 
-    # Authenticate against Marti (username/password), avoid cert auth
-    # NOTE: verify_tls=False for now (local loopback). We'll wire CA later.
-    res = check_basic_auth(username, password, verify_tls=False)
+    # Authenticate against Marti UserAuthenticationFile.xml
+    res = check_userauthfile(username, password)
 
     if not res.ok:
-        # Keep error message minimal; no leakage
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     sess = {"u": username, "exp": int(time.time() + SESSION_TTL)}
@@ -199,12 +197,13 @@ async def login(req: Request):
         COOKIE_NAME,
         token,
         httponly=True,
-        secure=True,     # you are on https via nginx
+        secure=True,
         samesite="lax",
         path="/",
         max_age=SESSION_TTL,
     )
     return resp
+
 
 
 # --- existing routers ---
