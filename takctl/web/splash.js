@@ -1,11 +1,22 @@
 (function(){
   async function fetchText(url){
     try{
-      const r = await fetch(url, {cache:"no-store"});
+      const r = await fetch(url, { cache:"no-store", credentials:"include" });
       if(!r.ok) return "";
       return (await r.text()).trim();
     }catch(_){
       return "";
+    }
+  }
+
+  async function fetchJson(url){
+    try{
+      const r = await fetch(url, { cache:"no-store", credentials:"include" });
+      if(!r.ok) return null;
+      const t = await r.text();
+      try { return t ? JSON.parse(t) : null; } catch(_) { return null; }
+    }catch(_){
+      return null;
     }
   }
 
@@ -21,70 +32,133 @@
     if(root) root.style.display = "none";
   }
 
-  function wireImgFallback(img){
-    if(!img) return;
-    const fb = img.getAttribute("data-fallback");
-    if(!fb) return;
-    img.addEventListener("error", function(){
-      if(img.getAttribute("data-fallback-used")) return;
-      img.setAttribute("data-fallback-used", "1");
-      img.src = fb;
-    });
+  function imgWithFallback(primary, fallback, alt, cls){
+    return `
+      <img class="${cls||""}"
+           src="${primary}"
+           alt="${alt||""}"
+           onerror="this.onerror=null; this.src='${fallback}';">
+    `;
   }
 
   async function loadSlogan(){
-    // source of truth: runtime-uploaded slogan (symlinked into ./assets/)
+    // Source of truth: runtime-uploaded slogan via assets/slogan.txt (symlinked by installer)
     return await fetchText("./assets/slogan.txt");
   }
 
-  async function render(){
+  function render(){
     const root = document.getElementById("__splash");
-    if(!root) return false;
+    if(!root) return;
 
-    const html = await fetchText("./splash.html");
-    if(!html) return false;
+    root.innerHTML = `
+      <div class="splash">
+        <div class="splash-main">
+          <div class="splash-taks">
+            <img src="./assets/taks-logo.png" alt="TAKS">
+          </div>
 
-    root.innerHTML = html;
-    return true;
+          <div class="splash-slogan" id="__splash_slogan"></div>
+
+          <div class="brandchain">
+            <div class="brandchain-row">
+              ${imgWithFallback("./assets/logo1.svg","./assets/logo1.png","Försvarsmakten","brandchain-logo")}
+              <span class="brandchain-sep">›</span>
+              <img class="brandchain-logo" src="./assets/logo2.png" alt="Hemvärnet" onerror="this.style.display='none'">
+              <span class="brandchain-sep">›</span>
+              <img class="brandchain-logo" src="./assets/logo3.png" alt="Militärregion" onerror="this.style.display='none'">
+            </div>
+          </div>
+        </div>
+
+        <div class="login-wrap">
+          <div class="login">
+            <div class="login-form">
+              <div class="field">
+                <label>Username</label>
+                <input id="__u" autocomplete="username" />
+              </div>
+
+              <div class="field">
+                <label>Password</label>
+                <input id="__p" type="password" autocomplete="current-password" />
+              </div>
+
+              <div class="actions">
+                <button id="__go" type="button">Sign in</button>
+              </div>
+            </div>
+
+            <div class="login-err" id="__err"></div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function setErr(msg){
+    const e = document.getElementById("__err");
+    if(!e) return;
+    if(!msg){
+      e.style.display = "none";
+      e.textContent = "";
+      return;
+    }
+    e.style.display = "block";
+    e.innerHTML = msg.includes("<") ? msg : String(msg);
   }
 
   async function wire(){
-    // slogan
     const slogan = await loadSlogan();
     const el = document.getElementById("__splash_slogan");
     if(el) el.textContent = slogan || "";
 
-    // logo fallback: prefer svg for logo1, fallback png
-    wireImgFallback(document.getElementById("__logo1"));
-
-    // hide if missing
-    for(const id of ["__logo2","__logo3"]){
-      const img = document.getElementById(id);
-      if(img){
-        img.addEventListener("error", ()=>{ try{ img.style.display="none"; }catch(_){} });
-      }
-    }
-
-    // login wiring (kept simple)
     const btn = document.getElementById("__go");
     const u = document.getElementById("__u");
     const p = document.getElementById("__p");
 
     async function doLogin(){
+      setErr("");
+      const username = (u && u.value || "").trim();
+      const password = (p && p.value || "").trim();
+
+      if(!username || !password){
+        setErr("Missing username or password.");
+        return;
+      }
+
+      if(btn) btn.disabled = true;
+
       try{
         const r = await fetch("./api/login", {
           method: "POST",
+          credentials: "include",
           headers: {"content-type":"application/json"},
-          body: JSON.stringify({username: (u && u.value)||"", password: (p && p.value)||""})
+          body: JSON.stringify({username, password})
         });
+
         if(!r.ok){
-          alert("Login failed");
+          let detail = "";
+          try{
+            const t = await r.text();
+            try{ detail = JSON.parse(t)?.detail || t; }catch(_){ detail = t; }
+          }catch(_){}
+          setErr(`Login failed${detail ? `: <code>${String(detail).slice(0,200)}</code>` : "."}`);
           return;
         }
-        hideSplash();
-        window.location.reload();
+
+        // Verify session immediately (no “optimistic” hide)
+        const who = await fetchJson("./api/whoami");
+        if(who){
+          hideSplash();
+          window.location.reload();
+          return;
+        }
+
+        setErr("Login succeeded but session not established (whoami failed).");
       }catch(_){
-        alert("Login failed");
+        setErr("Login failed.");
+      }finally{
+        if(btn) btn.disabled = false;
       }
     }
 
@@ -93,15 +167,18 @@
     if(u) u.focus();
   }
 
-  // boot
-  (async function(){
-    showSplash();
-    const ok = await render();
-    if(!ok){
-      // if splash.html fails to load, keep page usable
+  async function boot(){
+    // If already authenticated, do NOT show splash at all.
+    const who = await fetchJson("./api/whoami");
+    if(who){
       hideSplash();
       return;
     }
+
+    showSplash();
+    render();
     wire();
-  })();
+  }
+
+  boot();
 })();
