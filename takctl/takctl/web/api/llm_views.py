@@ -37,9 +37,11 @@ import os
 from pathlib import Path as _Path
 
 from fastapi import Body
-
-from takctl.render.tactical_json import build_tactical_plan
-
+# NOTE: Optional import. Web must load even if heuristic renderer moved/changed.
+try:
+    from takctl.render.tactical_json import build_tactical_plan  # type: ignore
+except Exception:
+    build_tactical_plan = None  # type: ignore
 
 def _env(name: str, default: str) -> str:
     v = (os.environ.get(name) or "").strip()

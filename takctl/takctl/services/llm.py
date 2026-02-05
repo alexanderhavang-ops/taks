@@ -10,8 +10,11 @@ try:
     from takctl.render.plan import RenderPlan  # type: ignore
 except Exception:
     RenderPlan = object  # type: ignore
-
-from takctl.render.tactical_json import build_tactical_plan
+# NOTE: Optional import. LLM subsystem must not fail to load if heuristic renderer moved/changed.
+try:
+    from takctl.render.tactical_json import build_tactical_plan  # type: ignore
+except Exception:
+    build_tactical_plan = None  # type: ignore
 
 from takctl.services.llm_http import http_get_json, http_post_json
 from takctl.services.llm_systemd import systemd_show
@@ -67,7 +70,17 @@ def llm_status(_ctx: AppContext | None) -> dict[str, Any]:
 
 
 def llm_plan(ctx: AppContext, data: dict[str, Any], title: str = "LLM Plan") -> RenderPlan:
-    s = llm_status(ctx)
+    
+    # Lazy-load heuristic planner if needed (optional dependency)
+    global build_tactical_plan
+    if build_tactical_plan is None:
+        try:
+            from takctl.render.tactical_json import build_tactical_plan as _btp  # type: ignore
+            build_tactical_plan = _btp  # type: ignore
+        except Exception:
+            build_tactical_plan = None  # type: ignore
+
+s = llm_status(ctx)
     base = s["url"]
     reachable = bool(s.get("health", {}).get("ok"))
 
