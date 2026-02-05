@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from takctl.api.health import router as health_router
 from takctl.api.meta import router as meta_router
+from takctl.web.api.llm_views import router as llm_router
 from takctl.services.userauth_file import load_users
 
 # NOTE:
@@ -143,6 +144,8 @@ app.include_router(health_router, prefix="/api")
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(meta_router, prefix="/api")
 app.include_router(meta_router, prefix="/api/v1")
+
+app.include_router(llm_router)
 
 
 # ---------------------------------------------------------------------------
