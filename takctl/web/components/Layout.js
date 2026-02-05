@@ -33,23 +33,12 @@ function ImgTry({ base, exts, alt, className, title }) {
 }
 
 function BrandBlock({ brand }) {
-  // Optional slogan (runtime-provided later)
-  // e.g. document.body.dataset.taksSlogan = "Hemvärnet – överallt och alltid";
   const slogan = (brand && brand.slogan) || "";
 
   return h("div", { className: "brandblock" },
 
     h("div", { className: "brand-left" },
       h("div", { className: "brand-product" },
-        // Product-owned TAKS logo (git)
-        h("img", {
-          src: "./assets/taks-logo.png",
-          alt: "TAKS",
-          className: "logo logo-taks",
-          onError: (e) => {
-            try { e.target.style.display = "none"; } catch (_) {}
-          }
-        }),
         h("div", { className: "brand-text" },
           h("div", { className: "brand-title" }, (brand && brand.title) ? brand.title : "takctl"),
           slogan ? h("div", { className: "brand-slogan" }, slogan) : null
@@ -61,21 +50,22 @@ function BrandBlock({ brand }) {
     h("div", { className: "brand-right" },
       h(ImgTry, {
         base: "./assets/logo1",
-        exts: [".png", ".svg"],
+        // Prefer SVG first (if present), then PNG
+        exts: [".svg", ".png"],
         alt: "Instance logo 1",
         className: "logo logo-inst",
         title: "Instance logo 1"
       }),
       h(ImgTry, {
         base: "./assets/logo2",
-        exts: [".png", ".svg"],
+        exts: [".svg", ".png"],
         alt: "Instance logo 2",
         className: "logo logo-inst",
         title: "Instance logo 2"
       }),
       h(ImgTry, {
         base: "./assets/logo3",
-        exts: [".png", ".svg"],
+        exts: [".svg", ".png"],
         alt: "Instance logo 3",
         className: "logo logo-inst",
         title: "Instance logo 3"
