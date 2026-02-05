@@ -214,8 +214,6 @@ async def login(req: Request):
 app.include_router(health_router)
 app.include_router(meta_router)
 
-app.include_router(llm_router)
-
 # Preferred API namespace:
 app.include_router(health_router, prefix="/api")
 app.include_router(meta_router, prefix="/api")
