@@ -76,8 +76,9 @@ body {
   display: block;
 
   /* keep logo from feeling harsh */
-  filter: drop-shadow(0 16px 40px rgba(0,0,0,0.85));
+   filter: drop-shadow(0 16px 40px rgba(0,0,0,0.65));
 }
+
 
 /* slogan "patch" look */
 #__splash .splash-slogan{
