@@ -1,3 +1,4 @@
+from takctl.web.subsystems import load_subsystems, get_subsystems_status
 from __future__ import annotations
 
 import hmac
@@ -13,10 +14,19 @@ from fastapi.staticfiles import StaticFiles
 
 from takctl.api.health import router as health_router
 from takctl.api.meta import router as meta_router
-from takctl.web.api.llm_views import router as llm_router
 from takctl.services.marti_auth import check_basic_auth
 
 app = FastAPI(title="takctl-web")
+
+# ------------------------------------------------------------
+# Subsystem loader (best-effort): optional features must NOT
+# prevent core webapp from starting.
+# ------------------------------------------------------------
+_SUBSYSTEMS = load_subsystems(app)
+
+@app.get("/api/subsystems")
+def api_subsystems():
+    return get_subsystems_status()
 
 RUNTIME_DIR = Path("/opt/tak/tools/takctl")
 SECRET_FILE = RUNTIME_DIR / "secrets" / "session.key"
