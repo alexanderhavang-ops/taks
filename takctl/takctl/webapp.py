@@ -19,10 +19,6 @@ from takctl.services.userauth_file import load_users
 
 app = FastAPI(title="takctl-web")
 
-# ---------------------------------------------------------------------------
-# Session config (runtime-owned)
-# ---------------------------------------------------------------------------
-
 RUNTIME_DIR = Path("/opt/tak/tools/takctl")
 SECRET_FILE = RUNTIME_DIR / "secrets" / "session.key"
 COOKIE_NAME = "takctl_session"
@@ -71,15 +67,17 @@ def _get_session(req: Request) -> Optional[dict]:
     return data
 
 
-# ---------------------------------------------------------------------------
-# Auth API
-# ---------------------------------------------------------------------------
+@app.get("/api/login")
+async def login_get():
+    # Make it explicit (curl GET should not look like "route missing")
+    raise HTTPException(status_code=405, detail="Use POST /api/login")
+
 
 @app.post("/api/login")
 async def login(req: Request):
     body = await req.json()
-    username = body.get("username")
-    password = body.get("password")
+    username = (body.get("username") or "").strip()
+    password = (body.get("password") or "")
 
     if not username or not password:
         raise HTTPException(status_code=400, detail="Missing credentials")
@@ -89,28 +87,38 @@ async def login(req: Request):
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
-    if not user.password_hash:
-        raise HTTPException(status_code=401, detail="User has no password")
+    # IMPORTANT: UserAuthenticationFile.xml typically does NOT contain passwords.
+    # If your UserAuthRecord doesn't have a password field, fail cleanly.
+    pw_hash = getattr(user, "password_hash", None) or getattr(user, "password", None) or getattr(user, "passwordHash", None)
+    if not pw_hash:
+        raise HTTPException(
+            status_code=401,
+            detail="This node has no password hashes for users. Decide auth source: takctl-local users OR Marti API."
+        )
 
-    if not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
+    if isinstance(pw_hash, str):
+        pw_hash_b = pw_hash.encode()
+    else:
+        pw_hash_b = bytes(pw_hash)
+
+    if not bcrypt.checkpw(password.encode(), pw_hash_b):
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     payload = {
         "sub": username,
-        "role": user.role,
-        "groups": user.groups,
+        "role": getattr(user, "role", None),
+        "groups": getattr(user, "groups", None),
         "iat": int(time.time()),
         "exp": int(time.time()) + SESSION_TTL,
     }
 
     token = _sign(payload)
-
     resp = JSONResponse({"ok": True, "user": payload})
     resp.set_cookie(
         COOKIE_NAME,
         token,
         httponly=True,
-        secure=False,   # nginx TLS terminates; backend sees http
+        secure=False,  # nginx TLS terminates; backend sees http
         samesite="lax",
         max_age=SESSION_TTL,
         path="/",
@@ -133,10 +141,7 @@ async def whoami(req: Request):
     return JSONResponse({"authenticated": True, "user": sess})
 
 
-# ---------------------------------------------------------------------------
-# API routers (unauthenticated for now)
-# ---------------------------------------------------------------------------
-
+# Routers
 app.include_router(health_router, prefix="/api")
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(meta_router, prefix="/api")
@@ -144,11 +149,7 @@ app.include_router(meta_router, prefix="/api/v1")
 
 app.include_router(llm_router)
 
-# ---------------------------------------------------------------------------
 # Static UI
-# ---------------------------------------------------------------------------
-
-# Serve runtime web (copied by installer) first; fall back to package-relative.
 WEB_DIR = RUNTIME_DIR / "web"
 if not WEB_DIR.is_dir():
     WEB_DIR = Path(__file__).resolve().parents[2] / "web"
@@ -156,7 +157,6 @@ if not WEB_DIR.is_dir():
 if WEB_DIR.is_dir():
     app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="web")
 else:
-    # If this happens, the service should still start but UI will 500 on /
     @app.get("/")
     def _no_web_dir():
         raise HTTPException(status_code=500, detail=f"web dir not found: {WEB_DIR}")
