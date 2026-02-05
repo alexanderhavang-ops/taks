@@ -70,7 +70,6 @@ Preserved runtime state:
 - takctl.conf
 - takctl.audit.log
 - backup/
-- ignite/work/
 
 This allows safe redeploys on live systems.
 
@@ -250,7 +249,14 @@ Behavior:
 The backend serves the UI as static files (no bundler/build step):
 
 - FastAPI mounts `takctl/web/` via `StaticFiles(..., html=True)`
+- Components just like web
 - nginx reverse-proxies `/takctl/` to the backend
+
+### Logos and runtime data
+
+TakCTL web will eventually have asset upload in the UI so that the user can upload logo1, logo2, logo3, logo4, logo5 for the UI as well as a slogan for each logo. The logos are intended to show a hierarchy like Försvarsmakten -> Hemvärnet -> Militärregion -> Batalion -> Company
+These logos obviously a runtime state, not source code and not in git
+When spawned by orchestrator, these files will come in over cloud-init or attached volumes. Logos go to /opt/tak/takctl/web/assets/, slogans are served by an API
 
 ### Frontend pathing rules
 
