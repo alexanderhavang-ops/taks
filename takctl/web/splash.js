@@ -148,7 +148,7 @@
 
         // Verify session immediately (no “optimistic” hide)
         const who = await fetchJson("./api/whoami");
-        if(who){
+        if(who && who.authenticated === true){
           hideSplash();
           window.location.reload();
           return;
@@ -170,7 +170,7 @@
   async function boot(){
     // If already authenticated, do NOT show splash at all.
     const who = await fetchJson("./api/whoami");
-    if(who){
+    if(who && who.authenticated === true){
       hideSplash();
       return;
     }
