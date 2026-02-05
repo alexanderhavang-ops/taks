@@ -1,12 +1,13 @@
 :root{
   font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
 
-  /* TAKS UI palette (restrained, dark) */
-  --bg: #0b0f14;
-  --panel: #111826;
-  --panel2: #0f1623;
-  --border: #1f2a3a;
+  /* App palette (dark, restrained) */
+  --bg: #000;            /* keep real black so on-black logos “disappear” */
+  --panel: #0f141c;
+  --panel2: #0b1017;
+  --border: #1a2432;
   --border2: #223049;
+
   --fg: #e6edf3;
   --muted: #9fb0c0;
   --link: #7aa2ff;
@@ -15,6 +16,10 @@
   --bad: #ff7d7d;
 
   --radius: 12px;
+}
+
+html, body{
+  height: 100%;
 }
 
 body{
@@ -26,10 +31,13 @@ body{
 
 a{ color: var(--link); text-decoration: none; }
 
-/* General layout helpers */
-.grid{ display: grid; grid-template-columns: 360px 1fr; gap: 16px; }
+/* ------------------------------------------------------------------ */
+/* Basic utilities                                                     */
+/* ------------------------------------------------------------------ */
+
 .row{ display: flex; gap: 8px; align-items: center; }
 .muted{ color: var(--muted); font-size: 12px; }
+
 .mono{
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 12px;
@@ -42,16 +50,19 @@ input, select, button{
   border-radius: 10px;
   padding: 8px 10px;
 }
+
 button{ cursor: pointer; }
 button:disabled{ opacity: 0.6; cursor: not-allowed; }
 
 table{ width: 100%; border-collapse: collapse; }
+
 th, td{
   border-bottom: 1px solid var(--border);
   padding: 6px 8px;
   text-align: left;
   font-size: 13px;
 }
+
 th{ color: var(--muted); font-weight: 600; }
 
 .pill{
@@ -66,20 +77,38 @@ th{ color: var(--muted); font-weight: 600; }
 .ok{ color: var(--ok); }
 .bad{ color: var(--bad); }
 
-.title{ font-size: 18px; font-weight: 700; margin: 0 0 10px 0; }
+.title{
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0 0 10px 0;
+}
 
-/* Cards / panels */
+/* ------------------------------------------------------------------ */
+/* Cards / panels                                                      */
+/* ------------------------------------------------------------------ */
+
 .card, .panel{
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
   border-radius: var(--radius);
   padding: 12px;
+  backdrop-filter: blur(2px);
 }
-.panel-title, .card-title{ font-weight: 700; margin-bottom: 10px; }
 
-/* App shell */
-.app{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+.panel-title, .card-title{
+  font-weight: 700;
+  margin-bottom: 10px;
+}
 
+/* ------------------------------------------------------------------ */
+/* App shell (after login)                                              */
+/* ------------------------------------------------------------------ */
+
+.app{
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+
+/* Topbar */
 .topbar{
   display: flex;
   align-items: center;
@@ -96,8 +125,13 @@ th{ color: var(--muted); font-weight: 600; }
 .brandblock{
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   min-width: 260px;
+}
+
+.brand-left{
+  display: flex;
+  align-items: center;
 }
 
 .brand-product{
@@ -106,15 +140,29 @@ th{ color: var(--muted); font-weight: 600; }
   gap: 10px;
 }
 
-.brand-text{ display: flex; flex-direction: column; line-height: 1.1; }
-.brand-title{ font-weight: 800; letter-spacing: 0.2px; }
-.brand-slogan{ margin-top: 2px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.brand-text{
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.brand-title{
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.brand-slogan{
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
 
 .brand-right{
   display: flex;
   align-items: center;
   gap: 10px;
-  padding-left: 6px;
+  padding-left: 10px;
   border-left: 1px solid var(--border);
 }
 
@@ -122,15 +170,14 @@ th{ color: var(--muted); font-weight: 600; }
   display: block;
   height: 26px;
   width: auto;
-  max-width: 120px;
+  max-width: 140px;
   object-fit: contain;
-  opacity: 0.95;
+  opacity: 0.98;
 }
-.logo-taks{ height: 28px; max-width: 140px; }
-.logo-inst{ height: 26px; max-width: 110px; }
 
 /* Tabs */
 .tabs{ display: flex; gap: 8px; }
+
 .tab{
   border: 1px solid var(--border2);
   background: transparent;
@@ -139,9 +186,11 @@ th{ color: var(--muted); font-weight: 600; }
   cursor: pointer;
   color: var(--fg);
 }
+
 .tab:hover{ border-color: #2d3f5d; }
+
 .tab-active{
-  background: var(--panel2);
+  background: rgba(255,255,255,0.06);
   border-color: #2d3f5d;
 }
 
@@ -150,207 +199,22 @@ th{ color: var(--muted); font-weight: 600; }
 /* Health */
 .health{ display: flex; align-items: center; gap: 6px; }
 
-.hb{
-  font-weight: 800;
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border2);
-}
-.hb-ok{
-  background: rgba(125,255,178,0.08);
-  color: var(--ok);
-  border-color: rgba(125,255,178,0.25);
-}
-.hb-warn{
-  background: rgba(255,214,102,0.08);
-  color: #ffd666;
-  border-color: rgba(255,214,102,0.22);
-}
-.hb-bad{
-  background: rgba(255,125,125,0.08);
-  color: var(--bad);
-  border-color: rgba(255,125,125,0.25);
-}
-
 /* Main body */
 .body{
   display: grid;
-  grid-template-columns: 360px 1fr;
+  grid-template-columns: 1fr;
   gap: 14px;
   padding: 14px 0;
 }
-.left{ min-width: 0; }
+
 .main{ min-width: 0; }
 
-/* Key/value rows used by Health etc */
-.row.kv{
-  display: grid;
-  grid-template-columns: 160px 1fr;
-  gap: 10px;
-  padding: 4px 0;
-}
-.k{ color: var(--muted); font-size: 12px; }
-.v{
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.err{ color: #ff9b9b; font-weight: 700; }
-
-.notes ul{ margin: 6px 0 0 18px; }
-.notes li{ margin: 4px 0; }
-
-/* ------------------------------------------------------------------ */
-/* Splash / Login overlay + hierarchical brand chain                    */
-/* ------------------------------------------------------------------ */
-
-.splash{
-  position: fixed;
-  inset: 0;
-  z-index: 999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
-  background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(2px);
+/* Debug pre blocks (if used) */
+.pre{
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 10px;
+  overflow: auto;
 }
 
-.splash-card{
-  width: min(900px, 100%);
-  border: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(17,24,38,0.98), rgba(11,15,20,0.98));
-  border-radius: 16px;
-  padding: 18px 18px 16px 18px;
-  box-shadow: 0 14px 50px rgba(0,0,0,0.55);
-}
-
-.splash-title{
-  margin-top: 12px;
-  font-size: 22px;
-  font-weight: 900;
-  letter-spacing: 0.3px;
-}
-
-.splash-slogan{
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.splash-actions{
-  margin-top: 12px;
-  display: flex;
-  gap: 10px;
-}
-
-/* Hierarchical logo chain */
-.brandchain{
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.brandchain-row{
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: rgba(15,22,35,0.55);
-}
-
-.brandchain-logo{
-  display: block;
-  height: 34px;
-  width: auto;
-  max-width: 180px;
-  object-fit: contain;
-  opacity: 0.98;
-}
-
-.brandchain-logo.taks{
-  height: 36px;
-  max-width: 220px;
-}
-
-.brandchain-logo.inst{
-  height: 34px;
-  max-width: 180px;
-}
-
-.brandchain-sep{
-  color: rgba(159,176,192,0.7);
-  font-weight: 700;
-  font-size: 16px;
-  line-height: 1;
-  padding: 0 2px;
-  user-select: none;
-}
-
-.brandchain-logo.optional{ opacity: 0.92; }
-
-.splash-footnote{
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
-}
-
-
-/* --- Fullscreen splash (login) --- */
-.splash{
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 56px 40px;
-}
-
-.splash-slogan{
-  text-align: center;
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-  margin-bottom: 22px;
-  opacity: 0.95;
-}
-
-.splash-row{
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 42px;
-  margin-bottom: 26px;
-}
-
-.splash-taks{
-  height: 140px;
-  width: auto;
-  display: block;
-  filter: drop-shadow(0 10px 30px rgba(0,0,0,0.35));
-}
-
-.splash-stack{
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  align-items: flex-start;
-}
-
-.splash-stack img{
-  height: 64px;
-  width: auto;
-  display: block;
-  filter: drop-shadow(0 8px 18px rgba(0,0,0,0.25));
-}
-
-@media (max-width: 900px){
-  .splash{ padding: 40px 18px; }
-  .splash-row{ flex-direction: column; gap: 18px; }
-  .splash-taks{ height: 120px; }
-  .splash-stack{ align-items: center; }
-}
