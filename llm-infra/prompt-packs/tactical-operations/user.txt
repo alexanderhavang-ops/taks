@@ -1,0 +1,20 @@
+Summarize the tactical situation for friendly units and known enemy units.
+
+Output priorities:
+1) Alerts & anomalies (highest)
+2) Situation summary
+3) Recommendations (only when confidence is high)
+
+For friendly units, consider:
+- location
+- current missions and mission status
+- recently finished missions
+- troop count
+- stridsvärde
+- stridsberedskap
+- wounded personnel
+- supply status
+
+For enemy units:
+- summarize only what is supported by available data
+- avoid speculation
