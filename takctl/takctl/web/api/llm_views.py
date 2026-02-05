@@ -4,25 +4,47 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from takctl.services.llm import llm_status
-from takctl.services.llm_views.tactical_operations import TacticalInputsSnapshot
+# ------------------------------------------------------------
+# Best-effort imports: llm_views must load even if optional deps
+# (like takctl.services.llm) are broken.
+# ------------------------------------------------------------
+_LLM_IMPORT_ERROR = None
+try:
+    from takctl.services.llm import llm_status  # type: ignore
+except Exception as e:
+    _LLM_IMPORT_ERROR = repr(e)
+    def llm_status(ctx):  # type: ignore
+        return {
+            "health": {"ok": False, "error": "llm_import_failed", "detail": _LLM_IMPORT_ERROR},
+            "url": None,
+        }
+
+_TACTICAL_IMPORT_ERROR = None
+try:
+    from takctl.services.llm_views.tactical_operations import TacticalInputsSnapshot  # type: ignore
+except Exception as e:
+    _TACTICAL_IMPORT_ERROR = repr(e)
+    TacticalInputsSnapshot = None  # type: ignore
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
-
 
 @router.get("/status")
 def api_llm_status() -> dict[str, Any]:
     class _Ctx: ...
     return llm_status(_Ctx())  # type: ignore
 
-
 @router.post("/views/tactical")
 def api_llm_view_tactical() -> dict[str, Any]:
     class _Ctx: ...
     s = llm_status(_Ctx())  # type: ignore
-    inputs = TacticalInputsSnapshot().collect()
+    if TacticalInputsSnapshot is None:
 
-    return {
+        inputs = {"ok": False, "error": "tactical_snapshot_import_failed", "detail": _TACTICAL_IMPORT_ERROR}
+
+    else:
+
+        inputs = TacticalInputsSnapshot().collect()
+return {
         "view": "tactical-operations",
         "engine": "local",  # selection logic later
         "reachable": bool((s.get("health") or {}).get("ok", False)),
@@ -30,7 +52,6 @@ def api_llm_view_tactical() -> dict[str, Any]:
         "inputs": inputs,
         "llm": s,
     }
-
 
 import json
 import os
@@ -47,7 +68,6 @@ def _env(name: str, default: str) -> str:
     v = (os.environ.get(name) or "").strip()
     return v or default
 
-
 def _read_prompt_pack(view: str) -> dict[str, str]:
     """
     Read prompt pack from deployed runtime path (installer-owned output).
@@ -57,7 +77,6 @@ def _read_prompt_pack(view: str) -> dict[str, str]:
     system_txt = (root / "system.txt").read_text(encoding="utf-8")
     user_txt = (root / "user.txt").read_text(encoding="utf-8")
     return {"system": system_txt.strip(), "user": user_txt.strip(), "path": str(root)}
-
 
 def _http_post_json(url: str, payload: dict[str, Any], timeout_sec: float = 12.0) -> tuple[int, Any, str | None]:
     # Local tiny helper to avoid importing the CLI service layer here.
@@ -82,7 +101,6 @@ def _http_post_json(url: str, payload: dict[str, Any], timeout_sec: float = 12.0
                 return code, raw[:4000], "non-json-response"
     except Exception as e:
         return 0, None, str(e)
-
 
 @router.post("/plan")
 def api_llm_plan(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
