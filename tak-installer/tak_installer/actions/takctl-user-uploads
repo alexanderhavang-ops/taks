@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RUNTIME_BASE="/opt/tak/tools/takctl"
+UPLOAD_DIR="$RUNTIME_BASE/user-uploads"
+ASSETS_DIR="$RUNTIME_BASE/web/assets"
+
+echo "[takctl-user-uploads] Ensuring user upload dir exists"
+mkdir -p "$UPLOAD_DIR"
+
+link_logo () {
+  local name="$1"
+  for ext in png svg; do
+    if [[ -f "$UPLOAD_DIR/$name.$ext" ]]; then
+      echo "[takctl-user-uploads] Linking $name.$ext"
+      ln -sf "$UPLOAD_DIR/$name.$ext" "$ASSETS_DIR/$name.$ext"
+      return
+    fi
+  done
+  echo "[takctl-user-uploads] $name not provided"
+}
+
+link_logo logo1
+link_logo logo2
+link_logo logo3
+
+echo "[takctl-user-uploads] Done"
