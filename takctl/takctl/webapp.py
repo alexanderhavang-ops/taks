@@ -1,5 +1,5 @@
-from takctl.web.subsystems import load_subsystems, get_subsystems_status
 from __future__ import annotations
+from takctl.web.subsystems import load_subsystems, get_subsystems_status
 
 import hmac
 import json
