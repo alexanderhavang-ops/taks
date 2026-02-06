@@ -65,4 +65,7 @@ def nodes_launch(req: Dict[str, Any]) -> Dict[str, Any]:
         if "Launch disabled" in msg:
             raise HTTPException(status_code=403, detail=msg)
         raise HTTPException(status_code=400, detail=msg)
+<<<<<<< HEAD
 
+=======
+>>>>>>> 2233bb7 (orchestrator api: return 403 when launch is disabled)
