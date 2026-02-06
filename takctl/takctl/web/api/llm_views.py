@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.request
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
 from fastapi import Body
-, Body
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
@@ -17,14 +16,28 @@ def _env(name: str, default: str) -> str:
     return v or default
 
 
-def _http_post_json(url: str, payload: dict[str, Any], timeout_sec: float = 12.0) -> tuple[int, Any, str | None]:
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
-        method="POST",
-    )
+def _read_prompt_pack(view: str) -> dict[str, str]:
+    """
+    Read prompt pack from deployed runtime path (installer-owned output).
+    Required: system.txt + user.txt
+    """
+    root = Path("/opt/tak/tools/takctl/llm/prompt-packs") / view
+    system_txt = (root / "system.txt").read_text(encoding="utf-8")
+    user_txt = (root / "user.txt").read_text(encoding="utf-8")
+    return {"system": system_txt.strip(), "user": user_txt.strip(), "path": str(root)}
+
+
+def _http_json(method: str, url: str, payload: dict[str, Any] | None = None, timeout_sec: float = 12.0) -> tuple[int, Any, str | None]:
+    import urllib.request
+    import urllib.error
+
+    data = None
+    headers = {"Accept": "application/json"}
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+
+    req = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=timeout_sec) as r:
             code = int(getattr(r, "status", 200))
@@ -34,47 +47,67 @@ def _http_post_json(url: str, payload: dict[str, Any], timeout_sec: float = 12.0
             try:
                 return code, json.loads(raw), None
             except Exception:
-                return code, raw[:4000], "non-json-response"
+                return code, raw, "non_json_response"
+    except urllib.error.HTTPError as e:
+        body = None
+        try:
+            body = e.read().decode("utf-8", "replace").strip()
+        except Exception:
+            body = None
+        return int(getattr(e, "code", 0) or 0), {"error": str(e), "body": body}, "http_error"
     except Exception as e:
-        return 0, None, str(e)
+        return 0, {"error": repr(e)}, "exception"
+
+
+def llm_status() -> dict[str, Any]:
+    llm_url = _env("TAKS_LLM_URL", "http://127.0.0.1:8091")
+    unit = _env("TAKS_LLM_SYSTEMD_UNIT", "llm-local.service")
+
+    code, data, err = _http_json("GET", f"{llm_url}/health", None, timeout_sec=2.0)
+    if code == 200 and isinstance(data, dict) and data.get("status") == "ok":
+        return {"health": {"ok": True}, "url": llm_url, "systemd_unit": unit}
+
+    return {"health": {"ok": False, "error": "unreachable", "detail": f"code={code} err={err} data={data}"}, "url": llm_url, "systemd_unit": unit}
+
+
+def _strip_code_fences(s: str) -> str:
+    t = s.strip()
+    if t.startswith("```"):
+        # remove first fence line
+        t = t.split("\n", 1)[1] if "\n" in t else ""
+        # remove trailing fence
+        if "```" in t:
+            t = t.rsplit("```", 1)[0]
+    return t.strip()
+
+
+def _placeholder_plan(view: str, llm_url: str, reason: str, raw_text: str | None = None) -> dict[str, Any]:
+    blocks = [{
+        "type": "markdown",
+        "title": "LLM Plan",
+        "body": "LLM unavailable or returned invalid JSON. This is a placeholder plan.",
+    }]
+    if raw_text:
+        blocks.append({
+            "type": "markdown",
+            "title": "LLM Raw Output",
+            "body": raw_text.strip()[:8000],
+        })
+    return {
+        "blocks": blocks,
+        "datasets": {},
+        "meta": {"mode": "heuristic", "view": view, "llm_url": llm_url, "fallback_reason": reason},
+    }
 
 
 @router.get("/status")
 def api_llm_status() -> dict[str, Any]:
-    """
-    Always safe. Does not import takctl.services.llm (which may be broken).
-    Just reports configured LLM endpoint + a lightweight reachability probe.
-    """
-    base = _env("TAKS_LLM_URL", "http://127.0.0.1:8091").rstrip("/")
-    unit = _env("TAKS_LLM_SYSTEMD_UNIT", "llm-local.service")
-
-    # Cheap probe: call /v1/models (OpenAI-compat) if present, otherwise mark unknown
-    url = f"{base}/v1/models"
-    try:
-        with urllib.request.urlopen(url, timeout=1.5) as r:
-            ok = int(getattr(r, "status", 200)) == 200
-    except Exception as e:
-        ok = False
-        return {
-            "health": {"ok": False, "error": "unreachable", "detail": repr(e)},
-            "url": base,
-            "systemd_unit": unit,
-        }
-
-    return {
-        "health": {"ok": bool(ok)},
-        "url": base,
-        "systemd_unit": unit,
-    }
+    return llm_status()
 
 
 @router.post("/views/tactical")
 def api_llm_view_tactical() -> dict[str, Any]:
-    """
-    Placeholder view endpoint: keeps UI plumbing working even before
-    TacticalInputsSnapshot + render plan machinery is wired in.
-    """
-    s = api_llm_status()
+    s = llm_status()
     return {
         "view": "tactical-operations",
         "engine": "local",
@@ -86,67 +119,66 @@ def api_llm_view_tactical() -> dict[str, Any]:
 
 
 @router.post("/plan")
-def api_llm_plan(body: dict = Body(default={})):
+def api_llm_plan(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
     """
-    Minimal LLM plan endpoint:
-    - loads prompt pack (system.txt + user.txt) by view
-    - calls llama.cpp /v1/chat/completions
-    - returns raw JSON response (no rendering)
+    Generate a plan JSON document.
+    For now we call llama.cpp OpenAI-compatible *text* completions endpoint:
+      POST {llm_url}/v1/completions
+    and expect the model to return JSON in choices[0].text.
     """
-    view = (body.get("view") or "tactical-operations").strip()
-    model = (body.get("model") or "local-small").strip()
-    temperature = float(body.get("temperature", 0.2))
-    max_tokens = int(body.get("max_tokens", 256))
-    timeout = float(body.get("timeout_sec", 12.0))
+    view = (payload.get("view") or "tactical-operations").strip()
+    model = (payload.get("model") or "local-small").strip()
+    max_tokens = int(payload.get("max_tokens") or 256)
 
-    # Prefer inline prompt override, else prompt-pack on disk
-    pack = None
-    system = (body.get("system") or "").strip()
-    user = (body.get("user") or "").strip()
-    if not system or not user:
-        try:
-            pack = _read_prompt_pack(view)
-            system = system or pack["system"]
-            user = user or pack["user"]
-        except Exception as e:
-            # If caller provided inline prompts, we can still proceed.
-            if not system or not user:
-                return {
-                    "ok": False,
-                    "error": "prompt_pack_missing",
-                    "detail": repr(e),
-                    "view": view,
-                }
+    s = llm_status()
+    llm_url = str(s.get("url") or _env("TAKS_LLM_URL", "http://127.0.0.1:8091"))
+    if not bool((s.get("health") or {}).get("ok", False)):
+        return _placeholder_plan(view, llm_url, f"llm_unreachable {s.get('health')}")
 
-    # LLM base URL (from env, consistent with /api/llm/status)
-    base = _env("TAKS_LLM_URL", "http://127.0.0.1:8090").rstrip("/")
-    endpoint = base + "/v1/chat/completions"
+    pack = _read_prompt_pack(view)
 
-    payload = {
+    # Keep it dead simple: concatenate the prompt-pack.
+    prompt = (
+        pack["system"].strip()
+        + "\n\n"
+        + pack["user"].strip()
+        + "\n\n"
+        + "Return ONLY valid JSON."
+    )
+
+    req = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ],
-        "temperature": temperature,
+        "prompt": prompt,
         "max_tokens": max_tokens,
         "stream": False,
     }
 
-    code, resp, err = _http_post_json(endpoint, payload, timeout_sec=timeout)
-    ok = (code >= 200 and code < 300 and err is None)
+    code, data, err = _http_json("POST", f"{llm_url}/v1/completions", req, timeout_sec=20.0)
 
-    return {
-        "ok": ok,
-        "endpoint": endpoint,
-        "http_code": code,
-        "error": err,
-        "view": view,
-        "prompt_pack": pack,
-        "request": {
-            "model": model,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        },
-        "response": resp,
-    }
+    # Expected OpenAI-ish response:
+    # { choices: [ { text: "..." } ], ... }
+    raw_text = None
+    if code == 200 and isinstance(data, dict):
+        try:
+            raw_text = ((data.get("choices") or [{}])[0] or {}).get("text")
+        except Exception:
+            raw_text = None
+
+    if not raw_text or not isinstance(raw_text, str):
+        return _placeholder_plan(view, llm_url, f"llm_bad_response code={code} err={err} data_type={type(data).__name__}", raw_text=None)
+
+    candidate = _strip_code_fences(raw_text)
+    try:
+        obj = json.loads(candidate)
+        if isinstance(obj, dict) and "blocks" in obj and "datasets" in obj:
+            # Add a tiny meta breadcrumb if missing
+            meta = obj.get("meta") if isinstance(obj.get("meta"), dict) else {}
+            meta.setdefault("mode", "llm")
+            meta.setdefault("view", view)
+            meta.setdefault("llm_url", llm_url)
+            obj["meta"] = meta
+            return obj
+        # If valid JSON but not our schema, still show it.
+        return _placeholder_plan(view, llm_url, "llm_json_not_plan_schema", raw_text=candidate)
+    except Exception as e:
+        return _placeholder_plan(view, llm_url, f"llm_output_not_json err={repr(e)}", raw_text=candidate)
