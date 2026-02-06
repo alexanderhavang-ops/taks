@@ -5,7 +5,9 @@ import os
 import urllib.request
 from typing import Any
 
-from fastapi import APIRouter, Body
+from fastapi import APIRouter
+from fastapi import Body
+, Body
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
 
@@ -84,65 +86,67 @@ def api_llm_view_tactical() -> dict[str, Any]:
 
 
 @router.post("/plan")
-def api_llm_plan(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
+def api_llm_plan(body: dict = Body(default={})):
     """
-    Minimal RenderPlan generator:
-    - If llama.cpp is reachable: calls /v1/chat/completions and tries to parse JSON content.
-    - Else: returns a trivial heuristic RenderPlan.
-    No dependency on takctl.render.* or takctl.services.llm.
+    Minimal LLM plan endpoint:
+    - loads prompt pack (system.txt + user.txt) by view
+    - calls llama.cpp /v1/chat/completions
+    - returns raw JSON response (no rendering)
     """
-    view = str(payload.get("view") or "tactical-operations")
-    title = str(payload.get("title") or "LLM Plan")
-    data = payload.get("data") or {}
+    view = (body.get("view") or "tactical-operations").strip()
+    model = (body.get("model") or "local-small").strip()
+    temperature = float(body.get("temperature", 0.2))
+    max_tokens = int(body.get("max_tokens", 256))
+    timeout = float(body.get("timeout_sec", 12.0))
 
-    base = _env("TAKS_LLM_URL", "http://127.0.0.1:8091").rstrip("/")
-    url = f"{base}/v1/chat/completions"
-
-    schema_hint = (
-        "You MUST respond with valid JSON only (no markdown, no prose). "
-        "The JSON MUST be a RenderPlan object with keys: blocks (list), datasets (object), meta (object). "
-        "Do not include any additional top-level keys."
-    )
-
-    messages = [
-        {"role": "system", "content": schema_hint},
-        {"role": "user", "content": f"TITLE: {title}\nVIEW: {view}\nINPUT_DATA_JSON:\n{json.dumps(data)[:200000]}"},
-    ]
-
-    req = {"model": "local-small", "messages": messages, "temperature": 0.2}
-    code, body, err = _http_post_json(url, req, timeout_sec=12.0)
-
-    content = None
-    if code == 200 and isinstance(body, dict):
+    # Prefer inline prompt override, else prompt-pack on disk
+    pack = None
+    system = (body.get("system") or "").strip()
+    user = (body.get("user") or "").strip()
+    if not system or not user:
         try:
-            content = body["choices"][0]["message"]["content"]
-        except Exception:
-            content = None
+            pack = _read_prompt_pack(view)
+            system = system or pack["system"]
+            user = user or pack["user"]
+        except Exception as e:
+            # If caller provided inline prompts, we can still proceed.
+            if not system or not user:
+                return {
+                    "ok": False,
+                    "error": "prompt_pack_missing",
+                    "detail": repr(e),
+                    "view": view,
+                }
 
-    if isinstance(content, str):
-        try:
-            plan = json.loads(content)
-            if isinstance(plan, dict) and "blocks" in plan and "datasets" in plan and "meta" in plan:
-                plan["meta"] = dict(plan.get("meta") or {})
-                plan["meta"].update({"mode": "llm", "view": view, "llm_url": base})
-                return plan
-        except Exception:
-            pass
+    # LLM base URL (from env, consistent with /api/llm/status)
+    base = _env("TAKS_LLM_URL", "http://127.0.0.1:8090").rstrip("/")
+    endpoint = base + "/v1/chat/completions"
 
-    # Fallback (always-valid RenderPlan)
-    return {
-        "blocks": [
-            {
-                "type": "markdown",
-                "title": title,
-                "body": "LLM unavailable or returned invalid JSON. This is a placeholder plan.",
-            }
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
         ],
-        "datasets": {},
-        "meta": {
-            "mode": "heuristic",
-            "view": view,
-            "llm_url": base,
-            "fallback_reason": f"llm_invalid_or_unreachable http={code or 'n/a'} err={err or 'n/a'}",
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "stream": False,
+    }
+
+    code, resp, err = _http_post_json(endpoint, payload, timeout_sec=timeout)
+    ok = (code >= 200 and code < 300 and err is None)
+
+    return {
+        "ok": ok,
+        "endpoint": endpoint,
+        "http_code": code,
+        "error": err,
+        "view": view,
+        "prompt_pack": pack,
+        "request": {
+            "model": model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
         },
+        "response": resp,
     }
