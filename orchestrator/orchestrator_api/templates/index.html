@@ -1,0 +1,119 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>taks-orchestrator</title>
+<style>
+body{font-family:system-ui;margin:0;background:#0b1020;color:#e9eefc}
+header{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;background:#111a33;border-bottom:1px solid #1f2a4d}
+a{color:#9fb7ff;text-decoration:none}
+.wrap{max-width:1100px;margin:0 auto;padding:18px 20px}
+.card{background:#111a33;border:1px solid #1f2a4d;border-radius:14px;padding:16px;margin:14px 0;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+pre{margin:0;white-space:pre-wrap;word-break:break-word}
+button{background:#2b5cff;border:0;color:#fff;padding:10px 12px;border-radius:10px;cursor:pointer}
+button.secondary{background:#384a9a}
+button.danger{background:#a83232}
+input{width:100%;padding:10px;border-radius:10px;border:1px solid #1f2a4d;background:#0b1020;color:#e9eefc}
+</style>
+</head>
+<body>
+<header>
+  <div><b>taks-orchestrator</b> <span style="opacity:.7">master</span></div>
+  <div><a href="/openapi.json" target="_blank">openapi</a> &nbsp;|&nbsp; <a href="/logout">logout</a></div>
+</header>
+
+<div class="wrap">
+
+<div class="card">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <h3 style="margin:0">Status</h3>
+    <button id="refresh">Refresh</button>
+  </div>
+  <div style="height:10px"></div>
+  <pre id="status_out">loading…</pre>
+</div>
+
+<div class="card">
+<h3 style="margin:0 0 12px 0">Nodes</h3>
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px">
+  <input id="battalion" value="48hvbat" placeholder="battalion">
+  <input id="fqdn" value="48hvbat.tak-hv-sandbox.se" placeholder="fqdn">
+  <input id="hostname" value="tak-48hvbat" placeholder="hostname">
+  <input id="name" value="tak-node-48hvbat" placeholder="name">
+  <input id="instance_type" value="t3.micro" placeholder="instance type">
+</div>
+
+<div style="display:flex;gap:10px;margin-top:12px">
+  <button id="btn_preview">Preview</button>
+  <button id="btn_dry" class="secondary">Dry-run</button>
+  <button id="btn_launch" class="danger">Launch</button>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+  <div>
+    <div style="opacity:.8;margin-bottom:6px">plan</div>
+    <pre id="nodes_plan">—</pre>
+  </div>
+  <div>
+    <div style="opacity:.8;margin-bottom:6px">cloud-init</div>
+    <pre id="nodes_ci">—</pre>
+  </div>
+</div>
+</div>
+
+</div>
+
+<script>
+const statusOut = document.getElementById('status_out');
+const refreshBtn = document.getElementById('refresh');
+
+async function loadStatus(){
+  refreshBtn.disabled=true;
+  try{
+    const r=await fetch('/api/v1/status');
+    statusOut.textContent = r.ok ? JSON.stringify(await r.json(),null,2)
+                                 : 'HTTP '+r.status+'\\n'+await r.text();
+  }catch(e){ statusOut.textContent=String(e); }
+  finally{ refreshBtn.disabled=false; }
+}
+refreshBtn.onclick=loadStatus;
+loadStatus();
+
+function payload(){
+  return {
+    battalion: battalion.value,
+    fqdn: fqdn.value,
+    hostname: hostname.value,
+    name: name.value,
+    instance_type: instance_type.value
+  };
+}
+
+async function call(path){
+  nodes_plan.textContent='…';
+  nodes_ci.textContent='…';
+  const r = await fetch(path,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload())
+  });
+  const t = await r.text();
+  if(!r.ok){
+    nodes_plan.textContent = 'HTTP ' + r.status + '\\n' + t;
+    nodes_ci.textContent = '—';
+    return;
+  }
+  const j = JSON.parse(t);
+  nodes_plan.textContent = JSON.stringify(j.plan ?? j, null, 2);
+  nodes_ci.textContent   = j.cloud_init ?? '—';
+}
+
+btn_preview.onclick=()=>call('/api/v1/nodes/preview');
+btn_dry.onclick=()=>call('/api/v1/nodes/dry-run');
+btn_launch.onclick=()=>call('/api/v1/nodes/launch');
+</script>
+
+</body>
+</html>

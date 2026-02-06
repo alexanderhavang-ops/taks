@@ -1,95 +1,87 @@
 from __future__ import annotations
 
-import os
-import hmac
-import hashlib
 import base64
+import hmac
+import os
 import time
+from hashlib import sha256
 from typing import Optional, Tuple
 
-from fastapi import Request, HTTPException
+
+def _b64u(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
 
 
-def _b64(b: bytes) -> str:
-    return base64.urlsafe_b64encode(b).decode().rstrip("=")
+def _b64u_dec(s: str) -> bytes:
+    pad = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode((s + pad).encode("ascii"))
 
 
-def _unb64(s: str) -> bytes:
-    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+def make_token(user: str, secret: str, ttl_seconds: int = 12 * 3600) -> str:
+    """
+    Simple signed token for cookie auth:
+      payload: user|exp
+      token: base64url(payload_bytes).sig
+      sig: base64url(HMAC-SHA256(payload, secret))
+    """
+    exp = int(time.time()) + int(ttl_seconds)
+    payload = f"{user}|{exp}".encode("utf-8")
+    sig = hmac.new(secret.encode("utf-8"), payload, sha256).digest()
+    return f"{_b64u(payload)}.{_b64u(sig)}"
 
 
-def _sign(msg: bytes, secret: str) -> str:
-    return _b64(hmac.new(secret.encode(), msg, hashlib.sha256).digest())
-
-
-def make_token(user: str, secret: str, ttl: int = 12 * 3600) -> str:
-    exp = int(time.time()) + ttl
-    payload = f"{user}|{exp}".encode()
-    return _b64(payload) + "." + _sign(payload, secret)
-
-
-def verify_token(tok: str, secret: str) -> bool:
+def verify_token(token: str, secret: str) -> bool:
     try:
-        a, sig = tok.split(".", 1)
-        payload = _unb64(a)
-        _user, exp = payload.decode().split("|", 1)
-        if int(exp) < time.time():
+        payload_b64, sig_b64 = token.split(".", 1)
+        payload = _b64u_dec(payload_b64)
+        sig = _b64u_dec(sig_b64)
+
+        expected = hmac.new(secret.encode("utf-8"), payload, sha256).digest()
+        if not hmac.compare_digest(sig, expected):
             return False
-        return hmac.compare_digest(sig, _sign(payload, secret))
+
+        user, exp_s = payload.decode("utf-8").split("|", 1)
+        exp = int(exp_s)
+        if not user:
+            return False
+        return time.time() <= exp
     except Exception:
         return False
 
 
-def require_ui_auth(req: Request) -> None:
-    """
-    UI dependency: allow request if valid cookie, otherwise redirect to /login.
-    """
-    secret = os.getenv("TAKS_UI_SECRET", "")
-    tok = req.cookies.get("taks_auth")
-    if secret and tok and verify_token(tok, secret):
+def _parse_basic_auth(auth_header: Optional[str]) -> Optional[Tuple[str, str]]:
+    if not auth_header:
         return None
-    raise HTTPException(status_code=302, headers={"Location": "/login"})
-
-
-def _parse_basic_auth(req: Request) -> Optional[Tuple[str, str]]:
-    h = req.headers.get("authorization") or req.headers.get("Authorization")
-    if not h:
+    if not auth_header.lower().startswith("basic "):
         return None
-    if not h.lower().startswith("basic "):
-        return None
-    b64 = h.split(" ", 1)[1].strip()
+    b64 = auth_header.split(" ", 1)[1].strip()
     try:
-        raw = base64.b64decode(b64).decode("utf-8", errors="strict")
+        raw = base64.b64decode(b64).decode("utf-8")
+        if ":" not in raw:
+            return None
+        user, pw = raw.split(":", 1)
+        return user, pw
     except Exception:
         return None
-    if ":" not in raw:
-        return None
-    user, pw = raw.split(":", 1)
-    return user, pw
 
 
-def verify_basic(req: Request) -> bool:
+def verify_basic_auth(auth_header: Optional[str]) -> bool:
     """
-    Headless auth for API: Authorization: Basic base64(user:pass)
+    Headless auth: Authorization: Basic base64(user:pass)
 
-    Defaults:
-      user = orchestrator
-      pass = TAKS_UI_PASSWORD (plaintext OK for now)
+    For now:
+      - user is fixed: TAKS_API_USER (default: "orchestrator")
+      - password uses TAKS_API_PASSWORD if set, else falls back to TAKS_UI_PASSWORD
     """
-    creds = _parse_basic_auth(req)
-    if not creds:
+    parsed = _parse_basic_auth(auth_header)
+    if not parsed:
         return False
+    user, pw = parsed
 
-    user, pw = creds
-    want_user = (os.getenv("TAKS_UI_USER") or "orchestrator").strip()
-    want_pw = (os.getenv("TAKS_UI_PASSWORD") or "").strip()
+    want_user = (os.getenv("TAKS_API_USER") or "orchestrator").strip()
+    want_pw = os.getenv("TAKS_API_PASSWORD") or os.getenv("TAKS_UI_PASSWORD") or ""
     if not want_pw:
         return False
 
     return hmac.compare_digest(user, want_user) and hmac.compare_digest(pw, want_pw)
 
-
-def verify_cookie(req: Request) -> bool:
-    secret = os.getenv("TAKS_UI_SECRET", "")
-    tok = req.cookies.get("taks_auth")
-    return bool(secret and tok and verify_token(tok, secret))
