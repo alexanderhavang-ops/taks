@@ -10,9 +10,14 @@ orch_app_install(){
   if [[ ! -d /opt/tak-orch/.venv ]]; then
     python3 -m venv /opt/tak-orch/.venv
   fi
-
   /opt/tak-orch/.venv/bin/pip install --upgrade pip >/dev/null
-  /opt/tak-orch/.venv/bin/pip install "boto3" "fastapi" "uvicorn[standard]" "jinja2" "pyyaml" >/dev/null
+
+  # deps: prefer requirements.txt if repo provides it, else fall back
+  if [[ -f /opt/tak-orch/orchestrator/requirements.txt ]]; then
+    /opt/tak-orch/.venv/bin/pip install -r /opt/tak-orch/orchestrator/requirements.txt >/dev/null
+  else
+    /opt/tak-orch/.venv/bin/pip install "boto3" "fastapi" "uvicorn[standard]" "jinja2" "pyyaml" "python-multipart" >/dev/null
+  fi
 
   # systemd unit (source-controlled)
   install -m 0644 ${BASE_DIR}/../orchestrator/systemd/tak-orch.service /etc/systemd/system/taks-orch.service
@@ -74,6 +79,17 @@ EOF
   systemctl daemon-reload
   systemctl enable --now taks-orch.service
   systemctl restart taks-orch.service
+
+  # Wait for backend to be reachable (avoid nginx 502 race)
+  echo "[orch-install] waiting for taks-orch backend on 127.0.0.1:8090 ..."
+  for i in $(seq 1 20); do
+    if curl -fsS http://127.0.0.1:8090/api/v1/status >/dev/null 2>&1; then
+      echo "[orch-install] backend is up"
+      break
+    fi
+    sleep 0.5
+  done
+
 }
 
 orch_app_verify(){

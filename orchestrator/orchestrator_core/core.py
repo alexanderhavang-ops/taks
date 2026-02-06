@@ -275,3 +275,88 @@ def aws_list_nodes() -> Dict[str, Any]:
 
     return {"provider": "aws", "region": r, "count": len(instances), "instances": instances}
 
+
+
+# ---------------------------------------------------------------------------
+# Stable public API for both WebUI and CLI
+# ---------------------------------------------------------------------------
+def get_status():
+    # Prefer the real provider used by the FastAPI route (/api/v1/status)
+    try:
+        from orchestrator_core.providers import status_nodes
+        out = status_nodes()
+        if isinstance(out, dict) and {'provider','region','count','instances'}.issubset(out.keys()):
+            return out
+    except Exception:
+        pass
+
+    """
+    Return a status dict:
+      { "provider": str, "region": str, "count": int, "instances": list }
+
+    This wrapper is intentionally tolerant to refactors in the core internals.
+    Keep this stable.
+    """
+    WANT = {"provider", "region", "count", "instances"}
+
+    def _ok(x):
+        return isinstance(x, dict) and WANT.issubset(set(x.keys()))
+
+    # Prefer known internal names if present
+    for name in (
+        "status",
+        "read_status",
+        "status_get",
+        "status_read",
+        "_status",
+        "_get_status",
+    ):
+        fn = globals().get(name)
+        if callable(fn):
+            try:
+                out = fn()
+            except TypeError:
+                continue
+            if _ok(out):
+                return out
+
+    # Try common class shapes if present
+    for cls_name in ("Orchestrator", "OrchestratorCore", "Core"):
+        cls = globals().get(cls_name)
+        if cls is None:
+            continue
+        try:
+            obj = cls()
+        except Exception:
+            continue
+        for meth in ("get_status", "status"):
+            fn = getattr(obj, meth, None)
+            if callable(fn):
+                try:
+                    out = fn()
+                except TypeError:
+                    continue
+                if _ok(out):
+                    return out
+
+    # As a last resort, scan for any zero-arg callable that returns the right dict
+    for name, fn in sorted(globals().items()):
+        if not callable(fn):
+            continue
+        lname = name.lower()
+        if "status" not in lname:
+            continue
+        try:
+            out = fn()
+        except TypeError:
+            continue
+        except Exception:
+            continue
+        if _ok(out):
+            return out
+
+    raise RuntimeError(
+        "orchestrator_core.core.get_status(): no internal status provider found. "
+        "Implement status() (or Orchestrator*.status()) to return "
+        "{provider, region, count, instances}."
+    )

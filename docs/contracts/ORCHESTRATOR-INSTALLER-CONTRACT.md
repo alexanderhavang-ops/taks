@@ -32,6 +32,20 @@ nginx:
 Important:
 - ACME webroot must be served from disk for HTTP-01.
 
+### Python runtime dependencies
+
+The backend requires:
+- fastapi
+- uvicorn[standard]
+- boto3
+- jinja2
+- pyyaml
+- python-multipart (required for form-based auth)
+
+The installer must ensure these are present even if
+`requirements.txt` is absent.
+
+
 ## Verification contract
 
 `orch-install verify` must validate:
