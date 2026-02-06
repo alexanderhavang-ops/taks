@@ -28,25 +28,27 @@ def strip_code_fences(text: str) -> str:
     return inner.strip()
 
 
-def extract_json_from_text(text: str) -> Tuple[dict[str, Any] | None, str | None, str | None]:
+def extract_json_from_text(
+    text: str,
+) -> Tuple[dict[str, Any] | None, str | None, str | None]:
     """
     Extract the first valid JSON object (dict) from arbitrary text.
 
-    Returns: (parsed_dict | None, error | None, json_candidate | None)
+    Returns:
+        (parsed_dict | None, error | None, json_candidate | None)
 
     Strategy:
-      1) Strip code fences.
-      2) Try direct json.loads() for whole-string JSON.
-      3) Scan for each '{' and try JSONDecoder.raw_decode() at that position.
-         Return the first decoded value that is a dict.
-      4) Last-resort: decode from the first '{' while trimming the end a bit.
+      1) Strip code fences
+      2) Try json.loads on whole text
+      3) Scan for embedded JSON using JSONDecoder.raw_decode
+      4) Last-resort trimming from first '{'
     """
     if not text:
         return None, "empty_text", None
 
     candidate = strip_code_fences(text)
 
-    # Fast path: entire content is JSON
+    # --- 1) Fast path: whole string is JSON
     try:
         obj = json.loads(candidate)
         if isinstance(obj, dict):
@@ -56,7 +58,7 @@ def extract_json_from_text(text: str) -> Tuple[dict[str, Any] | None, str | None
 
     dec = json.JSONDecoder()
 
-    # Scan embedded JSON objects inside prose
+    # --- 2) Scan for embedded JSON objects inside prose
     for i, ch in enumerate(candidate):
         if ch != "{":
             continue
@@ -68,7 +70,7 @@ def extract_json_from_text(text: str) -> Tuple[dict[str, Any] | None, str | None
             fragment = candidate[i:end]
             return val, None, fragment
 
-    # Last resort: try decoding from first '{' with limited trimming at end
+    # --- 3) Last resort: trim tail progressively
     start = candidate.find("{")
     if start != -1:
         tail = candidate[start:]
@@ -84,3 +86,4 @@ def extract_json_from_text(text: str) -> Tuple[dict[str, Any] | None, str | None
                 return val, None, fragment
 
     return None, "no_json_object_found", candidate
+
