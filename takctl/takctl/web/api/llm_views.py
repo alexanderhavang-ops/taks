@@ -59,6 +59,26 @@ def _http_json(method: str, url: str, payload: dict[str, Any] | None = None, tim
         return 0, {"error": repr(e)}, "exception"
 
 
+def _extract_json_from_text(text: str) -> tuple[dict[str, Any] | None, str | None, str | None]:
+    """Extract first JSON object from arbitrary text.
+
+    Returns: (obj_or_none, err_or_none, candidate_or_none)
+    """
+    if not text:
+        return None, "empty_text", None
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None, "no_json_object_found", None
+
+    candidate = text[start:end + 1]
+    try:
+        return json.loads(candidate), None, candidate
+    except Exception as e:
+        return None, f"json_parse_failed: {e!r}", candidate
+
+
 def llm_status() -> dict[str, Any]:
     llm_url = _env("TAKS_LLM_URL", "http://127.0.0.1:8091")
     unit = _env("TAKS_LLM_SYSTEMD_UNIT", "llm-local.service")
@@ -158,6 +178,24 @@ def api_llm_plan(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[s
     # Expected OpenAI-ish response:
     # { choices: [ { text: "..." } ], ... }
     raw_text = None
+\
+    # Try to extract JSON from text (LLM often wraps JSON in prose/markdown)
+    extracted, extract_err, json_candidate = _extract_json_from_text(raw_text or "")
+    if extracted is not None:
+        # If we got JSON, treat this as LLM mode (no heuristic fallback)
+        return {
+            "blocks": [
+                {"type": "markdown", "title": "LLM Plan", "body": "Parsed JSON from LLM output."},
+                {"type": "json", "title": "LLM JSON", "body": extracted},
+            ],
+            "datasets": {},
+            "meta": {
+                "mode": "llm",
+                "view": view,
+                "llm_url": llm_url,
+            },
+        }
+
     if code == 200 and isinstance(data, dict):
         try:
             raw_text = ((data.get("choices") or [{}])[0] or {}).get("text")
