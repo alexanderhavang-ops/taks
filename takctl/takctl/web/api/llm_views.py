@@ -176,8 +176,21 @@ def api_llm_plan(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[s
         "POST",
         f"{llm_url}/v1/completions",
         req,
-        timeout_sec=20.0,
+        timeout_sec=60.0,
     )
+    # If urllib errored (timeout/connection reset/etc), _http_json returns code=0 and data={"error": "..."}
+    if code == 0:
+        detail = None
+        try:
+            if isinstance(data, dict):
+                detail = data.get("error") or data.get("body")
+        except Exception:
+            detail = None
+        reason = f"llm_exception err={err}"
+        if detail:
+            reason += f" detail={detail}"
+        return _placeholder_plan(view, llm_url, reason, raw_text=None)
+
 
     raw_text = None
     if code == 200 and isinstance(data, dict):
