@@ -1,12 +1,24 @@
 # orchestrator-installer
 
-Installs the **taks orchestrator** on an Ubuntu 22.04 EC2 instance.
+Installs and converges the **taks orchestrator master** on Ubuntu 22.04.
+
+This includes:
+- nginx (ports 80/443)
+- Let’s Encrypt (HTTP-01)
+- orchestrator backend service
+- runtime state directory
+
+---
 
 ## DNS
 
-Supports both **static DNS** (manual A/AAAA records) and **cloud-scoped DNS** (e.g., Route53 for orchestration). Route53 is only needed for automated provisioning.
+Supports both:
+- **Static DNS** (manual A/AAAA)
+- **Cloud-scoped DNS** (e.g. Route53)
 
-### Example FQDNs:
+Route53 is **optional** and only required for automated provisioning.
+
+### Example FQDNs
 - `master.tak-hv-sandbox.se`
 - `master.aws.tak-hv-sandbox.se`
 
