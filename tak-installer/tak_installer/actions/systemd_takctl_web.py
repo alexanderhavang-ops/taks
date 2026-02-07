@@ -160,12 +160,12 @@ class _Action:
             return 1
 
         expected_apply_ts = _read_apply_ts_from_state()
-
-        # DEBUG: allow deterministic mismatch testing
-        dbg = float(os.environ.get("TAKS_DEBUG_SLEEP_BEFORE_HEALTH", "0") or "0")
-        if dbg > 0:
-            print(f"debug: sleeping {dbg:.1f}s before health check")
-            time.sleep(dbg)
+        # DEBUG: allow deterministic mismatch testing (must opt-in)
+        if os.environ.get("TAKS_DEBUG", "") == "1":
+            dbg = float(os.environ.get("TAKS_DEBUG_SLEEP_BEFORE_HEALTH", "0") or "0")
+            if dbg > 0:
+                print(f"debug: sleeping {dbg:.1f}s before health check")
+                time.sleep(dbg)
 
         print(f"Applying systemd unit: {UNIT_NAME}")
         try:
