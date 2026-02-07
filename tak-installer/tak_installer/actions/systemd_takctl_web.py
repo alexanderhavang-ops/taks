@@ -72,11 +72,11 @@ def _http_get_json(url: str, timeout_sec: float = 1.5) -> tuple[int, Any, str | 
 
 
 def _wait_listen_8080(deadline_sec: float) -> bool:
-    # Avoid races after restart. Use ss (same as your manual checks).
+    # Avoid races after restart. Query only :8080 to avoid false positives.
     end = time.time() + float(deadline_sec)
     while time.time() < end:
-        rc, out = _run(["ss", "-ltnp"])
-        if rc == 0 and ":8080" in out:
+        rc, out = _run(["ss", "-H", "-ltnp", "sport = :8080"])
+        if rc == 0 and out.strip():
             return True
         time.sleep(0.10)
     return False
