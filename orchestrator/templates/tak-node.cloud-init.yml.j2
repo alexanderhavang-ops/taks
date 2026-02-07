@@ -13,5 +13,13 @@ write_files:
       FQDN={{ fqdn }}
       ROLE=tak-node
 
+  - path: /etc/taks/orchestrator.env
+    permissions: "0600"
+    content: |
+      ORCH_API_URL={{ orch_api_url }}
+      ORCH_API_USER={{ orch_api_user }}
+      ORCH_API_PASSWORD={{ orch_api_password }}
+
 runcmd:
   - [ bash, -lc, "echo taks cloud-init ok > /var/log/taks-cloud-init.ok" ]
+
