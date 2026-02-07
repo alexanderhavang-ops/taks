@@ -1,3 +1,34 @@
+// __TAKCTL_SPLASH_DEBUG
+function __dbg(...a){ try{ console.log("[splash]", ...a); }catch(_){} }
+function __fatal(msg){
+  try{
+    console.error("[splash fatal]", msg);
+    var el=document.getElementById("__splash_fatal");
+    if(!el){
+      el=document.createElement("div");
+      el.id="__splash_fatal";
+      el.style.position="fixed";
+      el.style.left="12px";
+      el.style.right="12px";
+      el.style.top="12px";
+      el.style.zIndex="2147483647";
+      el.style.padding="12px";
+      el.style.borderRadius="12px";
+      el.style.background="rgba(160,0,0,0.85)";
+      el.style.color="#fff";
+      el.style.font="12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+      document.body.appendChild(el);
+    }
+    el.textContent = String(msg || "unknown");
+  }catch(_){}
+}
+window.addEventListener("error", e => __fatal("window.error: " + ((e && e.message) || e)));
+window.addEventListener("unhandledrejection", e => __fatal("unhandledrejection: " + ((e && e.reason && (e.reason.stack||e.reason.message)) || e.reason || e)));
+
+__dbg("loaded", { href: location.href });
+try{ __dbg("whoami cookie?", document.cookie.includes("takctl_session")); }catch(_){}
+
+
 (function(){
   async function fetchText(url){
     try{
@@ -22,12 +53,14 @@
 
   function showSplash(){
     document.body.classList.add("__splash_on");
+__dbg("add __splash_on");
     const root = document.getElementById("__splash");
     if(root) root.style.display = "block";
   }
 
   function hideSplash(){
-    document.body.classList.remove("__splash_on");
+    __dbg("remove __splash_on");
+document.body.classList.remove("__splash_on");
     const root = document.getElementById("__splash");
     if(root) root.style.display = "none";
   }

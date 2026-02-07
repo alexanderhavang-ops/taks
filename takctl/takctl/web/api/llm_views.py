@@ -1,240 +1,139 @@
 from __future__ import annotations
 
-import json
-import os
-from pathlib import Path
-from typing import Any, Tuple
+from typing import Any
 
 from fastapi import APIRouter, Body
 
-
-from takctl.services.llm_extract import (
-    extract_json_from_text as _extract_json_from_text,
-    strip_code_fences as _strip_code_fences,
-)
+from takctl.services.llm import llm_status
+from takctl.services.llm_http import http_post_json
+from takctl.services.llm_planner import plan_with_tools
+from takctl.services.snapshots.tactical import build_tactical_snapshot
 
 router = APIRouter(prefix="/api/llm", tags=["llm"])
-
-
-# -----------------------------------------------------------------------------
-# Helpers
-# -----------------------------------------------------------------------------
-
-def _env(name: str, default: str) -> str:
-    v = (os.environ.get(name) or "").strip()
-    return v or default
-
-
-def _read_prompt_pack(view: str) -> dict[str, str]:
-    """
-    Read prompt pack from deployed runtime path (installer-owned output).
-    Required files:
-      - system.txt
-      - user.txt
-    """
-    root = Path("/opt/tak/tools/takctl/llm/prompt-packs") / view
-    system_txt = (root / "system.txt").read_text(encoding="utf-8")
-    user_txt = (root / "user.txt").read_text(encoding="utf-8")
-    return {
-        "system": system_txt.strip(),
-        "user": user_txt.strip(),
-        "path": str(root),
-    }
-
-
-def _http_json(
-    method: str,
-    url: str,
-    payload: dict[str, Any] | None = None,
-    timeout_sec: float = 12.0,
-) -> tuple[int, Any, str | None]:
-    import urllib.request
-    import urllib.error
-
-    data = None
-    headers = {"Accept": "application/json"}
-    if payload is not None:
-        data = json.dumps(payload).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=timeout_sec) as r:
-            code = int(getattr(r, "status", 200))
-            raw = r.read().decode("utf-8", "replace").strip()
-            if not raw:
-                return code, None, None
-            try:
-                return code, json.loads(raw), None
-            except Exception:
-                return code, raw, "non_json_response"
-    except urllib.error.HTTPError as e:
-        body = None
-        try:
-            body = e.read().decode("utf-8", "replace").strip()
-        except Exception:
-            pass
-        return int(e.code), {"error": str(e), "body": body}, "http_error"
-    except Exception as e:
-        return 0, {"error": repr(e)}, "exception"
-
-
-
-def _placeholder_plan(view: str, llm_url: str, reason: str, raw_text: str | None = None) -> dict[str, Any]:
-    blocks = [
-        {
-            "type": "markdown",
-            "title": "LLM Plan",
-            "body": "LLM unavailable or returned invalid JSON. This is a placeholder plan.",
-        }
-    ]
-    if raw_text:
-        blocks.append(
-            {
-                "type": "markdown",
-                "title": "LLM Raw Output",
-                "body": raw_text,
-            }
-        )
-
-    return {
-        "blocks": blocks,
-        "datasets": {},
-        "meta": {
-            "mode": "heuristic",
-            "view": view,
-            "llm_url": llm_url,
-            "fallback_reason": reason,
-        },
-    }
 
 
 # -----------------------------------------------------------------------------
 # Status
 # -----------------------------------------------------------------------------
 
-def llm_status() -> dict[str, Any]:
-    llm_url = _env("TAKS_LLM_URL", "http://127.0.0.1:8090")
-    unit = "llm-local.service"
-
-    code, data, err = _http_json("GET", f"{llm_url}/health", None, timeout_sec=2.0)
-    if code == 200:
-        return {
-            "health": {"ok": True},
-            "url": llm_url,
-            "systemd_unit": unit,
-        }
-
-    return {
-        "health": {"ok": False, "error": "unreachable", "detail": str(data or err)},
-        "url": llm_url,
-        "systemd_unit": unit,
-    }
-
-
 @router.get("/status")
 def api_llm_status() -> dict[str, Any]:
-    return llm_status()
+    # single source of truth (same as CLI uses)
+    return llm_status(None)
 
 
 # -----------------------------------------------------------------------------
-# Plan generation
+# Fast dev loop: "any prompt" chat (no tools, no schema, just raw model behavior)
 # -----------------------------------------------------------------------------
 
-@router.post("/plan")
-def api_llm_plan(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+@router.post("/chat")
+def api_llm_chat(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
     """
-    Generate a plan using llama.cpp via /v1/completions.
-    """
-    view = (payload.get("view") or "tactical-operations").strip()
-    model = (payload.get("model") or "local-small").strip()
-    max_tokens = int(payload.get("max_tokens") or 256)
+    Development-speed endpoint.
 
-    status = llm_status()
-    llm_url = status.get("url")
+    Sends a raw prompt to llama.cpp /v1/completions and returns raw text.
+    This is intentionally NOT a planner and NOT a renderplan.
+    """
+    status = llm_status(None)
+    llm_url = (status.get("url") or "http://127.0.0.1:8090").rstrip("/")
 
     if not bool((status.get("health") or {}).get("ok")):
-        return _placeholder_plan(view, llm_url, f"llm_unreachable {status.get('health')}")
+        return {
+            "ok": False,
+            "error": "llm_unreachable",
+            "detail": status.get("health"),
+            "llm_url": llm_url,
+        }
 
-    pack = _read_prompt_pack(view)
+    prompt = str(payload.get("prompt") or "").strip()
+    if not prompt:
+        return {"ok": False, "error": "missing_prompt"}
 
-    prompt = (
-        pack["system"]
-        + "\n\n"
-        + pack["user"]
-        + "\n\nReturn ONLY valid JSON."
-    )
+    model = str(payload.get("model") or "local-small").strip()
+    max_tokens = int(payload.get("max_tokens") or 256)
+    temperature = float(payload.get("temperature") or 0.0)
 
     req = {
         "model": model,
         "prompt": prompt,
         "max_tokens": max_tokens,
+        "temperature": temperature,
         "stream": False,
     }
 
-    code, data, err = _http_json(
-        "POST",
-        f"{llm_url}/v1/completions",
-        req,
-        timeout_sec=60.0,
-    )
-    # If urllib errored (timeout/connection reset/etc), _http_json returns code=0 and data={"error": "..."}
-    if code == 0:
-        detail = None
+    code, body, err = http_post_json(f"{llm_url}/v1/completions", req, timeout_sec=60.0)
+
+    raw_text = ""
+    if code == 200 and isinstance(body, dict):
         try:
-            if isinstance(data, dict):
-                detail = data.get("error") or data.get("body")
+            raw_text = str(((body.get("choices") or [{}])[0] or {}).get("text") or "")
         except Exception:
-            detail = None
-        reason = f"llm_exception err={err}"
-        if detail:
-            reason += f" detail={detail}"
-        return _placeholder_plan(view, llm_url, reason, raw_text=None)
+            raw_text = ""
+
+    return {
+        "ok": bool(code == 200),
+        "http": code,
+        "error": err,
+        "llm_url": llm_url,
+        "model": model,
+        "text": raw_text,
+        "raw": body if isinstance(body, dict) else {"body": body},
+    }
 
 
-    raw_text = None
-    if code == 200 and isinstance(data, dict):
-        try:
-            raw_text = ((data.get("choices") or [{}])[0] or {}).get("text")
-        except Exception:
-            raw_text = None
+# -----------------------------------------------------------------------------
+# Planner: tool-iterative planning (db.query) -> final RenderPlan
+# -----------------------------------------------------------------------------
 
-    extracted, extract_err, candidate = _extract_json_from_text(raw_text or "")
-    if extracted is not None:
-        return {
-            "blocks": [
-                {"type": "markdown", "title": "LLM Plan", "body": "Parsed JSON from LLM output."},
-                {"type": "json", "title": "LLM JSON", "body": extracted},
-            ],
-            "datasets": {},
-            "meta": {
-                "mode": "llm",
-                "view": view,
-                "llm_url": llm_url,
-            },
-        }
+@router.post("/plan")
+def api_llm_plan(payload: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
+    """
+    Generate a RenderPlan using the tool-iterative planner.
 
-    return _placeholder_plan(
-        view,
-        llm_url,
-        f"llm_output_not_json err={extract_err}",
-        raw_text=candidate,
+    Input is a snapshot bundle (deterministic input).
+    Output is a RenderPlan (stable output contract).
+    """
+    view = str(payload.get("view") or "tactical-operations").strip()
+
+    # Snapshot can be provided by caller (tests) or built here in view endpoints.
+    snapshot = payload.get("snapshot")
+    if not isinstance(snapshot, dict):
+        snapshot = {"ts_utc": None, "notes": ["missing snapshot"], "postgres": {}}
+
+    model = str(payload.get("model") or "local-small").strip()
+    max_iters = int(payload.get("max_iters") or 6)
+    max_tokens = int(payload.get("max_tokens") or 450)
+
+    return plan_with_tools(
+        view=view,
+        snapshot=snapshot,
+        model=model,
+        max_iters=max_iters,
+        max_tokens=max_tokens,
     )
 
 
 # -----------------------------------------------------------------------------
-# Tactical view (stub)
+# Tactical view: snapshot + planner -> final RenderPlan (UI renders blocks)
 # -----------------------------------------------------------------------------
 
 @router.post("/views/tactical")
 def api_llm_view_tactical() -> dict[str, Any]:
-    s = llm_status()
-    return {
-        "view": "tactical-operations",
-        "engine": "local",
-        "reachable": bool((s.get("health") or {}).get("ok")),
-        "summary": "not implemented",
-        "inputs": {"ok": True, "note": "snapshot not wired yet"},
-        "llm": s,
-    }
+    """
+    End-to-end tactical view:
+      - Build snapshot (bounded, deterministic)
+      - Run tool-iterative planner against DB
+      - Return final RenderPlan (what CLI + Web both render)
+    """
+    snapshot = build_tactical_snapshot()
+
+    plan = plan_with_tools(
+        view="tactical-operations",
+        snapshot=snapshot,
+        model="local-small",
+        max_iters=6,
+        max_tokens=450,
+    )
+
+    return plan
 

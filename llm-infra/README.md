@@ -1,456 +1,222 @@
 > ⚠️ Installer-owned subsystem
 >
-> Everything under `llm-infra/` is deployed, enabled, or disabled via `tak-installer apply`.
-> Manual changes are transient and may be overwritten.
+> Everything under `llm-infra/` is deployed, enabled, or disabled via
+> `tak-installer apply`.
+>
+> Manual runtime changes are transient and may be overwritten.
 
 # takctl – LLM subsystem
 
-This directory defines the **LLM subsystem of takctl**.
+This directory defines the **LLM subsystem infrastructure** for `takctl`
+(CLI + web backend + web UI).
 
-It is not a standalone product and not an experiment.
-It is part of the takctl architecture and follows the same model:
+This is **not a standalone product** and **not a chatbot**.
 
-- Backend services
-- CLI frontend
-- Web frontend
-- Installer-managed deployment
-- Optional ATAK integration
+The LLM subsystem is a **planner and reasoning component** used by takctl
+to generate structured, read-only insights over TAK Server data.
 
-The LLM subsystem provides AI-assisted operational views over TAK Server data.
+---
 
+## What the LLM is (and is not)
 
-## Position in the overall system
+### The LLM **is**
+- A **planning engine**
+- A **query proposer**
+- A **summarizer** over structured results
+- Stateless between requests (unless explicitly provided context)
 
-takctl consists of:
-- A Python backend (services + domain logic)
-- A CLI frontend
-- A Web frontend (FastAPI + UI)
-- Optional ATAK-facing APIs
+### The LLM **is not**
+- A database client
+- A renderer
+- A source of truth
+- An executor
+- A privileged component
 
-The LLM subsystem is **one capability of takctl**, not a separate tool.
+The LLM is treated as **untrusted input**.
 
-Deployment and lifecycle are owned by:
-- `tak-installer apply`
+All effects are mediated by takctl.
 
+---
 
-## LLM execution models
+## Core execution model
 
-takctl supports **two LLM execution modes**, both optional and explicitly configured.
+All LLM-backed functionality in takctl follows the same deterministic loop:
 
-### 1) Local on-node LLM (default)
+1. User intent (CLI command, web view, or API call)
+2. System prompt + schema + context are constructed by takctl
+3. LLM returns **strict JSON only**
+4. JSON is validated against a protocol
+5. If SQL is proposed:
+   - SQL is validated (read-only, single statement)
+   - SQL is executed by takctl
+6. Results are returned to the LLM as JSON
+7. LLM returns a final structured answer
+8. takctl renders the result (CLI or Web)
 
-Every tak-node may run a **local LLM**:
+At no point does the LLM:
+- execute SQL
+- see credentials
+- control rendering
+- modify system state
 
-- Runs on the same machine as the TAK Server
-- Uses llama.cpp (or equivalent)
-- No external connectivity required
-- Works fully offline / air-gapped
-- Lower capacity, but always available
+---
 
-This model guarantees that:
-- takctl LLM features still work in offline environments
-- No cloud dependency is assumed
+## Strict JSON protocol
 
+All LLM responses **must** be valid JSON.
 
-### 2) Remote LLM (optional)
+- No prose
+- No markdown
+- No code fences
+- No side-channel text
 
-Optionally, takctl may use a **remote, more powerful LLM**:
+Invalid responses are rejected and retried.
 
-- Runs on a separate host (e.g. EC2 with GPU)
-- Reachable from the tak-node over the network
-- Explicitly enabled by configuration
-- Can replace or augment the local LLM
+### Protocol versioning
 
-Typical use cases:
-- Heavier summarization
-- Larger context windows
-- Interactive admin chat
+LLM responses include a protocol version, e.g.:
 
-The system does **not** assume EC2.
-The remote LLM may be:
-- Cloud-based
-- On-prem
-- Another offline machine on a restricted network
+```json
+{
+  "protocol": "taks.llm.agent.v1",
+  "action": "query | final | clarify",
+  "sql": "SELECT ...",
+  "answer": "string",
+  "title": "string | null",
+  "render": null
+}
 
+The protocol is enforced by takctl, not the model.
 
-## LLM-backed views in takctl
+SQL mediation (read-only)
 
-The LLM is not a general chatbot by default.
-It is used to power **specific operational views**.
+The LLM may propose SQL queries as part of its reasoning.
 
-Initial planned views:
+Rules enforced by takctl:
 
-### 1) Tactical Operations
+Query must start with SELECT or WITH
 
-Purpose:
-- Analyze tactical data produced by TAK usage
+Single statement only
 
-Typical inputs:
-- Missions
-- Chats
-- CoT messages
-- Unit positions
-- Activity timelines
-- Selected logs
+No ;
 
-Outputs:
-- Situation summaries
-- Detected patterns or anomalies
-- Operational recommendations
+No mutations
 
-This view is read-only and advisory.
+LIMIT is enforced by the system
 
+The LLM never connects to the database directly.
 
-### 2) Operational Security
+Schema handling
 
-Purpose:
-- Summarize the **security posture** of the TAK Server node
+The LLM is not expected to rediscover the schema on every request.
 
-Typical inputs:
-- Certificates and expiry
-- CRL status
-- Connected clients
-- Users and groups
-- Authentication events
-- Suspicious or anomalous log entries
+takctl provides:
 
-Outputs:
-- Security summary
-- Warnings and risk indicators
-- Suggested remediation actions
+table names
 
-This view complements, but does not replace, explicit security controls.
+column names
 
+basic relationships
 
-### 3) System Health
+bounded result windows
 
-Purpose:
-- Provide a high-level health overview of the node
+Schema snapshots may be cached and versioned.
 
-Typical inputs:
-- CPU, memory, disk
-- Service restarts
-- OOM events
-- Error logs
-- Installer state
-- Recent failures
+Views are presets, not special cases
 
-Outputs:
-- Health summary
-- Degradation indicators
-- Clear “what to look at next” guidance
+“Tactical Operations”, “Operational Security”, “System Health”, etc. are
+not separate execution models.
 
+They are:
 
-### 4) (Optional) Admin Chat
+predefined prompts
 
-Optional interactive mode:
+predefined schema subsets
 
-- Natural-language interface for administrators
-- Queries routed through takctl services
-- Typically enabled only when a remote LLM is configured
+predefined renderers
 
-Examples:
-- “Why is this node marked yellow?”
-- “Which clients failed auth today?”
-- “What changed since yesterday?”
+All views use the same agent loop.
 
-This is explicitly **not required** for core operation.
+CLI and Web parity
 
+The same backend logic powers:
 
-## Frontends
+CLI (takctl llmchat, future view commands)
 
-All LLM-backed views are exposed through the same interfaces as the rest of takctl:
+Web UI
 
-- **CLI**
-- **Web UI**
-- **Future ATAK plugin**
+Future ATAK integration
 
 No LLM-only UI is introduced.
 
+Rendering differs, execution does not.
 
-## Installer ownership
+Execution modes
 
-The LLM subsystem is installer-managed.
+takctl supports multiple LLM backends.
+
+Local LLM (default)
+
+Runs on-node
+
+Offline / air-gapped
+
+Lower capacity
+
+Always available
+
+Remote LLM (optional)
+
+Explicitly configured
+
+Higher capacity
+
+Network-dependent
+
+Optional augmentation
+
+The system never assumes cloud connectivity.
+
+Installer ownership
 
 The installer is responsible for:
-- Deploying local LLM binaries if enabled
-- Installing systemd units
-- Wiring nginx proxying if needed
-- Ensuring correct permissions and isolation
-- Enabling or disabling remote LLM usage
+
+Deploying LLM binaries
+
+Managing systemd units
+
+Wiring nginx proxying
+
+Enabling/disabling LLM usage
+
+Ensuring isolation and permissions
 
 Manual setup is unsupported and non-durable.
 
+Non-goals
 
-## Offline-first design
+Explicitly out of scope:
 
-takctl LLM features are designed with the same constraints as TAK itself:
+Write access
 
-- Offline operation is first-class
-- No cloud dependency is assumed
-- All remote functionality is opt-in
+User management
 
-If a node is offline:
-- Local LLM continues to work
-- Remote LLM is simply unavailable
-- No feature silently degrades without being reported
-## Deterministic node validation (2026-02-02)
+Certificate management
 
-When diagnosing node reachability, prefer tests that do not rely on external DNS state.
+Autonomous actions
 
-For nginx vhosts, you can force SNI+Host to the node FQDN while connecting to localhost using:
+Persistent conversational memory
 
-- `curl --resolve "<FQDN>:443:127.0.0.1" https://<FQDN>/takctl/api/health`
-- `curl --resolve "<FQDN>:8446:127.0.0.1" https://<FQDN>:8446/Marti/api/version`
+Those remain owned by TAK / Marti / takctl core services.
 
-This is the same technique used by tak-installer smoketests and is resilient to stale DNS caches.
+Status
 
-# LLM subsystem: config vs runtime state vs dynamic execution
+Deterministic agent loop implemented
 
-This document clarifies **ownership, lifecycle, and mutability** of data and behavior
-in the takctl LLM subsystem.
+Strict JSON protocol enforced
 
-The goal is to ensure:
-- CLI and Web share the same backend
-- Installer remains authoritative
-- User intent is editable without code changes
-- LLM behavior is bounded, auditable, and replaceable
+SQL guard implemented
 
----
+CLI development loop (llmchat) active
 
-## Mental model
-
-There are **three layers**, each with a different owner and lifetime:
-
-1. **Config** – operator / user intent  
-2. **Runtime state** – durable system assets and data  
-3. **Dynamic execution** – per-request, ephemeral computation  
-
-Keeping these separate is critical to avoid brittleness and accidental coupling.
-
----
-
-## 1) Config (operator & user intent)
-
-**Config answers:** *“What should the system do?”*
-
-Config is:
-- editable without code changes
-- expected to survive `tak-installer apply`
-- intentionally small and human-readable
-- safe to version
-
-### LLM-related config examples
-
-#### Global LLM behavior
-- `llm_enabled = true|false`
-- `llm_mode = local | remote | hybrid`
-- `llm_url = http://127.0.0.1:8090` (broker endpoint, not model runtime)
-- model selection policy (default / fallback)
-- timeouts and budgets:
-  - max planner iterations
-  - max SQL rows per query
-  - max total execution time
-
-#### View-level config
-- which views are enabled (`tactical`, `opsec`, `health`)
-- data windows (e.g. last 6h / 24h)
-- sampling limits
-- redaction rules
-- whether traces are exposed to the user
-
-#### Prompt packs (user-editable)
-Prompt packs describe **intent**, not data or layout.
-
-They are:
-- view-specific
-- editable via UI
-- durable until changed
-- versioned
-
-Example (Tactical Operations):
-
-```text
-SYSTEM PROMPT:
-You are assisting a TAK server operator.
-Your task is to summarize tactical information clearly and conservatively.
-Prioritize correctness and alerts over speculation.
-
-USER PROMPT:
-Summarize the tactical situation for friendly and known enemy units.
-Highlight alerts and anomalies first.
-Provide recommendations only when confidence is high.
-
-For friendly units, consider:
-- location
-- current and recent missions
-- mission status
-- troop count
-- stridsvärde
-- stridsberedskap
-- wounded personnel
-- supply status
-
-For enemy units, summarize only what is supported by data.
-Avoid speculation.
-Where config lives
-Defaults: takctl.conf.example
-
-Runtime config: /opt/tak/tools/takctl/takctl.conf
-
-User-edited prompt packs:
-
-small DB table or
-
-versioned JSON/YAML files under installer-preserved runtime path
-
-2) Runtime state (durable system state)
-Runtime state answers: “What do we have installed or saved?”
-
-Runtime state:
-
-is not source code
-
-is not user intent
-
-should not be wiped by redeploys
-
-changes only when an operator or orchestrator acts
-
-Examples in the LLM subsystem
-Local model payloads
-/opt/llm/models/*.gguf
-
-Uploaded UI assets (logos, slogans)
-
-Installed certificates and CRLs
-
-Rendered nginx and systemd units
-
-TAK database contents
-
-Any persistent caches or indexes that survive restarts
-
-Rule of thumb:
-
-If losing it during tak-installer apply would be unacceptable,
-it is runtime state and must live in an installer-preserved path.
-
-Runtime state may change over time, but it is still not “dynamic execution”.
-
-3) Dynamic execution (per request, ephemeral)
-Dynamic execution answers: “What is true right now, and what did we compute?”
-
-This layer is:
-
-request-scoped
-
-reproducible
-
-discardable
-
-optionally cacheable (with TTL)
-
-Examples
-Tactical snapshot collected now
-
-Database discovery results
-
-Planner iterations and retries
-
-LLM tool calls
-
-Final view output
-
-Streaming tokens / partial results
-
-Nothing here should be relied on across restarts.
-
-Snapshot → Plan → Render model
-To keep CLI and Web identical at the backend level, views follow this flow:
-
-1) Snapshot (deterministic input)
-A bounded, structured snapshot of available data.
-
-versioned schema
-
-explicit limits
-
-provenance included
-
-safe to log
-
-Example:
-
-json
-Copy code
-{
-  "schema_version": "taks.snapshot.tactical.v1",
-  "ts_utc": "...",
-  "postgres": {
-    "discovery": {...},
-    "latest_activity": [...]
-  }
-}
-2) Planner (LLM or heuristic)
-Transforms snapshot + config into a RenderPlan.
-
-may iterate
-
-may request more data
-
-bounded by config
-
-fully auditable via tool traces
-
-no reliance on hidden chain-of-thought
-
-3) RenderPlan (stable output contract)
-The only thing CLI and Web render.
-
-UI-agnostic
-
-declarative
-
-versioned
-
-Example:
-
-json
-Copy code
-{
-  "schema_version": "taks.renderplan.v1",
-  "view": "tactical-operations",
-  "meta": { "mode": "llm", "model": "local-small" },
-  "datasets": { ... },
-  "blocks": [
-    { "type": "header", "title": "Tactical Operations" },
-    { "type": "alerts", "dataset": "alerts" },
-    { "type": "table", "dataset": "units" }
-  ]
-}
-CLI maps blocks → Rich.
-Web maps blocks → React components.
-
-Why this separation matters
-Installer remains authoritative
-
-LLMs can fail without breaking views
-
-Heuristic fallback is always possible
-
-UI can evolve independently of backend logic
-
-Remote and local LLMs are interchangeable
-
-No hidden reasoning is required or stored
-
-One-sentence rules
-Config: what we want the system to do
-
-Runtime state: what is installed or saved
-
-Dynamic execution: what we computed right now
-
-If these boundaries stay clean, the system remains understandable,
-debuggable, and safe to evolve.
+View presets in progress

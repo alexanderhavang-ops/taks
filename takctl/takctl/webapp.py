@@ -1,5 +1,6 @@
 from __future__ import annotations
 from takctl.web.subsystems import load_subsystems, get_subsystems_status
+from takctl.api.onboarding import router as onboarding_router
 
 import hmac
 import json
@@ -187,7 +188,7 @@ async def login(req: Request):
     res = check_userauthfile(username, password)
 
     if not res.ok:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        raise HTTPException(status_code=401, detail=f"Invalid credentials ({(res.error or '')[:160]})")
 
     sess = {"u": username, "exp": int(time.time() + SESSION_TTL)}
     token = _sign(sess)
@@ -216,3 +217,5 @@ app.include_router(meta_router)
 # Preferred API namespace:
 app.include_router(health_router, prefix="/api")
 app.include_router(meta_router, prefix="/api")
+app.include_router(onboarding_router)
+app.include_router(onboarding_router, prefix="/api")
