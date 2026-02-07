@@ -116,6 +116,12 @@ class Config:
         if self.db_mode not in ("psql_sudo", "psycopg2"):
             raise ValueError(f"Invalid db_mode={self.db_mode!r} (expected 'psql_sudo' or 'psycopg2')")
 
+        # Guardrail: psycopg2 mode is used by the WebUI/backend and needs credentials.
+        # If this trips, you're likely accidentally constructing Config() defaults
+        # instead of calling load_config() (which loads secrets/db.env + takctl.conf).
+        if self.db_mode == "psycopg2" and not self.db_password:
+            raise ValueError("psycopg2 requires db_password (use load_config(); ensure secrets/db.env or takctl.conf provides it)")
+
         # required paths
         for label, p in (
             ("coreconfig_path", self.coreconfig_path),

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import os
 from pathlib import Path
 
@@ -9,6 +11,20 @@ from takctl.deps import get_ctx
 
 router = APIRouter()
 
+APPLY_JSON = Path("/opt/tak/takctl-state/apply.json")
+
+
+def _read_apply_ts_utc() -> str | None:
+    try:
+        raw = APPLY_JSON.read_text(encoding="utf-8").strip()
+        if not raw:
+            return None
+        data = json.loads(raw)
+        v = (data.get("apply_ts_utc") if isinstance(data, dict) else None)
+        return str(v) if v else None
+    except Exception:
+        return None
+
 
 @router.get("/health")
 def health() -> dict:
@@ -17,6 +33,7 @@ def health() -> dict:
     core = Path(getattr(ctx.cfg, "coreconfig_path", ""))
     out = {
         "status": "ok",
+        "apply_ts_utc": _read_apply_ts_utc(),
         "coreconfig_path": str(core),
         "coreconfig_exists": core.exists(),
         "coreconfig_readable": os.access(str(core), os.R_OK) if str(core) else False,
