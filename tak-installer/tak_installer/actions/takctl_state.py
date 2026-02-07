@@ -1,66 +1,73 @@
 from __future__ import annotations
 
-import os
-import pwd
-import grp
+import json
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
-from tak_installer.util import log
 
+from tak_installer.engine import Context
+from tak_installer.log import get_logger
+
+log = get_logger(__name__)
 
 STATE_ROOT = Path("/opt/tak/takctl-state")
-ONBOARDING_DIR = STATE_ROOT / "onboarding"
-ONBOARDING_USERS_DIR = ONBOARDING_DIR / "users"
+
+# Installer-owned state files (safe to overwrite each apply)
+APPLY_JSON = STATE_ROOT / "apply.json"
 
 
-def _chown(path: Path, user: str, group: str) -> None:
-    uid = pwd.getpwnam(user).pw_uid
-    gid = grp.getgrnam(group).gr_gid
-    os.chown(path, uid, gid)
+def _utc_now_iso() -> str:
+    # Wall-clock token (UTC). Good enough for same-host verification.
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def apply(ctx) -> None:
+def _write_apply_token(ctx: Context) -> str:
+    ts = _utc_now_iso()
+    payload = {"apply_ts_utc": ts}
+    tmp = APPLY_JSON.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(payload, separators=(",", ":")) + "\n", encoding="utf-8")
+    tmp.replace(APPLY_JSON)
+    log.info("takctl-state: wrote apply token %s -> %s", ts, APPLY_JSON)
+    return ts
+
+
+@dataclass
+class TakctlStateAction:
     """
-    Create takctl runtime state directories (installer-owned).
+    Ensures installer-owned runtime state directories exist.
 
+    Contract:
       /opt/tak/takctl-state/
       /opt/tak/takctl-state/onboarding/
       /opt/tak/takctl-state/onboarding/users/
 
-    Write model:
-      - owner: tak:tak
-      - mode: 0770 (so admins in group 'tak' can write)
+    Also writes an apply token (wall clock UTC) at:
+      /opt/tak/takctl-state/apply.json
     """
-    user = "tak"
-    group = "tak"
-    mode = 0o770
 
-    log.info("takctl-state: ensuring runtime state directories exist")
-    log.info(f"  state_root: {STATE_ROOT}")
-    log.info(f"  onboarding: {ONBOARDING_DIR}")
-    log.info(f"  users:     {ONBOARDING_USERS_DIR}")
-    log.info(f"  owner: {user}:{group} mode={oct(mode)}")
+    def inspect(self, ctx: Context) -> int:
+        # Always "ok"; directories may or may not exist yet.
+        return 0
 
-    for d in (STATE_ROOT, ONBOARDING_DIR, ONBOARDING_USERS_DIR):
-        d.mkdir(parents=True, exist_ok=True)
-        _chown(d, user, group)
-        d.chmod(mode)
+    def apply(self, ctx: Context) -> int:
+        log.info("takctl-state: ensuring runtime state directories exist")
+        (STATE_ROOT / "onboarding" / "users").mkdir(parents=True, exist_ok=True)
 
-    log.info("takctl-state: ready")
+        # Apply token written every apply, after dirs exist.
+        _write_apply_token(ctx)
 
-
-class _Action:
-    ID = "takctl-state"
-
-    def inspect(self, ctx) -> int:
-        print(f"Inspecting {self.ID} action...")
-        ok = STATE_ROOT.exists() and ONBOARDING_DIR.exists() and ONBOARDING_USERS_DIR.exists()
-        return 0 if ok else 1
-
-    def apply(self, ctx) -> int:
-        print(f"Applying {self.ID} action...")
-        apply(ctx)
+        log.info("takctl-state: ready")
         return 0
 
 
-ACTION = _Action()
+class _Wrapper:
+    ID = "takctl-state"
 
+    def inspect(self, ctx: Context) -> int:
+        return TakctlStateAction().inspect(ctx)
+
+    def apply(self, ctx: Context) -> int:
+        return TakctlStateAction().apply(ctx)
+
+
+ACTION = _Wrapper()

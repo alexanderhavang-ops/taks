@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 from typing import Set, Tuple
+from pathlib import Path
 
 from takctl.config import Config
 
@@ -25,12 +26,12 @@ class OpenSSL:
     # ---------- Helpers ----------
 
     def gen_crl(self, out_crl_path: str) -> None:
-     self._run([
-         "openssl", "ca",
-         "-config", str(Path(self.cfg.ca_dir) / "openssl-crl.cnf"),
-         "-gencrl",
-         "-out", out_crl_path,
-     ])
+        self._run([
+            "openssl", "ca",
+            "-config", str(Path(self.cfg.ca_dir) / "openssl-crl.cnf"),
+            "-gencrl",
+            "-out", out_crl_path,
+        ])
 
     def _normalize_cert_to_pem(self, blob: str) -> str | None:
         """
