@@ -1,3 +1,5 @@
+/* element helper */
+const h = React.createElement;
 function App() {
   const [tab, setTab] = React.useState("users");
 

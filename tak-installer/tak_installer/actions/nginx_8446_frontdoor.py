@@ -9,6 +9,8 @@ from pathlib import Path
 from tak_installer.engine import Context
 from tak_installer.util import sha256_path, diff_text
 
+from tak_installer.runtime_state import get_fqdn
+
 
 def _run(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True)
@@ -42,10 +44,7 @@ class Nginx8446FrontdoorAction:
     template: Path
 
     def _fqdn(self, ctx: Context) -> str:
-        fqdn = (ctx.env.get("FQDN") or ctx.env.get("TAKS_FQDN") or "").strip()
-        if not fqdn:
-            raise RuntimeError("FQDN not set. Provide FQDN env var (or TAKS_FQDN).")
-        return fqdn
+        return get_fqdn(ctx)
 
     def _paths(self, fqdn: str) -> tuple[Path, Path]:
         name = f"tak-{fqdn}-enroll-8446.conf"  # canonical filename
