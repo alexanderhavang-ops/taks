@@ -19,15 +19,22 @@ input{width:100%;padding:10px;border-radius:10px;border:1px solid #1f2a4d;backgr
 .banner b{color:#fff}
 </style>
 </head>
+
 <body>
 <header>
   <div><b>taks-orchestrator</b> <span style="opacity:.7">master</span></div>
-  <div><a href="/openapi.json" target="_blank">openapi</a> &nbsp;|&nbsp; <a href="/logout">logout</a></div>
+  <div>
+    <a href="/openapi.json" target="_blank">openapi</a>
+    &nbsp;|&nbsp;
+    <a href="/logout">logout</a>
+  </div>
 </header>
 
 <div class="wrap">
 
-<div id="launch_banner" class="banner"><b>Launch disabled</b> — set <code>TAKS_LAUNCH_ENABLED=1</code> in defaults.env to enable node launches.</div>
+<div id="launch_banner" class="banner">
+  <b>Launch disabled</b> — set <code>TAKS_LAUNCH_ENABLED=1</code> in <code>defaults.env</code> to enable node launches.
+</div>
 
 <div class="card">
   <div style="display:flex;justify-content:space-between;align-items:center">
@@ -74,33 +81,37 @@ const statusOut = document.getElementById('status_out');
 const refreshBtn = document.getElementById('refresh');
 
 async function loadStatus(){
-  refreshBtn.disabled=true;
+  refreshBtn.disabled = true;
   try{
-    const r=await fetch('/api/v1/status');
-    statusOut.textContent = r.ok ? JSON.stringify(await r.json(),null,2)
-                                 : 'HTTP '+r.status+'\\n'+await r.text();
-  }catch(e){ statusOut.textContent=String(e); }
-  finally{ refreshBtn.disabled=false; }
-}
-refreshBtn.onclick=loadStatus;
-loadStatus();
+    const r = await fetch('/api/v1/status');
+    if(r.ok){
+      const j = await r.json();
+      statusOut.textContent = JSON.stringify(j, null, 2);
 
-async function probeLaunchGate(){
-  try{
-    const r = await fetch('/api/v1/nodes/launch',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(payload())
-    });
-    if(r.status === 403){
-      const b = document.getElementById('launch_banner');
-      if(b) b.style.display='block';
-      btn_launch.disabled = true;
-      btn_launch.title = 'Launch disabled (TAKS_LAUNCH_ENABLED=0)';
+      const enabled = (j && j.launch_enabled === true);
+      const banner = document.getElementById('launch_banner');
+
+      if(!enabled){
+        if(banner) banner.style.display = 'block';
+        btn_launch.disabled = true;
+        btn_launch.title = 'Launch disabled (TAKS_LAUNCH_ENABLED=0)';
+      }else{
+        if(banner) banner.style.display = 'none';
+        btn_launch.disabled = false;
+        btn_launch.title = '';
+      }
+    }else{
+      statusOut.textContent = 'HTTP ' + r.status + '\n' + await r.text();
     }
-  }catch(e){ /* ignore */ }
+  }catch(e){
+    statusOut.textContent = String(e);
+  }finally{
+    refreshBtn.disabled = false;
+  }
 }
-probeLaunchGate();
+
+refreshBtn.onclick = loadStatus;
+loadStatus();
 
 function payload(){
   return {
@@ -113,8 +124,8 @@ function payload(){
 }
 
 async function call(path){
-  nodes_plan.textContent='…';
-  nodes_ci.textContent='…';
+  nodes_plan.textContent = '…';
+  nodes_ci.textContent = '…';
   const r = await fetch(path,{
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -122,7 +133,7 @@ async function call(path){
   });
   const t = await r.text();
   if(!r.ok){
-    nodes_plan.textContent = 'HTTP ' + r.status + '\\n' + t;
+    nodes_plan.textContent = 'HTTP ' + r.status + '\n' + t;
     nodes_ci.textContent = '—';
     return;
   }
@@ -131,10 +142,11 @@ async function call(path){
   nodes_ci.textContent   = j.cloud_init ?? '—';
 }
 
-btn_preview.onclick=()=>call('/api/v1/nodes/preview');
-btn_dry.onclick=()=>call('/api/v1/nodes/dry-run');
-btn_launch.onclick=()=>call('/api/v1/nodes/launch');
+btn_preview.onclick = () => call('/api/v1/nodes/preview');
+btn_dry.onclick     = () => call('/api/v1/nodes/dry-run');
+btn_launch.onclick  = () => call('/api/v1/nodes/launch');
 </script>
 
 </body>
 </html>
+

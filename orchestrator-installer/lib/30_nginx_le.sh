@@ -110,6 +110,29 @@ le_cert_obtain(){
   fi
 
   log "Requesting LE cert for ${FQDN} (HTTP-01 via nginx on port 80)"
+
+  # Preflight: for HTTP-01 to work, FQDN must resolve to THIS host (otherwise LE hits someone else).
+  local my_ip=""
+  my_ip="$(curl -fsS https://ifconfig.me 2>/dev/null || true)"
+  if [[ -z "$my_ip" ]]; then
+    # fallback (sometimes blocked); best-effort only
+    my_ip="$(curl -fsS https://api.ipify.org 2>/dev/null || true)"
+  fi
+
+  local a_records=""
+  a_records="$(dig +short "${FQDN}" A 2>/dev/null | tr '\n' ' ' | xargs || true)"
+
+  if [[ -n "$my_ip" ]]; then
+    if [[ -z "$a_records" || " $a_records " != *" $my_ip "* ]]; then
+      die "LE HTTP-01 preflight failed: ${FQDN} does not resolve to this host.
+  this host public IP: ${my_ip}
+  ${FQDN} A records:   ${a_records:-<none>}
+Fix DNS (or use correct FQDN) before running certbot."
+    fi
+  else
+    log "WARN: could not determine public IP (ifconfig.me/ipify). Skipping DNS preflight for ${FQDN}."
+  fi
+
   certbot certonly --nginx \
     -d "${FQDN}" \
     --non-interactive --agree-tos \
@@ -123,3 +146,4 @@ nginx_reload_safe(){
   systemctl enable --now nginx
   systemctl reload nginx
 }
+

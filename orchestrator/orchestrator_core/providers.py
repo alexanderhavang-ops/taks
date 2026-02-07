@@ -13,7 +13,6 @@ from orchestrator_core.core import (
 
 
 def cloud() -> str:
-    # Explicit selection; easy to extend later.
     return (os.environ.get("TAKS_CLOUD") or "aws").strip().lower()
 
 
@@ -32,7 +31,6 @@ def dry_run_node(req: NodeRequest) -> Dict[str, Any]:
 
 
 def launch_node(req: NodeRequest) -> Dict[str, Any]:
-    # Safety gate: you must explicitly enable launch.
     if os.environ.get("TAKS_LAUNCH_ENABLED") != "1":
         raise RuntimeError("Launch disabled (set TAKS_LAUNCH_ENABLED=1 to enable)")
     c = cloud()
@@ -43,7 +41,13 @@ def launch_node(req: NodeRequest) -> Dict[str, Any]:
 
 def status_nodes() -> Dict[str, Any]:
     c = cloud()
+    launch_enabled = (os.environ.get("TAKS_LAUNCH_ENABLED") == "1")
+
     if c == "aws":
-        return aws_list_nodes()
+        out = aws_list_nodes()
+        if isinstance(out, dict):
+            out["launch_enabled"] = launch_enabled
+        return out
+
     raise NotImplementedError(f"status not implemented for cloud={c!r}")
 
