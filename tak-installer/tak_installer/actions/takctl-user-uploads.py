@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import tempfile
 from pathlib import Path
 
 from tak_installer.util import log
@@ -8,62 +10,133 @@ RUNTIME_DIR = Path("/opt/tak/tools/takctl")
 UPLOADS_DIR = RUNTIME_DIR / "user-uploads"
 ASSETS_DIR = RUNTIME_DIR / "web" / "assets"
 
+# Prefer user uploads in this order
+EXTS = ["svg", "png", "webp", "jpg", "jpeg"]
 
-def _unlink_any(path: Path) -> None:
+GEN_FILE_MODE = 0o644
+
+# Canonical logo names the UI may always reference
+LOGOS = ["logo1", "logo2", "logo3", "logo4"]
+
+
+def _ensure_dir(p: Path) -> None:
+    p.mkdir(parents=True, exist_ok=True)
+
+
+def _safe_unlink(path: Path) -> None:
     try:
-        if path.is_symlink() or path.exists():
-            path.unlink()
+        path.unlink()
+    except FileNotFoundError:
+        return
     except Exception:
-        # Best-effort cleanup; don't hard-fail the installer on weird FS states.
-        pass
+        # best-effort
+        return
 
 
-def _link_if_exists(src: Path, dst: Path) -> bool:
-    """
-    If src exists, ensure dst is a symlink to src. Returns True if linked.
-    """
-    if not src.exists():
-        return False
+def _symlink_force(link: Path, target: Path) -> None:
+    _ensure_dir(link.parent)
+    _safe_unlink(link)
+    link.symlink_to(target)
 
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    _unlink_any(dst)
 
+def _atomic_write_text(path: Path, text: str, mode: int = GEN_FILE_MODE) -> None:
+    _ensure_dir(path.parent)
+    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent))
     try:
-        dst.symlink_to(src)
-    except Exception as e:
-        raise RuntimeError(f"failed to symlink {dst} -> {src}: {e}") from e
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(tmp, path)
+        try:
+            os.chmod(path, mode)
+        except Exception:
+            pass
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
 
-    return True
+
+def _pick_upload(name: str) -> Path | None:
+    # returns first existing upload among EXTS
+    for ext in EXTS:
+        cand = UPLOADS_DIR / f"{name}.{ext}"
+        if cand.exists():
+            return cand
+    return None
+
+
+def _write_placeholder_svg(dst_svg: Path, label: str) -> None:
+    # Simple placeholder (never 404)
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="360" height="96" viewBox="0 0 360 96">
+  <rect x="0" y="0" width="360" height="96" rx="12" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.18)"/>
+  <text x="180" y="56" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="20" fill="rgba(255,255,255,0.55)">{label}</text>
+</svg>
+"""
+    _atomic_write_text(dst_svg, svg)
+
+
+def _write_svg_wrapper_for_png(dst_svg: Path, png_name: str) -> None:
+    # wrapper references ./<png_name>.png (we may symlink it if present)
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="360" height="96" viewBox="0 0 360 96">
+  <image href="./{png_name}.png" x="0" y="0" width="360" height="96" preserveAspectRatio="xMidYMid meet"/>
+</svg>
+"""
+    _atomic_write_text(dst_svg, svg)
 
 
 def apply(ctx) -> None:
-    # Ensure the runtime-owned directory exists (not in /opt/taks).
-    UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    ASSETS_DIR.mkdir(parents=True, exist_ok=True)
+    _ensure_dir(UPLOADS_DIR)
+    _ensure_dir(ASSETS_DIR)
 
-    # Create/refresh symlinks for logo1/2/3 in BOTH svg and png forms if present.
-    for n in (1, 2, 3):
-        has_any = False
+    # Ensure logos exist in assets as SVG (UI references svg)
+    for name in LOGOS:
+        src = _pick_upload(name)
 
-        has_any |= _link_if_exists(
-            UPLOADS_DIR / f"logo{n}.svg",
-            ASSETS_DIR / f"logo{n}.svg",
-        )
-        has_any |= _link_if_exists(
-            UPLOADS_DIR / f"logo{n}.png",
-            ASSETS_DIR / f"logo{n}.png",
-        )
+        dst_svg = ASSETS_DIR / f"{name}.svg"
+        dst_png = ASSETS_DIR / f"{name}.png"
 
-        if has_any:
-            log.info(f"takctl-user-uploads: linked logo{n}.* from user-uploads")
+        if src is None:
+            # No upload: ensure a non-404 placeholder SVG exists
+            if not dst_svg.exists() or dst_svg.is_symlink():
+                _safe_unlink(dst_svg)
+                _write_placeholder_svg(dst_svg, name)
+            log.info(f"takctl-user-uploads: {name}: no upload -> placeholder svg")
+            continue
+
+        # Upload exists
+        if src.suffix.lower() == ".svg":
+            # Canonical: assets/logoN.svg -> user upload svg
+            _symlink_force(dst_svg, src)
+            log.info(f"takctl-user-uploads: {name}: linked svg from user-uploads")
+            # If UI ever requests png, we don't promise it, but avoid stale symlink:
+            if dst_png.is_symlink() and not dst_png.exists():
+                _safe_unlink(dst_png)
+
+        elif src.suffix.lower() == ".png":
+            # Link png for convenience, then write svg wrapper so UI can always use svg
+            _symlink_force(dst_png, src)
+            _safe_unlink(dst_svg)
+            _write_svg_wrapper_for_png(dst_svg, name)
+            log.info(f"takctl-user-uploads: {name}: linked png + wrote svg wrapper")
+
         else:
-            log.info(f"takctl-user-uploads: no logo{n}.svg/.png in user-uploads (skipped)")
+            # Other image types: we can't wrap cleanly; just provide placeholder svg to avoid 404
+            _safe_unlink(dst_svg)
+            _write_placeholder_svg(dst_svg, name)
+            log.info(f"takctl-user-uploads: {name}: upload {src.name} unsupported for wrapper -> placeholder svg")
 
-    # slogan.txt: prefer user-uploads version, link into web/assets
-    if _link_if_exists(UPLOADS_DIR / "slogan.txt", ASSETS_DIR / "slogan.txt"):
+    # slogan.txt: always ensure it exists (empty by default)
+    slogan_src = UPLOADS_DIR / "slogan.txt"
+    slogan_dst = ASSETS_DIR / "slogan.txt"
+    if slogan_src.exists():
+        _symlink_force(slogan_dst, slogan_src)
         log.info("takctl-user-uploads: linked slogan.txt from user-uploads")
     else:
-        log.info("takctl-user-uploads: no slogan.txt in user-uploads (skipped)")
+        if not slogan_dst.exists() or slogan_dst.is_symlink():
+            _safe_unlink(slogan_dst)
+            _atomic_write_text(slogan_dst, "")
+        log.info("takctl-user-uploads: no slogan.txt upload -> ensured empty slogan.txt")
 
 
 class _Action:
@@ -80,4 +153,3 @@ class _Action:
 
 
 ACTION = _Action()
-
