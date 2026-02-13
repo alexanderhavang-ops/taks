@@ -139,6 +139,28 @@ def _write_svg_wrapper_for_raster(dst_svg: Path, rel_filename: str) -> None:
     _atomic_write_text(dst_svg, svg)
 
 
+
+def _write_topbar_png_from_svg(dst_png: Path, svg_path: Path, w: int = 360, h: int = 96) -> None:
+    """
+    Render an SVG to a derived topbar PNG (does NOT modify uploads).
+    Uses rsvg-convert (librsvg2-bin).
+    """
+    import subprocess
+    _ensure_dir(dst_png.parent)
+    tmp = dst_png.with_suffix(dst_png.suffix + ".tmp")
+    subprocess.run(
+        ["rsvg-convert", "-w", str(w), "-h", str(h), "-o", str(tmp), str(svg_path)],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    tmp.replace(dst_png)
+    try:
+        os.chmod(dst_png, GEN_FILE_MODE)
+    except Exception:
+        pass
+
+
 def apply(ctx) -> None:
     _ensure_dir(UPLOADS_DIR)
     _ensure_dir(ASSETS_DIR)
@@ -156,6 +178,12 @@ def apply(ctx) -> None:
             if not dst_svg.exists() or dst_svg.is_symlink():
                 _safe_unlink(dst_svg)
                 _write_placeholder_svg(dst_svg, name)
+            try:
+                dst_topbar = TOPBAR_DIR / f"{name}.png"
+                _write_topbar_png_from_svg(dst_topbar, dst_svg)
+                log.info(f"takctl-user-uploads: {name}: topbar derive (placeholder) -> {dst_topbar}")
+            except Exception as e:
+                log.info(f"takctl-user-uploads: {name}: topbar derive skipped (placeholder): {e}")
             log.info(f"takctl-user-uploads: {name}: no upload -> placeholder svg")
             continue
 
@@ -164,6 +192,13 @@ def apply(ctx) -> None:
             # Canonical: assets/logoN.svg -> user upload svg
             _symlink_force(dst_svg, src)
             log.info(f"takctl-user-uploads: {name}: linked svg from user-uploads")
+            try:
+                dst_topbar = TOPBAR_DIR / f"{name}.png"
+                _write_topbar_png_from_svg(dst_topbar, dst_svg)
+                log.info(f"takctl-user-uploads: {name}: topbar derive (svg) -> {dst_topbar}")
+            except Exception as e:
+                log.info(f"takctl-user-uploads: {name}: topbar derive skipped (svg): {e}")
+
             # If UI ever requests png, we don't promise it, but avoid stale symlink:
             if dst_png.is_symlink() and not dst_png.exists():
                 _safe_unlink(dst_png)
