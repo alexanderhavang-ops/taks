@@ -76,10 +76,10 @@ def _write_placeholder_svg(dst_svg: Path, label: str) -> None:
     _atomic_write_text(dst_svg, svg)
 
 
-def _write_svg_wrapper_for_png(dst_svg: Path, png_name: str) -> None:
-    # wrapper references ./<png_name>.png (we may symlink it if present)
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="360" height="96" viewBox="0 0 360 96">
-  <image href="./{png_name}.png" x="0" y="0" width="360" height="96" preserveAspectRatio="xMidYMid meet"/>
+def _write_svg_wrapper_for_raster(dst_svg: Path, rel_filename: str) -> None:
+    # wrapper references ./<rel_filename> (e.g., logo3.png / logo3.jpg)
+    svg = f"""<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"360\" height=\"96\" viewBox=\"0 0 360 96\">
+  <image href=\"./{rel_filename}\" x=\"0\" y=\"0\" width=\"360\" height=\"96\" preserveAspectRatio=\"xMidYMid meet\"/>
 </svg>
 """
     _atomic_write_text(dst_svg, svg)
@@ -113,15 +113,20 @@ def apply(ctx) -> None:
             if dst_png.is_symlink() and not dst_png.exists():
                 _safe_unlink(dst_png)
 
-        elif src.suffix.lower() == ".png":
-            # Link png for convenience, then write svg wrapper so UI can always use svg
-            _symlink_force(dst_png, src)
+        elif src.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
+            # Link raster as assets/logoN.<ext>, then write svg wrapper so UI can always use svg
+            ext = src.suffix.lower()
+            dst_raster = ASSETS_DIR / f"{name}{ext}"
+            _symlink_force(dst_raster, src)
+            # Remove old png link if it exists but we are not using png now
+            if ext != ".png" and dst_png.is_symlink():
+                _safe_unlink(dst_png)
             _safe_unlink(dst_svg)
-            _write_svg_wrapper_for_png(dst_svg, name)
-            log.info(f"takctl-user-uploads: {name}: linked png + wrote svg wrapper")
+            _write_svg_wrapper_for_raster(dst_svg, f"{name}{ext}")
+            log.info(f"takctl-user-uploads: {name}: linked {ext} + wrote svg wrapper")
 
         else:
-            # Other image types: we can't wrap cleanly; just provide placeholder svg to avoid 404
+            # Other types: just provide placeholder svg to avoid 404
             _safe_unlink(dst_svg)
             _write_placeholder_svg(dst_svg, name)
             log.info(f"takctl-user-uploads: {name}: upload {src.name} unsupported for wrapper -> placeholder svg")

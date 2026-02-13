@@ -51,28 +51,28 @@ function BrandBlock({ brand }) {
       h(ImgTry, {
         base: "./assets/logo1",
         // Prefer SVG first (if present), then PNG
-        exts: [".svg", ".png"],
+        exts: [".svg", ".png", ".jpg", ".jpeg", ".webp"],
         alt: "Instance logo 1",
         className: "logo logo-inst",
         title: "Instance logo 1"
       }),
       h(ImgTry, {
         base: "./assets/logo2",
-        exts: [".svg", ".png"],
+        exts: [".svg", ".png", ".jpg", ".jpeg", ".webp"],
         alt: "Instance logo 2",
         className: "logo logo-inst",
         title: "Instance logo 2"
       }),
       h(ImgTry, {
         base: "./assets/logo3",
-        exts: [".svg", ".png"],
+        exts: [".svg", ".png", ".jpg", ".jpeg", ".webp"],
         alt: "Instance logo 3",
         className: "logo logo-inst",
         title: "Instance logo 3"
       }),
       h(ImgTry, {
         base: "./assets/logo4",
-        exts: [".svg", ".png"],
+        exts: [".svg", ".png", ".jpg", ".jpeg", ".webp"],
         alt: "Instance logo 4",
         className: "logo logo-inst",
         title: "Instance logo 4"
