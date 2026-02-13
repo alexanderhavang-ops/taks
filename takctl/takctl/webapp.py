@@ -86,12 +86,14 @@ WEB_DIR = Path("/opt/tak/tools/takctl/web")
 # - symlinks pointing into runtime user-uploads
 USER_UPLOADS_DIR = Path("/opt/tak/tools/takctl/user-uploads")
 
+
 def _is_within(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
         return True
     except Exception:
         return False
+
 
 @app.get("/assets/{relpath:path}")
 async def assets(relpath: str):
@@ -115,6 +117,8 @@ async def assets(relpath: str):
         raise HTTPException(status_code=404, detail="Not Found")
 
     return FileResponse(str(resolved))
+
+
 app.mount("/css", StaticFiles(directory=str(WEB_DIR / "css")), name="css")
 app.mount("/components", StaticFiles(directory=str(WEB_DIR / "components")), name="components")
 app.mount("/hooks", StaticFiles(directory=str(WEB_DIR / "hooks")), name="hooks")
@@ -129,8 +133,19 @@ async def index():
 
 @app.get("/splash.html")
 async def splash_html():
-    # Fragment (no doctype on purpose)
     return HTMLResponse((WEB_DIR / "splash.html").read_text(encoding="utf-8"))
+
+
+@app.get("/splash.fragment.html")
+async def splash_fragment_html():
+    # Optional fragment used by splash.js in "standalone host" mode.
+    # Explicit route (no wildcard) to avoid ever shadowing /api/*.
+    return HTMLResponse((WEB_DIR / "splash.fragment.html").read_text(encoding="utf-8"))
+
+@app.head("/splash.fragment.html")
+async def splash_fragment_head():
+    # Make curl -I and smoke tests happy (HEAD should behave like GET but without body).
+    return Response(status_code=200)
 
 
 @app.get("/splash.css")
@@ -206,10 +221,8 @@ async def login(req: Request):
     return resp
 
 
-
 # --- existing routers ---
 
-# --- existing routers ---
 # Keep legacy paths:
 app.include_router(health_router)
 app.include_router(meta_router)
@@ -219,3 +232,4 @@ app.include_router(health_router, prefix="/api")
 app.include_router(meta_router, prefix="/api")
 app.include_router(onboarding_router)
 app.include_router(onboarding_router, prefix="/api")
+

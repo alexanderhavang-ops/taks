@@ -1,41 +1,18 @@
-<div class="splash">
-  <div class="splash-main">
-    <div class="splash-taks">
-      <img src="./assets/taks-logo.png" alt="TAKS">
-    </div>
+<!doctype html>
+<html lang="en">
+<head>
+  <link rel="icon" href="./assets/taks-logo.png">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TAKS – Sign in</title>
 
-    <div class="splash-slogan" id="__splash_slogan"></div>
+  <!-- IMPORTANT: relative paths so it works under /takctl/ mount -->
+  <link rel="stylesheet" href="./splash.css" />
+</head>
+<body>
+  <!-- Standalone mode: splash.js will inject splash.fragment.html into this host -->
+  <div id="__splash"></div>
 
-    <div class="brandchain">
-      <div class="brandchain-row">
-        <img class="brandchain-logo" src="./assets/logo1.svg" alt="Försvarsmakten">
-        <span class="brandchain-sep">›</span>
-        <img class="brandchain-logo" src="./assets/logo2.png" alt="Hemvärnet">
-        <span class="brandchain-sep">›</span>
-        <img class="brandchain-logo" src="./assets/logo3.png" alt="Militärregion">
-      </div>
-    </div>
-  </div>
-
-  <div class="login-wrap">
-    <div class="login">
-      <div class="login-form">
-        <div class="field">
-          <label>Username</label>
-          <input id="__u" autocomplete="username" />
-        </div>
-
-        <div class="field">
-          <label>Password</label>
-          <input id="__p" type="password" autocomplete="current-password" />
-        </div>
-
-        <div class="actions">
-          <button id="__go" type="button">Sign in</button>
-        </div>
-      </div>
-
-      <div class="login-err" id="__err"></div>
-    </div>
-  </div>
-</div>
+  <script src="./splash.js"></script>
+</body>
+</html>
