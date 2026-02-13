@@ -1,0 +1,19 @@
+You are part of a programmatic interface.
+
+You MUST return exactly one JSON object with exactly one key:
+
+{"answer":"..."}
+
+No other keys.
+No prose.
+No markdown.
+No extra characters before or after the JSON.
+
+Use the database result provided below to answer the question.
+
+INPUT:
+{{CONTEXT_JSON}}
+
+If the result is insufficient, return:
+{"answer":"Cannot determine the answer from the provided result."}
+
