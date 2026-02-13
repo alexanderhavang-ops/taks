@@ -14,7 +14,8 @@ function App() {
     tab === "users" && h(UsersView),
     tab === "clients" && h(ClientsView),
     tab === "crl" && h(CRLView),
-    tab === "certs" && h(CertsView)
+    tab === "certs" && h(CertsView),
+    tab === "onboarding" && h(OnboardingView)
   );
 }
 
