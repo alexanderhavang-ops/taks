@@ -48,14 +48,16 @@ function BrandBlock({ brand }) {
 
     // Instance-owned logos (runtime state)
     h("div", { className: "brand-right" },
+
+      // logo1/logo2: real SVG uploads exist -> SVG first is fine
       h(ImgTry, {
         base: "./assets/logo1",
-        // Prefer SVG first (if present), then PNG
         exts: [".svg", ".png", ".jpg", ".jpeg", ".webp"],
         alt: "Instance logo 1",
         className: "logo logo-inst",
         title: "Instance logo 1"
       }),
+
       h(ImgTry, {
         base: "./assets/logo2",
         exts: [".svg", ".png", ".jpg", ".jpeg", ".webp"],
@@ -63,16 +65,19 @@ function BrandBlock({ brand }) {
         className: "logo logo-inst",
         title: "Instance logo 2"
       }),
+
+      // logo3/logo4: may be raster + SVG wrapper; raster-first avoids blank wrapper in <img>
       h(ImgTry, {
         base: "./assets/logo3",
-        exts: [".svg", ".png", ".jpg", ".jpeg", ".webp"],
+        exts: [".png", ".jpg", ".jpeg", ".webp", ".svg"],
         alt: "Instance logo 3",
         className: "logo logo-inst",
         title: "Instance logo 3"
       }),
+
       h(ImgTry, {
         base: "./assets/logo4",
-        exts: [".svg", ".png", ".jpg", ".jpeg", ".webp"],
+        exts: [".png", ".jpg", ".jpeg", ".webp", ".svg"],
         alt: "Instance logo 4",
         className: "logo logo-inst",
         title: "Instance logo 4"
@@ -81,7 +86,8 @@ function BrandBlock({ brand }) {
   );
 }
 
-function Layout({ tab, setTab, health, brand, children }) {
+function Layout(
+{ tab, setTab, health, brand, children }) {
   return h("div", { className: "app" },
 
     h("div", { className: "topbar" },
