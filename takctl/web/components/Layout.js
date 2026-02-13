@@ -69,6 +69,13 @@ function BrandBlock({ brand }) {
         alt: "Instance logo 3",
         className: "logo logo-inst",
         title: "Instance logo 3"
+      }),
+      h(ImgTry, {
+        base: "./assets/logo4",
+        exts: [".svg", ".png"],
+        alt: "Instance logo 4",
+        className: "logo logo-inst",
+        title: "Instance logo 4"
       })
     )
   );
@@ -83,6 +90,7 @@ function Layout({ tab, setTab, health, brand, children }) {
       h("div", { className: "tabs" },
         h(TabButton, { id: "users", tab, setTab, label: "Users" }),
         h(TabButton, { id: "clients", tab, setTab, label: "Clients" }),
+        h(TabButton, { id: "onboarding", tab, setTab, label: "Onboarding" }),
         h(TabButton, { id: "crl", tab, setTab, label: "CRL" }),
         h(TabButton, { id: "certs", tab, setTab, label: "Certs" })
       ),
@@ -90,6 +98,9 @@ function Layout({ tab, setTab, health, brand, children }) {
       h("div", { className: "spacer" }),
 
       h("div", { className: "health" },
+        (brand && (brand.apply_ts_utc || brand.apply_ts || brand.applied_ts_utc))
+          ? h("span", { className: "muted", style: { marginRight: "10px" } }, "Applied: " + (brand.apply_ts_utc || brand.apply_ts || brand.applied_ts_utc))
+          : null,
         h("span", { className: "muted", style: { marginRight: "8px" } }, "api/health"),
         h(HealthBadge, { health })
       )
