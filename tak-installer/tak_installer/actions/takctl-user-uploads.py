@@ -9,6 +9,7 @@ from tak_installer.util import log
 RUNTIME_DIR = Path("/opt/tak/tools/takctl")
 UPLOADS_DIR = RUNTIME_DIR / "user-uploads"
 ASSETS_DIR = RUNTIME_DIR / "web" / "assets"
+TOPBAR_DIR = ASSETS_DIR / "topbar"
 
 # Prefer user uploads in this order
 EXTS = ["svg", "png", "webp", "jpg", "jpeg"]
@@ -57,6 +58,59 @@ def _atomic_write_text(path: Path, text: str, mode: int = GEN_FILE_MODE) -> None
             pass
 
 
+def _atomic_write_bytes(path: Path, data: bytes, mode: int = GEN_FILE_MODE) -> None:
+    _ensure_dir(path.parent)
+    fd, tmp = tempfile.mkstemp(prefix=path.name + ".", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+        try:
+            os.chmod(path, mode)
+        except Exception:
+            pass
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+
+
+def _write_topbar_png_derived(dst_png: Path, src: Path, w: int = 360, h: int = 96) -> None:
+    """
+    Create a derived topbar banner PNG for UI use (does NOT modify uploads).
+    Uses center 'cover' scaling into w×h.
+    """
+    try:
+        from PIL import Image
+    except Exception as e:
+        raise RuntimeError(
+            "Pillow (python3-pil) is required to derive topbar banner logos. "
+            "Install with: sudo apt-get update && sudo apt-get install -y python3-pil"
+        ) from e
+
+    im = Image.open(src)
+    # WebP/JPEG/PNG all end up here; SVG will fail (we don't call this for SVG)
+    im = im.convert("RGBA")
+
+    sw, sh = im.size
+    if sw <= 0 or sh <= 0:
+        raise RuntimeError(f"bad image size: {src} size={im.size}")
+
+    scale = max(w / sw, h / sh)
+    rw, rh = int(sw * scale + 0.5), int(sh * scale + 0.5)
+    im2 = im.resize((rw, rh), resample=Image.LANCZOS)
+
+    left = max(0, (rw - w) // 2)
+    top  = max(0, (rh - h) // 2)
+    im3 = im2.crop((left, top, left + w, top + h))
+
+    from io import BytesIO
+    buf = BytesIO()
+    im3.save(buf, format="PNG", optimize=True)
+    _atomic_write_bytes(dst_png, buf.getvalue())
+
+
 def _pick_upload(name: str) -> Path | None:
     # returns first existing upload among EXTS
     for ext in EXTS:
@@ -88,6 +142,7 @@ def _write_svg_wrapper_for_raster(dst_svg: Path, rel_filename: str) -> None:
 def apply(ctx) -> None:
     _ensure_dir(UPLOADS_DIR)
     _ensure_dir(ASSETS_DIR)
+    _ensure_dir(TOPBAR_DIR)
 
     # Ensure logos exist in assets as SVG (UI references svg)
     for name in LOGOS:
@@ -124,6 +179,15 @@ def apply(ctx) -> None:
             _safe_unlink(dst_svg)
             _write_svg_wrapper_for_raster(dst_svg, f"{name}{ext}")
             log.info(f"takctl-user-uploads: {name}: linked {ext} + wrote svg wrapper")
+
+            # Derived topbar banner PNG (DOES NOT modify uploads)
+            try:
+                dst_topbar = TOPBAR_DIR / f"{name}.png"
+                _write_topbar_png_derived(dst_topbar, src)
+                log.info(f"takctl-user-uploads: {name}: wrote derived topbar png -> {dst_topbar}")
+            except Exception as e:
+                log.info(f"takctl-user-uploads: {name}: topbar png derive skipped: {e}")
+
 
         else:
             # Other types: just provide placeholder svg to avoid 404

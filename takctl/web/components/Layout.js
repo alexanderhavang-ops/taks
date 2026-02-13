@@ -32,6 +32,27 @@ function ImgTry({ base, exts, alt, className, title }) {
   });
 }
 
+function ImgTryList({ srcs, alt, className, title }) {
+  let idx = 0;
+
+  function onError(e) {
+    idx += 1;
+    if (srcs && idx < srcs.length) {
+      e.target.src = srcs[idx];
+    } else {
+      try { e.target.style.display = "none"; } catch (_) {}
+    }
+  }
+
+  return h("img", {
+    src: (srcs && srcs.length ? srcs[0] : ""),
+    alt: alt || "",
+    title: title || "",
+    className: className || "",
+    onError,
+  });
+}
+
 function BrandBlock({ brand }) {
   const slogan = (brand && brand.slogan) || "";
 
@@ -50,34 +71,30 @@ function BrandBlock({ brand }) {
     h("div", { className: "brand-right" },
 
       // logo1/logo2: real SVG uploads exist -> SVG first is fine
-      h(ImgTry, {
-        base: "./assets/logo1",
-        exts: [".svg", ".png", ".jpg", ".jpeg", ".webp"],
+      h(ImgTryList, {
+        srcs: ["./assets/topbar/logo1.png", "./assets/logo1.svg", "./assets/logo1.png", "./assets/logo1.webp", "./assets/logo1.jpg", "./assets/logo1.jpeg"],
         alt: "Instance logo 1",
         className: "logo logo-inst",
         title: "Instance logo 1"
       }),
 
-      h(ImgTry, {
-        base: "./assets/logo2",
-        exts: [".svg", ".png", ".jpg", ".jpeg", ".webp"],
+      h(ImgTryList, {
+        srcs: ["./assets/topbar/logo2.png", "./assets/logo2.svg", "./assets/logo2.png", "./assets/logo2.webp", "./assets/logo2.jpg", "./assets/logo2.jpeg"],
         alt: "Instance logo 2",
         className: "logo logo-inst",
         title: "Instance logo 2"
       }),
 
       // logo3/logo4: may be raster + SVG wrapper; raster-first avoids blank wrapper in <img>
-      h(ImgTry, {
-        base: "./assets/logo3",
-        exts: [".png", ".jpg", ".jpeg", ".webp", ".svg"],
+      h(ImgTryList, {
+        srcs: ["./assets/topbar/logo3.png", "./assets/logo3.svg", "./assets/logo3.png", "./assets/logo3.webp", "./assets/logo3.jpg", "./assets/logo3.jpeg"],
         alt: "Instance logo 3",
         className: "logo logo-inst",
         title: "Instance logo 3"
       }),
 
-      h(ImgTry, {
-        base: "./assets/logo4",
-        exts: [".png", ".jpg", ".jpeg", ".webp", ".svg"],
+      h(ImgTryList, {
+        srcs: ["./assets/topbar/logo4.png", "./assets/logo4.svg", "./assets/logo4.png", "./assets/logo4.webp", "./assets/logo4.jpg", "./assets/logo4.jpeg"],
         alt: "Instance logo 4",
         className: "logo logo-inst",
         title: "Instance logo 4"
