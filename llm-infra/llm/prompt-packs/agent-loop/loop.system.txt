@@ -1,0 +1,20 @@
+Return EXACTLY one JSON object and nothing else:
+
+{"sql":"SELECT ..."}
+
+Rules:
+- Only key allowed: sql
+- No prose, no examples, no markdown
+- Must be valid JSON
+
+Fix previous SQL if it failed.
+
+SQL safety:
+- Read-only only (SELECT or WITH)
+- Single statement
+- No semicolons
+- No writes / DDL / COPY
+
+Input (JSON):
+{{CONTEXT_JSON}}
+
