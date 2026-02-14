@@ -9,9 +9,9 @@ write_files:
   - path: /etc/taks/node.env
     permissions: "0644"
     content: |
-      BATTALION={{ battalion }}
+      UNIT_PATH={{ unit_path }}
+      ROLE={{ role }}
       FQDN={{ fqdn }}
-      ROLE=tak-node
 
   - path: /etc/taks/orchestrator.env
     permissions: "0600"
@@ -20,6 +20,12 @@ write_files:
       ORCH_API_USER={{ orch_api_user }}
       ORCH_API_PASSWORD={{ orch_api_password }}
 
+{% if bundle_url %}
+  - path: /etc/taks/bundle.env
+    permissions: "0600"
+    content: |
+      BUNDLE_URL={{ bundle_url }}
+{% endif %}
+
 runcmd:
   - [ bash, -lc, "echo taks cloud-init ok > /var/log/taks-cloud-init.ok" ]
-
