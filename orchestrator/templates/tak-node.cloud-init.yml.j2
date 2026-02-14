@@ -25,7 +25,122 @@ write_files:
     permissions: "0600"
     content: |
       BUNDLE_URL={{ bundle_url }}
+{% if bundle_sha256 %}
+      BUNDLE_SHA256={{ bundle_sha256 }}
 {% endif %}
+{% endif %}
+
+  - path: /usr/local/sbin/taks-bootstrap.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      LOG=/var/log/taks-bootstrap.log
+      exec > >(tee -a "$LOG") 2>&1
+
+      echo "== taks-bootstrap: start $(date -Is) =="
+
+      # Load env (if present)
+      if [[ -f /etc/taks/node.env ]]; then set -a; source /etc/taks/node.env; set +a; fi
+      if [[ -f /etc/taks/orchestrator.env ]]; then set -a; source /etc/taks/orchestrator.env; set +a; fi
+      if [[ -f /etc/taks/bundle.env ]]; then set -a; source /etc/taks/bundle.env; set +a; fi
+
+      mkdir -p /var/lib/taks/bundles /opt/taks-bundles
+
+      if [[ -z "${BUNDLE_URL:-}" ]]; then
+        echo "No BUNDLE_URL provided; nothing to do."
+        echo "== taks-bootstrap: done (no bundle) =="
+        exit 0
+      fi
+
+      # Ensure tooling exists
+      if ! command -v curl >/dev/null 2>&1; then
+        echo "curl missing; installing minimal deps"
+        export DEBIAN_FRONTEND=noninteractive
+        apt-get update -y
+        apt-get install -y curl ca-certificates
+      fi
+
+      # Download bundle
+      TS="$(date +%Y%m%d-%H%M%S)"
+      OUT="/var/lib/taks/bundles/bundle-$TS"
+      echo "Downloading bundle..."
+      curl -fsSL --retry 6 --retry-delay 2 --retry-connrefused "$BUNDLE_URL" -o "$OUT"
+
+      # Detect extension from URL (best-effort)
+      if [[ "$BUNDLE_URL" == *".tar.gz"* ]]; then
+        OUT="$OUT.tar.gz"; mv -f "/var/lib/taks/bundles/bundle-$TS" "$OUT"
+      elif [[ "$BUNDLE_URL" == *".zip"* ]]; then
+        OUT="$OUT.zip"; mv -f "/var/lib/taks/bundles/bundle-$TS" "$OUT"
+      else
+        # default to tgz if unknown
+        OUT="$OUT.tar.gz"; mv -f "/var/lib/taks/bundles/bundle-$TS" "$OUT"
+      fi
+
+      echo "Downloaded: $OUT"
+
+      # Verify sha256 if provided
+      if [[ -n "${BUNDLE_SHA256:-}" ]]; then
+        echo "Verifying sha256..."
+        got="$(sha256sum "$OUT" | awk '{print $1}')"
+        if [[ "$got" != "$BUNDLE_SHA256" ]]; then
+          echo "ERROR: sha256 mismatch"
+          echo "  expected: $BUNDLE_SHA256"
+          echo "  got:      $got"
+          exit 2
+        fi
+        echo "sha256 OK"
+      else
+        echo "WARNING: no BUNDLE_SHA256 provided; skipping hash verification"
+      fi
+
+      # Unpack
+      WORK="/opt/taks-bundles/current"
+      rm -rf "$WORK"
+      mkdir -p "$WORK"
+
+      echo "Unpacking..."
+      if [[ "$OUT" == *.zip ]]; then
+        if ! command -v unzip >/dev/null 2>&1; then
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -y
+          apt-get install -y unzip
+        fi
+        unzip -q "$OUT" -d "$WORK"
+      else
+        tar -xzf "$OUT" -C "$WORK"
+      fi
+
+      echo "Contents:"
+      find "$WORK" -maxdepth 3 -type f | sed -n '1,200p' || true
+
+      # Execute (convention-based)
+      CANDIDATES=(
+        "$WORK/run.sh"
+        "$WORK/install/run.sh"
+        "$WORK/install.sh"
+        "$WORK"/*/run.sh
+        "$WORK"/*/install/run.sh
+        "$WORK"/*/install.sh
+      )
+
+      RUNNER=""
+      for c in "${CANDIDATES[@]}"; do
+        if [[ -f "$c" ]]; then RUNNER="$c"; break; fi
+      done
+
+      if [[ -z "$RUNNER" ]]; then
+        echo "ERROR: no run/install script found in bundle"
+        exit 3
+      fi
+
+      echo "Executing: $RUNNER"
+      chmod +x "$RUNNER"
+      bash -lc "$RUNNER"
+
+      echo "== taks-bootstrap: done $(date -Is) =="
 
 runcmd:
   - [ bash, -lc, "echo taks cloud-init ok > /var/log/taks-cloud-init.ok" ]
+  - [ bash, -lc, "/usr/local/sbin/taks-bootstrap.sh" ]
