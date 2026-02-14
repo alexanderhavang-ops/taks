@@ -128,6 +128,26 @@ def _normalize_node_req(req: Dict[str, Any]) -> Dict[str, Any]:
         d["unit_path"] = str(d.pop("battalion"))
     if "role" not in d or not str(d.get("role") or "").strip():
         d["role"] = "tak-node"
+    # Provide defaults for required NodeRequest fields (backward compatible)
+    unit_path = str(d.get("unit_path") or "").strip()
+    # hostname: stable + DNS-safe-ish
+    if "hostname" not in d or not str(d.get("hostname") or "").strip():
+        safe = unit_path.replace("/", "-").replace("_", "-")
+        d["hostname"] = f"tak-{safe}" if safe else "tak-node"
+    # name: AWS tag Name (default to hostname)
+    if "name" not in d or not str(d.get("name") or "").strip():
+        d["name"] = str(d.get("hostname") or "tak-node")
+    # fqdn: best-effort default if caller didn't provide one
+    if "fqdn" not in d or not str(d.get("fqdn") or "").strip():
+        base = os.environ.get("TAKS_DEFAULT_NODE_DOMAIN") or "tak-hv-sandbox.se"
+        # If unit_path already looks like a hostname, keep it; else use <unit_path>.<base>
+        if unit_path and "." in unit_path:
+            d["fqdn"] = unit_path
+        elif unit_path:
+            d["fqdn"] = f"{unit_path}.{base}"
+        else:
+            d["fqdn"] = f"{d['hostname']}.{base}"
+
     return d
 
 
@@ -239,6 +259,7 @@ def nodes_cloud_init(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
         token = _token_sign(p.name, exp, sha)
         dl = request.url_for("bundle_download", bundle_name=p.name)
         nr.bundle_url = f"{dl}?exp={exp}&token={token}"
+        nr.bundle_sha256 = sha
 
     plan = plan_node(nr)
     return {
@@ -276,6 +297,7 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
         token = _token_sign(p.name, exp, sha)
         dl = request.url_for("bundle_download", bundle_name=p.name)
         nr.bundle_url = f"{dl}?exp={exp}&token={token}"
+        nr.bundle_sha256 = sha
 
     return aws_launch(nr)
 

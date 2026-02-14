@@ -27,7 +27,7 @@ def jinja_env() -> Environment:
     )
 
 
-def render_cloud_init(*, unit_path: str, role: str, fqdn: str, hostname: str, bundle_url: str | None = None) -> str:
+def render_cloud_init(*, unit_path: str, role: str, fqdn: str, hostname: str, bundle_url: str | None = None, bundle_sha256: str | None = None) -> str:
     """
     Render cloud-init for a node.
 
@@ -65,6 +65,7 @@ def render_cloud_init(*, unit_path: str, role: str, fqdn: str, hostname: str, bu
         orch_api_user=orch_api_user,
         orch_api_password=orch_api_password,
         bundle_url=bundle_url,
+        bundle_sha256=bundle_sha256,
     )
 
 
@@ -139,9 +140,9 @@ class NodeRequest:
     role: str
 
     # Node basics
-    fqdn: str
-    hostname: str
-    name: str
+    fqdn: str = ""
+    hostname: str = ""
+    name: str = ""
     instance_type: str = "t3.micro"
 
     # Optional AWS overrides
@@ -152,8 +153,7 @@ class NodeRequest:
     bundle_name: str | None = None
     bundle_ttl: int | None = None
     bundle_url: str | None = None
-
-
+    bundle_sha256: str | None = None
 def plan_node(req: NodeRequest) -> Dict[str, Any]:
     r = region()
     ami = resolve_ubuntu_2204_ami(region_name=r)
@@ -165,6 +165,7 @@ def plan_node(req: NodeRequest) -> Dict[str, Any]:
         fqdn=req.fqdn,
         hostname=req.hostname,
         bundle_url=req.bundle_url,
+        bundle_sha256=req.bundle_sha256,
     )
     validate_cloud_init(ci)
 
