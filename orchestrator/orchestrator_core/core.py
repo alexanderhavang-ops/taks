@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import boto3
 import yaml
@@ -27,12 +27,14 @@ def jinja_env() -> Environment:
     )
 
 
-def render_cloud_init(*, battalion: str, fqdn: str, hostname: str) -> str:
+def render_cloud_init(*, unit_path: str, role: str, fqdn: str, hostname: str, bundle_url: str | None = None) -> str:
     """
     Render cloud-init for a node.
 
     Template-driven so WebUI / CLI / API stay consistent.
     Injects headless orchestrator credentials so the node can call back home.
+
+    bundle_url is optional; template may ignore it (safe).
     """
     orch_api_url = (
         os.environ.get("TAKS_ORCH_API_URL")
@@ -55,12 +57,14 @@ def render_cloud_init(*, battalion: str, fqdn: str, hostname: str) -> str:
 
     tpl = jinja_env().get_template("tak-node.cloud-init.yml.j2")
     return tpl.render(
-        battalion=battalion,
+        unit_path=unit_path,
+        role=role,
         fqdn=fqdn,
         hostname=hostname,
         orch_api_url=orch_api_url,
         orch_api_user=orch_api_user,
         orch_api_password=orch_api_password,
+        bundle_url=bundle_url,
     )
 
 
@@ -130,21 +134,37 @@ def resolve_default_public_subnet(*, region_name: str) -> Dict[str, str]:
 
 @dataclass
 class NodeRequest:
-    battalion: str
+    # Identity
+    unit_path: str
+    role: str
+
+    # Node basics
     fqdn: str
     hostname: str
     name: str
     instance_type: str = "t3.micro"
+
+    # Optional AWS overrides
+    aws_key_name: str | None = None
+    aws_sg_id: str | None = None
+
+    # Bundle wiring (optional)
+    bundle_name: str | None = None
+    bundle_ttl: int | None = None
+    bundle_url: str | None = None
 
 
 def plan_node(req: NodeRequest) -> Dict[str, Any]:
     r = region()
     ami = resolve_ubuntu_2204_ami(region_name=r)
     net = resolve_default_public_subnet(region_name=r)
+
     ci = render_cloud_init(
-        battalion=req.battalion,
+        unit_path=req.unit_path,
+        role=req.role,
         fqdn=req.fqdn,
         hostname=req.hostname,
+        bundle_url=req.bundle_url,
     )
     validate_cloud_init(ci)
 
@@ -156,9 +176,97 @@ def plan_node(req: NodeRequest) -> Dict[str, Any]:
         "instance_type": req.instance_type,
         "tags": {
             "Name": req.name,
-            "taks.role": "tak-node",
-            "taks.battalion": req.battalion,
+            "taks.role": req.role,
+            "taks.unit_path": req.unit_path,
         },
         "cloud_init": ci,
     }
 
+
+def aws_dry_run(req: NodeRequest) -> Dict[str, Any]:
+    plan = plan_node(req)
+    return {
+        "dry_run_ok": True,
+        "plan": {
+            "region": plan["region"],
+            "ami": plan["ami"],
+            "vpc_id": plan["vpc_id"],
+            "subnet_id": plan["subnet_id"],
+            "instance_type": plan["instance_type"],
+            "tags": plan["tags"],
+        },
+    }
+
+
+def aws_launch(req: NodeRequest) -> Dict[str, Any]:
+    r = region()
+    plan = plan_node(req)
+
+    sg_id = (req.aws_sg_id or os.environ.get("TAKS_AWS_SG_ID") or "").strip()
+    key_name = (req.aws_key_name or os.environ.get("TAKS_AWS_KEY_NAME") or "").strip()
+
+    if not sg_id:
+        raise RuntimeError("Missing security group id (set TAKS_AWS_SG_ID or pass aws_sg_id)")
+    if not key_name:
+        raise RuntimeError("Missing EC2 keypair name (set TAKS_AWS_KEY_NAME or pass aws_key_name)")
+
+    ec2 = boto3.client("ec2", region_name=r)
+
+    kwargs: Dict[str, Any] = {
+        "ImageId": plan["ami"],
+        "InstanceType": plan["instance_type"],
+        "KeyName": key_name,
+        "MinCount": 1,
+        "MaxCount": 1,
+        "NetworkInterfaces": [
+            {
+                "DeviceIndex": 0,
+                "SubnetId": plan["subnet_id"],
+                "Groups": [sg_id],
+                "AssociatePublicIpAddress": True,
+            }
+        ],
+        "UserData": plan["cloud_init"],
+        "TagSpecifications": [
+            {
+                "ResourceType": "instance",
+                "Tags": [{"Key": k, "Value": str(v)} for k, v in plan["tags"].items()],
+            }
+        ],
+    }
+
+    resp = ec2.run_instances(**kwargs)
+    inst = resp["Instances"][0]
+
+    return {
+        "instance_id": inst["InstanceId"],
+        "state": inst["State"]["Name"],
+        "region": r,
+        "subnet_id": plan["subnet_id"],
+        "sg_id": sg_id,
+    }
+
+
+def aws_list_nodes() -> Dict[str, Any]:
+    r = region()
+    ec2 = boto3.client("ec2", region_name=r)
+
+    resp = ec2.describe_instances(
+        Filters=[
+            {"Name": "tag:taks.role", "Values": ["tak-node", "mr-node", "fire-dept-node", "company-node", "battalion-node"]},
+        ]
+    )
+
+    instances: List[Dict[str, Any]] = []
+    for res in resp.get("Reservations", []):
+        for i in res.get("Instances", []):
+            instances.append(
+                {
+                    "instance_id": i.get("InstanceId"),
+                    "state": (i.get("State") or {}).get("Name"),
+                    "private_ip": i.get("PrivateIpAddress"),
+                    "public_ip": i.get("PublicIpAddress"),
+                }
+            )
+
+    return {"provider": "aws", "region": r, "count": len(instances), "instances": instances}

@@ -121,3 +121,16 @@ There is **no duplicate orchestration logic**.
   - TLS termination
   - reverse proxy to backend
 
+
+## Bundle Distribution (Headless Artifact Model)
+
+The orchestrator serves opaque deployment bundles over HTTPS.
+Nodes retrieve bundles during cloud-init using signed URLs.
+
+Bundles:
+- stored in /opt/tak-orch/state/bundles
+- served via /api/v1/bundles
+- signed using TAKS_BUNDLE_SECRET
+
+The orchestrator does not inspect bundle contents.
+
