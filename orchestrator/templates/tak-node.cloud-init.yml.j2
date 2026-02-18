@@ -190,16 +190,7 @@ write_files:
 
       node_id="${HOSTNAME:-$(hostname)}"
 
-      payload="$(python3 - <<EOF
-import json, os, time
-d = {
-  "node_id": os.environ.get("node_id",""),
-  "ts": int(time.time()),
-}
-print(json.dumps(d))
-EOF
-      )"
-
+      payload="$(python3 -c 'import json,sys,time; node_id=sys.argv[1]; print(json.dumps({"node_id":node_id,"ts":int(time.time())}))' "$node_id")"
       curl -fsS -u "${ORCH_API_USER}:${ORCH_API_PASSWORD}" \
         -H 'content-type: application/json' \
         "${ORCH_API_URL}/api/v1/nodes/heartbeat" \
