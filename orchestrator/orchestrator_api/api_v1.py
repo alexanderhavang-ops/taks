@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from orchestrator_core.bundles import build_bundle_from_state, bundles_dir
+\1from orchestrator_core.nodes_state import upsert_node, touch_heartbeat, list_nodes
 from orchestrator_core.core import NodeRequest, plan_node, aws_dry_run, aws_launch, aws_list_nodes
 
 router = APIRouter(prefix="/api/v1")
@@ -305,6 +305,75 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
         nr.bundle_sha256 = sha
 
     return aws_launch(nr)
+
+
+# ----------------------------
+# Node state (auth)
+# ----------------------------
+@router.get("/nodes")
+def nodes_list(request: Request) -> Dict[str, Any]:
+    require_basic(request)
+    items = list_nodes()
+    return {"count": len(items), "items": items}
+
+
+@router.get("/nodes/{node_id}")
+def nodes_get(node_id: str, request: Request) -> Dict[str, Any]:
+    require_basic(request)
+    items = [x for x in list_nodes() if str(x.get("node_id")) == node_id]
+    if not items:
+        raise HTTPException(status_code=404, detail="node not found")
+    return items[0]
+
+
+@router.post("/nodes/register")
+def nodes_register(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    """
+    Node -> orchestrator registration (push).
+    Node authenticates with BASIC using the orch_api_user/pass embedded in cloud-init.
+    """
+    require_basic(request)
+
+    node_id = (req.get("instance_id") or req.get("node_id") or req.get("fqdn") or "").strip()
+    if not node_id:
+        raise HTTPException(status_code=400, detail="missing instance_id/node_id/fqdn")
+
+    patch = {
+        "node_id": node_id,
+        "instance_id": req.get("instance_id"),
+        "unit_path": req.get("unit_path"),
+        "role": req.get("role"),
+        "fqdn": req.get("fqdn"),
+        "hostname": req.get("hostname"),
+        "private_ip": req.get("private_ip"),
+        "public_ip": req.get("public_ip"),
+        "public_dns": req.get("public_dns"),
+        "region": req.get("region"),
+        "status": req.get("status") or "registered",
+        "last_seen_ts": int(time.time()),
+        "meta": req.get("meta") if isinstance(req.get("meta"), dict) else None,
+    }
+    rec = upsert_node(node_id, patch)
+    return {"ok": True, "node": rec}
+
+
+@router.post("/nodes/heartbeat")
+def nodes_heartbeat(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    """
+    Node heartbeat.
+    """
+    require_basic(request)
+    node_id = (req.get("instance_id") or req.get("node_id") or req.get("fqdn") or "").strip()
+    if not node_id:
+        raise HTTPException(status_code=400, detail="missing instance_id/node_id/fqdn")
+
+    status = (req.get("status") or "online").strip()
+    extra = {}
+    for k in ("private_ip", "public_ip", "public_dns", "fqdn", "hostname"):
+        if k in req:
+            extra[k] = req.get(k)
+    rec = touch_heartbeat(node_id, status=status, extra=extra)
+    return {"ok": True, "node_id": node_id, "last_seen_ts": rec.get("last_seen_ts"), "status": rec.get("status")}
 
 
 # ----------------------------
