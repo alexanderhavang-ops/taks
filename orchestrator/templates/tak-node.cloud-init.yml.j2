@@ -167,20 +167,7 @@ write_files:
       private_ip="$(meta local-ipv4)"
       public_ip="$(meta public-ipv4)"
 
-      payload="$(python3 - <<EOF
-import json, os
-d = {
-  "node_id": os.environ.get("node_id",""),
-  "unit_path": os.environ.get("unit_path",""),
-  "role": os.environ.get("role",""),
-  "fqdn": os.environ.get("fqdn",""),
-  "private_ip": os.environ.get("private_ip",""),
-  "public_ip": os.environ.get("public_ip",""),
-}
-print(json.dumps(d))
-EOF
-      )"
-
+      payload="$(python3 -c 'import json,sys; node_id,unit_path,role,fqdn,private_ip,public_ip=sys.argv[1:7]; print(json.dumps({"node_id":node_id,"unit_path":unit_path,"role":role,"fqdn":fqdn,"private_ip":private_ip,"public_ip":public_ip}))' "$node_id" "$unit_path" "$role" "$fqdn" "$private_ip" "$public_ip")"
       curl -fsS -u "${ORCH_API_USER}:${ORCH_API_PASSWORD}" \
         -H 'content-type: application/json' \
         "${ORCH_API_URL}/api/v1/nodes/register" \
