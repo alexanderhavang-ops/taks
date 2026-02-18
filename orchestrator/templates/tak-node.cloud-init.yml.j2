@@ -24,7 +24,7 @@ write_files:
   - path: /etc/taks/bundle.env
     permissions: "0600"
     content: |
-      BUNDLE_URL={{ bundle_url }}
+      BUNDLE_URL='{{ bundle_url }}'
 {% if bundle_sha256 %}
       BUNDLE_SHA256={{ bundle_sha256 }}
 {% endif %}
