@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -46,7 +45,9 @@ def upsert_node(node_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
     cur.setdefault("node_id", node_id)
     cur.setdefault("created_ts", _now())
     cur["updated_ts"] = _now()
-    cur.update({k: v for k, v in patch.items() if v is not None})
+    for k, v in (patch or {}).items():
+        if v is not None:
+            cur[k] = v
     _write_json(p, cur)
     return cur
 
@@ -57,7 +58,9 @@ def touch_heartbeat(node_id: str, status: str = "online", extra: Optional[Dict[s
         "status": status,
     }
     if extra:
-        patch.update(extra)
+        for k, v in extra.items():
+            if v is not None:
+                patch[k] = v
     return upsert_node(node_id, patch)
 
 
@@ -68,8 +71,6 @@ def list_nodes() -> List[Dict[str, Any]]:
         try:
             out.append(_read_json(p))
         except Exception:
-            # don't brick listing because one file is bad
             out.append({"node_id": p.stem, "error": "invalid_json", "path": str(p)})
-    # newest activity first
     out.sort(key=lambda x: int(x.get("last_seen_ts") or x.get("updated_ts") or 0), reverse=True)
     return out
