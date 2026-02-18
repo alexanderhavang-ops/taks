@@ -13,8 +13,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
-
-\1from orchestrator_core.nodes_state import upsert_node, touch_heartbeat, list_nodes
+from orchestrator_core.nodes_state import upsert_node, touch_heartbeat, list_nodes
 from orchestrator_core.core import NodeRequest, plan_node, aws_dry_run, aws_launch, aws_list_nodes
 
 router = APIRouter(prefix="/api/v1")
