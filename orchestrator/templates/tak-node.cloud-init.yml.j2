@@ -141,6 +141,111 @@ write_files:
 
       echo "== taks-bootstrap: done $(date -Is) =="
 
+  - path: /usr/local/sbin/taks-node-register.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      # Load node identity
+      if [[ -f /etc/taks/node.env ]]; then
+        set -a; source /etc/taks/node.env; set +a
+      fi
+
+      ORCH_API_URL="{{ orch_api_url }}"
+      ORCH_API_USER="{{ orch_api_user }}"
+      ORCH_API_PASSWORD="{{ orch_api_password }}"
+
+      node_id="${HOSTNAME:-$(hostname)}"
+      unit_path="${UNIT_PATH:-}"
+      role="${ROLE:-}"
+      fqdn="${FQDN:-}"
+
+      # EC2 metadata (best effort)
+      meta() { curl -fsS --max-time 2 "http://169.254.169.254/latest/meta-data/$1" 2>/dev/null || true; }
+      private_ip="$(meta local-ipv4)"
+      public_ip="$(meta public-ipv4)"
+
+      payload="$(python3 - <<EOF
+import json, os
+d = {
+  "node_id": os.environ.get("node_id",""),
+  "unit_path": os.environ.get("unit_path",""),
+  "role": os.environ.get("role",""),
+  "fqdn": os.environ.get("fqdn",""),
+  "private_ip": os.environ.get("private_ip",""),
+  "public_ip": os.environ.get("public_ip",""),
+}
+print(json.dumps(d))
+EOF
+      )"
+
+      curl -fsS -u "${ORCH_API_USER}:${ORCH_API_PASSWORD}" \
+        -H 'content-type: application/json' \
+        "${ORCH_API_URL}/api/v1/nodes/register" \
+        -d "$payload" >/dev/null
+
+  - path: /usr/local/sbin/taks-node-heartbeat.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      if [[ -f /etc/taks/node.env ]]; then
+        set -a; source /etc/taks/node.env; set +a
+      fi
+
+      ORCH_API_URL="{{ orch_api_url }}"
+      ORCH_API_USER="{{ orch_api_user }}"
+      ORCH_API_PASSWORD="{{ orch_api_password }}"
+
+      node_id="${HOSTNAME:-$(hostname)}"
+
+      payload="$(python3 - <<EOF
+import json, os, time
+d = {
+  "node_id": os.environ.get("node_id",""),
+  "ts": int(time.time()),
+}
+print(json.dumps(d))
+EOF
+      )"
+
+      curl -fsS -u "${ORCH_API_USER}:${ORCH_API_PASSWORD}" \
+        -H 'content-type: application/json' \
+        "${ORCH_API_URL}/api/v1/nodes/heartbeat" \
+        -d "$payload" >/dev/null
+
+  - path: /etc/systemd/system/taks-node-heartbeat.service
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=TAKS node heartbeat
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/taks-node-heartbeat.sh
+
+  - path: /etc/systemd/system/taks-node-heartbeat.timer
+    permissions: "0644"
+    owner: root:root
+    content: |
+      [Unit]
+      Description=TAKS node heartbeat timer
+
+      [Timer]
+      OnBootSec=45s
+      OnUnitActiveSec=30s
+      AccuracySec=5s
+
+      [Install]
+      WantedBy=timers.target
 runcmd:
+  - [ bash, -lc, "/usr/local/sbin/taks-node-register.sh || true" ]
+  - [ bash, -lc, "systemctl daemon-reload" ]
+  - [ bash, -lc, "systemctl enable --now taks-node-heartbeat.timer" ]
   - [ bash, -lc, "echo taks cloud-init ok > /var/log/taks-cloud-init.ok" ]
   - [ bash, -lc, "/usr/local/sbin/taks-bootstrap.sh" ]
