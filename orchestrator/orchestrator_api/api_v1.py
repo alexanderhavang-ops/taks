@@ -240,9 +240,14 @@ def nodes_cloud_init(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 
     # Auto-build bundle if requested and missing
     if nr.bundle_name:
-        p_try = bundles_dir() / nr.bundle_name
-        if not p_try.exists():
-            built = build_bundle_from_state(unit_path=nr.unit_path, role=nr.role, bundle_name=nr.bundle_name)
+        want = nr.bundle_name
+        if want and not (want.endswith(".tar.gz") or want.endswith(".zip")):
+            want = want + ".tar.gz"
+        p_try = bundles_dir() / want
+        if p_try.exists():
+            nr.bundle_name = want
+        else:
+            built = build_bundle_from_state(unit_path=nr.unit_path, role=nr.role, bundle_name=want)
             nr.bundle_name = built.bundle_name
 
         # Mint signed bundle URL and inject into cloud-init via nr.bundle_url
