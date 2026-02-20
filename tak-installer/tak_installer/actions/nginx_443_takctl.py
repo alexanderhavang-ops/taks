@@ -63,6 +63,12 @@ class Nginx443TakctlAction:
     include /etc/nginx/snippets/ssl-common.conf;
     include /etc/nginx/snippets/deny-dotfiles.conf;
 
+    # takctl is not meant to be framed
+    add_header X-Frame-Options DENY always;
+
+    # takctl is not meant to be framed
+    add_header X-Frame-Options DENY always;
+
     # ------------------------------------------------------------
     # takctl-web (FastAPI + static UI)
     # URL: https://{fqdn}/takctl/

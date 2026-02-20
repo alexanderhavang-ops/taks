@@ -1,20 +1,19 @@
 <div class="splash">
   <div class="splash-main">
+
+    <!-- TAKS product mark (CSS expects .splash-taks) -->
     <div class="splash-taks">
-      <img src="./assets/taks-logo.png" alt="TAKS">
+      <img src="./assets/taks-logo.png" alt="TAKS"
+           onerror="this.onerror=null;this.src='./assets/taks-logo.svg'">
+    </div>
+
+    <!-- populated by splash.js using ./assets/brand.json -->
+    <div class="brandchain">
+      <div class="brandchain-row" id="__brand_logos"></div>
     </div>
 
     <div class="splash-slogan" id="__splash_slogan"></div>
 
-    <div class="brandchain">
-      <div class="brandchain-row">
-        <img class="brandchain-logo" src="./assets/logo1.svg" alt="Försvarsmakten">
-        <span class="brandchain-sep">›</span>
-        <img class="brandchain-logo" src="./assets/logo2.svg" alt="Hemvärnet">
-        <span class="brandchain-sep">›</span>
-        <img class="brandchain-logo" src="./assets/logo3.svg" alt="Militärregion">
-      </div>
-    </div>
   </div>
 
   <div class="login-wrap">
