@@ -8,30 +8,9 @@ function TabButton({ id, tab, setTab, label }) {
 }
 
 /**
- * Try loading an image with fallback extensions.
- * Renders the first that loads, hides itself if none do.
+ * Try loading an image with fallback list.
+ * Renders first that loads; hides itself if none do.
  */
-function ImgTry({ base, exts, alt, className, title }) {
-  let idx = 0;
-
-  function onError(e) {
-    idx += 1;
-    if (idx < exts.length) {
-      e.target.src = base + exts[idx];
-    } else {
-      try { e.target.style.display = "none"; } catch (_) {}
-    }
-  }
-
-  return h("img", {
-    src: base + exts[0],
-    alt: alt || "",
-    title: title || "",
-    className: className || "",
-    onError,
-  });
-}
-
 function ImgTryList({ srcs, alt, className, title }) {
   let idx = 0;
 
@@ -41,6 +20,7 @@ function ImgTryList({ srcs, alt, className, title }) {
       e.target.src = srcs[idx];
     } else {
       try { e.target.style.display = "none"; } catch (_) {}
+      try { if (e.target && e.target.parentElement) e.target.parentElement.style.display = "none"; } catch (_) {}
     }
   }
 
@@ -53,62 +33,70 @@ function ImgTryList({ srcs, alt, className, title }) {
   });
 }
 
-function BrandBlock({ brand }) {
+function BrandLeft({ brand }) {
   const slogan = (brand && brand.slogan) || "";
 
-  return h("div", { className: "brandblock" },
+  // Git-owned product logo (always present)
+  // Prefer horizontal PNG first; SVG is fallback.
+  const taksLogoSrcs = [
+    "./assets/taks-logo.png",
+    "./assets/taks-logo.svg",
+  ];
 
-    h("div", { className: "brand-left" },
-      h("div", { className: "brand-product" },
-        h("div", { className: "brand-text" },
-          h("div", { className: "brand-title" }, (brand && brand.title) ? brand.title : "takctl"),
-          slogan ? h("div", { className: "brand-slogan" }, slogan) : null
-        )
+  return h("div", { className: "brand-left" },
+
+    h(ImgTryList, {
+      srcs: taksLogoSrcs,
+      alt: "TAKS",
+      className: "logo logo-product",
+      title: "TAKS"
+    }),
+
+    h("div", { className: "brand-product" },
+      h("div", { className: "brand-text" },
+        h("div", { className: "brand-title" }, (brand && brand.title) ? brand.title : "takctl"),
+        slogan ? h("div", { className: "brand-slogan" }, slogan) : null
       )
-    ),
-
-    // Instance-owned logos (runtime state)
-    h("div", { className: "brand-right" },
-
-      // logo1/logo2: real SVG uploads exist -> SVG first is fine
-      h(ImgTryList, {
-        srcs: ["./assets/topbar/logo1.png", "./assets/logo1.svg", "./assets/logo1.png", "./assets/logo1.webp", "./assets/logo1.jpg", "./assets/logo1.jpeg"],
-        alt: "Instance logo 1",
-        className: "logo logo-inst",
-        title: "Instance logo 1"
-      }),
-
-      h(ImgTryList, {
-        srcs: ["./assets/topbar/logo2.png", "./assets/logo2.svg", "./assets/logo2.png", "./assets/logo2.webp", "./assets/logo2.jpg", "./assets/logo2.jpeg"],
-        alt: "Instance logo 2",
-        className: "logo logo-inst",
-        title: "Instance logo 2"
-      }),
-
-      // logo3/logo4: may be raster + SVG wrapper; raster-first avoids blank wrapper in <img>
-      h(ImgTryList, {
-        srcs: ["./assets/topbar/logo3.png", "./assets/logo3.svg", "./assets/logo3.png", "./assets/logo3.webp", "./assets/logo3.jpg", "./assets/logo3.jpeg"],
-        alt: "Instance logo 3",
-        className: "logo logo-inst",
-        title: "Instance logo 3"
-      }),
-
-      h(ImgTryList, {
-        srcs: ["./assets/topbar/logo4.png", "./assets/logo4.svg", "./assets/logo4.png", "./assets/logo4.webp", "./assets/logo4.jpg", "./assets/logo4.jpeg"],
-        alt: "Instance logo 4",
-        className: "logo logo-inst",
-        title: "Instance logo 4"
-      })
     )
   );
 }
 
-function Layout(
-{ tab, setTab, health, brand, children }) {
+function TakServerLinks() {
+  const host = (window && window.location && window.location.hostname) ? window.location.hostname : "";
+  const martiUrl = host ? ("https://" + host + ":8446/Marti/") : "https://localhost:8446/Marti/";
+  const webtakUrl = host ? ("https://" + host + ":8446/webtak/") : "https://localhost:8446/webtak/";
+
+  const linkProps = {
+    target: "_blank",
+    rel: "noopener noreferrer",
+    className: "toplink",
+  };
+
+  return h("div", { className: "taklinks" },
+    h("a", { href: martiUrl, title: "Open Marti on :8446", ...linkProps }, "Marti"),
+    h("span", { className: "muted", style: { margin: "0 8px" } }, "·"),
+    h("a", { href: webtakUrl, title: "Open WebTak on :8446", ...linkProps }, "WebTak")
+  );
+}
+
+function Layout({ tab, setTab, health, brand, children }) {
+  // Prefer the square-derived icon first (unit-current.png),
+  // then fall back to svg and other extensions.
+  const unitLogoSrcs = [
+    "./assets/unit-current.png",
+    "./assets/unit-current.svg",
+    "./assets/unit-current.webp",
+    "./assets/unit-current.jpg",
+    "./assets/unit-current.jpeg",
+  ];
+
   return h("div", { className: "app" },
 
     h("div", { className: "topbar" },
-      h(BrandBlock, { brand }),
+
+      h("div", { className: "brandblock" },
+        h(BrandLeft, { brand })
+      ),
 
       h("div", { className: "tabs" },
         h(TabButton, { id: "users", tab, setTab, label: "Users" }),
@@ -120,11 +108,16 @@ function Layout(
 
       h("div", { className: "spacer" }),
 
-      h("div", { className: "health" },
-        (brand && (brand.apply_ts_utc || brand.apply_ts || brand.applied_ts_utc))
-          ? h("span", { className: "muted", style: { marginRight: "10px" } }, "Applied: " + (brand.apply_ts_utc || brand.apply_ts || brand.applied_ts_utc))
-          : null,
-        h("span", { className: "muted", style: { marginRight: "8px" } }, "api/health"),
+      h(TakServerLinks),
+
+      // Session cluster (top-right): unit logo + health dot
+      h("div", { className: "session" },
+        h(ImgTryList, {
+          srcs: unitLogoSrcs,
+          alt: "Unit logo",
+          className: "logo logo-inst logo-inst-single",
+          title: "Unit logo (highest uploaded)"
+        }),
         h(HealthBadge, { health })
       )
     ),
@@ -134,4 +127,3 @@ function Layout(
     )
   );
 }
-

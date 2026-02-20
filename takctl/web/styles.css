@@ -166,14 +166,7 @@ th{ color: var(--muted); font-weight: 600; }
   border-left: 1px solid var(--border);
 }
 
-.logo{
-  display: block;
-  height: 26px;
-  width: auto;
-  max-width: 140px;
-  object-fit: contain;
-  opacity: 0.98;
-}
+
 
 /* Tabs */
 .tabs{ display: flex; gap: 8px; }
@@ -218,3 +211,92 @@ th{ color: var(--muted); font-weight: 600; }
   overflow: auto;
 }
 
+/* ------------------------------------------------------------------ */
+/* Branding (canonical; keep ONE source of truth)                      */
+/* ------------------------------------------------------------------ */
+
+/* Generic logo helper (no pill) */
+.logo{
+  display: block;
+  width: auto;
+  object-fit: contain;
+  background: none;
+  padding: 0;
+  border: none;
+  box-shadow: none;
+}
+
+/* Brand block layout: TAKS left, instance logo right */
+.brandblock{
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 260px;
+}
+
+.brand-left{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-product{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-left: 1px solid rgba(255,255,255,0.12);
+  padding-left: 14px;
+  margin-left: 10px;
+}
+
+.brand-right{
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+/* Product logo (git) */
+.logo-product{
+  height: 34px;
+  max-width: 180px;
+  opacity: 0.98;
+}
+
+/* Instance logo (highest numbered) */
+.logo-inst-single{
+  height: 34px;
+  max-width: 180px;
+  opacity: 0.98;
+}
+
+@media (max-width: 900px){
+  .logo-product{ height: 30px; max-width: 140px; }
+  .logo-inst-single{ height: 30px; max-width: 140px; }
+}
+
+/* Top-right unit logo */
+.logo-inst-single{
+  height: 28px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+}
+
+/* Make sure session cluster aligns correctly */
+.session{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: 12px;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Override: unit badge should be a square icon (not a wide banner)    */
+/* ------------------------------------------------------------------ */
+.logo-inst-single{
+  width: 28px !important;
+  height: 28px !important;
+  max-width: 28px !important;
+  object-fit: contain !important;
+}

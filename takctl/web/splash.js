@@ -6,6 +6,7 @@
   var LOGIN  = BASE + "api/login";
   var FRAG   = BASE + "splash.fragment.html";
 
+  var BRAND  = BASE + "assets/brand.json";
   function $(id) { return document.getElementById(id); }
 
   function setErr(msg) {
@@ -15,10 +16,65 @@
     e.style.display = msg ? "block" : "none";
   }
 
-  function setSlogan() {
+  function setSlogan(text) {
     var el = $("__splash_slogan");
     if (!el) return;
-    el.textContent = "TAKS";
+    var t = (text == null ? "" : String(text)).trim();
+    el.textContent = t ? t : "TAKS";
+  }
+
+  function renderBrandLogos() {
+    var host = document.getElementById("__brand_logos");
+    if (!host) return;
+
+    host.innerHTML = "";
+
+    fetch(BRAND, { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (b) {
+        if (!b) { setSlogan("TAKS"); return; }
+
+        // Slogan is part of brand.json contract
+        setSlogan(b.slogan);
+
+        if (!b.logos || !b.logos.length) return;
+
+        b.logos.forEach(function (it) {
+          if (!it || it.uploaded !== true) return;
+          var n = it.n;
+          if (!(n >= 1 && n <= 4)) return;
+
+          var img = document.createElement("img");
+          img.className = "brandchain-logo inst";
+          img.alt = "logo" + n;
+
+          var ext = (it && it.ext) ? String(it.ext).toLowerCase() : "";
+          if (!ext) ext = "svg";
+
+          var base = "./assets/logo" + n + ".";
+          img.src = base + ext;
+
+          var all = ["svg", "png", "webp", "jpg", "jpeg"];
+          var fb = [];
+          for (var i = 0; i < all.length; i++) {
+            if (all[i] !== ext) fb.push(base + all[i]);
+          }
+          img.dataset.fallback = fb.join(",");
+          img.onerror = function () {
+            var f = (this.dataset.fallback || "").split(",");
+            if (f.length && f[0]) {
+              this.src = f.shift();
+              this.dataset.fallback = f.join(",");
+            } else {
+              this.style.display = "none";
+            }
+          };
+          host.appendChild(img);
+        });
+      })
+      .catch(function () {
+        setSlogan("TAKS");
+      });
   }
 
   function wireLogin() {
@@ -54,7 +110,6 @@
     p.addEventListener("keydown", function (ev) { if (ev.key === "Enter") submit(); });
     u.addEventListener("keydown", function (ev) { if (ev.key === "Enter") submit(); });
 
-    setSlogan();
     try { u.focus(); } catch (_) {}
   }
 
@@ -62,8 +117,8 @@
     var host = document.getElementById("__splash");
     if (!host) return;
 
-    // If fragment already present, just wire
     if (host.querySelector && host.querySelector("#__u")) {
+      renderBrandLogos();
       wireLogin();
       return;
     }
@@ -72,6 +127,7 @@
       .then(function (r) { return r.ok ? r.text() : ""; })
       .then(function (html) {
         if (html) host.innerHTML = html;
+        renderBrandLogos();
         wireLogin();
       })
       .catch(function () {
@@ -91,7 +147,6 @@
           return;
         }
 
-        // overlay mode
         if (!authed) {
           document.body.classList.add("__splash_on");
           var host = document.getElementById("__splash");

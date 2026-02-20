@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import json
+import shutil
 import tempfile
 from pathlib import Path
 
@@ -10,6 +12,10 @@ RUNTIME_DIR = Path("/opt/tak/tools/takctl")
 UPLOADS_DIR = RUNTIME_DIR / "user-uploads"
 ASSETS_DIR = RUNTIME_DIR / "web" / "assets"
 TOPBAR_DIR = ASSETS_DIR / "topbar"
+
+UNIT_CURRENT_SVG = ASSETS_DIR / "unit-current.svg"
+UNIT_CURRENT_PNG = ASSETS_DIR / "unit-current.png"   # square icon for top-right badge
+BRAND_JSON = ASSETS_DIR / "brand.json"
 
 # Prefer user uploads in this order
 EXTS = ["svg", "png", "webp", "jpg", "jpeg"]
@@ -30,7 +36,6 @@ def _safe_unlink(path: Path) -> None:
     except FileNotFoundError:
         return
     except Exception:
-        # best-effort
         return
 
 
@@ -85,14 +90,11 @@ def _write_topbar_png_derived(dst_png: Path, src: Path, w: int = 360, h: int = 9
         from PIL import Image
     except Exception as e:
         raise RuntimeError(
-            "Pillow (python3-pil) is required to derive topbar banner logos. "
+            "Pillow (python3-pil) is required to derive logos. "
             "Install with: sudo apt-get update && sudo apt-get install -y python3-pil"
         ) from e
 
-    im = Image.open(src)
-    # WebP/JPEG/PNG all end up here; SVG will fail (we don't call this for SVG)
-    im = im.convert("RGBA")
-
+    im = Image.open(src).convert("RGBA")
     sw, sh = im.size
     if sw <= 0 or sh <= 0:
         raise RuntimeError(f"bad image size: {src} size={im.size}")
@@ -102,42 +104,13 @@ def _write_topbar_png_derived(dst_png: Path, src: Path, w: int = 360, h: int = 9
     im2 = im.resize((rw, rh), resample=Image.LANCZOS)
 
     left = max(0, (rw - w) // 2)
-    top  = max(0, (rh - h) // 2)
+    top = max(0, (rh - h) // 2)
     im3 = im2.crop((left, top, left + w, top + h))
 
     from io import BytesIO
     buf = BytesIO()
     im3.save(buf, format="PNG", optimize=True)
     _atomic_write_bytes(dst_png, buf.getvalue())
-
-
-def _pick_upload(name: str) -> Path | None:
-    # returns first existing upload among EXTS
-    for ext in EXTS:
-        cand = UPLOADS_DIR / f"{name}.{ext}"
-        if cand.exists():
-            return cand
-    return None
-
-
-def _write_placeholder_svg(dst_svg: Path, label: str) -> None:
-    # Simple placeholder (never 404)
-    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="360" height="96" viewBox="0 0 360 96">
-  <rect x="0" y="0" width="360" height="96" rx="12" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.18)"/>
-  <text x="180" y="56" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="20" fill="rgba(255,255,255,0.55)">{label}</text>
-</svg>
-"""
-    _atomic_write_text(dst_svg, svg)
-
-
-def _write_svg_wrapper_for_raster(dst_svg: Path, rel_filename: str) -> None:
-    # wrapper references ./<rel_filename> (e.g., logo3.png / logo3.jpg)
-    svg = f"""<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"360\" height=\"96\" viewBox=\"0 0 360 96\">
-  <image href=\"./{rel_filename}\" x=\"0\" y=\"0\" width=\"360\" height=\"96\" preserveAspectRatio=\"xMidYMid meet\"/>
-</svg>
-"""
-    _atomic_write_text(dst_svg, svg)
-
 
 
 def _write_topbar_png_from_svg(dst_png: Path, svg_path: Path, w: int = 360, h: int = 96) -> None:
@@ -161,12 +134,99 @@ def _write_topbar_png_from_svg(dst_png: Path, svg_path: Path, w: int = 360, h: i
         pass
 
 
+def _pick_upload(name: str) -> Path | None:
+    for ext in EXTS:
+        cand = UPLOADS_DIR / f"{name}.{ext}"
+        if cand.exists():
+            return cand
+    return None
+
+
+def _upload_truth(name: str) -> tuple[bool, str | None]:
+    for ext in EXTS:
+        cand = UPLOADS_DIR / f"{name}.{ext}"
+        if cand.exists():
+            return True, ext
+    return False, None
+
+
+def _write_placeholder_svg(dst_svg: Path, label: str) -> None:
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="360" height="96" viewBox="0 0 360 96">
+  <rect x="0" y="0" width="360" height="96" rx="12" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.18)"/>
+  <text x="180" y="56" text-anchor="middle" font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial" font-size="20" fill="rgba(255,255,255,0.55)">{label}</text>
+</svg>
+"""
+    _atomic_write_text(dst_svg, svg)
+
+
+def _write_svg_wrapper_for_raster(dst_svg: Path, rel_filename: str) -> None:
+    svg = f"""<svg xmlns="http://www.w3.org/2000/svg" width="360" height="96" viewBox="0 0 360 96">
+  <image href="./{rel_filename}" x="0" y="0" width="360" height="96" preserveAspectRatio="xMidYMid meet"/>
+</svg>
+"""
+    _atomic_write_text(dst_svg, svg)
+
+
+def _write_square_icon_png(dst_png: Path, src: Path, size: int = 96) -> None:
+    """
+    Create a square icon PNG (contain + centered, transparent padding).
+    This is what the top-right unit badge should use (NOT the 360x96 banner).
+    """
+    try:
+        from PIL import Image
+    except Exception as e:
+        raise RuntimeError(
+            "Pillow (python3-pil) is required to derive logos. "
+            "Install with: sudo apt-get update && sudo apt-get install -y python3-pil"
+        ) from e
+
+    # If SVG, render to a temp PNG first using rsvg-convert
+    if src.suffix.lower() == ".svg":
+        import subprocess
+        tmp = dst_png.with_suffix(".tmp.render.png")
+        subprocess.run(
+            ["rsvg-convert", "-w", str(size), "-h", str(size), "-o", str(tmp), str(src)],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        src2 = tmp
+    else:
+        src2 = src
+
+    try:
+        im = Image.open(src2).convert("RGBA")
+        sw, sh = im.size
+        if sw <= 0 or sh <= 0:
+            raise RuntimeError(f"bad image size: {src} size={im.size}")
+
+        scale = min(size / sw, size / sh)
+        rw, rh = max(1, int(sw * scale + 0.5)), max(1, int(sh * scale + 0.5))
+        im2 = im.resize((rw, rh), resample=Image.LANCZOS)
+
+        canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        left = (size - rw) // 2
+        top = (size - rh) // 2
+        canvas.paste(im2, (left, top), im2)
+
+        from io import BytesIO
+        buf = BytesIO()
+        canvas.save(buf, format="PNG", optimize=True)
+        _atomic_write_bytes(dst_png, buf.getvalue())
+    finally:
+        if src2 != src:
+            try:
+                Path(src2).unlink()
+            except Exception:
+                pass
+
+
 def apply(ctx) -> None:
     _ensure_dir(UPLOADS_DIR)
     _ensure_dir(ASSETS_DIR)
     _ensure_dir(TOPBAR_DIR)
 
-    # Ensure logos exist in assets as SVG (UI references svg)
+    # Ensure logos exist in assets as SVG (UI can reference svg)
     for name in LOGOS:
         src = _pick_upload(name)
 
@@ -174,7 +234,6 @@ def apply(ctx) -> None:
         dst_png = ASSETS_DIR / f"{name}.png"
 
         if src is None:
-            # No upload: ensure a non-404 placeholder SVG exists
             if not dst_svg.exists() or dst_svg.is_symlink():
                 _safe_unlink(dst_svg)
                 _write_placeholder_svg(dst_svg, name)
@@ -187,9 +246,7 @@ def apply(ctx) -> None:
             log.info(f"takctl-user-uploads: {name}: no upload -> placeholder svg")
             continue
 
-        # Upload exists
         if src.suffix.lower() == ".svg":
-            # Canonical: assets/logoN.svg -> user upload svg
             _symlink_force(dst_svg, src)
             log.info(f"takctl-user-uploads: {name}: linked svg from user-uploads")
             try:
@@ -199,23 +256,19 @@ def apply(ctx) -> None:
             except Exception as e:
                 log.info(f"takctl-user-uploads: {name}: topbar derive skipped (svg): {e}")
 
-            # If UI ever requests png, we don't promise it, but avoid stale symlink:
             if dst_png.is_symlink() and not dst_png.exists():
                 _safe_unlink(dst_png)
 
         elif src.suffix.lower() in (".png", ".jpg", ".jpeg", ".webp"):
-            # Link raster as assets/logoN.<ext>, then write svg wrapper so UI can always use svg
             ext = src.suffix.lower()
             dst_raster = ASSETS_DIR / f"{name}{ext}"
             _symlink_force(dst_raster, src)
-            # Remove old png link if it exists but we are not using png now
             if ext != ".png" and dst_png.is_symlink():
                 _safe_unlink(dst_png)
             _safe_unlink(dst_svg)
             _write_svg_wrapper_for_raster(dst_svg, f"{name}{ext}")
             log.info(f"takctl-user-uploads: {name}: linked {ext} + wrote svg wrapper")
 
-            # Derived topbar banner PNG (DOES NOT modify uploads)
             try:
                 dst_topbar = TOPBAR_DIR / f"{name}.png"
                 _write_topbar_png_derived(dst_topbar, src)
@@ -223,15 +276,63 @@ def apply(ctx) -> None:
             except Exception as e:
                 log.info(f"takctl-user-uploads: {name}: topbar png derive skipped: {e}")
 
-
         else:
-            # Other types: just provide placeholder svg to avoid 404
             _safe_unlink(dst_svg)
             _write_placeholder_svg(dst_svg, name)
             log.info(f"takctl-user-uploads: {name}: upload {src.name} unsupported for wrapper -> placeholder svg")
 
-    # slogan.txt: always ensure it exists (empty by default)
+    # --- brand.json + unit-current.* (UI truth) ---
+    logos = []
+    current_n = None
+    for name in LOGOS:
+        uploaded, ext = _upload_truth(name)
+        n = int(name.replace("logo", ""))
+        logos.append({
+            "n": n,
+            "uploaded": uploaded,
+            "ext": ext,
+            "asset_svg": f"./assets/{name}.svg",
+        })
+        if uploaded and (current_n is None or n > current_n):
+            current_n = n
+
+    # slogan: read user upload if present (else empty)
     slogan_src = UPLOADS_DIR / "slogan.txt"
+    slogan = ""
+    if slogan_src.exists():
+        try:
+            slogan = slogan_src.read_text(encoding="utf-8", errors="replace").strip()
+        except Exception:
+            slogan = ""
+
+    brand = {
+        "logos": sorted(logos, key=lambda x: x["n"]),
+        "current_n": current_n,
+        "slogan": slogan,
+    }
+    _atomic_write_text(BRAND_JSON, json.dumps(brand, indent=2) + "\n")
+
+    # unit-current.svg -> highest uploaded logoN.svg wrapper; remove if none uploaded
+    _safe_unlink(UNIT_CURRENT_SVG)
+    if current_n is not None:
+        _symlink_force(UNIT_CURRENT_SVG, ASSETS_DIR / f"logo{current_n}.svg")
+        log.info(f"takctl-user-uploads: unit-current.svg -> logo{current_n}.svg")
+    else:
+        log.info("takctl-user-uploads: unit-current.svg removed (no uploaded logos)")
+
+    # unit-current.png -> square icon derived from the highest uploaded original (NOT topbar banner)
+    _safe_unlink(UNIT_CURRENT_PNG)
+    if current_n is not None:
+        name = f"logo{current_n}"
+        src = _pick_upload(name)
+        if src is not None:
+            try:
+                _write_square_icon_png(UNIT_CURRENT_PNG, src, size=96)
+                log.info(f"takctl-user-uploads: unit-current.png (square) -> derived from {src.name}")
+            except Exception as e:
+                log.info(f"takctl-user-uploads: unit-current.png derive skipped: {e}")
+
+    # Also keep slogan.txt in assets for any other UI bits that want it
     slogan_dst = ASSETS_DIR / "slogan.txt"
     if slogan_src.exists():
         _symlink_force(slogan_dst, slogan_src)
