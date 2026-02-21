@@ -1,145 +1,46 @@
 #cloud-config
-hostname: {{ hostname }}
-manage_etc_hosts: true
-
 package_update: false
 package_upgrade: false
 
 write_files:
-  - path: /etc/taks/node.env
-    permissions: "0644"
-    content: |
-      UNIT_PATH={{ unit_path }}
-      ROLE={{ role }}
-      FQDN={{ fqdn }}
-
-  - path: /etc/taks/orchestrator.env
-    permissions: "0600"
-    content: |
-      ORCH_API_URL={{ orch_api_url }}
-      ORCH_API_USER={{ orch_api_user }}
-      ORCH_API_PASSWORD={{ orch_api_password }}
-
-{% if bundle_url %}
-  - path: /etc/taks/bundle.env
-    permissions: "0600"
-    content: |
-      BUNDLE_URL='{{ bundle_url }}'
-{% if bundle_sha256 %}
-      BUNDLE_SHA256={{ bundle_sha256 }}
-{% endif %}
-{% endif %}
-
   - path: /usr/local/sbin/taks-bootstrap.sh
     permissions: "0755"
+    owner: root:root
     content: |
       #!/usr/bin/env bash
       set -euo pipefail
 
-      LOG=/var/log/taks-bootstrap.log
-      exec > >(tee -a "$LOG") 2>&1
+      ORCH_API_URL="{{ orch_api_url }}"
+      ORCH_API_USER="{{ orch_api_user }}"
+      ORCH_API_PASSWORD="{{ orch_api_password }}"
 
-      echo "== taks-bootstrap: start $(date -Is) =="
+      STATE_DIR="/opt/taks"
+      BUNDLES_DIR="/var/lib/taks/bundles"
+      WORK="${STATE_DIR}/work"
 
-      # Load env (if present)
-      if [[ -f /etc/taks/node.env ]]; then set -a; source /etc/taks/node.env; set +a; fi
-      if [[ -f /etc/taks/orchestrator.env ]]; then set -a; source /etc/taks/orchestrator.env; set +a; fi
-      if [[ -f /etc/taks/bundle.env ]]; then set -a; source /etc/taks/bundle.env; set +a; fi
+      mkdir -p "$BUNDLES_DIR" "$WORK"
 
-      mkdir -p /var/lib/taks/bundles /opt/taks-bundles
+      echo "== taks-bootstrap start $(date -Is) =="
+      curl -fsS \
+        -o "${BUNDLES_DIR}/taks_orch_bundle.tar.gz" \
+        "${ORCH_API_URL}/bundles/taks_orch_bundle.tar.gz"
 
-      if [[ -z "${BUNDLE_URL:-}" ]]; then
-        echo "No BUNDLE_URL provided; nothing to do."
-        echo "== taks-bootstrap: done (no bundle) =="
-        exit 0
-      fi
+      rm -rf "${WORK:?}"/*
+      tar -xzf "${BUNDLES_DIR}/taks_orch_bundle.tar.gz" -C "$WORK"
 
-      # Ensure tooling exists
-      if ! command -v curl >/dev/null 2>&1; then
-        echo "curl missing; installing minimal deps"
-        export DEBIAN_FRONTEND=noninteractive
-        apt-get update -y
-        apt-get install -y curl ca-certificates
-      fi
-
-      # Download bundle
-      TS="$(date +%Y%m%d-%H%M%S)"
-      OUT="/var/lib/taks/bundles/bundle-$TS"
-      echo "Downloading bundle..."
-      curl -fsSL --retry 6 --retry-delay 2 --retry-connrefused "$BUNDLE_URL" -o "$OUT"
-
-      # Detect extension from URL (best-effort)
-      if [[ "$BUNDLE_URL" == *".tar.gz"* ]]; then
-        OUT="$OUT.tar.gz"; mv -f "/var/lib/taks/bundles/bundle-$TS" "$OUT"
-      elif [[ "$BUNDLE_URL" == *".zip"* ]]; then
-        OUT="$OUT.zip"; mv -f "/var/lib/taks/bundles/bundle-$TS" "$OUT"
-      else
-        # default to tgz if unknown
-        OUT="$OUT.tar.gz"; mv -f "/var/lib/taks/bundles/bundle-$TS" "$OUT"
-      fi
-
-      echo "Downloaded: $OUT"
-
-      # Verify sha256 if provided
-      if [[ -n "${BUNDLE_SHA256:-}" ]]; then
-        echo "Verifying sha256..."
-        got="$(sha256sum "$OUT" | awk '{print $1}')"
-        if [[ "$got" != "$BUNDLE_SHA256" ]]; then
-          echo "ERROR: sha256 mismatch"
-          echo "  expected: $BUNDLE_SHA256"
-          echo "  got:      $got"
-          exit 2
-        fi
-        echo "sha256 OK"
-      else
-        echo "WARNING: no BUNDLE_SHA256 provided; skipping hash verification"
-      fi
-
-      # Unpack
-      WORK="/opt/taks-bundles/current"
-      rm -rf "$WORK"
-      mkdir -p "$WORK"
-
-      echo "Unpacking..."
-      if [[ "$OUT" == *.zip ]]; then
-        if ! command -v unzip >/dev/null 2>&1; then
-          export DEBIAN_FRONTEND=noninteractive
-          apt-get update -y
-          apt-get install -y unzip
-        fi
-        unzip -q "$OUT" -d "$WORK"
-      else
-        tar -xzf "$OUT" -C "$WORK"
-      fi
-
-      echo "Contents:"
-      find "$WORK" -maxdepth 3 -type f | sed -n '1,200p' || true
-
-      # Execute (convention-based)
-      CANDIDATES=(
-        "$WORK/run.sh"
-        "$WORK/install/run.sh"
-        "$WORK/install.sh"
-        "$WORK"/*/run.sh
-        "$WORK"/*/install/run.sh
-        "$WORK"/*/install.sh
-      )
-
-      RUNNER=""
-      for c in "${CANDIDATES[@]}"; do
-        if [[ -f "$c" ]]; then RUNNER="$c"; break; fi
-      done
-
-      if [[ -z "$RUNNER" ]]; then
-        echo "ERROR: no run/install script found in bundle"
+      # Bundle may extract under a top-level directory (e.g. taks_orch_bundle/).
+      # Find install/install.sh anywhere within $WORK (maxdepth=3 to keep it tight).
+      install_sh="$(find "$WORK" -maxdepth 3 -type f -path "*/install/install.sh" | head -n 1 || true)"
+      if [[ -z "${install_sh:-}" || ! -f "$install_sh" ]]; then
+        echo "ERROR: install/install.sh missing in bundle"
+        find "$WORK" -maxdepth 3 -type f || true
         exit 3
       fi
 
-      echo "Executing: $RUNNER"
-      chmod +x "$RUNNER"
-      bash -lc "$RUNNER"
+      chmod +x "$install_sh"
+      bash "$install_sh"
 
-      echo "== taks-bootstrap: done $(date -Is) =="
+      echo "== taks-bootstrap done $(date -Is) =="
 
   - path: /usr/local/sbin/taks-node-register.sh
     permissions: "0755"
@@ -148,7 +49,6 @@ write_files:
       #!/usr/bin/env bash
       set -euo pipefail
 
-      # Load node identity
       if [[ -f /etc/taks/node.env ]]; then
         set -a; source /etc/taks/node.env; set +a
       fi
@@ -162,13 +62,14 @@ write_files:
       role="${ROLE:-}"
       fqdn="${FQDN:-}"
 
-      # EC2 metadata (best effort)
       meta() { curl -fsS --max-time 2 "http://169.254.169.254/latest/meta-data/$1" 2>/dev/null || true; }
       private_ip="$(meta local-ipv4)"
       public_ip="$(meta public-ipv4)"
 
-      payload="$(python3 -c 'import json,sys; node_id,unit_path,role,fqdn,private_ip,public_ip=sys.argv[1:7]; print(json.dumps({"node_id":node_id,"unit_path":unit_path,"role":role,"fqdn":fqdn,"private_ip":private_ip,"public_ip":public_ip}))' "$node_id" "$unit_path" "$role" "$fqdn" "$private_ip" "$public_ip")"
-      curl -fsS -u "${ORCH_API_USER}:${ORCH_API_PASSWORD}" \
+      payload="$(python3 -c 'import json,sys; node_id,unit_path,role,fqdn,private_ip,public_ip=sys.argv[1:7]; print(json.dumps({"node_id":node_id,"unit_path":unit_path,"role":role,"fqdn":fqdn,"private_ip":private_ip,"public_ip":public_ip}))' \
+        "$node_id" "$unit_path" "$role" "$fqdn" "$private_ip" "$public_ip")"
+      curl -fsS \
+        -u "${ORCH_API_USER}:${ORCH_API_PASSWORD}" \
         -H 'content-type: application/json' \
         "${ORCH_API_URL}/api/v1/nodes/register" \
         -d "$payload" >/dev/null
@@ -191,7 +92,8 @@ write_files:
       node_id="${HOSTNAME:-$(hostname)}"
 
       payload="$(python3 -c 'import json,sys,time; node_id=sys.argv[1]; print(json.dumps({"node_id":node_id,"ts":int(time.time())}))' "$node_id")"
-      curl -fsS -u "${ORCH_API_USER}:${ORCH_API_PASSWORD}" \
+      curl -fsS \
+        -u "${ORCH_API_USER}:${ORCH_API_PASSWORD}" \
         -H 'content-type: application/json' \
         "${ORCH_API_URL}/api/v1/nodes/heartbeat" \
         -d "$payload" >/dev/null
@@ -215,15 +117,17 @@ write_files:
       Description=TAKS node heartbeat timer
 
       [Timer]
-      OnBootSec=45s
-      OnUnitActiveSec=30s
+      OnBootSec=30
+      OnUnitActiveSec=30
       AccuracySec=5s
+      Unit=taks-node-heartbeat.service
 
       [Install]
       WantedBy=timers.target
+
 runcmd:
+  - [ bash, -lc, "/usr/local/sbin/taks-bootstrap.sh || true" ]
   - [ bash, -lc, "/usr/local/sbin/taks-node-register.sh || true" ]
   - [ bash, -lc, "systemctl daemon-reload" ]
   - [ bash, -lc, "systemctl enable --now taks-node-heartbeat.timer" ]
-  - [ bash, -lc, "echo taks cloud-init ok > /var/log/taks-cloud-init.ok" ]
-  - [ bash, -lc, "/usr/local/sbin/taks-bootstrap.sh" ]
+

@@ -126,3 +126,6 @@ __pycache__/
 *.pyc
 *.pyo
 *.bak.*
+
+# generated bundles
+orchestrator/bundle/
