@@ -1,7 +1,6 @@
 # orchestrator/orchestrator_api/api_v1.py
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import json
@@ -13,41 +12,15 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
+
+from .authz import require_auth
+from .operator_auth import require_operator
 from orchestrator_core.nodes_state import upsert_node, touch_heartbeat, list_nodes
 from orchestrator_core.core import NodeRequest, plan_node, aws_dry_run, aws_launch, aws_list_nodes
 from orchestrator_core.bundles import build_bundle_from_state
 from orchestrator_core.bundles import bundles_dir
 
 router = APIRouter(prefix="/api/v1")
-
-
-# ----------------------------
-# Auth (BASIC) for operator actions
-# ----------------------------
-def _basic_auth_ok(request: Request) -> bool:
-    want_user = (os.environ.get("TAKS_UI_USER") or "orchestrator").strip()
-    want_pass = (os.environ.get("TAKS_UI_PASSWORD") or "changeme").strip()
-
-    h = request.headers.get("authorization") or ""
-    if not h.lower().startswith("basic "):
-        return False
-
-    b64 = h.split(None, 1)[1].strip()
-    try:
-        raw = base64.b64decode(b64).decode("utf-8", errors="strict")
-    except Exception:
-        return False
-
-    if ":" not in raw:
-        return False
-
-    user, pw = raw.split(":", 1)
-    return user == want_user and pw == want_pass
-
-
-def require_basic(request: Request) -> None:
-    if not _basic_auth_ok(request):
-        raise HTTPException(status_code=401, detail="Unauthorized (BASIC auth required)")
 
 
 # ----------------------------
@@ -105,6 +78,7 @@ def _token_sign(name: str, exp: int, sha256_hex: str) -> str:
     secret = _bundle_secret().encode("utf-8")
     payload = _token_payload(name, exp, sha256_hex)
     sig = hmac.new(secret, payload, hashlib.sha256).digest()
+    import base64
     return base64.urlsafe_b64encode(sig).decode("ascii").rstrip("=")
 
 
@@ -193,7 +167,7 @@ def bundles_build(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     Request:
       { "unit_path": "...", "role": "...", "bundle_name": "optional.tar.gz" }
     """
-    require_basic(request)
+    require_auth(request)
     unit_path = str(req.get("unit_path") or req.get("battalion") or "").strip()
     role = str(req.get("role") or "tak-node").strip()
     bundle_name = (req.get("bundle_name") or None)
@@ -218,14 +192,14 @@ def bundles_build(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 # ----------------------------
 @router.post("/nodes/preview")
 def nodes_preview(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
-    require_basic(request)
+    require_auth(request)
     nr = NodeRequest(**_normalize_node_req(req))
     return plan_node(nr)
 
 
 @router.post("/nodes/dry-run")
 def nodes_dry_run(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
-    require_basic(request)
+    require_auth(request)
     nr = NodeRequest(**_normalize_node_req(req))
     return aws_dry_run(nr)
 
@@ -236,7 +210,7 @@ def nodes_cloud_init(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     Render the exact cloud-init we would send to EC2, including signed bundle URL if bundle_name is provided.
     This is verification-only (no AWS calls).
     """
-    require_basic(request)
+    require_auth(request)
     nr = NodeRequest(**_normalize_node_req(req))
 
     # Auto-build bundle if requested and missing
@@ -277,7 +251,7 @@ def nodes_cloud_init(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 
 @router.post("/nodes/launch")
 def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
-    require_basic(request)
+    require_auth(request)
     nr = NodeRequest(**_normalize_node_req(req))
 
     if os.environ.get("TAKS_LAUNCH_ENABLED") != "1":
@@ -313,14 +287,14 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 # ----------------------------
 @router.get("/nodes")
 def nodes_list(request: Request) -> Dict[str, Any]:
-    require_basic(request)
+    require_auth(request)
     items = list_nodes()
     return {"count": len(items), "items": items}
 
 
 @router.get("/nodes/{node_id}")
 def nodes_get(node_id: str, request: Request) -> Dict[str, Any]:
-    require_basic(request)
+    require_auth(request)
     items = [x for x in list_nodes() if str(x.get("node_id")) == node_id]
     if not items:
         raise HTTPException(status_code=404, detail="node not found")
@@ -333,7 +307,7 @@ def nodes_register(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     Node -> orchestrator registration (push).
     Node authenticates with BASIC using the orch_api_user/pass embedded in cloud-init.
     """
-    require_basic(request)
+    require_auth(request)
 
     node_id = (req.get("instance_id") or req.get("node_id") or req.get("fqdn") or "").strip()
     if not node_id:
@@ -363,7 +337,7 @@ def nodes_heartbeat(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     """
     Node heartbeat.
     """
-    require_basic(request)
+    require_auth(request)
     node_id = (req.get("instance_id") or req.get("node_id") or req.get("fqdn") or "").strip()
     if not node_id:
         raise HTTPException(status_code=400, detail="missing instance_id/node_id/fqdn")
@@ -382,7 +356,7 @@ def nodes_heartbeat(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 # ----------------------------
 @router.get("/bundles")
 def bundles_list(request: Request) -> Dict[str, Any]:
-    require_basic(request)
+    require_auth(request)
 
     d = _bundle_dir()
     d.mkdir(parents=True, exist_ok=True)
@@ -409,7 +383,7 @@ def bundles_list(request: Request) -> Dict[str, Any]:
 
 @router.get("/bundles/{bundle_name}")
 def bundle_manifest(bundle_name: str, request: Request) -> Dict[str, Any]:
-    require_basic(request)
+    require_auth(request)
 
     d = _bundle_dir()
     d.mkdir(parents=True, exist_ok=True)
@@ -434,7 +408,7 @@ def bundle_manifest(bundle_name: str, request: Request) -> Dict[str, Any]:
 
 @router.get("/bundles/{bundle_name}/signed-url")
 def bundle_signed_url(bundle_name: str, request: Request, ttl: int = 3600) -> Dict[str, Any]:
-    require_basic(request)
+    require_auth(request)
 
     p = _resolve_bundle_path(bundle_name)
     sha = _sha256_file(p)
@@ -453,7 +427,7 @@ def bundle_signed_url(bundle_name: str, request: Request, ttl: int = 3600) -> Di
     return {"name": p.name, "exp": exp, "token": token, "sha256": sha, "url": url}
 
 
-@router.api_route("/bundles/{bundle_name}/download", methods=["GET", "HEAD"])
+@router.api_route("/bundles/{bundle_name}/download", methods=["GET", "HEAD"], operation_id="bundle_download_v1")
 def bundle_download(bundle_name: str, request: Request, exp: Optional[int] = None, token: Optional[str] = None):
     # Signed URL path (no BASIC)
     if exp is not None and token is not None:
@@ -463,7 +437,8 @@ def bundle_download(bundle_name: str, request: Request, exp: Optional[int] = Non
             raise HTTPException(status_code=401, detail="Invalid or expired signed URL")
         return FileResponse(path=str(p), filename=p.name, media_type="application/octet-stream")
 
-    # Otherwise require BASIC auth.
-    require_basic(request)
+    # Otherwise require auth (cookie or BASIC).
+    require_auth(request)
     p = _resolve_bundle_path(bundle_name)
     return FileResponse(path=str(p), filename=p.name, media_type="application/octet-stream")
+

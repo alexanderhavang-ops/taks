@@ -1,20 +1,25 @@
 from __future__ import annotations
+
 from fastapi import FastAPI
 
+from .api_v2 import router as api_v2_router
 from .api_v1 import router as api_v1_router
 from .ui import router as ui_router
+from .public_bundles import router as public_bundles_router
+from .units_v2 import router as units_v2_router
 
-app = FastAPI(title="taks-orchestrator", version="0.1.0")
+app = FastAPI(title="taks-orchestrator", version="0.2.0")
 
-# UI + auth-gated routes
+# UI
 app.include_router(ui_router)
 
-# API v1
-app.include_router(api_v1_router)
+# Public, no-auth bundle downloads (MAXIMUM BORING)
+app.include_router(public_bundles_router)
 
-# Legacy API shim (hidden from schema)
-from .api_v1 import api_status, nodes_preview, nodes_dry_run, nodes_launch  # noqa: E402
-app.add_api_route("/api/status", api_status, methods=["GET"], include_in_schema=False)
-app.add_api_route("/api/nodes/preview", nodes_preview, methods=["POST"], include_in_schema=False)
-app.add_api_route("/api/nodes/dry-run", nodes_dry_run, methods=["POST"], include_in_schema=False)
-app.add_api_route("/api/nodes/launch", nodes_launch, methods=["POST"], include_in_schema=False)
+# API v1 (boring/stable; node bootstrap uses this)
+app.include_router(api_v1_router)
+app.include_router(units_v2_router)
+
+# API v2 (authoritative)
+app.include_router(api_v2_router)
+
