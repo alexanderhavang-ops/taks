@@ -1,6 +1,11 @@
 from __future__ import annotations
 from takctl.web.subsystems import load_subsystems, get_subsystems_status
 from takctl.api.onboarding import router as onboarding_router
+from takctl.api.onboarding_packages import router as onboarding_packages_router
+from takctl.api.onboarding_cards_json import router as onboarding_cards_json_router
+from takctl.api.onboarding_identity import router as onboarding_identity_router
+
+from takctl.api.onboarding_cards import router as onboarding_cards_router
 
 import hmac
 import json
@@ -231,5 +236,29 @@ app.include_router(meta_router)
 app.include_router(health_router, prefix="/api")
 app.include_router(meta_router, prefix="/api")
 app.include_router(onboarding_router)
+app.include_router(onboarding_packages_router)
+app.include_router(onboarding_cards_router)
 app.include_router(onboarding_router, prefix="/api")
+app.include_router(onboarding_packages_router, prefix="/api")
+app.include_router(onboarding_cards_json_router, prefix="/api")
+app.include_router(onboarding_identity_router, prefix="/api")
+app.include_router(onboarding_cards_router, prefix="/api")
+
+
+# -----------------------------------------------------------------------------
+# Debug helpers (safe: local/ops use only)
+# -----------------------------------------------------------------------------
+@app.get("/api/_debug/routes", include_in_schema=False)
+def _debug_routes():
+    out = []
+    for r in app.router.routes:
+        try:
+            methods = sorted(list(getattr(r, "methods", []) or []))
+            path = getattr(r, "path", None)
+            name = getattr(r, "name", None)
+            if path:
+                out.append({"path": path, "methods": methods, "name": name})
+        except Exception:
+            continue
+    return {"count": len(out), "routes": out}
 

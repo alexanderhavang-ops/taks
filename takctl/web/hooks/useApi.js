@@ -6,18 +6,10 @@ function _resolveUrl(url) {
   // Absolute URL -> keep
   if (/^https?:\/\//i.test(url)) return url;
 
-  // If caller uses "/api/..." (absolute path), rewrite it to the current mount.
-  // Example: page is "/takctl/" => mount "/takctl"
-  const path = (window.location && window.location.pathname) ? window.location.pathname : "/";
-  const parts = path.split("/").filter(Boolean); // ["takctl", ...]
-  const mount = parts.length > 0 ? ("/" + parts[0]) : "";
+  // Absolute path ("/api/...") -> keep as-is (root-native)
+  if (url.startsWith("/")) return url;
 
-  if (url.startsWith("/")) {
-    // Only rewrite when we're actually mounted (e.g. /takctl)
-    return mount ? (mount + url) : url;
-  }
-
-  // Relative URL stays relative; <base href="/takctl/"> will do the right thing.
+  // Relative ("api/...") -> keep (works with ./ and without any <base>)
   return url;
 }
 

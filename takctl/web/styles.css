@@ -300,3 +300,157 @@ th{ color: var(--muted); font-weight: 600; }
   max-width: 28px !important;
   object-fit: contain !important;
 }
+/* ------------------------------------------------------------------ */
+/* LLM (RenderPlan blocks)                                             */
+/* ------------------------------------------------------------------ */
+
+.llm-page{
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.llm-toolbar{
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--radius);
+}
+
+.llm-content{
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Simple headline helpers used by LLM.js */
+.h1{
+  font-size: 18px;
+  font-weight: 800;
+  margin: 0 0 6px 0;
+  letter-spacing: 0.2px;
+}
+
+.h2{
+  font-size: 14px;
+  font-weight: 800;
+  margin: 0 0 8px 0;
+  letter-spacing: 0.2px;
+}
+
+/* Button helper (if you don’t already have one elsewhere) */
+.btn{
+  border: 1px solid var(--border2);
+  background: rgba(255,255,255,0.04);
+  padding: 8px 12px;
+  border-radius: 10px;
+}
+.btn:hover{ border-color: #2d3f5d; }
+
+/* Error box for fetch failures */
+.errorbox{
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 125, 125, 0.35);
+  background: rgba(255, 125, 125, 0.08);
+  color: var(--fg);
+}
+
+/* Generic LLM blocks */
+.llm-block{
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+}
+
+.llm-header{
+  padding: 14px 12px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.05);
+}
+
+/* Markdown/json are rendered as plain text (no parser), so keep readable */
+.llm-markdown,
+.llm-json{
+  margin: 0;
+  white-space: pre-wrap;      /* wrap long lines */
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  background: rgba(0,0,0,0.30);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  padding: 10px;
+  overflow: auto;
+}
+
+/* Card blocks (RenderPlan type: card) */
+.llm-card{
+  padding: 12px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04);
+}
+
+.llm-card-head{
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.llm-card-title{
+  font-weight: 800;
+  letter-spacing: 0.2px;
+}
+
+.llm-card-subtitle{
+  font-size: 12px;
+}
+
+.llm-card-ingress{
+  margin: 8px 0 10px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* Payload (grid/table/chart placeholder) */
+.llm-payload{
+  margin-top: 6px;
+}
+
+.llm-table{
+  width: 100%;
+  border-collapse: collapse;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.llm-table th,
+.llm-table td{
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.llm-table th{
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.llm-table tr:last-child td{ border-bottom: none; }
+
+/* LLM debug: keep big JSON readable */
+.pre-scroll{
+  max-height: 55vh;
+  overflow: auto;
+}

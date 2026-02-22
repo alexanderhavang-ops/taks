@@ -1,7 +1,7 @@
 (function () {
   "use strict";
 
-  var BASE = "./"; // relative to /takctl/
+  var BASE = "./"; // root-native (relative)
   var WHOAMI = BASE + "api/whoami";
   var LOGIN  = BASE + "api/login";
   var FRAG   = BASE + "splash.fragment.html";
