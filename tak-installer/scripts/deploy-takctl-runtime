@@ -90,7 +90,13 @@ if [[ "$DRY" != "1" ]]; then
   VENV_PY="${DST_RUNTIME}/.venv/bin/python"
   if [[ -x "$VENV_PY" ]]; then
     echo
-    echo "== sanity: python compileall (runtime venv) =="
+    
+    echo
+    echo "== deps: ensure python-multipart in runtime venv =="
+    sudo -u tak PYTHONDONTWRITEBYTECODE=1 "$VENV_PY" -m pip -q install --upgrade pip >/dev/null || true
+    sudo -u tak PYTHONDONTWRITEBYTECODE=1 "$VENV_PY" -m pip -q install "python-multipart" >/dev/null
+
+  echo "== sanity: python compileall (runtime venv) =="
     sudo -u tak PYTHONDONTWRITEBYTECODE=1 "$VENV_PY" -m compileall -q "${DST_RUNTIME}/takctl"
   else
     echo

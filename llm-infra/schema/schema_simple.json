@@ -1,0 +1,2245 @@
+{
+  "public.active_group_cache": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "username",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "groupname",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "direction",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "enabled",
+        "data_type": "boolean"
+      }
+    ]
+  },
+  "public.certificate": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "creator_dn",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "subject_dn",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "user_dn",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "issuance_date",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "effective_date",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "expiration_date",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "revocation_date",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "certificate",
+        "data_type": "text"
+      },
+      {
+        "column_name": "hash",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "client_uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "token",
+        "data_type": "character varying"
+      }
+    ]
+  },
+  "public.certificate_private_key": {
+    "columns": [
+      {
+        "column_name": "certificate_id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "key_format_code",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "key",
+        "data_type": "text"
+      }
+    ]
+  },
+  "public.ci_trap": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "type",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "user_callsign",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "user_description",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "date_time",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "date_time_description",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "location_description",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "event_scale",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "importance",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "location",
+        "data_type": "USER-DEFINED"
+      },
+      {
+        "column_name": "hash",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "xml",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying"
+      },
+      {
+        "column_name": "title",
+        "data_type": "character varying"
+      }
+    ]
+  },
+  "public.client_endpoint": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "callsign",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "username",
+        "data_type": "text"
+      }
+    ]
+  },
+  "public.client_endpoint_event": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "client_endpoint_id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "connection_event_type_id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "created_ts",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "client_version",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying"
+      }
+    ]
+  },
+  "public.connection_event_type": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "event_name",
+        "data_type": "character varying"
+      }
+    ]
+  },
+  "public.cot_image": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "image",
+        "data_type": "bytea"
+      },
+      {
+        "column_name": "cot_id",
+        "data_type": "integer"
+      }
+    ]
+  },
+  "public.cot_link": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "containing_event",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "target_uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "target_type",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "relation",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "url",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "remarks",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "mime_type",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "version",
+        "data_type": "character varying"
+      }
+    ]
+  },
+  "public.cot_router": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "cot_type",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "access",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "qos",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "opex",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "start",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "time",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "stale",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "how",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "point_hae",
+        "data_type": "numeric"
+      },
+      {
+        "column_name": "point_ce",
+        "data_type": "numeric"
+      },
+      {
+        "column_name": "point_le",
+        "data_type": "numeric"
+      },
+      {
+        "column_name": "detail",
+        "data_type": "text"
+      },
+      {
+        "column_name": "servertime",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "servertime_hour",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "event_pt",
+        "data_type": "USER-DEFINED"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying"
+      },
+      {
+        "column_name": "caveat",
+        "data_type": "text"
+      },
+      {
+        "column_name": "releaseableto",
+        "data_type": "text"
+      }
+    ]
+  },
+  "public.cot_router_chat": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "cot_type",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "access",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "qos",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "opex",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "start",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "time",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "stale",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "how",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "point_hae",
+        "data_type": "numeric"
+      },
+      {
+        "column_name": "point_ce",
+        "data_type": "numeric"
+      },
+      {
+        "column_name": "point_le",
+        "data_type": "numeric"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying"
+      },
+      {
+        "column_name": "detail",
+        "data_type": "text"
+      },
+      {
+        "column_name": "servertime",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "sender_callsign",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "dest_callsign",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "dest_uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "chat_content",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "chat_room",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "event_pt",
+        "data_type": "USER-DEFINED"
+      }
+    ]
+  },
+  "public.cot_thumbnail": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "thumbnail",
+        "data_type": "bytea"
+      },
+      {
+        "column_name": "cot_id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "cot_image_id",
+        "data_type": "integer"
+      }
+    ]
+  },
+  "public.data_feed": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "uuid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "type",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "auth",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "port",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "auth_required",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "protocol",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "feed_group",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "iface",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "archive",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "anongroup",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "sync",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "archive_only",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "core_version",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "core_version_tls_versions",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying"
+      },
+      {
+        "column_name": "sync_cache_retention_seconds",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "federated",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "binary_payload_websocket_only",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "predicate_lang",
+        "data_type": "text"
+      },
+      {
+        "column_name": "data_source_endpoint",
+        "data_type": "text"
+      },
+      {
+        "column_name": "predicate",
+        "data_type": "text"
+      },
+      {
+        "column_name": "auth_type",
+        "data_type": "text"
+      }
+    ]
+  },
+  "public.data_feed_cot": {
+    "columns": [
+      {
+        "column_name": "cot_router_id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "data_feed_id",
+        "data_type": "integer"
+      }
+    ]
+  },
+  "public.data_feed_filter_group": {
+    "columns": [
+      {
+        "column_name": "data_feed_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "filter_group",
+        "data_type": "character varying"
+      }
+    ]
+  },
+  "public.data_feed_tag": {
+    "columns": [
+      {
+        "column_name": "data_feed_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "tag",
+        "data_type": "character varying"
+      }
+    ]
+  },
+  "public.data_feed_type_pl": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "feed_type",
+        "data_type": "text"
+      }
+    ]
+  },
+  "public.device_profile": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying"
+      },
+      {
+        "column_name": "apply_on_enrollment",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "apply_on_connect",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "active",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "updated",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "tool",
+        "data_type": "character varying"
+      }
+    ]
+  },
+  "public.device_profile_directory": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "path",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "device_profile_id",
+        "data_type": "bigint"
+      }
+    ]
+  },
+  "public.device_profile_file": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "data",
+        "data_type": "bytea"
+      },
+      {
+        "column_name": "device_profile_id",
+        "data_type": "bigint"
+      }
+    ]
+  },
+  "public.error_logs": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "text"
+      },
+      {
+        "column_name": "callsign",
+        "data_type": "text"
+      },
+      {
+        "column_name": "log",
+        "data_type": "text"
+      },
+      {
+        "column_name": "time",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "filename",
+        "data_type": "text"
+      },
+      {
+        "column_name": "major_version",
+        "data_type": "text"
+      },
+      {
+        "column_name": "minor_version",
+        "data_type": "text"
+      },
+      {
+        "column_name": "platform",
+        "data_type": "text"
+      },
+      {
+        "column_name": "contents",
+        "data_type": "bytea"
+      }
+    ]
+  },
+  "public.fed_event": {
+    "columns": [
+      {
+        "column_name": "fed_id",
+        "data_type": "text"
+      },
+      {
+        "column_name": "fed_name",
+        "data_type": "text"
+      },
+      {
+        "column_name": "event_kind_id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "event_time",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "remote",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "details",
+        "data_type": "jsonb"
+      }
+    ]
+  },
+  "public.fed_event_kind_pl": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "event_kind",
+        "data_type": "text"
+      }
+    ]
+  },
+  "public.group_bitpos_sequence": {
+    "columns": [
+      {
+        "column_name": "bitpos",
+        "data_type": "integer"
+      }
+    ]
+  },
+  "public.group_type_pl": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "type",
+        "data_type": "text"
+      }
+    ]
+  },
+  "public.groups": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "name",
+        "data_type": "text"
+      },
+      {
+        "column_name": "bitpos",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "create_ts",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "type",
+        "data_type": "integer"
+      }
+    ]
+  },
+  "public.icon": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "bytes",
+        "data_type": "bytea"
+      },
+      {
+        "column_name": "group_name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "iconsetuid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "mimetype",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "type2525b",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "iconset_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "created",
+        "data_type": "timestamp with time zone"
+      }
+    ]
+  },
+  "public.iconset": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "defaultfriendly",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "defaulthostile",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "defaultunknown",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "skipresize",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "version",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "created",
+        "data_type": "timestamp with time zone"
+      }
+    ]
+  },
+  "public.maplayer": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "create_time",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "modified_time",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "creator_uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "description",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "type",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "url",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "default_layer",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "enabled",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "min_zoom",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "max_zoom",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "tile_type",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "server_parts",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "background_color",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "tile_update",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "ignore_errors",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "invert_y_coordinate",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "north",
+        "data_type": "numeric"
+      },
+      {
+        "column_name": "south",
+        "data_type": "numeric"
+      },
+      {
+        "column_name": "east",
+        "data_type": "numeric"
+      },
+      {
+        "column_name": "west",
+        "data_type": "numeric"
+      },
+      {
+        "column_name": "additional_parameters",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "coordinate_system",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "version",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "opacity",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "layers",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "path",
+        "data_type": "text"
+      },
+      {
+        "column_name": "after",
+        "data_type": "text"
+      }
+    ]
+  },
+  "public.mission": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "creatoruid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "create_change_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "create_time",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "tool",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying"
+      },
+      {
+        "column_name": "chatroom",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "description",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "parent_mission_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "password_hash",
+        "data_type": "text"
+      },
+      {
+        "column_name": "default_role_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "expiration",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "base_layer",
+        "data_type": "text"
+      },
+      {
+        "column_name": "bbox",
+        "data_type": "text"
+      },
+      {
+        "column_name": "path",
+        "data_type": "text"
+      },
+      {
+        "column_name": "classification",
+        "data_type": "text"
+      },
+      {
+        "column_name": "last_edited",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "bounding_polygon",
+        "data_type": "text"
+      },
+      {
+        "column_name": "invite_only",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "guid",
+        "data_type": "uuid"
+      }
+    ],
+    "sample_rows": [
+      {
+        "id": 1,
+        "name": "exchecktemplates",
+        "creatoruid": "ExCheck",
+        "create_change_id": null,
+        "create_time": "2026-01-26T14:55:06.266000+00:00",
+        "tool": "ExCheck",
+        "groups": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+        "chatroom": null,
+        "description": null,
+        "parent_mission_id": null,
+        "password_hash": null,
+        "default_role_id": null,
+        "expiration": -1,
+        "base_layer": null,
+        "bbox": null,
+        "path": null,
+        "classification": null,
+        "last_edited": null,
+        "bounding_polygon": null,
+        "invite_only": false,
+        "guid": "037e6cea-a06c-42a3-8803-7eed6a270365"
+      },
+      {
+        "id": 2,
+        "name": "citrap",
+        "creatoruid": "CITrapReportService",
+        "create_change_id": null,
+        "create_time": "2026-01-26T14:55:06.266000+00:00",
+        "tool": "citrap",
+        "groups": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+        "chatroom": null,
+        "description": null,
+        "parent_mission_id": null,
+        "password_hash": null,
+        "default_role_id": null,
+        "expiration": -1,
+        "base_layer": null,
+        "bbox": null,
+        "path": null,
+        "classification": null,
+        "last_edited": null,
+        "bounding_polygon": null,
+        "invite_only": false,
+        "guid": "331228e7-878a-45cd-b6ac-1f55873101b1"
+      },
+      {
+        "id": 3,
+        "name": "Infiltrate Berga Helsingborg",
+        "creatoruid": "",
+        "create_change_id": null,
+        "create_time": "2026-02-08T16:39:54.701000+00:00",
+        "tool": "public",
+        "groups": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000100",
+        "chatroom": "",
+        "description": "",
+        "parent_mission_id": null,
+        "password_hash": null,
+        "default_role_id": 1,
+        "expiration": -1,
+        "base_layer": "",
+        "bbox": "",
+        "path": "",
+        "classification": "",
+        "last_edited": null,
+        "bounding_polygon": null,
+        "invite_only": false,
+        "guid": "2abdfd83-716d-46dc-b8b5-766c753d3bf6"
+      }
+    ]
+  },
+  "public.mission_change": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "hash",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "mission_name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "ts",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "change_type",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "creatoruid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "external_data_token",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "external_data_name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "external_data_tool",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "external_data_uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "external_data_notes",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "servertime",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "mission_feed_uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "map_layer_uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "remote_federated_change",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "xml_content_for_notification",
+        "data_type": "text"
+      },
+      {
+        "column_name": "mission_guid",
+        "data_type": "uuid"
+      }
+    ],
+    "sample_rows": [
+      {
+        "id": 1,
+        "hash": null,
+        "uid": null,
+        "mission_name": "Infiltrate Berga Helsingborg",
+        "ts": "2026-02-08T16:39:54.701000+00:00",
+        "change_type": 0,
+        "mission_id": 3,
+        "creatoruid": "",
+        "external_data_token": null,
+        "external_data_name": null,
+        "external_data_tool": null,
+        "external_data_uid": null,
+        "external_data_notes": null,
+        "servertime": "2026-02-08T16:39:54.701000+00:00",
+        "mission_feed_uid": null,
+        "map_layer_uid": null,
+        "remote_federated_change": false,
+        "xml_content_for_notification": null,
+        "mission_guid": null
+      }
+    ]
+  },
+  "public.mission_external_data": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "name",
+        "data_type": "text"
+      },
+      {
+        "column_name": "tool",
+        "data_type": "text"
+      },
+      {
+        "column_name": "url_data",
+        "data_type": "text"
+      },
+      {
+        "column_name": "url_display",
+        "data_type": "text"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "notes",
+        "data_type": "character varying"
+      }
+    ],
+    "sample_rows": []
+  },
+  "public.mission_feed": {
+    "columns": [
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "data_feed_uid",
+        "data_type": "text"
+      },
+      {
+        "column_name": "filter_polygon",
+        "data_type": "text"
+      },
+      {
+        "column_name": "filter_cot_types",
+        "data_type": "text"
+      },
+      {
+        "column_name": "filter_callsign",
+        "data_type": "text"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint"
+      }
+    ],
+    "sample_rows": []
+  },
+  "public.mission_invitation": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "mission_name",
+        "data_type": "text"
+      },
+      {
+        "column_name": "invitee",
+        "data_type": "text"
+      },
+      {
+        "column_name": "type",
+        "data_type": "text"
+      },
+      {
+        "column_name": "creator_uid",
+        "data_type": "text"
+      },
+      {
+        "column_name": "create_time",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "token",
+        "data_type": "text"
+      },
+      {
+        "column_name": "role_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "mission_guid",
+        "data_type": "uuid"
+      }
+    ],
+    "sample_rows": [
+      {
+        "id": 7602,
+        "mission_name": "Infiltrate Berga Helsingborg",
+        "invitee": "ANDROID-b99979203eda04c1",
+        "type": "clientUid",
+        "creator_uid": "admin.46hvbat",
+        "create_time": "2026-02-08T16:41:10.709000+00:00",
+        "token": "eyJhbGciOiJIUzI1NiJ9.eyJqdGkiOiI2MmU0MDZiZi1kOTZhLTRkODAtODUyOC00YmVkYzFmZGFjMjciLCJpYXQiOjE3NzA1Njg4NzAsInN1YiI6IklOVklUQVRJT04iLCJpc3MiOiIiLCJJTlZJVEFUSU9OIjoiNjJlNDA2YmYtZDk2YS00ZDgwLTg1MjgtNGJlZGMxZmRhYzI3IiwiTUlTU0lPTl9OQU1FIjoiSW5maWx0cmF0ZSBCZXJnYSBIZWxzaW5nYm9yZyIsIk1JU1NJT05fR1VJRCI6IjJhYmRmZDgzLTcxNmQtNDZkYy1iOGI1LTc2NmM3NTNkM2JmNiJ9.VqPBqtO_WgbkBvMv-PQqAB1b228tpaxHmKH9tUXD0_c",
+        "role_id": 1,
+        "mission_id": 3,
+        "mission_guid": "2abdfd83-716d-46dc-b8b5-766c753d3bf6"
+      }
+    ]
+  },
+  "public.mission_keyword": {
+    "columns": [
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "keyword",
+        "data_type": "character varying"
+      }
+    ],
+    "sample_rows": []
+  },
+  "public.mission_layer": {
+    "columns": [
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "name",
+        "data_type": "text"
+      },
+      {
+        "column_name": "type",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "parent_node_uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "after",
+        "data_type": "text"
+      }
+    ],
+    "sample_rows": []
+  },
+  "public.mission_log": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "content",
+        "data_type": "text"
+      },
+      {
+        "column_name": "creator_uid",
+        "data_type": "text"
+      },
+      {
+        "column_name": "dtg",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "entry_uid",
+        "data_type": "text"
+      },
+      {
+        "column_name": "servertime",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "created",
+        "data_type": "timestamp with time zone"
+      }
+    ],
+    "sample_rows": []
+  },
+  "public.mission_log_hash": {
+    "columns": [
+      {
+        "column_name": "mission_log_id",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "contenthashes",
+        "data_type": "text"
+      }
+    ],
+    "sample_rows": []
+  },
+  "public.mission_log_keyword": {
+    "columns": [
+      {
+        "column_name": "mission_log_id",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "keyword",
+        "data_type": "character varying"
+      }
+    ],
+    "sample_rows": []
+  },
+  "public.mission_log_mission_name": {
+    "columns": [
+      {
+        "column_name": "mission_log_id",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "missionnames",
+        "data_type": "character varying"
+      }
+    ],
+    "sample_rows": []
+  },
+  "public.mission_resource": {
+    "columns": [
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "resource_id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "resource_hash",
+        "data_type": "character varying"
+      }
+    ],
+    "sample_rows": []
+  },
+  "public.mission_resource_keyword": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "hash",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "keyword",
+        "data_type": "character varying"
+      }
+    ],
+    "sample_rows": []
+  },
+  "public.mission_subscription": {
+    "columns": [
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "client_uid",
+        "data_type": "text"
+      },
+      {
+        "column_name": "create_time",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "text"
+      },
+      {
+        "column_name": "token",
+        "data_type": "text"
+      },
+      {
+        "column_name": "role_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "username",
+        "data_type": "text"
+      }
+    ],
+    "sample_rows": [
+      {
+        "mission_id": 3,
+        "client_uid": "",
+        "create_time": "2026-02-08T16:39:55.450000+00:00",
+        "uid": "bfda3ee8-f07e-4ecd-82b0-fcccede67904",
+        "token": "eyJhbGciOiJIUzI1NiJ9.eyJqdGkiOiJiZmRhM2VlOC1mMDdlLTRlY2QtODJiMC1mY2NjZWRlNjc5MDQiLCJpYXQiOjE3NzA1Njg3OTUsInN1YiI6IlNVQlNDUklQVElPTiIsImlzcyI6IiIsIlNVQlNDUklQVElPTiI6ImJmZGEzZWU4LWYwN2UtNGVjZC04MmIwLWZjY2NlZGU2NzkwNCIsIk1JU1NJT05fTkFNRSI6IkluZmlsdHJhdGUgQmVyZ2EgSGVsc2luZ2JvcmciLCJNSVNTSU9OX0dVSUQiOiIyYWJkZmQ4My03MTZkLTQ2ZGMtYjhiNS03NjZjNzUzZDNiZjYifQ.uacHZS5FW3Hu-2oIjvyEGErqMkhk8qIwXPmPApyplIg",
+        "role_id": 1,
+        "username": "admin.46hvbat"
+      }
+    ]
+  },
+  "public.mission_uid": {
+    "columns": [
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      }
+    ],
+    "sample_rows": []
+  },
+  "public.mission_uid_keyword": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "keyword",
+        "data_type": "character varying"
+      }
+    ],
+    "sample_rows": []
+  },
+  "public.oauth2_authorization": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "registered_client_id",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "principal_name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "authorization_grant_type",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "authorized_scopes",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "attributes",
+        "data_type": "text"
+      },
+      {
+        "column_name": "state",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "authorization_code_value",
+        "data_type": "text"
+      },
+      {
+        "column_name": "authorization_code_issued_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "authorization_code_expires_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "authorization_code_metadata",
+        "data_type": "text"
+      },
+      {
+        "column_name": "access_token_value",
+        "data_type": "text"
+      },
+      {
+        "column_name": "access_token_issued_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "access_token_expires_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "access_token_metadata",
+        "data_type": "text"
+      },
+      {
+        "column_name": "access_token_type",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "access_token_scopes",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "oidc_id_token_value",
+        "data_type": "text"
+      },
+      {
+        "column_name": "oidc_id_token_issued_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "oidc_id_token_expires_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "oidc_id_token_metadata",
+        "data_type": "text"
+      },
+      {
+        "column_name": "refresh_token_value",
+        "data_type": "text"
+      },
+      {
+        "column_name": "refresh_token_issued_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "refresh_token_expires_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "refresh_token_metadata",
+        "data_type": "text"
+      },
+      {
+        "column_name": "user_code_value",
+        "data_type": "text"
+      },
+      {
+        "column_name": "user_code_issued_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "user_code_expires_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "user_code_metadata",
+        "data_type": "text"
+      },
+      {
+        "column_name": "device_code_value",
+        "data_type": "text"
+      },
+      {
+        "column_name": "device_code_issued_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "device_code_expires_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "device_code_metadata",
+        "data_type": "text"
+      }
+    ]
+  },
+  "public.oauth2_registered_client": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "client_id",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "client_id_issued_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "client_secret",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "client_secret_expires_at",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "client_name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "client_authentication_methods",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "authorization_grant_types",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "redirect_uris",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "post_logout_redirect_uris",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "scopes",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "client_settings",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "token_settings",
+        "data_type": "character varying"
+      }
+    ]
+  },
+  "public.permission": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "permission",
+        "data_type": "integer"
+      }
+    ],
+    "sample_rows": [
+      {
+        "id": 1,
+        "permission": 0
+      },
+      {
+        "id": 2,
+        "permission": 1
+      },
+      {
+        "id": 3,
+        "permission": 2
+      }
+    ]
+  },
+  "public.properties_keys": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "properties_uid_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "key",
+        "data_type": "text"
+      }
+    ]
+  },
+  "public.properties_uid": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      }
+    ]
+  },
+  "public.properties_value": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "properties_key_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "value",
+        "data_type": "text"
+      }
+    ]
+  },
+  "public.resource": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "altitude",
+        "data_type": "numeric"
+      },
+      {
+        "column_name": "data",
+        "data_type": "bytea"
+      },
+      {
+        "column_name": "filename",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "keywords",
+        "data_type": "ARRAY"
+      },
+      {
+        "column_name": "location",
+        "data_type": "USER-DEFINED"
+      },
+      {
+        "column_name": "mimetype",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "permissions",
+        "data_type": "ARRAY"
+      },
+      {
+        "column_name": "remarks",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "submissiontime",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "submitter",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "hash",
+        "data_type": "text"
+      },
+      {
+        "column_name": "creatoruid",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "tool",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying"
+      },
+      {
+        "column_name": "expiration",
+        "data_type": "bigint"
+      }
+    ]
+  },
+  "public.role": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "role",
+        "data_type": "integer"
+      }
+    ]
+  },
+  "public.role_permission": {
+    "columns": [
+      {
+        "column_name": "role_id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "permission_id",
+        "data_type": "integer"
+      }
+    ],
+    "sample_rows": [
+      {
+        "role_id": 1,
+        "permission_id": 1
+      },
+      {
+        "role_id": 1,
+        "permission_id": 2
+      },
+      {
+        "role_id": 1,
+        "permission_id": 3
+      }
+    ]
+  },
+  "public.schema_version": {
+    "columns": [
+      {
+        "column_name": "installed_rank",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "version",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "description",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "type",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "script",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "checksum",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "installed_by",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "installed_on",
+        "data_type": "timestamp without time zone"
+      },
+      {
+        "column_name": "execution_time",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "success",
+        "data_type": "boolean"
+      }
+    ]
+  },
+  "public.spatial_ref_sys": {
+    "columns": [
+      {
+        "column_name": "srid",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "auth_name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "auth_srid",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "srtext",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "proj4text",
+        "data_type": "character varying"
+      }
+    ]
+  },
+  "public.subscriptions": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "text"
+      },
+      {
+        "column_name": "cot_msg",
+        "data_type": "text"
+      }
+    ]
+  },
+  "public.tak_user": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint"
+      },
+      {
+        "column_name": "token",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "user_name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "email_address",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "first_name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "last_name",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "phone_number",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "organization",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "state",
+        "data_type": "character varying"
+      },
+      {
+        "column_name": "activated",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying"
+      }
+    ]
+  },
+  "public.video_connections": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "created",
+        "data_type": "timestamp with time zone"
+      },
+      {
+        "column_name": "deleted",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "owner",
+        "data_type": "text"
+      },
+      {
+        "column_name": "uuid",
+        "data_type": "text"
+      },
+      {
+        "column_name": "url",
+        "data_type": "text"
+      },
+      {
+        "column_name": "alias",
+        "data_type": "text"
+      },
+      {
+        "column_name": "latitude",
+        "data_type": "text"
+      },
+      {
+        "column_name": "longitude",
+        "data_type": "text"
+      },
+      {
+        "column_name": "heading",
+        "data_type": "text"
+      },
+      {
+        "column_name": "fov",
+        "data_type": "text"
+      },
+      {
+        "column_name": "range",
+        "data_type": "text"
+      },
+      {
+        "column_name": "type",
+        "data_type": "text"
+      },
+      {
+        "column_name": "xml",
+        "data_type": "text"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying"
+      }
+    ]
+  },
+  "public.video_connections_v2": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "text"
+      },
+      {
+        "column_name": "active",
+        "data_type": "boolean"
+      },
+      {
+        "column_name": "alias",
+        "data_type": "text"
+      },
+      {
+        "column_name": "thumbnail",
+        "data_type": "text"
+      },
+      {
+        "column_name": "classification",
+        "data_type": "text"
+      },
+      {
+        "column_name": "xml",
+        "data_type": "text"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying"
+      }
+    ]
+  }
+}

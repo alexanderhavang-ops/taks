@@ -8,9 +8,7 @@ from pathlib import Path
 
 from tak_installer.engine import Context
 from tak_installer.util import sha256_path, diff_text
-
 from tak_installer.runtime_state import get_fqdn
-
 
 
 def _run(cmd: list[str]) -> None:
@@ -49,7 +47,8 @@ class Nginx443TakctlAction:
         return get_fqdn(ctx)
 
     def _render(self, fqdn: str) -> str:
-        # Deterministic vhost: only /takctl/, deny everything else.
+        # Deterministic vhost: TAKS web owns 443 and is served from /.
+        # Keep /takctl/ as a backwards-compatible redirect (old bookmarks).
         fullchain = f"/etc/letsencrypt/live/{fqdn}/fullchain.pem"
         privkey = f"/etc/letsencrypt/live/{fqdn}/privkey.pem"
         return f"""server {{
@@ -63,23 +62,28 @@ class Nginx443TakctlAction:
     include /etc/nginx/snippets/ssl-common.conf;
     include /etc/nginx/snippets/deny-dotfiles.conf;
 
-    # takctl is not meant to be framed
-    add_header X-Frame-Options DENY always;
-
-    # takctl is not meant to be framed
+    # TAKS web is not meant to be framed
     add_header X-Frame-Options DENY always;
 
     # ------------------------------------------------------------
     # takctl-web (FastAPI + static UI)
-    # URL: https://{fqdn}/takctl/
+    # URL: https://{fqdn}/
     # Backend: http://127.0.0.1:8080/
+    #
+    # Note:
+    #  - /takctl/ kept for backwards compatibility (redirect -> /)
+    #  - Marti/WebTAK live on :8446 (separate vhost) and are unaffected.
     # ------------------------------------------------------------
 
     location = /takctl {{
-        return 301 /takctl/;
+        return 301 /;
+    }}
+    location ^~ /takctl/ {{
+        return 301 /;
     }}
 
-    location /takctl/ {{
+    # Everything on 443 goes to TAKS web backend (includes /api/*)
+    location / {{
         proxy_http_version 1.1;
 
         proxy_set_header Host              $host;
@@ -87,16 +91,10 @@ class Nginx443TakctlAction:
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # Trailing slash is IMPORTANT
-        proxy_pass http://127.0.0.1:8080/;
+        proxy_pass http://127.0.0.1:8080;
 
         proxy_read_timeout  60s;
         proxy_send_timeout  60s;
-    }}
-
-    # Explicitly deny everything else
-    location / {{
-        return 404;
     }}
 }}
 """
@@ -114,7 +112,7 @@ class Nginx443TakctlAction:
     def inspect(self, ctx: Context) -> int:
         fqdn = self._fqdn(ctx)
 
-        print("Nginx 443 site (takctl only)")
+        print("Nginx 443 site (taks web)")
         print(f"  available:  {self.dst_available}")
         print(f"  enabled:    {self.dst_enabled}")
         print(f"  fqdn:       {fqdn}")
@@ -171,18 +169,6 @@ class Nginx443TakctlAction:
 
         print("applied: nginx.443.takctl")
         return 0
-
-
-def _default_action() -> Nginx443TakctlAction:
-    # Derive filename from FQDN at runtime; but we still need fixed paths here,
-    # so we keep a placeholder name and compute real paths inside inspect/apply.
-    # Instead: keep stable naming convention and build paths in inspect/apply.
-    # We'll implement that by hardcoding to tak-<fqdn>-443.conf via ctx.fqdn.
-    # But ACTION must be an object. So we store dummy paths and override per-run.
-    return Nginx443TakctlAction(
-        dst_available=Path("/etc/nginx/sites-available/__FQDN__-443.conf"),
-        dst_enabled=Path("/etc/nginx/sites-enabled/__FQDN__-443.conf"),
-    )
 
 
 class _Wrapper:

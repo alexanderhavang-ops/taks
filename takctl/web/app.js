@@ -1,9 +1,9 @@
 /* element helper */
-const h = React.createElement;
+var h = (window.h || React.createElement); window.h = h;
 function App() {
   const [tab, setTab] = React.useState("users");
 
-  // IMPORTANT: relative path so it works under /takctl/ mount
+  // Root-native: keep API calls relative (works at /).
   const health = useApi("api/health", { cacheMs: 2000, pollMs: 10000 });
   const meta   = useApi("api/meta",   { cacheMs: 60000, pollMs: 0 });
 
@@ -15,7 +15,8 @@ function App() {
     tab === "clients" && h(ClientsView),
     tab === "crl" && h(CRLView),
     tab === "certs" && h(CertsView),
-    tab === "onboarding" && h(OnboardingView)
+    tab === "onboarding" && h(OnboardingView),
+    tab === "llm" && h(LLMView)
   );
 }
 
@@ -25,3 +26,4 @@ if (ReactDOM && typeof ReactDOM.createRoot === "function") {
 } else {
   ReactDOM.render(h(App), __rootEl);
 }
+

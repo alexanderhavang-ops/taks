@@ -19,8 +19,14 @@ UNIT_DST = Path("/etc/systemd/system/takctl-web.service")
 STATE_APPLY_JSON = Path("/opt/tak/takctl-state/apply.json")
 
 HEALTH_URL = "http://127.0.0.1:8080/api/health"
-WAIT_LISTEN_SEC = 5.0
-WAIT_HEALTH_SEC = 12.0
+
+# Conservative waits: restart + uvicorn import time + startup flaps.
+WAIT_LISTEN_SEC = 10.0
+WAIT_HEALTH_SEC = 25.0
+
+# Readiness stability requirement: must pass health N times in a row.
+HEALTH_STABLE_SUCCESSES = 3
+HEALTH_POLL_SEC = 0.25
 
 
 def _run(cmd: list[str]) -> tuple[int, str]:
@@ -83,20 +89,49 @@ def _wait_listen_8080(deadline_sec: float) -> bool:
     return False
 
 
-def _wait_health(deadline_sec: float) -> tuple[bool, dict[str, Any] | None]:
+def _wait_health_stable(
+    *,
+    deadline_sec: float,
+    expected_apply_ts: str | None,
+    stable_successes: int = HEALTH_STABLE_SUCCESSES,
+    poll_sec: float = HEALTH_POLL_SEC,
+) -> tuple[bool, dict[str, Any] | None, dict[str, Any] | None]:
+    """
+    Wait for /api/health to be stable:
+      - must return 200 + JSON dict
+      - if expected_apply_ts is present, must match apply_ts_utc
+      - must succeed N times consecutively (to avoid transient flaps)
+    Returns: (ok, last_good_health, last_dict_body)
+      - last_good_health: dict from the most recent streak success
+      - last_dict_body: best-effort last dict-shaped body (for diagnostics)
+    """
     end = time.time() + float(deadline_sec)
-    last: tuple[int, Any, str | None] = (0, None, None)
+    streak = 0
+    last_good: dict[str, Any] | None = None
+    last_dict: dict[str, Any] | None = None
+
     while time.time() < end:
-        last = _http_get_json(HEALTH_URL, timeout_sec=1.5)
-        code, body, _err = last
-        if code == 200 and isinstance(body, dict):
-            return True, body
-        time.sleep(0.25)
-    # best-effort: return last dict-shaped body (if any)
-    code, body, _err = last
-    if isinstance(body, dict):
-        return False, body
-    return False, None
+        code, body, _err = _http_get_json(HEALTH_URL, timeout_sec=1.5)
+
+        if isinstance(body, dict):
+            last_dict = body
+
+        ok = (code == 200 and isinstance(body, dict))
+        if ok and expected_apply_ts:
+            got = body.get("apply_ts_utc") if isinstance(body, dict) else None
+            ok = (got == expected_apply_ts)
+
+        if ok:
+            streak += 1
+            last_good = body  # type: ignore[assignment]
+            if streak >= int(stable_successes):
+                return True, last_good, last_dict
+        else:
+            streak = 0
+
+        time.sleep(float(poll_sec))
+
+    return False, last_good, last_dict
 
 
 def _short_fail_dump() -> None:
@@ -160,6 +195,7 @@ class _Action:
             return 1
 
         expected_apply_ts = _read_apply_ts_from_state()
+
         # DEBUG: allow deterministic mismatch testing (must opt-in)
         if os.environ.get("TAKS_DEBUG", "") == "1":
             dbg = float(os.environ.get("TAKS_DEBUG_SLEEP_BEFORE_HEALTH", "0") or "0")
@@ -181,24 +217,28 @@ class _Action:
             print(out)
             return 3
 
-        # Wait for LISTEN (avoids the immediate curl race you hit)
+        # Wait for LISTEN (avoid immediate curl race)
         if not _wait_listen_8080(WAIT_LISTEN_SEC):
             _short_fail_dump()
             return 4
 
-        # Wait for /api/health to answer
-        ok, health = _wait_health(WAIT_HEALTH_SEC)
-        if not ok or not isinstance(health, dict):
+        # Wait for /api/health to be STABLE (avoid transient up/down or apply_ts lag)
+        ok, last_good, last_dict = _wait_health_stable(
+            deadline_sec=WAIT_HEALTH_SEC,
+            expected_apply_ts=expected_apply_ts,
+            stable_successes=HEALTH_STABLE_SUCCESSES,
+            poll_sec=HEALTH_POLL_SEC,
+        )
+        if not ok or not isinstance(last_good, dict):
+            # If we have a dict-ish response, print the key reason plainly.
+            if expected_apply_ts and isinstance(last_dict, dict):
+                got_apply_ts = last_dict.get("apply_ts_utc")
+                if got_apply_ts and got_apply_ts != expected_apply_ts:
+                    print("ERROR: takctl-web served a different apply token than installer state.")
+                    print(f"  expected apply_ts_utc: {expected_apply_ts}")
+                    print(f"  got apply_ts_utc:      {got_apply_ts}")
             _short_fail_dump()
             return 5
-
-        got_apply_ts = health.get("apply_ts_utc")
-        if expected_apply_ts and got_apply_ts != expected_apply_ts:
-            print("ERROR: takctl-web served a different apply token than installer state.")
-            print(f"  expected apply_ts_utc: {expected_apply_ts}")
-            print(f"  got apply_ts_utc:      {got_apply_ts}")
-            _short_fail_dump()
-            return 6
 
         print("Applied.")
         if expected_apply_ts:

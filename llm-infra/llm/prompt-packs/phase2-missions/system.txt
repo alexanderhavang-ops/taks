@@ -1,0 +1,47 @@
+You are Phase-2 for domain: tactical.missions.
+
+Goal: produce DATASETS (not findings). Phase-3 will turn these datasets into findings/recommendations.
+
+You are given:
+- schema (tables/columns/types)
+- phase-1 probe summary (row counts and joins that worked)
+
+OUTPUT REQUIREMENTS:
+- Output ONLY valid JSON.
+- NO prose, NO markdown, NO code fences.
+- The FIRST character of your output MUST be {  (a JSON object).
+- domain MUST be exactly "tactical.missions"
+- datasets MUST be 4–8 items.
+
+JSON SHAPE (example — copy this shape exactly):
+{
+  "domain": "tactical.missions",
+  "datasets": [
+    {
+      "id": "missions_recent",
+      "title": "Recent missions (7d)",
+      "sql": "SELECT m.id, m.name, m.creatoruid, m.create_time FROM mission m WHERE m.create_time >= NOW() - interval '7 days' ORDER BY m.create_time DESC LIMIT 50",
+      "columns": ["id","name","creatoruid","create_time"],
+      "notes": "Gives Phase-3 a list of recent missions to summarize and detect inactivity/anomalies."
+    }
+  ]
+}
+
+DATASET IDEAS (pick 4–8 total, keep queries cheap):
+- recent missions (24h / 7d)
+- mission activity by change_type (counts)
+- most active missions by change count (top N)
+- invitations by mission (counts, top N)
+- logs volume over time (hour/day buckets) if available
+- “likely ongoing” missions (recent changes or recent edits)
+
+SQL RULES:
+- PostgreSQL only
+- read-only
+- ONE SELECT/WITH per dataset
+- no semicolons
+- use only provided tables/columns
+- add LIMIT when returning rows
+
+Now output the JSON object.
+

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from dataclasses import asdict, is_dataclass
 from typing import Any, Optional
 
@@ -134,7 +135,7 @@ def _call_llm_completions(llm_url: str, model: str, prompt: str, max_tokens: int
         "temperature": 0.0,
         "stream": False,
     }
-    code, body, err = http_post_json(f"{llm_url.rstrip('/')}/v1/completions", req, timeout_sec=60.0)
+    code, body, err = http_post_json(f"{llm_url.rstrip('/')}/v1/completions", req, timeout_sec=180.0)
 
     raw_text = ""
     if code == 200 and isinstance(body, dict):
@@ -172,12 +173,26 @@ def plan_with_tools(
         prompt = _build_prompt(view=view, snapshot=snapshot, trace=trace)
 
         code, body, err, raw_text = _call_llm_completions(llm_url, model, prompt, max_tokens=max_tokens)
+
+        # Record bounded introspection for UI/debug (safe size)
+        prompt_head = prompt[:2400]
+        prompt_tail = prompt[-800:] if len(prompt) > 800 else ""
+        prompt_sha = hashlib.sha256(prompt.encode("utf-8", "ignore")).hexdigest()[:16]
+
         trace.append(
             {
                 "step": i,
                 "llm_http": code,
                 "llm_err": err,
-                "llm_raw_head": raw_text[:600],
+                "llm_url": llm_url,
+                "llm_model": model,
+                "llm_max_tokens": int(max_tokens),
+                "llm_temperature": 0.0,
+                "prompt_sha16": prompt_sha,
+                "prompt_head": prompt_head,
+                "prompt_tail": prompt_tail,
+                "llm_raw_head": raw_text[:1200],
+                "llm_body_head": (str(body)[:1200] if isinstance(body, dict) else str(body)[:1200]),
             }
         )
 
@@ -207,7 +222,11 @@ def plan_with_tools(
                 meta.setdefault("model", model)
                 meta.setdefault("llm_url", llm_url)
                 plan["meta"] = meta
-                return plan
+                try:
+                    return validate_renderplan(plan)
+                except RenderPlanError as e:
+                    trace.append({"step": i, "final_validation_error": str(e), "final_obj": extracted})
+                    return _renderplan_stub(view, f"llm_final_invalid: {e}", trace)
 
             trace.append({"step": i, "final_invalid": True, "final_obj": extracted})
             return _renderplan_stub(view, "llm_final_invalid", trace)

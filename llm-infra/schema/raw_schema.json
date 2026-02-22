@@ -1,0 +1,2667 @@
+{
+  "public.active_group_cache": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "username",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "groupname",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "direction",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "enabled",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.certificate": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "creator_dn",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "subject_dn",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "user_dn",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "issuance_date",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "effective_date",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "expiration_date",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "revocation_date",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "certificate",
+        "data_type": "text",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "hash",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "client_uid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "token",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.certificate_private_key": {
+    "columns": [
+      {
+        "column_name": "certificate_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "key_format_code",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "key",
+        "data_type": "text",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.ci_trap": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "type",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "user_callsign",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "user_description",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "date_time",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "date_time_description",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "location_description",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "event_scale",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "importance",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "location",
+        "data_type": "USER-DEFINED",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hash",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "xml",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "title",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.client_endpoint": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "callsign",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "username",
+        "data_type": "text",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.client_endpoint_event": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "client_endpoint_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "connection_event_type_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created_ts",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "client_version",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.connection_event_type": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "event_name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.cot_image": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "image",
+        "data_type": "bytea",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cot_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.cot_link": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "containing_event",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "target_uid",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "target_type",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "relation",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "url",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "remarks",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mime_type",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "version",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.cot_router": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "cot_type",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "access",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "qos",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "opex",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "start",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "time",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "stale",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "how",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "point_hae",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "point_ce",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "point_le",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "detail",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "servertime",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "servertime_hour",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "event_pt",
+        "data_type": "USER-DEFINED",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "caveat",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "releaseableto",
+        "data_type": "text",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.cot_router_chat": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "cot_type",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "access",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "qos",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "opex",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "start",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "time",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "stale",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "how",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "point_hae",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "point_ce",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "point_le",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "detail",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "servertime",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "sender_callsign",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "dest_callsign",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "dest_uid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "chat_content",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "chat_room",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "event_pt",
+        "data_type": "USER-DEFINED",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.cot_thumbnail": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "thumbnail",
+        "data_type": "bytea",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cot_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "cot_image_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.data_feed": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "uuid",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "type",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "auth",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "port",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "auth_required",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "protocol",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "feed_group",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "iface",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "archive",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "anongroup",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "sync",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "archive_only",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "core_version",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "core_version_tls_versions",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "sync_cache_retention_seconds",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "federated",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "binary_payload_websocket_only",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "predicate_lang",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "data_source_endpoint",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "predicate",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "auth_type",
+        "data_type": "text",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.data_feed_cot": {
+    "columns": [
+      {
+        "column_name": "cot_router_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "data_feed_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.data_feed_filter_group": {
+    "columns": [
+      {
+        "column_name": "data_feed_id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "filter_group",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.data_feed_tag": {
+    "columns": [
+      {
+        "column_name": "data_feed_id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tag",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.data_feed_type_pl": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "feed_type",
+        "data_type": "text",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.device_profile": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_on_enrollment",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "apply_on_connect",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "active",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "updated",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tool",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.device_profile_directory": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "path",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "device_profile_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.device_profile_file": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "data",
+        "data_type": "bytea",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "device_profile_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.error_logs": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "callsign",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "log",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "time",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "filename",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "major_version",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "minor_version",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "platform",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "contents",
+        "data_type": "bytea",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.fed_event": {
+    "columns": [
+      {
+        "column_name": "fed_id",
+        "data_type": "text",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "fed_name",
+        "data_type": "text",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "event_kind_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "event_time",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "remote",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "details",
+        "data_type": "jsonb",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.fed_event_kind_pl": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "event_kind",
+        "data_type": "text",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.group_bitpos_sequence": {
+    "columns": [
+      {
+        "column_name": "bitpos",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.group_type_pl": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "type",
+        "data_type": "text",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.groups": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "name",
+        "data_type": "text",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "bitpos",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "create_ts",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "type",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.icon": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "bytes",
+        "data_type": "bytea",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "group_name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "iconsetuid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mimetype",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "type2525b",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "iconset_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.iconset": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "defaultfriendly",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "defaulthostile",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "defaultunknown",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "skipresize",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "version",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.maplayer": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "create_time",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "modified_time",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "creator_uid",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "description",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "type",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "url",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "default_layer",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "enabled",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "min_zoom",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "max_zoom",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "tile_type",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "server_parts",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "background_color",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "tile_update",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "ignore_errors",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "invert_y_coordinate",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "north",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "south",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "east",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "west",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "additional_parameters",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "coordinate_system",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "version",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "opacity",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "layers",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "path",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "after",
+        "data_type": "text",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "creatoruid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "create_change_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "create_time",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "tool",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "chatroom",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "description",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "parent_mission_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "password_hash",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "default_role_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "expiration",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "base_layer",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "bbox",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "path",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "classification",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "last_edited",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "bounding_polygon",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "invite_only",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "guid",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_change": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "hash",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mission_name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "ts",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "change_type",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "creatoruid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "external_data_token",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "external_data_name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "external_data_tool",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "external_data_uid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "external_data_notes",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "servertime",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mission_feed_uid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "map_layer_uid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "remote_federated_change",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "xml_content_for_notification",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mission_guid",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_external_data": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "name",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "tool",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "url_data",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "url_display",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "notes",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_feed": {
+    "columns": [
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "data_feed_uid",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "filter_polygon",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "filter_cot_types",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "filter_callsign",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_invitation": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "mission_name",
+        "data_type": "text",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "invitee",
+        "data_type": "text",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "type",
+        "data_type": "text",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "creator_uid",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "create_time",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "token",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "role_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mission_guid",
+        "data_type": "uuid",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_keyword": {
+    "columns": [
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "keyword",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_layer": {
+    "columns": [
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "name",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "type",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "parent_node_uid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "after",
+        "data_type": "text",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_log": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "content",
+        "data_type": "text",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "creator_uid",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "dtg",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "entry_uid",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "servertime",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "created",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_log_hash": {
+    "columns": [
+      {
+        "column_name": "mission_log_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "contenthashes",
+        "data_type": "text",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_log_keyword": {
+    "columns": [
+      {
+        "column_name": "mission_log_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "keyword",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_log_mission_name": {
+    "columns": [
+      {
+        "column_name": "mission_log_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "missionnames",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_resource": {
+    "columns": [
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "resource_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "resource_hash",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_resource_keyword": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "hash",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "keyword",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_subscription": {
+    "columns": [
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "client_uid",
+        "data_type": "text",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "create_time",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "token",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "role_id",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "username",
+        "data_type": "text",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_uid": {
+    "columns": [
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.mission_uid_keyword": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "mission_id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "keyword",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.oauth2_authorization": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "registered_client_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "principal_name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "authorization_grant_type",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "authorized_scopes",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "attributes",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "state",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "authorization_code_value",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "authorization_code_issued_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "authorization_code_expires_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "authorization_code_metadata",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "access_token_value",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "access_token_issued_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "access_token_expires_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "access_token_metadata",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "access_token_type",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "access_token_scopes",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oidc_id_token_value",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oidc_id_token_issued_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oidc_id_token_expires_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "oidc_id_token_metadata",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "refresh_token_value",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "refresh_token_issued_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "refresh_token_expires_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "refresh_token_metadata",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "user_code_value",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "user_code_issued_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "user_code_expires_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "user_code_metadata",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "device_code_value",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "device_code_issued_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "device_code_expires_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "device_code_metadata",
+        "data_type": "text",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.oauth2_registered_client": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "client_id",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "client_id_issued_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "client_secret",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "client_secret_expires_at",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "client_name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "client_authentication_methods",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "authorization_grant_types",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "redirect_uris",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "post_logout_redirect_uris",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "scopes",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "client_settings",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "token_settings",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.permission": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "permission",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.properties_keys": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "properties_uid_id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "key",
+        "data_type": "text",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.properties_uid": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.properties_value": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "properties_key_id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "value",
+        "data_type": "text",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.resource": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "altitude",
+        "data_type": "numeric",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "data",
+        "data_type": "bytea",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "filename",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "keywords",
+        "data_type": "ARRAY",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "location",
+        "data_type": "USER-DEFINED",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "mimetype",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "permissions",
+        "data_type": "ARRAY",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "remarks",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "submissiontime",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "submitter",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "hash",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "creatoruid",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "tool",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "expiration",
+        "data_type": "bigint",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.role": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "role",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.role_permission": {
+    "columns": [
+      {
+        "column_name": "role_id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "permission_id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.schema_version": {
+    "columns": [
+      {
+        "column_name": "installed_rank",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "version",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "description",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "type",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "script",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "checksum",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "installed_by",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "installed_on",
+        "data_type": "timestamp without time zone",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "execution_time",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "success",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.spatial_ref_sys": {
+    "columns": [
+      {
+        "column_name": "srid",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "auth_name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "auth_srid",
+        "data_type": "integer",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "srtext",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "proj4text",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.subscriptions": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "cot_msg",
+        "data_type": "text",
+        "is_nullable": "NO"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.tak_user": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "bigint",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "token",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "user_name",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "email_address",
+        "data_type": "character varying",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "first_name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "last_name",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "phone_number",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "organization",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "state",
+        "data_type": "character varying",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "activated",
+        "data_type": "boolean",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.video_connections": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "created",
+        "data_type": "timestamp with time zone",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "deleted",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "owner",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "uuid",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "url",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "alias",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "latitude",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "longitude",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "heading",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "fov",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "range",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "type",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "xml",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  },
+  "public.video_connections_v2": {
+    "columns": [
+      {
+        "column_name": "id",
+        "data_type": "integer",
+        "is_nullable": "NO"
+      },
+      {
+        "column_name": "uid",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "active",
+        "data_type": "boolean",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "alias",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "thumbnail",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "classification",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "xml",
+        "data_type": "text",
+        "is_nullable": "YES"
+      },
+      {
+        "column_name": "groups",
+        "data_type": "bit varying",
+        "is_nullable": "YES"
+      }
+    ],
+    "primary_key": [],
+    "foreign_keys": []
+  }
+}

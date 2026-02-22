@@ -103,7 +103,8 @@ function Layout({ tab, setTab, health, brand, children }) {
         h(TabButton, { id: "clients", tab, setTab, label: "Clients" }),
         h(TabButton, { id: "onboarding", tab, setTab, label: "Onboarding" }),
         h(TabButton, { id: "crl", tab, setTab, label: "CRL" }),
-        h(TabButton, { id: "certs", tab, setTab, label: "Certs" })
+        h(TabButton, { id: "certs", tab, setTab, label: "Certs" }),
+        h(TabButton, { id: "llm", tab, setTab, label: "LLM" })
       ),
 
       h("div", { className: "spacer" }),
@@ -127,3 +128,4 @@ function Layout({ tab, setTab, health, brand, children }) {
     )
   );
 }
+

@@ -1,0 +1,194 @@
+{
+  "public.mission": {
+    "columns": [
+      "id",
+      "guid",
+      "name",
+      "creatoruid",
+      "create_time",
+      "tool",
+      "description",
+      "parent_mission_id",
+      "default_role_id",
+      "invite_only",
+      "expiration",
+      "last_edited",
+      "classification"
+    ],
+    "sample_rows": [
+      {
+        "id": 1,
+        "guid": "037e6cea-a06c-42a3-8803-7eed6a270365",
+        "name": "exchecktemplates",
+        "creatoruid": "ExCheck",
+        "create_time": "2026-01-26 14:55:06.266000+00:00",
+        "tool": "ExCheck",
+        "description": null,
+        "parent_mission_id": null,
+        "default_role_id": null,
+        "invite_only": false,
+        "expiration": -1,
+        "last_edited": null,
+        "classification": null
+      },
+      {
+        "id": 2,
+        "guid": "331228e7-878a-45cd-b6ac-1f55873101b1",
+        "name": "citrap",
+        "creatoruid": "CITrapReportService",
+        "create_time": "2026-01-26 14:55:06.266000+00:00",
+        "tool": "citrap",
+        "description": null,
+        "parent_mission_id": null,
+        "default_role_id": null,
+        "invite_only": false,
+        "expiration": -1,
+        "last_edited": null,
+        "classification": null
+      },
+      {
+        "id": 3,
+        "guid": "2abdfd83-716d-46dc-b8b5-766c753d3bf6",
+        "name": "Infiltrate Berga Helsingborg",
+        "creatoruid": "",
+        "create_time": "2026-02-08 16:39:54.701000+00:00",
+        "tool": "public",
+        "description": "",
+        "parent_mission_id": null,
+        "default_role_id": 1,
+        "invite_only": false,
+        "expiration": -1,
+        "last_edited": null,
+        "classification": ""
+      }
+    ]
+  },
+  "public.mission_change": {
+    "columns": [
+      "id",
+      "mission_id",
+      "mission_guid",
+      "mission_name",
+      "ts",
+      "change_type",
+      "creatoruid",
+      "remote_federated_change",
+      "servertime"
+    ],
+    "sample_rows": [
+      {
+        "id": 1,
+        "mission_id": 3,
+        "mission_guid": null,
+        "mission_name": "Infiltrate Berga Helsingborg",
+        "ts": "2026-02-08 16:39:54.701000+00:00",
+        "change_type": 0,
+        "creatoruid": "",
+        "remote_federated_change": false,
+        "servertime": "2026-02-08 16:39:54.701000+00:00"
+      }
+    ]
+  },
+  "public.mission_subscription": {
+    "columns": [
+      "mission_id",
+      "uid",
+      "username",
+      "client_uid",
+      "create_time",
+      "role_id"
+    ],
+    "sample_rows": [
+      {
+        "mission_id": 3,
+        "uid": "bfda3ee8-f07e-4ecd-82b0-fcccede67904",
+        "username": "admin.46hvbat",
+        "client_uid": "",
+        "create_time": "2026-02-08 16:39:55.450000+00:00",
+        "role_id": 1
+      }
+    ]
+  },
+  "public.mission_invitation": {
+    "columns": [
+      "id",
+      "mission_id",
+      "mission_guid",
+      "mission_name",
+      "invitee",
+      "type",
+      "creator_uid",
+      "create_time",
+      "role_id"
+    ],
+    "sample_rows": [
+      {
+        "id": 7602,
+        "mission_id": 3,
+        "mission_guid": "2abdfd83-716d-46dc-b8b5-766c753d3bf6",
+        "mission_name": "Infiltrate Berga Helsingborg",
+        "invitee": "ANDROID-b99979203eda04c1",
+        "type": "clientUid",
+        "creator_uid": "admin.46hvbat",
+        "create_time": "2026-02-08 16:41:10.709000+00:00",
+        "role_id": 1
+      }
+    ]
+  },
+  "public.role_permission": {
+    "columns": [
+      "role_id",
+      "permission_id"
+    ],
+    "sample_rows": [
+      {
+        "role_id": 1,
+        "permission_id": 1
+      },
+      {
+        "role_id": 1,
+        "permission_id": 2
+      },
+      {
+        "role_id": 1,
+        "permission_id": 3
+      },
+      {
+        "role_id": 1,
+        "permission_id": 4
+      },
+      {
+        "role_id": 1,
+        "permission_id": 5
+      }
+    ]
+  },
+  "public.permission": {
+    "columns": [
+      "id",
+      "permission"
+    ],
+    "sample_rows": [
+      {
+        "id": 1,
+        "permission": 0
+      },
+      {
+        "id": 2,
+        "permission": 1
+      },
+      {
+        "id": 3,
+        "permission": 2
+      },
+      {
+        "id": 4,
+        "permission": 3
+      },
+      {
+        "id": 5,
+        "permission": 4
+      }
+    ]
+  }
+}
