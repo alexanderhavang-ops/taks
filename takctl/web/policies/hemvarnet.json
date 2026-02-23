@@ -1,0 +1,39 @@
+{
+  "policy_id": "hemvarnet",
+  "version": "0.1",
+  "title": "Hemvärnet",
+
+  "sections": {
+    "identity": {
+      "title": "Identity",
+      "help": "Unit identity + callsign conventions + group membership."
+    },
+    "config": {
+      "title": "Configuration",
+      "help": "ATAK baseline settings for interoperability (display units, MGRS, etc)."
+    }
+  },
+
+  "identity_fields": [
+    { "id": "unit", "label": "Unit", "type": "text", "placeholder": "46HV", "default": "46HV" },
+    { "id": "role", "label": "Role", "type": "text", "placeholder": "staff", "default": "staff" },
+    { "id": "company", "label": "Company", "type": "number", "default": 1 },
+    { "id": "platoon", "label": "Platoon", "type": "number", "default": 1 },
+    { "id": "n", "label": "Number", "type": "number", "default": 1 },
+
+    { "id": "callsign", "label": "Callsign", "type": "text", "placeholder": "e.g. BSFB1", "default": "" },
+    { "id": "remarks", "label": "Remarks", "type": "text", "placeholder": "e.g. #sjvtp", "default": "" }
+  ],
+
+  "config_defaults": {
+    "coordinate_display": "MGRS",
+    "altitude_display": "MSL",
+    "altitude_units": "Meters",
+    "speed_units": "km/h",
+    "compass_heading": "Numeric",
+    "bearing_units": "Mils",
+    "range_units": "Meters/kilometers",
+    "north_reference": "Grid North",
+    "domain_preference": "Ground"
+  }
+}
