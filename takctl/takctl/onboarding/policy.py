@@ -149,16 +149,42 @@ class Policy:
         )
 
         return self._normalize_callsign(callsign_raw)
-
     def resolve_identity(self, ctx: Dict[str, Any]) -> Identity:
-        team = self.resolve_team(ctx)
-        callsign = self.resolve_callsign(ctx)
+        # Policy grammar: derive default callsign/team/atak_role_type based on ctx + policy_id
+        g = derive_grammar(self.policy_id, ctx)
+        ctx = dict(ctx)
 
+        # Only apply grammar defaults when ctx doesn't provide a non-empty override
+        def _nonempty(v: Any) -> bool:
+            try:
+                return bool(str(v).strip())
+            except Exception:
+                return False
+
+        if not _nonempty(ctx.get('callsign')) and _nonempty(g.get('callsign')):
+            ctx['callsign'] = g.get('callsign')
+        if not _nonempty(ctx.get('team')) and _nonempty(g.get('team')):
+            ctx['team'] = g.get('team')
+        if not _nonempty(ctx.get('atak_role_type')) and _nonempty(g.get('atak_role_type')):
+            ctx['atak_role_type'] = g.get('atak_role_type')
+
+        # Resolve TEAM: ctx.team override wins; else old mapping rules
+        team_override = (str(ctx.get('team')).strip() if ctx.get('team') is not None else '')
+        team = team_override if team_override else self.resolve_team(ctx)
+
+        # Resolve CALLSIGN: ctx.callsign override wins (normalized); else old template rules
+        callsign_override = (str(ctx.get('callsign')).strip() if ctx.get('callsign') is not None else '')
+        callsign = self._normalize_callsign(callsign_override) if callsign_override else self.resolve_callsign(ctx)
+
+        # Resolve ATAK role type: ctx.atak_role_type override wins; else policy defaults by role
         atak_role_type = None
-        role = (ctx.get("role") or "").strip().lower()
-        if role and "role.defaults" in self.cfg:
-            sec = self.cfg["role.defaults"]
+        role = (ctx.get('role') or '').strip().lower()
+        if role and 'role.defaults' in self.cfg:
+            sec = self.cfg['role.defaults']
             if role in sec:
                 atak_role_type = sec[role].strip() or None
+
+        if ctx.get('atak_role_type'):
+            atak_role_type = str(ctx.get('atak_role_type')).strip() or atak_role_type
 
         return Identity(callsign=callsign, team=team, atak_role_type=atak_role_type)

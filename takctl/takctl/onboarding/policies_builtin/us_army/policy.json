@@ -1,0 +1,117 @@
+{
+  "id": "us_army",
+  "name": "US Army (starter)",
+  "version": "0.1",
+  "identity_fields": [
+    {
+      "key": "callsign",
+      "label": "Callsign",
+      "type": "text",
+      "required": false,
+      "readonly": true,
+      "default": ""
+    },
+    {
+      "key": "team",
+      "label": "Team color",
+      "type": "text",
+      "required": false,
+      "readonly": true,
+      "default": ""
+    },
+    {
+      "key": "unit",
+      "label": "Unit",
+      "type": "text",
+      "required": true,
+      "default": "1ID"
+    },
+    {
+      "key": "company",
+      "label": "Company",
+      "type": "text",
+      "required": false,
+      "default": "A"
+    },
+    {
+      "key": "platoon",
+      "label": "Platoon",
+      "type": "text",
+      "required": false,
+      "default": "1"
+    },
+    {
+      "key": "n",
+      "label": "Number",
+      "type": "text",
+      "required": false,
+      "default": "1"
+    },
+    {
+      "key": "role",
+      "label": "Role",
+      "type": "select",
+      "required": true,
+      "default": "staff",
+      "options": [
+        "staff",
+        "member",
+        "observer"
+      ]
+    }
+  ],
+  "group_fields": [
+    {
+      "key": "groups_rw",
+      "label": "Groups (RW)",
+      "type": "csv",
+      "default": "ops"
+    },
+    {
+      "key": "groups_in",
+      "label": "In groups (send only)",
+      "type": "csv",
+      "default": ""
+    },
+    {
+      "key": "groups_out",
+      "label": "Out groups (read only)",
+      "type": "csv",
+      "default": ""
+    }
+  ],
+  "config_fields": [
+    {
+      "key": "coord_system",
+      "label": "Coordinate system",
+      "type": "select",
+      "default": "MGRS",
+      "options": [
+        "MGRS",
+        "LatLon"
+      ]
+    },
+    {
+      "key": "units",
+      "label": "Units",
+      "type": "select",
+      "default": "metric",
+      "options": [
+        "metric",
+        "imperial"
+      ]
+    },
+    {
+      "key": "allow_callsign_change",
+      "label": "Allow callsign change",
+      "type": "bool",
+      "default": false
+    }
+  ],
+  "defaults": {
+    "coord_system": "MGRS",
+    "units": "metric",
+    "allow_callsign_change": false
+  },
+  "notes": "Starter policy. Adjust identity grammar later. Units default is metric; coordinate system MGRS."
+}
