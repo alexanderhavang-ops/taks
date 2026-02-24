@@ -7,6 +7,22 @@ from typing import Any
 from takctl.services.llm_http import http_post_json
 
 
+def _http_timeout_sec() -> float:
+    """
+    Default LLM HTTP timeout.
+    Generation on CPU can exceed 90s easily.
+    Override with TAKS_LLM_HTTP_TIMEOUT_SEC.
+    """
+    v = (os.environ.get("TAKS_LLM_HTTP_TIMEOUT_SEC") or "").strip()
+    if not v:
+        return 600.0
+    try:
+        return float(v)
+    except Exception:
+        return 600.0
+
+
+
 @dataclass
 class LLMClient:
     llm_url: str
@@ -18,7 +34,7 @@ class LLMClient:
         *,
         max_tokens: int = 800,
         temperature: float = 0.0,
-        timeout_sec: float = 90.0,
+        timeout_sec: float | None = None,
     ) -> str:
         """
         Calls llama.cpp OpenAI-compatible completions endpoint:
@@ -42,7 +58,7 @@ class LLMClient:
         code, body, err = http_post_json(
             f"{base}/v1/completions",
             payload=req,
-            timeout_sec=float(timeout_sec),
+            timeout_sec=float(timeout_sec if timeout_sec is not None else _http_timeout_sec()),
         )
         if code != 200 or not isinstance(body, dict):
             raise RuntimeError(

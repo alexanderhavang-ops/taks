@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter
+from fastapi.responses import PlainTextResponse
 
 from takctl.services.llm import llm_status
 
@@ -42,6 +43,43 @@ def _safe_run_id(run_id: str) -> str | None:
     return rid
 
 
+def _read_pointer(path: Path) -> dict[str, Any]:
+    """
+    Pointer JSON typically contains a 'path' or '*_path'. Return pointer dict.
+    """
+    return _read_json(path)
+
+
+def _resolve_pointer_json(pointer_path: Path, *, key_candidates: list[str]) -> dict[str, Any]:
+    ptr = _read_pointer(pointer_path)
+    if not ptr.get("ok", True) and ptr.get("error") == "not_found":
+        return {"ok": False, "error": "pointer_not_found", "pointer": str(pointer_path)}
+    if not isinstance(ptr, dict):
+        return {"ok": False, "error": "bad_pointer_shape", "pointer": str(pointer_path)}
+
+    for k in key_candidates:
+        v = ptr.get(k)
+        if isinstance(v, str) and v.endswith(".json"):
+            return _read_json(Path(v))
+    # fallback: search any string json path
+    for v in ptr.values():
+        if isinstance(v, str) and v.endswith(".json"):
+            return _read_json(Path(v))
+    return {"ok": False, "error": "pointer_has_no_target", "pointer": str(pointer_path), "ptr": ptr}
+
+
+def _is_safe_debug_path(root: Path, p: Path) -> bool:
+    """
+    Allowlist: only files under <state_root>/runs/**.
+    """
+    try:
+        rp = p.resolve()
+        rr = (root / "runs").resolve()
+        return rr in rp.parents or rp == rr
+    except Exception:
+        return False
+
+
 # -----------------------------------------------------------------------------
 # LLM status (shared with CLI)
 # -----------------------------------------------------------------------------
@@ -72,6 +110,50 @@ def api_llm_tactical_last_run() -> dict[str, Any]:
 def api_llm_tactical_snapshot() -> dict[str, Any]:
     root = _state_root()
     return _read_json(root / "snapshot.json")
+
+
+# -----------------------------------------------------------------------------
+# Tactical debug endpoints (Phase1A / Phase2 introspection)
+# -----------------------------------------------------------------------------
+
+@router.get("/views/tactical/debug/phase1/latest")
+def api_llm_tactical_debug_phase1_latest() -> dict[str, Any]:
+    root = _state_root()
+    # phase1_latest.json contains trace_path
+    return _resolve_pointer_json(root / "phase1_latest.json", key_candidates=["trace_path"])
+
+
+@router.get("/views/tactical/debug/phase2/latest")
+def api_llm_tactical_debug_phase2_latest() -> dict[str, Any]:
+    root = _state_root()
+    # phase2_latest.json contains trace_path
+    return _resolve_pointer_json(root / "phase2_latest.json", key_candidates=["trace_path"])
+
+
+@router.get("/views/tactical/debug/file")
+def api_llm_tactical_debug_file(path: str) -> PlainTextResponse:
+    """
+    Serve raw debug files like prompt.txt / response.txt.
+    Hard allowlist: only under <state_root>/runs/**.
+    """
+    root = _state_root()
+    p = Path((path or "").strip())
+    if not str(p):
+        return PlainTextResponse("missing_path\n", status_code=400)
+
+    if not _is_safe_debug_path(root, p):
+        return PlainTextResponse("forbidden\n", status_code=403)
+
+    if not p.exists() or not p.is_file():
+        return PlainTextResponse("not_found\n", status_code=404)
+
+    try:
+        txt = p.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        return PlainTextResponse(f"read_failed: {type(e).__name__}: {e}\n", status_code=500)
+
+    # Keep it boring, no html
+    return PlainTextResponse(txt)
 
 
 @router.get("/views/tactical/history")

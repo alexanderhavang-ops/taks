@@ -17,7 +17,6 @@ APPLY_JSON = STATE_ROOT / "apply.json"
 
 
 def _utc_now_iso() -> str:
-    # Wall-clock token (UTC). Good enough for same-host verification.
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
@@ -35,25 +34,24 @@ def _write_apply_token(ctx: Context) -> str:
 class TakctlStateAction:
     """
     Ensures installer-owned runtime state directories exist.
-
-    Contract:
-      /opt/tak/takctl-state/
-      /opt/tak/takctl-state/onboarding/
-      /opt/tak/takctl-state/onboarding/users/
-
-    Also writes an apply token (wall clock UTC) at:
-      /opt/tak/takctl-state/apply.json
     """
 
     def inspect(self, ctx: Context) -> int:
-        # Always "ok"; directories may or may not exist yet.
         return 0
 
     def apply(self, ctx: Context) -> int:
         log.info("takctl-state: ensuring runtime state directories exist")
+
+        # Base state root
+        STATE_ROOT.mkdir(parents=True, exist_ok=True)
+
+        # Onboarding runtime
         (STATE_ROOT / "onboarding" / "users").mkdir(parents=True, exist_ok=True)
 
-        # Apply token written every apply, after dirs exist.
+        # Runtime policy overrides (orchestrator-controlled)
+        (STATE_ROOT / "policies.d").mkdir(parents=True, exist_ok=True)
+
+        # Apply token written every apply
         _write_apply_token(ctx)
 
         log.info("takctl-state: ready")

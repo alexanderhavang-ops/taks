@@ -27,6 +27,14 @@ from takctl.onboarding.pages import render_generate_page, render_card_page
 
 router = APIRouter(tags=["onboarding"])
 
+def _external_req_url(req) -> str:
+    """Proxy-safe external URL for this request (scheme+host from forwarded headers)."""
+    base = external_base(req).rstrip("/")
+    path = str(req.url.path)
+    q = (str(req.url.query) or "").strip()
+    return f"{base}{path}" + (f"?{q}" if q else "")
+
+
 # --- TAKS onboarding stage-gates helpers ---
 
 def _bundle_version() -> str:
@@ -129,6 +137,113 @@ def _require_user(username: str):
     if u is None:
         raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {username}")
     return svc, u, username
+
+
+
+# -----------------------------------------------------------------------------
+# Token-scoped package + QR endpoints (public, TTL-limited)
+# -----------------------------------------------------------------------------
+
+def _require_token(token: str):
+    token = (token or "").strip()
+    if not token:
+        raise HTTPException(status_code=400, detail="token required")
+
+    svc = _build_service()
+    try:
+        ct = svc.store.get_card_token(token)
+    except Exception:
+        raise HTTPException(status_code=404, detail="card token not found")
+
+    # Expiry check (treat expired as gone)
+    try:
+        exp = getattr(ct, "expires_at_utc", None)
+        if exp is not None and exp <= _now_utc():
+            raise HTTPException(status_code=410, detail="card token expired")
+    except HTTPException:
+        raise
+    except Exception:
+        # If model is unexpected, fail closed
+        raise HTTPException(status_code=404, detail="card token invalid")
+
+    username = (getattr(ct, "username", "") or "").strip()
+    if not username:
+        raise HTTPException(status_code=404, detail="card token missing username")
+
+    u = svc.ud.get_user(username)
+    if u is None:
+        raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {username}")
+
+    return svc, u, username, ct
+
+
+@router.get("/onboarding/cards/{token}/packages/{client}/qr.txt")
+def token_qr_payload_txt(req: Request, token: str, client: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+
+    c = (client or "").strip().lower()
+    if c not in ("atak", "itak", "wintak"):
+        raise HTTPException(status_code=400, detail=f"unknown client: {client}")
+
+    base = external_base(req)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/{c}/package.zip"
+    package_url = _url_with_qs(package_url, via="qr")
+
+    host = forwarded_host_only(req)
+    payload = qr_payload(c, package_url, host)
+
+    return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+
+
+@router.get("/onboarding/cards/{token}/packages/{client}/qr.png")
+def token_qr_png(req: Request, token: str, client: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+
+    c = (client or "").strip().lower()
+    if c not in ("atak", "itak", "wintak"):
+        raise HTTPException(status_code=400, detail=f"unknown client: {client}")
+
+    base = external_base(req)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/{c}/package.zip"
+    package_url = _url_with_qs(package_url, via="qr")
+
+    host = forwarded_host_only(req)
+    payload = qr_payload(c, package_url, host)
+
+    out = artifact_root(username) / f"{username}.{c}.token.qr.png"
+    write_qr_png(payload, out, size=8)
+
+    return FileResponse(
+        str(out),
+        media_type="image/png",
+        filename=f"{username}.{c}.token.qr.png",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/atak/package.zip")
+def token_atak_package_zip(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+
+    out = artifact_root(username) / "atak" / "package.zip"
+    regen = (req.query_params.get("regen") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+
+    base = external_base(req)
+    if regen or (not out.exists()):
+        write_atak_package_zip(out, username, req, include_creds=False, base=base)
+        _mark_package_generated(svc, username, package_type="atak", sel=(load_selection(username) or {}))
+
+    via = (req.query_params.get("via") or "").strip()
+    _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
+
+    return FileResponse(
+        str(out),
+        media_type="application/zip",
+        filename=f"{username}.atak.package.zip",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -372,7 +487,7 @@ def atak_package_zip(req: Request, username: str):
         _mark_package_generated(svc, username, package_type="atak", sel=(load_selection(username) or {}))
     # Stage-gate: serving package counts as download
     via = (req.query_params.get("via") or "").strip()
-    _mark_downloaded(svc, username, download_url=str(req.url), via=via)
+    _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
     return FileResponse(
         str(out),
         media_type="application/zip",
@@ -392,7 +507,7 @@ def atak_package_creds_zip(req: Request, username: str):
         _mark_package_generated(svc, username, package_type="atak", sel=(load_selection(username) or {}))
     # Stage-gate: serving package counts as download
     via = (req.query_params.get("via") or "").strip()
-    _mark_downloaded(svc, username, download_url=str(req.url), via=via)
+    _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
     return FileResponse(
         str(out),
         media_type="application/zip",
@@ -474,11 +589,24 @@ def onboarding_generate_submit(
 
 @router.get("/onboarding/users/{username}/card")
 def onboarding_card(req: Request, username: str):
-    _, u, username = _require_user(username)
-    base = external_base(req)
-    sel = load_selection(username) or {}
-    html = render_card_page(username=username, groups=list(u.groups), base=base, sel=sel)
-    return HTMLResponse(html, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+    # Admin entry point: issue a short-lived public soldier card and redirect to it.
+    svc, u, username = _require_user(username)
+
+    # Default TTL: 10 minutes. (Admin can re-open 'Card' to re-issue.)
+    ttl_sec = 600
+
+    # Safe default: request reveal_password=True, but soldier page will only show
+    # a password if TAKS actually knows it (origin=taks + password_known).
+    # Prefer store compat wrapper (ttl_sec), fall back to issue_card_token(ttl_hours)
+    if hasattr(svc.store, "create_card_token"):
+        ct = svc.store.create_card_token(username=username, ttl_sec=ttl_sec, reveal_password=True)
+    else:
+        ttl_hours = max(1, int((int(ttl_sec) + 3599) // 3600))
+        ct = svc.store.issue_card_token(username=username, ttl_hours=ttl_hours, reveal_password=True)
+
+
+    base = external_base(req).rstrip("/")
+    return RedirectResponse(url=f"{base}/api/onboarding/cards/{ct.token}", status_code=303)
 
 
 # -----------------------------------------------------------------------------

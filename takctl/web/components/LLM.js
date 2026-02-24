@@ -166,6 +166,7 @@
     const p1Obj    = snapshot && snapshot.phase1 ? snapshot.phase1 : null;
     const p2Latest = snapshot && snapshot.phase2_latest ? snapshot.phase2_latest : null;
     const p2Obj    = snapshot && snapshot.phase2 ? snapshot.phase2 : null;
+
     const msum = missionsSummary(by, p2Obj);
 
     const header = e("div",{style:{display:"flex",alignItems:"center",gap:12,marginBottom:14}},[
