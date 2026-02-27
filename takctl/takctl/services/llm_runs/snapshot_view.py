@@ -4,8 +4,10 @@ import json
 from pathlib import Path
 from typing import Any, Optional
 
+
 def _load_json(p: Path) -> Any:
     return json.loads(p.read_text(encoding="utf-8"))
+
 
 def _read_text_if_exists(p: Path) -> Optional[str]:
     try:
@@ -13,7 +15,7 @@ def _read_text_if_exists(p: Path) -> Optional[str]:
             return p.read_text(encoding="utf-8")
     except Exception:
         return None
-    return None
+
 
 def _read_bytes_if_exists(p: Path) -> Optional[bytes]:
     try:
@@ -23,38 +25,36 @@ def _read_bytes_if_exists(p: Path) -> Optional[bytes]:
         return None
 
 
-def _extract_phase2_paths(obj: Any) -> tuple[str, str, str, str]:
+def _extract_phase2_paths(obj: Any) -> tuple[str, str, str, str, str]:
     """
-    Best-effort extraction of prompt/response/trace/findings paths from either:
-      - per-run trace.json (preferred; always written by run_phase2_findings on success/failure)
-      - root pointer phase2_latest.json (fallback; may be minimal on hard failures)
-    Returns (prompt_path, response_path, trace_path, missions_findings_path) as strings (may be empty).
+    Best-effort extraction of prompt/response/trace/findings/http paths from either:
+      - per-run trace.json (preferred)
+      - root pointer phase2_latest.json (fallback)
+    Returns (prompt_path, response_path, trace_path, missions_findings_path, response_http_path) as strings (may be empty).
     """
     if not isinstance(obj, dict):
-        return "", "", "", ""
+        return "", "", "", "", ""
 
-    # Newer: phase2 trace.json includes {"files": {"prompt_path":..., "response_path":...}, ...}
     files = obj.get("files")
     if isinstance(files, dict):
         pp = str(files.get("prompt_path") or "").strip()
         rp = str(files.get("response_path") or "").strip()
+        hp = str(files.get("response_http_path") or "").strip()
     else:
         pp = str(obj.get("prompt_path") or "").strip()
         rp = str(obj.get("response_path") or "").strip()
+        hp = ""
 
     tp = str(obj.get("trace_path") or "").strip()
-
-    # root pointer has missions_findings_path; per-run trace typically doesn't, but keep it if present
     mf = str(obj.get("missions_findings_path") or "").strip()
 
-    # Older: sometimes stored under trace_ref
     tr = obj.get("trace_ref")
     if isinstance(tr, dict):
         pp = pp or str(tr.get("prompt_path") or "").strip()
         rp = rp or str(tr.get("response_path") or "").strip()
 
-    return pp, rp, tp, mf
-    return None
+    return pp, rp, tp, mf, hp
+
 
 def build_snapshot(
     *,
@@ -74,15 +74,28 @@ def build_snapshot(
     """
     snapshot_phase1_latest_obj = None
     snapshot_phase2_latest_obj = None
+    snapshot_phase3_latest_obj = None
+
     snapshot_phase1_obj = None
     snapshot_phase2_obj = None
+    snapshot_phase3_obj = None
+
     snapshot_phase1_path = None
     snapshot_phase2_path = None
+    snapshot_phase3_path = None
 
     phase2_prompt_text = None
     phase2_response_text = None
     phase2_prompt_sha256 = None
     phase2_response_sha256 = None
+
+    phase2_response_http_text = None
+    phase2_response_http_sha256 = None
+
+    phase3_prompt_text = None
+    phase3_response_text = None
+    phase3_prompt_sha256 = None
+    phase3_response_sha256 = None
 
     # ---- Phase1 (current run) ----
     try:
@@ -109,8 +122,19 @@ def build_snapshot(
             snapshot_phase2_path = str(p2)
             snapshot_phase2_obj = _load_json(p2)
         if t2.exists():
-            # trace has ok + prompt/response info (even on failure)
             snapshot_phase2_latest_obj = _load_json(t2)
+    except Exception:
+        pass
+
+    # ---- Phase3 (current run) ----
+    try:
+        p3 = run_dir / "phase3" / "card.html.json"
+        t3 = run_dir / "phase3" / "trace.json"
+        if p3.exists():
+            snapshot_phase3_path = str(p3)
+            snapshot_phase3_obj = _load_json(p3)
+        if t3.exists():
+            snapshot_phase3_latest_obj = _load_json(t3)
     except Exception:
         pass
 
@@ -126,24 +150,21 @@ def build_snapshot(
         except Exception:
             pass
 
-    # We want the UI to embed the EXACT prompt/response text.
-    # Prefer per-run phase2 trace.json (snapshot_phase2_latest_obj) because root pointers
-    # may be minimal on hard failures.
+    # ---- Phase2 embed: verbatim prompt/response + verbatim HTTP body ----
     try:
-        pp = rp = tp = mf = ""
+        pp = rp = tp = mf = hp = ""
         if snapshot_phase2_latest_obj is not None:
-            pp, rp, tp, mf = _extract_phase2_paths(snapshot_phase2_latest_obj)
+            pp, rp, tp, mf, hp = _extract_phase2_paths(snapshot_phase2_latest_obj)
 
-        # Fallback: root pointer (old deployments / hard-fail pointer)
-        if not (pp or rp or mf):
+        if not (pp or rp or mf or hp):
             p2_latest = root / "phase2_latest.json"
             if p2_latest.exists():
                 p2_latest_obj = _load_json(p2_latest)
-                pp2, rp2, tp2, mf2 = _extract_phase2_paths(p2_latest_obj)
+                pp2, rp2, tp2, mf2, hp2 = _extract_phase2_paths(p2_latest_obj)
                 pp = pp or pp2
                 rp = rp or rp2
                 mf = mf or mf2
-                # If we didn't already capture phase2_latest from per-run trace, at least show pointer object
+                hp = hp or hp2
                 if snapshot_phase2_latest_obj is None:
                     snapshot_phase2_latest_obj = p2_latest_obj
                 snapshot_phase2_path = mf or snapshot_phase2_path
@@ -160,15 +181,47 @@ def build_snapshot(
                 phase2_response_sha256 = sha256_bytes(b)
                 phase2_response_text = b.decode("utf-8", "replace")
 
-        # Optionally load findings object via missions_findings_path
+        if hp:
+            b = _read_bytes_if_exists(Path(hp))
+            if b is not None:
+                phase2_response_http_sha256 = sha256_bytes(b)
+                phase2_response_http_text = b.decode("utf-8", "replace")
+
         if mf and snapshot_phase2_obj is None and Path(mf).exists():
             snapshot_phase2_obj = _load_json(Path(mf))
         snapshot_phase2_path = mf or snapshot_phase2_path
 
-        # Ensure phase2_latest is never empty if we have per-run trace
         if snapshot_phase2_latest_obj is None and tp and Path(tp).exists():
             snapshot_phase2_latest_obj = _load_json(Path(tp))
+    except Exception:
+        pass
 
+    # ---- Phase3 fallback pointer (old deployments) ----
+    if snapshot_phase3_latest_obj is None:
+        try:
+            _p3 = root / "phase3_latest.json"
+            if _p3.exists():
+                snapshot_phase3_latest_obj = _load_json(_p3)
+        except Exception:
+            pass
+
+    # ---- Phase3 embed prompt/response ----
+    try:
+        if snapshot_phase3_latest_obj is not None:
+            pp3 = snapshot_phase3_latest_obj.get("prompt_path")
+            rp3 = snapshot_phase3_latest_obj.get("response_path")
+
+            if isinstance(pp3, str) and pp3:
+                b = _read_bytes_if_exists(Path(pp3))
+                if b is not None:
+                    phase3_prompt_sha256 = sha256_bytes(b)
+                    phase3_prompt_text = b.decode("utf-8", "replace")
+
+            if isinstance(rp3, str) and rp3:
+                b = _read_bytes_if_exists(Path(rp3))
+                if b is not None:
+                    phase3_response_sha256 = sha256_bytes(b)
+                    phase3_response_text = b.decode("utf-8", "replace")
     except Exception:
         pass
 
@@ -188,4 +241,13 @@ def build_snapshot(
         "phase2_response_sha256": phase2_response_sha256,
         "phase2_prompt_text": phase2_prompt_text,
         "phase2_response_text": phase2_response_text,
+        "phase2_response_http_sha256": phase2_response_http_sha256,
+        "phase2_response_http_text": phase2_response_http_text,
+        "phase3_latest": snapshot_phase3_latest_obj,
+        "phase3_path": snapshot_phase3_path,
+        "phase3": snapshot_phase3_obj,
+        "phase3_prompt_sha256": phase3_prompt_sha256,
+        "phase3_response_sha256": phase3_response_sha256,
+        "phase3_prompt_text": phase3_prompt_text,
+        "phase3_response_text": phase3_response_text,
     }

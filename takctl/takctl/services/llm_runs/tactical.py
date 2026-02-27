@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, List, Tuple
 
 from takctl.services.llm_runs.ops_findings_phase2 import run_phase2_findings
+from takctl.services.llm_runs.card_phase3 import run_phase3_card
 from takctl.services.llm_runs.ops_phase1a import build_ops_brief, write_phase1_artifacts
 from takctl.services.llm_runs.snapshot_view import build_snapshot
 
@@ -326,6 +327,8 @@ def run_once() -> dict[str, Any]:
     phase1_latest_path = root / "phase1_latest.json"
     phase2_latest_path = root / "phase2_latest.json"
 
+    phase3_latest_path = root / "phase3_latest.json"
+
     t0 = time.time()
     rec: dict[str, Any] = {
         "_meta": _meta(run_path, run_id),
@@ -433,6 +436,43 @@ def run_once() -> dict[str, Any]:
                 )
 
                 rec["notes"].append("phase2 wrote findings + trace + prompt/response + pointer")
+
+                # Phase3 (LLM card layout as strict HTML)
+                phase3_dir = run_dir / "phase3"
+                try:
+                    phase3_dir.mkdir(parents=True, exist_ok=True)
+                    card_obj, phase3_trace = run_phase3_card(
+                        phase2_findings_obj=findings_obj if isinstance(findings_obj, dict) else {"ok": False, "error": "no_phase2"},
+                        run_id=run_id,
+                        out_dir=phase3_dir,
+                        pack_name="phase3-card",
+                        max_tokens=int(os.environ.get("TAKS_LLM_MAX_TOKENS_PHASE3") or 900),
+                        temperature=float(os.environ.get("TAKS_LLM_TEMPERATURE_PHASE3") or 0.2),
+                    )
+                    p3_card = phase3_dir / "card.html.json"
+                    p3_trace = phase3_dir / "trace.json"
+                    _write_json_atomic(p3_card, card_obj, mode=0o644)
+                    _write_json_atomic(p3_trace, phase3_trace, mode=0o644)
+                    _write_json_atomic(
+                        phase3_latest_path,
+                        {
+                            "_meta": _meta(phase3_latest_path, run_id),
+                            "ok": bool(card_obj.get("ok")) if isinstance(card_obj, dict) else False,
+                            "run_id": run_id,
+                            "generated_utc": _utc_iso(),
+                            "card_path": str(p3_card),
+                            "trace_path": str(p3_trace),
+                            "prompt_path": str(phase3_dir / "prompt.txt"),
+                            "response_path": str(phase3_dir / "response.html"),
+                            "llm_error": phase3_trace.get("llm_error") if isinstance(phase3_trace, dict) else None,
+                            "parse": phase3_trace.get("parse") if isinstance(phase3_trace, dict) else None,
+                        },
+                        mode=0o644,
+                    )
+                    rec["notes"].append("phase3 wrote card html + trace + prompt/response + pointer")
+                except Exception as e:
+                    rec["notes"].append(f"phase3 failed hard: {type(e).__name__}: {e}")
+
             except Exception as e:
                 # If something truly unexpected happens, still try to write a minimal pointer so UI updates.
                 rec["notes"].append(f"phase2 failed hard: {type(e).__name__}: {e}")

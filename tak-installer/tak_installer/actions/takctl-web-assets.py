@@ -1,14 +1,16 @@
 from __future__ import annotations
+
 import shutil
 import subprocess
 from pathlib import Path
+
 from tak_installer.util import log
 
 # Web directory paths
 SRC_WEB_DIR = Path("/opt/taks/takctl/web")
 DST_WEB_DIR = Path("/opt/tak/tools/takctl/web")
 
-# Exclusions for the rsync (we exclude certain files as before)
+# Exclusions for the rsync
 RSYNC_EXCLUDES = [
     "--exclude=__pycache__/",
     "--exclude=*.pyc",
@@ -20,7 +22,6 @@ RSYNC_EXCLUDES = [
 
 
 def _run(cmd: list[str]) -> None:
-    """Helper function to run shell commands."""
     p = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if p.returncode != 0:
         raise RuntimeError(f"command failed rc={p.returncode}:\n{' '.join(cmd)}\n\n{p.stdout}")
@@ -29,7 +30,15 @@ def _run(cmd: list[str]) -> None:
 
 
 def apply(ctx) -> None:
-    """Sync the entire web directory (assets + web) to the runtime."""
+    """
+    Mirror the static web directory into runtime.
+
+    IMPORTANT:
+      - Do NOT preserve source owner/group/perms (source is a dev tree, often ubuntu-owned, sometimes 0600).
+      - Enforce deterministic "install-like" permissions on runtime:
+          dirs 0755, files 0644
+      - Ensure runtime is owned by tak:tak
+    """
     log.info("takctl-web-assets: syncing entire web directory to runtime")
     log.info(f"  source:  {SRC_WEB_DIR}")
     log.info(f"  runtime: {DST_WEB_DIR}")
@@ -37,29 +46,32 @@ def apply(ctx) -> None:
     if not SRC_WEB_DIR.exists():
         raise RuntimeError(f"takctl web directory missing: {SRC_WEB_DIR}")
 
-    # Ensure runtime web directory exists
     DST_WEB_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Prefer rsync for true mirroring (delete removed files, preserve metadata)
     rsync = shutil.which("rsync")
-    if rsync:
-        cmd = [
-            rsync,
-            "-a",
-            "--delete",
-            *RSYNC_EXCLUDES,
-            f"{SRC_WEB_DIR}/",  # Trailing slash copies contents of the directory
-            f"{DST_WEB_DIR}/",  # Ensure correct target path
-        ]
-        _run(cmd)
+    if not rsync:
+        raise RuntimeError("rsync not found; install rsync or add a correct mirror implementation")
 
-        log.info("takctl-web-assets: sync complete (rsync)")
-        return
+    cmd = [
+        rsync,
+        "-r",                 # recurse (NOT -a; we do not want to preserve metadata)
+        "--delete",           # mirror semantics (remove stale runtime files)
+        "--no-owner",
+        "--no-group",
+        "--no-perms",
+        "--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r",  # dirs 0755, files 0644 (install-like)
+        *RSYNC_EXCLUDES,
+        f"{SRC_WEB_DIR}/",
+        f"{DST_WEB_DIR}/",
+    ]
+    _run(cmd)
 
-    raise RuntimeError("rsync not found; install rsync or add a correct mirror implementation")
+    # Ownership: runtime should be tak-owned
+    subprocess.run(["chown", "-R", "tak:tak", str(DST_WEB_DIR)], check=False)
+
+    log.info("takctl-web-assets: sync complete (rsync install-policy)")
 
 
-# Define the action class
 class _Action:
     ID = "takctl-web-assets"
 
@@ -69,10 +81,8 @@ class _Action:
 
     def apply(self, ctx) -> int:
         log.info(f"Applying {self.ID} action...")
-        apply(ctx)  # Call the main apply function here
+        apply(ctx)
         return 0
 
 
-# Assign the action to the ACTION variable
 ACTION = _Action()
-

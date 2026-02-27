@@ -47,10 +47,9 @@ class Nginx443TakctlAction:
         return get_fqdn(ctx)
 
     def _render(self, fqdn: str) -> str:
-        # Deterministic vhost: TAKS web owns 443 and is served from /.
-        # Keep /takctl/ as a backwards-compatible redirect (old bookmarks).
         fullchain = f"/etc/letsencrypt/live/{fqdn}/fullchain.pem"
         privkey = f"/etc/letsencrypt/live/{fqdn}/privkey.pem"
+
         return f"""server {{
     listen 443 ssl;
     server_name {fqdn};
@@ -69,10 +68,6 @@ class Nginx443TakctlAction:
     # takctl-web (FastAPI + static UI)
     # URL: https://{fqdn}/
     # Backend: http://127.0.0.1:8080/
-    #
-    # Note:
-    #  - /takctl/ kept for backwards compatibility (redirect -> /)
-    #  - Marti/WebTAK live on :8446 (separate vhost) and are unaffected.
     # ------------------------------------------------------------
 
     location = /takctl {{
@@ -82,7 +77,19 @@ class Nginx443TakctlAction:
         return 301 /;
     }}
 
-    # Everything on 443 goes to TAKS web backend (includes /api/*)
+    # ------------------------------------------------------------
+    # Logout endpoint (forces browser to drop cached Basic Auth)
+    # UI navigates to /logout?next=/
+    # Returning 401 with WWW-Authenticate triggers re-auth.
+    # ------------------------------------------------------------
+    location = /logout {{
+        add_header Cache-Control "no-store" always;
+        add_header Pragma "no-cache" always;
+        add_header WWW-Authenticate 'Basic realm="takctl"' always;
+        return 401;
+    }}
+
+    # Everything else -> TAKS backend
     location / {{
         proxy_http_version 1.1;
 
@@ -159,7 +166,6 @@ class Nginx443TakctlAction:
 
         _sudo_write(self.dst_available, rendered, mode="0644")
 
-        # normalize enabled -> symlink
         if not self.dst_enabled.is_symlink() and self.dst_enabled.exists():
             _sudo_rm(self.dst_enabled)
         _sudo_symlink(self.dst_enabled, self.dst_available)

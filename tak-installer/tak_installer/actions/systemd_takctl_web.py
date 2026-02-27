@@ -16,6 +16,8 @@ from tak_installer.engine import Context
 
 UNIT_NAME = "takctl-web.service"
 UNIT_DST = Path("/etc/systemd/system/takctl-web.service")
+DROPIN_SRC_DIR = Path("/opt/taks/infra/systemd/takctl-web.service.d")
+DROPIN_DST_DIR = Path("/etc/systemd/system/takctl-web.service.d")
 STATE_APPLY_JSON = Path("/opt/tak/takctl-state/apply.json")
 
 HEALTH_URL = "http://127.0.0.1:8080/api/health"
@@ -134,6 +136,45 @@ def _wait_health_stable(
     return False, last_good, last_dict
 
 
+
+def _sync_dropins() -> None:
+    """
+    Install/refresh systemd drop-ins for takctl-web from the repo.
+    This is installer-owned and deterministic.
+    """
+    if not DROPIN_SRC_DIR.is_dir():
+        return
+
+    # Ensure dst dir exists
+    rc, out = _run(["sudo", "mkdir", "-p", str(DROPIN_DST_DIR)])
+    if rc != 0:
+        raise RuntimeError(out or "mkdir drop-in dir failed")
+
+    # Copy *.conf files
+    for src in sorted(DROPIN_SRC_DIR.glob("*.conf")):
+        dst = DROPIN_DST_DIR / src.name
+        rc, out = _run(["sudo", "install", "-m", "0644", str(src), str(dst)])
+        if rc != 0:
+            raise RuntimeError(out or f"install drop-in failed: {src.name}")
+
+    rc, out = _run(["sudo", "systemctl", "daemon-reload"])
+    if rc != 0:
+        raise RuntimeError(out or "systemctl daemon-reload failed")
+
+
+
+    # Ensure dst dir exists
+    _run(["sudo", "mkdir", "-p", str(DROPIN_DST_DIR)])
+
+    # Copy *.conf files
+    for src in sorted(DROPIN_SRC_DIR.glob("*.conf")):
+        dst = DROPIN_DST_DIR / src.name
+        # sudo install preserves mode deterministically
+        _run(["sudo", "install", "-m", "0644", str(src), str(dst)])
+
+    _run(["sudo", "systemctl", "daemon-reload"])
+
+
 def _short_fail_dump() -> None:
     print("!! takctl-web not ready (or wrong apply token). Showing status + last logs:")
     rc, out = _run(["systemctl", "--no-pager", "--full", "status", UNIT_NAME])
@@ -209,6 +250,8 @@ class _Action:
         except PermissionError as e:
             print(f"ERROR: {e}")
             return 2
+
+        _sync_dropins()
 
         # Always restart to pick up new runtime code / venv state deterministically.
         rc, out = _run(["systemctl", "restart", UNIT_NAME])

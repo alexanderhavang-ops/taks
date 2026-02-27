@@ -87,7 +87,7 @@ def _sanitize_jsonish_text(raw: str) -> str:
     if end == -1 or end < start:
         return t[start:].strip()
 
-    return t[start:end+1].strip()
+    return t[start : end + 1].strip()
 
 
 def _find_prompt_pack(pack_name: str) -> Tuple[Optional[Path], Optional[Path], dict[str, Any]]:
@@ -116,6 +116,12 @@ def _find_prompt_pack(pack_name: str) -> Tuple[Optional[Path], Optional[Path], d
     return None, None, {"ok": False, "pack": pack_name, "tried": tried}
 
 
+def _json_bytes_pretty(x: Any) -> bytes:
+    if isinstance(x, (dict, list)):
+        return (json.dumps(x, ensure_ascii=False, indent=2) + "\n").encode("utf-8", "ignore")
+    return (str(x) + "\n").encode("utf-8", "ignore")
+
+
 def run_phase2_findings(
     *,
     ops_brief: dict[str, Any],
@@ -130,7 +136,8 @@ def run_phase2_findings(
     """
     Phase2: MUST run. Produces:
       - prompt.txt (exact string sent)
-      - response.txt (exact raw model output)
+      - response.txt (exact raw model output - verbatim choices[0].text)
+      - response.http.json (verbatim HTTP JSON body from llama.cpp)
       - trace.json (everything needed to debug)
       - missions_findings.json (parsed JSON or wrapper)
 
@@ -139,12 +146,13 @@ def run_phase2_findings(
     out_dir.mkdir(parents=True, exist_ok=True)
     prompt_path = out_dir / "prompt.txt"
     response_path = out_dir / "response.txt"
+    response_http_path = out_dir / "response.http.json"
 
     t0 = time.time()
     sys_p, usr_p, resolver = _find_prompt_pack(pack_name)
 
     trace: dict[str, Any] = {
-        "contract": {"name": "taks.phase2_trace", "version": 3},
+        "contract": {"name": "taks.phase2_trace", "version": 4},
         "ok": False,
         "run_id": run_id,
         "domain_id": domain_id,
@@ -158,18 +166,20 @@ def run_phase2_findings(
         "files": {
             "prompt_path": str(prompt_path),
             "response_path": str(response_path),
+            "response_http_path": str(response_http_path),
         },
         "timing": {"elapsed_ms": None},
         "parse": {"json_ok": False, "error": None},
         "prompt_budget": None,
         "prompt_budget_trace": None,
         "io": {},
+        "http": {},
     }
 
     if not sys_p or not usr_p:
-        # keep files consistent for UI introspection
         _atomic_write_bytes(prompt_path, b"")
         _atomic_write_bytes(response_path, b"")
+        _atomic_write_bytes(response_http_path, b"")
         trace["timing"]["elapsed_ms"] = int((time.time() - t0) * 1000)
         findings = {
             "contract": {"name": "taks.ops_findings", "version": 1},
@@ -210,14 +220,20 @@ def run_phase2_findings(
 
     llm = LLMClient(llm_url=trace["llm"]["url"])
     raw = ""
+    http_code = 0
+    http_body: Any = None
+    http_err: Optional[str] = None
+
     try:
-        raw = llm.completions_text(prompt, max_tokens=max_tokens, temperature=temperature)
+        raw, http_code, http_body, http_err = llm.completions_debug(prompt, max_tokens=max_tokens, temperature=temperature)
+        # Persist verbatim HTTP body too (so UI can prove “model returned X”).
+        _atomic_write_bytes(response_http_path, _json_bytes_pretty(http_body))
     except Exception as e:
-        # IMPORTANT: never raise from Phase2. Persist prompt + trace so UI can show what was sent.
         trace["ok"] = False
         trace["llm_error"] = f"{type(e).__name__}: {e}"
 
         _atomic_write_bytes(response_path, b"")
+        _atomic_write_bytes(response_http_path, b"")
 
         trace["timing"]["elapsed_ms"] = int((time.time() - t0) * 1000)
         trace["prompt"] = {
@@ -226,12 +242,8 @@ def run_phase2_findings(
             "head": prompt[:1200],
             "tail": prompt[-800:] if len(prompt) > 800 else prompt,
         }
-        trace["response"] = {
-            "sha256": _sha256_bytes(b""),
-            "bytes": 0,
-            "head": "",
-            "tail": "",
-        }
+        trace["response"] = {"sha256": _sha256_bytes(b""), "bytes": 0, "head": "", "tail": ""}
+        trace["http"] = {"code": http_code, "err": http_err, "body_type": type(http_body).__name__ if http_body is not None else None}
         trace["io"] = {
             "response_file_bytes": 0,
             "response_file_sha256": _sha256_bytes(b""),
@@ -248,7 +260,7 @@ def run_phase2_findings(
         }
         return findings, trace
 
-    # --- persist RAW as-is (no sanitize before persist) ---
+    # --- persist RAW model text as-is (no sanitize before persist) ---
     raw_b = (raw or "").encode("utf-8", "ignore")
     _atomic_write_bytes(response_path, raw_b)
 
@@ -273,6 +285,12 @@ def run_phase2_findings(
         "tail": (raw or "")[-800:] if raw and len(raw) > 800 else (raw or ""),
         "first_16_bytes_hex": raw_b[:16].hex(),
         "last_16_bytes_hex": raw_b[-16:].hex() if len(raw_b) >= 16 else raw_b.hex(),
+    }
+    trace["http"] = {
+        "code": int(http_code),
+        "err": http_err,
+        "body_type": type(http_body).__name__ if http_body is not None else None,
+        "choices_len": len(http_body.get("choices") or []) if isinstance(http_body, dict) else None,
     }
     trace["io"] = {
         "response_file_bytes": len(file_b),

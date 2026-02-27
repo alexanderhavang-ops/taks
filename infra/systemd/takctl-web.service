@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=ubuntu
+User=tak
 Group=tak
 WorkingDirectory=/opt/tak/tools/takctl
 Environment=TAKCTL_CONFIG=/opt/tak/tools/takctl/takctl.conf

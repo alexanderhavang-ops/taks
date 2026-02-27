@@ -1,0 +1,3 @@
+Render the provided findings into a card layout for operators.
+
+{{PHASE2_JSON}}
