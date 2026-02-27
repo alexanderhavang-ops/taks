@@ -49,6 +49,46 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation M
 .link{opacity:.9}
 .link:hover{opacity:1}
 
+/* ---------- App shell ---------- */
+.shell{
+  display:grid;
+  grid-template-columns: 220px 1fr;
+  gap:14px;
+  align-items:start;
+}
+.nav{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow);
+  padding:10px;
+  position:sticky;
+  top:14px;
+}
+.nav__item{
+  display:block;
+  padding:10px 10px;
+  border-radius:10px;
+  color:var(--text);
+  opacity:.9;
+}
+.nav__item:hover{opacity:1;text-decoration:none;background:rgba(255,255,255,.04)}
+.nav__item.is-active{
+  background:rgba(43,92,255,.18);
+  border:1px solid rgba(43,92,255,.25);
+  opacity:1;
+}
+.nav__sep{height:1px;background:var(--border);margin:10px 6px}
+.nav__meta{padding:6px 8px}
+.nav__metaTitle{font-size:12px;color:var(--muted);margin-bottom:6px}
+.nav__metaValue{font-size:13px}
+.content{min-width:0}
+@media (max-width:900px){
+  .shell{grid-template-columns:1fr}
+  .nav{position:static}
+}
+
+/* ---------- Cards / primitives ---------- */
 .card{
   background:var(--panel);
   border:1px solid var(--border);
@@ -90,6 +130,10 @@ input:focus{border-color:#355aa9}
   padding:10px 12px;
   border-radius:10px;
   cursor:pointer;
+  text-decoration:none;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
 }
 .btn:disabled{opacity:.45;cursor:not-allowed}
 .btn--secondary{background:var(--btn2)}
@@ -136,4 +180,3 @@ pre{
 
 details summary{cursor:pointer}
 details summary:hover{opacity:.9}
-

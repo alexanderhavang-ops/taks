@@ -21,150 +21,26 @@
 </header>
 
 <main class="wrap">
-  <div id="banner_launch_disabled" class="banner banner--warn" style="display:none">
-    <b>Launch disabled</b> — set <code>TAKS_LAUNCH_ENABLED=1</code> in <code>/opt/tak-orch/state/defaults.env</code> to enable.
+  <div class="shell">
+    <nav class="nav" aria-label="Primary">
+      <a class="nav__item" href="#/nodes" data-route="/nodes">Nodes</a>
+      <a class="nav__item" href="#/nodes/new" data-route="/nodes/new">New node</a>
+      <a class="nav__item" href="#/settings" data-route="/settings">Global settings</a>
+
+      <div class="nav__sep"></div>
+
+      <div class="nav__meta">
+        <div class="nav__metaTitle">Status</div>
+        <div id="nav_status" class="nav__metaValue muted">loading…</div>
+      </div>
+    </nav>
+
+    <section class="content">
+      <div id="page"></div>
+    </section>
   </div>
-
-  <!-- Running nodes / health -->
-  <section class="card">
-    <div class="card__head">
-      <h3>Running nodes</h3>
-      <div class="card__actions">
-        <button id="btn_refresh_nodes" class="btn">Refresh</button>
-      </div>
-    </div>
-
-    <div class="muted">
-      This is what exists <i>right now</i> (AWS list + orchestrator state).
-    </div>
-
-    <div class="spacer"></div>
-
-    <div id="nodes_table_wrap" class="tablewrap">
-      <table class="table">
-        <thead>
-          <tr>
-            <th>unit</th>
-            <th>role</th>
-            <th>fqdn</th>
-            <th>instance</th>
-            <th>public</th>
-            <th>private</th>
-            <th>last seen</th>
-            <th>status</th>
-          </tr>
-        </thead>
-        <tbody id="nodes_tbody">
-          <tr><td class="muted" colspan="8">loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <div class="spacer"></div>
-
-    <details>
-      <summary class="muted">Raw status (debug)</summary>
-      <pre id="status_out">loading…</pre>
-    </details>
-  </section>
-
-  <!-- New node creation -->
-  <section class="card">
-    <div class="card__head">
-      <h3>New node creation</h3>
-      <div class="card__actions">
-        <button id="btn_preview" class="btn">Preview</button>
-        <button id="btn_dryrun" class="btn btn--secondary">Dry-run</button>
-        <button id="btn_launch" class="btn btn--danger">Launch</button>
-      </div>
-    </div>
-
-    <div class="muted">
-      <b>Preview</b> renders the plan + cloud-init. <b>Dry-run</b> performs an AWS dry-run. <b>Launch</b> creates the instance.
-    </div>
-
-    <div class="spacer"></div>
-
-    <div class="grid grid--6">
-      <div>
-        <label class="label">unit_path</label>
-        <input id="unit_path" placeholder="e.g. 46hvbat" value="">
-      </div>
-      <div>
-        <label class="label">role</label>
-        <input id="role" placeholder="e.g. tak-node" value="tak-node">
-      </div>
-      <div>
-        <label class="label">fqdn</label>
-        <input id="fqdn" placeholder="e.g. 46hvbat.tak-hv-sandbox.se" value="">
-      </div>
-      <div>
-        <label class="label">hostname</label>
-        <input id="hostname" placeholder="default: tak-&lt;unit_path&gt;" value="">
-      </div>
-      <div>
-        <label class="label">name (AWS tag)</label>
-        <input id="name" placeholder="default: hostname" value="">
-      </div>
-      <div>
-        <label class="label">instance_type</label>
-        <input id="instance_type" placeholder="e.g. t3.micro" value="t3.micro">
-      </div>
-    </div>
-
-    <div class="spacer"></div>
-
-    <details open>
-      <summary>Plan (summary)</summary>
-      <pre id="out_plan">—</pre>
-    </details>
-
-    <details>
-      <summary>Cloud-init</summary>
-      <pre id="out_cloudinit">—</pre>
-    </details>
-
-    <details>
-      <summary>Raw response</summary>
-      <pre id="out_raw">—</pre>
-    </details>
-  </section>
-
-  <!-- Per-node config (placeholder UI only, no backend yet) -->
-  <section class="card">
-    <div class="card__head">
-      <h3>Per-node configuration</h3>
-    </div>
-
-    <div class="muted">
-      This section is a UI placeholder for: logos, slogans, hostnames, bundle overlays, and unit metadata.
-      We’ll wire it to <code>/opt/tak-orch/state/units/&lt;unit_path&gt;/</code> next.
-    </div>
-
-    <div class="spacer"></div>
-
-    <div class="grid grid--4">
-      <div>
-        <label class="label">logo</label>
-        <input disabled value="(coming next)">
-      </div>
-      <div>
-        <label class="label">slogan</label>
-        <input disabled value="(coming next)">
-      </div>
-      <div>
-        <label class="label">callsign</label>
-        <input disabled value="(coming next)">
-      </div>
-      <div>
-        <label class="label">bundle overlay</label>
-        <input disabled value="(coming next)">
-      </div>
-    </div>
-  </section>
 </main>
 
 <script src="/static/orch.js"></script>
 </body>
 </html>
-
