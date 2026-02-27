@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 
 from takctl.onboarding.onboarding_db import maybe_db
 from takctl.onboarding.service_builder import build_service
 
 router = APIRouter(tags=["onboarding"])
+
 
 # -----------------------------------------------------------------------------
 # Legacy compatibility shim:
@@ -15,7 +17,6 @@ router = APIRouter(tags=["onboarding"])
 # -----------------------------------------------------------------------------
 def _build_service():
     return build_service()
-
 
 
 @router.get("/onboarding/status")
@@ -39,4 +40,5 @@ def onboarding_status(
     if db is None and db_err:
         out["meta"]["db_error"] = db_err
 
-    return JSONResponse(out)
+    # IMPORTANT: ensure datetime / enum / dataclass safety
+    return JSONResponse(jsonable_encoder(out))

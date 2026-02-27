@@ -104,6 +104,52 @@ class UserCreateIn(BaseModel):
     reveal_password: bool = Field(default=True)
 
 
+
+# ---------------------------
+# NEW: derive identity preview (policy-driven)
+# ---------------------------
+
+class IdentityDeriveIn(BaseModel):
+    policy_id: str = Field(default="hemvarnet")
+    ctx: Dict[str, Any] = Field(default_factory=dict)
+
+@router.post("/onboarding/derive")
+def derive_identity(body: IdentityDeriveIn):
+    """
+    Preview derived identity (callsign/team/atak_role_type) from policy.conf + grammar.
+
+    This is used by the web UI to show computed read-only fields live.
+    """
+    policy_id = (body.policy_id or "hemvarnet").strip() or "hemvarnet"
+    ctx = dict(body.ctx or {})
+    try:
+        pol = Policy(policy_id=policy_id)
+        ident = pol.resolve_identity(ctx)
+        return JSONResponse(
+            {
+                "ok": True,
+                "policy_id": policy_id,
+                "ctx": ctx,
+                "identity": {
+                    "callsign": ident.callsign,
+                    "team": ident.team,
+                    "atak_role_type": getattr(ident, "atak_role_type", None),
+                },
+            },
+            headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+        )
+    except Exception as e:
+        return JSONResponse(
+            {
+                "ok": False,
+                "policy_id": policy_id,
+                "ctx": ctx,
+                "error": f"{type(e).__name__}: {e}",
+            },
+            status_code=400,
+            headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+        )
+
 @router.post("/onboarding/users/{username}/create")
 def create_user(req: Request, username: str, body: UserCreateIn):
     """

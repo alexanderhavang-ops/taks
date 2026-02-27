@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from takctl.onboarding.identity_grammar import derive_grammar
+from takctl.onboarding.fal import derive_fal_ctx
+
 import os
 import re
 import configparser
@@ -19,6 +22,14 @@ class PolicyError(RuntimeError):
     pass
 
 
+class _SafeFormatDict(dict):
+    """
+    For str.format_map: missing keys become "" instead of raising KeyError.
+    """
+    def __missing__(self, key: str) -> str:
+        return ""
+
+
 class Policy:
     """
     Loads a policy pack from:
@@ -33,7 +44,7 @@ class Policy:
     def __init__(self, policy_id: Optional[str] = None) -> None:
         self.policy_id = policy_id or os.environ.get("TAKS_POLICY_ID", "hemvarnet")
         self.path = self._resolve_path(self.policy_id)
-        self.cfg = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=(';', '#'))
+        self.cfg = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=(";", "#"))
         self.cfg.read(self.path, encoding="utf-8")
 
     @staticmethod
@@ -45,10 +56,12 @@ class Policy:
             candidates.append(Path(base) / f"{policy_id}.conf")
             candidates.append(Path(base) / "policy.conf")
 
-        candidates.extend([
-            Path("/opt/tak/policies") / policy_id / "policy.conf",
-            Path("/opt/taks/policies") / policy_id / "policy.conf",
-        ])
+        candidates.extend(
+            [
+                Path("/opt/tak/policies") / policy_id / "policy.conf",
+                Path("/opt/taks/policies") / policy_id / "policy.conf",
+            ]
+        )
 
         for p in candidates:
             try:
@@ -58,8 +71,7 @@ class Policy:
                 continue
 
         raise PolicyError(
-            f"policy.conf not found for policy_id={policy_id!r}. Tried: "
-            + ", ".join(str(x) for x in candidates)
+            f"policy.conf not found for policy_id={policy_id!r}. Tried: " + ", ".join(str(x) for x in candidates)
         )
 
     def meta(self) -> Dict[str, str]:
@@ -126,9 +138,11 @@ class Policy:
     def resolve_callsign(self, ctx: Dict[str, Any]) -> str:
         """
         ctx keys (optional):
-          unit: str   (e.g. "BSFB")
+          unit: str   (e.g. "46HV")
           n: int/str  (e.g. 1,2,3)
           role: str   ("leader"|"member"|"staff"|...)
+        PLUS: may reference *derived ctx keys* in policy.conf template:
+          e.g. {company_fal}, {battalion_fal}, etc.
         """
         sec = self.cfg["callsign"] if "callsign" in self.cfg else {}
         unit = (ctx.get("unit") or "").strip()
@@ -142,49 +156,62 @@ class Policy:
 
         n_str = "" if n is None else str(n).strip()
 
-        callsign_raw = template.format(
-            unit=unit,
-            n=n_str,
-            role_suffix=role_suffix,
-        )
+        # IMPORTANT:
+        # - allow policy templates to use ANY {key} that exists in ctx
+        # - missing keys -> "" (no KeyError)
+        fmt = dict(ctx or {})
+        fmt.setdefault("unit", unit)
+        fmt.setdefault("n", n_str)
+        fmt.setdefault("role", role)
+        fmt.setdefault("role_suffix", role_suffix)
 
+        callsign_raw = template.format_map(_SafeFormatDict(fmt))
         return self._normalize_callsign(callsign_raw)
+
+    
     def resolve_identity(self, ctx: Dict[str, Any]) -> Identity:
-        # Policy grammar: derive default callsign/team/atak_role_type based on ctx + policy_id
-        g = derive_grammar(self.policy_id, ctx)
         ctx = dict(ctx)
 
-        # Only apply grammar defaults when ctx doesn't provide a non-empty override
+        # Inject derived FAL fields FIRST (non-destructive)
+        try:
+            derived = derive_fal_ctx(self.cfg, ctx)
+            for k, v in derived.items():
+                if k not in ctx or not str(ctx.get(k) or "").strip():
+                    ctx[k] = v
+        except Exception:
+            pass
+
+        # Policy grammar AFTER FAL enrichment
+        g = derive_grammar(self.policy_id, ctx)
+
         def _nonempty(v: Any) -> bool:
             try:
                 return bool(str(v).strip())
             except Exception:
                 return False
 
-        if not _nonempty(ctx.get('callsign')) and _nonempty(g.get('callsign')):
-            ctx['callsign'] = g.get('callsign')
-        if not _nonempty(ctx.get('team')) and _nonempty(g.get('team')):
-            ctx['team'] = g.get('team')
-        if not _nonempty(ctx.get('atak_role_type')) and _nonempty(g.get('atak_role_type')):
-            ctx['atak_role_type'] = g.get('atak_role_type')
+        if not _nonempty(ctx.get("callsign")) and _nonempty(g.get("callsign")):
+            ctx["callsign"] = g.get("callsign")
+        if not _nonempty(ctx.get("team")) and _nonempty(g.get("team")):
+            ctx["team"] = g.get("team")
+        if not _nonempty(ctx.get("atak_role_type")) and _nonempty(g.get("atak_role_type")):
+            ctx["atak_role_type"] = g.get("atak_role_type")
 
-        # Resolve TEAM: ctx.team override wins; else old mapping rules
-        team_override = (str(ctx.get('team')).strip() if ctx.get('team') is not None else '')
+        team_override = (str(ctx.get("team")).strip() if ctx.get("team") is not None else "")
         team = team_override if team_override else self.resolve_team(ctx)
 
-        # Resolve CALLSIGN: ctx.callsign override wins (normalized); else old template rules
-        callsign_override = (str(ctx.get('callsign')).strip() if ctx.get('callsign') is not None else '')
+        callsign_override = (str(ctx.get("callsign")).strip() if ctx.get("callsign") is not None else "")
         callsign = self._normalize_callsign(callsign_override) if callsign_override else self.resolve_callsign(ctx)
 
-        # Resolve ATAK role type: ctx.atak_role_type override wins; else policy defaults by role
         atak_role_type = None
-        role = (ctx.get('role') or '').strip().lower()
-        if role and 'role.defaults' in self.cfg:
-            sec = self.cfg['role.defaults']
+        role = (ctx.get("role") or "").strip().lower()
+        if role and "role.defaults" in self.cfg:
+            sec = self.cfg["role.defaults"]
             if role in sec:
                 atak_role_type = sec[role].strip() or None
 
-        if ctx.get('atak_role_type'):
-            atak_role_type = str(ctx.get('atak_role_type')).strip() or atak_role_type
+        if ctx.get("atak_role_type"):
+            atak_role_type = str(ctx.get("atak_role_type")).strip() or atak_role_type
 
         return Identity(callsign=callsign, team=team, atak_role_type=atak_role_type)
+
