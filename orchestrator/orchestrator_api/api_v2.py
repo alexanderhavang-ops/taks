@@ -191,6 +191,11 @@ def nodes_list(request: Request) -> Dict[str, Any]:
         inst_id = (row.get("instance_id") or "").strip()
         node_id = (row.get("node_id") or "").strip()
 
+        # Back-compat: older state used node_id=<ec2 instance id> with instance_id empty
+        if not inst_id and node_id.startswith("i-"):
+            inst_id = node_id
+            row["instance_id"] = inst_id
+
         # Treat orchestrator/local records honestly
         if node_id == "tak-orchestrator" and not inst_id:
             row["aws_state"] = "local"
@@ -238,6 +243,14 @@ def nodes_list(request: Request) -> Dict[str, Any]:
             row["aws_instance_id"] = aws_rec.get("instance_id")
             row["aws_private_ip"] = aws_rec.get("private_ip")
             row["aws_public_ip"] = aws_rec.get("public_ip")
+
+            # Populate canonical fields used by the UI
+            if aws_rec.get("instance_id"):
+                row["instance_id"] = aws_rec.get("instance_id")
+            if aws_rec.get("public_ip"):
+                row["public_ip"] = aws_rec.get("public_ip")
+            if aws_rec.get("private_ip"):
+                row["private_ip"] = aws_rec.get("private_ip")
 
         out.append(row)
 
