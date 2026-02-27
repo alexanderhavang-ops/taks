@@ -80,6 +80,14 @@ EOF
   systemctl enable --now taks-orch.service
   systemctl restart taks-orch.service
 
+  # ------------------------------------------------------------
+  # Shared takctl splash bundle (installer-owned runtime assets)
+  # Source: /opt/taks/takctl/web/{splash.css,splash.js,splash.fragment.html,assets/,css/}
+  # Dest:   /opt/tak-orch/orchestrator/orchestrator_api/static/shared/takctl
+  # ------------------------------------------------------------
+  install -d -m 0755 -o ubuntu -g ubuntu /opt/tak-orch/orchestrator/orchestrator_api/static/shared/takctl
+  rsync -a --delete ${BASE_DIR}/../takctl/web/ /opt/tak-orch/orchestrator/orchestrator_api/static/shared/takctl/
+
   # Wait for backend to be reachable (avoid nginx 502 race)
   echo "[orch-install] waiting for taks-orch backend on 127.0.0.1:8090 ..."
   for i in $(seq 1 20); do

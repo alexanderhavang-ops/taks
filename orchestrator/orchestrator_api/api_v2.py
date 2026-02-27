@@ -170,14 +170,84 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 @router.get("/nodes")
 def nodes_list(request: Request) -> Dict[str, Any]:
     require_operator(request)
+
+    # 1) Orchestrator state (what we *think* exists)
     items = list_nodes()
-    return {"count": len(items), "items": items}
 
+    # 2) AWS state (what *actually* exists right now)
+    aws = aws_list_nodes()
+    aws_instances = list(aws.get("instances") or [])
 
-# ----------------------------
-# Node -> orchestrator registration/heartbeat
-# (allows BASIC auth; also allows cookie auth for convenience)
-# ----------------------------
+    aws_by_id = {i.get("instance_id"): i for i in aws_instances if i.get("instance_id")}
+    aws_by_pub = {i.get("public_ip"): i for i in aws_instances if i.get("public_ip")}
+    aws_by_priv = {i.get("private_ip"): i for i in aws_instances if i.get("private_ip")}
+
+    now = int(time.time())
+    out = []
+
+    for n in items:
+        row = dict(n)
+
+        inst_id = (row.get("instance_id") or "").strip()
+        node_id = (row.get("node_id") or "").strip()
+
+        # Treat orchestrator/local records honestly
+        if node_id == "tak-orchestrator" and not inst_id:
+            row["aws_state"] = "local"
+            row["heartbeat_age_sec"] = (now - int(row.get("last_seen_ts") or 0)) if row.get("last_seen_ts") else None
+            row["derived_status"] = "local"
+            out.append(row)
+            continue
+
+        # Heartbeat age (from orchestrator state)
+        last_seen = int(row.get("last_seen_ts") or 0)
+        heartbeat_age = (now - last_seen) if last_seen else None
+
+        # Join to AWS: prefer instance_id, fallback to IPs
+        aws_rec = None
+        if inst_id and inst_id in aws_by_id:
+            aws_rec = aws_by_id.get(inst_id)
+        else:
+            pub = (row.get("public_ip") or "").strip()
+            priv = (row.get("private_ip") or "").strip()
+            aws_rec = aws_by_pub.get(pub) or aws_by_priv.get(priv)
+
+        aws_state = (aws_rec or {}).get("state") or "unknown"
+
+        # Derived UI status (simple + honest)
+        if aws_state == "terminated":
+            derived = "terminated"
+        elif aws_state == "stopped":
+            derived = "stopped"
+        elif aws_state == "running":
+            if heartbeat_age is None:
+                derived = "running"
+            elif heartbeat_age > 120:
+                derived = "stale"
+            else:
+                derived = "running"
+        else:
+            derived = "unknown"
+
+        row["aws_state"] = aws_state
+        row["heartbeat_age_sec"] = heartbeat_age
+        row["derived_status"] = derived
+
+        # If AWS has IPs, prefer them (they're fresher / authoritative)
+        if aws_rec:
+            row["aws_instance_id"] = aws_rec.get("instance_id")
+            row["aws_private_ip"] = aws_rec.get("private_ip")
+            row["aws_public_ip"] = aws_rec.get("public_ip")
+
+        out.append(row)
+
+    # Sort: running -> stale -> stopped -> unknown -> terminated -> local, newest heartbeat first
+    order = {"running": 0, "stale": 1, "stopped": 2, "unknown": 3, "terminated": 4, "local": 5}
+    out.sort(key=lambda x: (order.get(x.get("derived_status") or "unknown", 99),
+                            -(int(x.get("last_seen_ts") or 0))))
+
+    return {"count": len(out), "items": out, "aws": aws}
+
 @router.post("/nodes/register")
 def nodes_register(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     require_operator(request)
