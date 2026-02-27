@@ -454,3 +454,70 @@ th{ color: var(--muted); font-weight: 600; }
   max-height: 55vh;
   overflow: auto;
 }
+
+/* Onboarding create page layout */
+.ob-create-grid{ display:grid; gap:16px; grid-template-columns:1fr; }
+@media (min-width: 1100px){
+  .ob-create-grid{ grid-template-columns: 420px 1fr; align-items:start; }
+}
+.ob-col{ min-width:0; }
+.ob-sticky{ position: sticky; top: 18px; }
+.ob-box{ margin-bottom: 12px; }
+.ob-actions{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+
+/* ------------------------------------------------------------------
+   Onboarding: Create user two-column layout
+   ------------------------------------------------------------------ */
+.ob-create-grid{
+  display:grid;
+  grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.ob-col{ min-width: 0; }
+
+.ob-sticky{
+  position: sticky;
+  top: 12px;
+}
+
+@media (max-width: 980px){
+  .ob-create-grid{ grid-template-columns: 1fr; }
+  .ob-sticky{ position: static; top: auto; }
+}
+
+/* ------------------------------------------------------------------
+   Onboarding: fight password-manager icon reflow (layout stability)
+   ------------------------------------------------------------------ */
+.ob-create-grid input,
+.ob-create-grid select{
+  padding-right: 42px; /* reserve space for injected icons */
+  box-sizing: border-box;
+}
+
+/* ------------------------------------------------------------------
+   Onboarding Create User layout
+   ------------------------------------------------------------------ */
+.ob-create-grid{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+@media (min-width: 1100px){
+  .ob-create-grid{
+    grid-template-columns: minmax(420px, 1fr) minmax(420px, 1fr);
+    align-items: start;
+  }
+  .ob-sticky{
+    position: sticky;
+    top: 12px;
+  }
+}
+
+/* Fight password-manager icon reflow (reserve space for injected UI) */
+.ob-create-root input,
+.ob-create-root select{
+  padding-right: 42px;
+  box-sizing: border-box;
+}

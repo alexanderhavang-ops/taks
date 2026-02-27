@@ -79,6 +79,58 @@ function TakServerLinks() {
   );
 }
 
+function LangAndSessionControls() {
+  const t = (window.t && typeof window.t === "function") ? window.t : (k) => String(k || "");
+  const current = String(window.currentLang || "sv");
+
+  function L(sv, en) { return (current === "en") ? String(en) : String(sv); }
+
+  function setLang(lang) {
+    try {
+      if (window.setTaksLang) window.setTaksLang(String(lang));
+    } catch (_) {}
+    // simplest deterministic refresh (no state plumbing required)
+    try { window.location.reload(); } catch (_) {}
+  }
+
+  function logout() {
+    // For HTTP Basic Auth, "logout" is achieved by hitting an endpoint that returns 401.
+    // We navigate to /logout; nginx should be configured to always 401 there.
+    const next = encodeURIComponent("/");
+    window.location.href = "/logout?next=" + next;
+  }
+
+  // Small pill button style (works even without new CSS)
+  function pill(active) {
+    return {
+      border: "1px solid rgba(255,255,255,0.12)",
+      background: active ? "rgba(255,255,255,0.08)" : "transparent",
+      color: "inherit",
+      padding: "6px 10px",
+      borderRadius: "10px",
+      fontSize: "12px",
+      cursor: "pointer"
+    };
+  }
+
+  return h("div", { style: { display: "flex", gap: "10px", alignItems: "center" } },
+
+    // Language toggle
+    h("div", { style: { display: "flex", gap: "4px", alignItems: "center" }, title: L("Språk", "Language") },
+      h("button", { type: "button", style: pill(current === "sv"), onClick: () => setLang("sv") }, "SV"),
+      h("button", { type: "button", style: pill(current === "en"), onClick: () => setLang("en") }, "EN")
+    ),
+
+    // Logout
+    h("button", {
+      type: "button",
+      className: "btn",
+      onClick: logout,
+      title: L("Logga ut", "Logout")
+    }, L("Logga ut", "Logout"))
+  );
+}
+
 function Layout({ tab, setTab, health, brand, children }) {
   // Prefer the square-derived icon first (unit-current.png),
   // then fall back to svg and other extensions.
@@ -109,8 +161,9 @@ function Layout({ tab, setTab, health, brand, children }) {
 
       h(TakServerLinks),
 
-      // Session cluster (top-right): unit logo + health dot
+      // Language + Logout + Session cluster (top-right)
       h("div", { className: "session" },
+        h(LangAndSessionControls),
         h(ImgTryList, {
           srcs: unitLogoSrcs,
           alt: "Unit logo",
@@ -126,4 +179,3 @@ function Layout({ tab, setTab, health, brand, children }) {
     )
   );
 }
-
