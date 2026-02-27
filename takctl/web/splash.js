@@ -6,8 +6,19 @@
   var LOGIN  = BASE + "api/login";
   var FRAG   = BASE + "splash.fragment.html";
 
-  var BRAND  = BASE + "assets/brand.json";
   function $(id) { return document.getElementById(id); }
+
+  function unitFromQuery() {
+    try {
+      var u = new URL(window.location.href);
+      return (u.searchParams.get("unit") || "").trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
+  var UNIT = unitFromQuery();
+  var BRAND = BASE + "api/public/brand" + (UNIT ? ("?unit=" + encodeURIComponent(UNIT)) : "");
 
   function setErr(msg) {
     var e = $("__err");
@@ -23,6 +34,15 @@
     el.textContent = t ? t : "TAKS";
   }
 
+  function logoUrlUnit(n, ext) {
+    if (!UNIT) return null;
+    return BASE + "u/" + encodeURIComponent(UNIT) + "/assets/logo" + n + "." + ext;
+  }
+
+  function logoUrlShared(n, ext) {
+    return BASE + "assets/logo" + n + "." + ext;
+  }
+
   function renderBrandLogos() {
     var host = document.getElementById("__brand_logos");
     if (!host) return;
@@ -34,7 +54,6 @@
       .then(function (b) {
         if (!b) { setSlogan("TAKS"); return; }
 
-        // Slogan is part of brand.json contract
         setSlogan(b.slogan);
 
         if (!b.logos || !b.logos.length) return;
@@ -51,14 +70,23 @@
           var ext = (it && it.ext) ? String(it.ext).toLowerCase() : "";
           if (!ext) ext = "svg";
 
-          var base = "./assets/logo" + n + ".";
-          img.src = base + ext;
+          // Prefer unit asset if unit is set; fallback to shared
+          var primary = (UNIT ? logoUrlUnit(n, ext) : logoUrlShared(n, ext));
+          img.src = primary;
 
           var all = ["svg", "png", "webp", "jpg", "jpeg"];
           var fb = [];
-          for (var i = 0; i < all.length; i++) {
-            if (all[i] !== ext) fb.push(base + all[i]);
+
+          if (UNIT) {
+            for (var i = 0; i < all.length; i++) if (all[i] !== ext) fb.push(logoUrlUnit(n, all[i]));
+            fb.push(logoUrlShared(n, ext));
+            for (var j = 0; j < all.length; j++) if (all[j] !== ext) fb.push(logoUrlShared(n, all[j]));
+          } else {
+            for (var k = 0; k < all.length; k++) if (all[k] !== ext) fb.push(logoUrlShared(n, all[k]));
           }
+
+          fb = fb.filter(function (x) { return !!x; });
+
           img.dataset.fallback = fb.join(",");
           img.onerror = function () {
             var f = (this.dataset.fallback || "").split(",");
@@ -78,22 +106,34 @@
   }
 
   function wireLogin() {
-    var u = $("__u"), p = $("__p"), go = $("__go");
+    var u = $("__u"), r = $("__r"), p = $("__p"), go = $("__go");
     if (!u || !p || !go) return;
+
+    // Keep role sticky for now (UI freshness / faster iteration)
+    try {
+      if (r) r.value = (localStorage.getItem("taks_role") || "");
+    } catch (_) {}
 
     function submit() {
       setErr("");
       go.disabled = true;
 
+      var role = r ? (r.value || "") : "";
+      try { localStorage.setItem("taks_role", role); } catch (_) {}
+
       fetch(LOGIN, {
         method: "POST",
         headers: { "content-type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ username: u.value || "", password: p.value || "" })
+        body: JSON.stringify({
+          username: u.value || "",
+          password: p.value || "",
+          role: role
+        })
       })
-      .then(function (r) {
-        if (!r.ok) return r.text().then(function (t) { throw new Error(t || ("HTTP " + r.status)); });
-        return r.json().catch(function () { return {}; });
+      .then(function (r2) {
+        if (!r2.ok) return r2.text().then(function (t) { throw new Error(t || ("HTTP " + r2.status)); });
+        return r2.json().catch(function () { return {}; });
       })
       .then(function () {
         window.location.replace("./");
@@ -109,6 +149,7 @@
     go.addEventListener("click", submit);
     p.addEventListener("keydown", function (ev) { if (ev.key === "Enter") submit(); });
     u.addEventListener("keydown", function (ev) { if (ev.key === "Enter") submit(); });
+    if (r) r.addEventListener("keydown", function (ev) { if (ev.key === "Enter") submit(); });
 
     try { u.focus(); } catch (_) {}
   }
@@ -135,6 +176,18 @@
       });
   }
 
+  function showSplashContainer() {
+    document.body.classList.add("__splash_on");
+    var host = document.getElementById("__splash");
+    if (host) host.style.display = "block";
+  }
+
+  function hideSplashContainer() {
+    document.body.classList.remove("__splash_on");
+    var host = document.getElementById("__splash");
+    if (host) host.style.display = "none";
+  }
+
   function whoamiThen(mode) {
     fetch(WHOAMI, { cache: "no-store", credentials: "include" })
       .then(function (r) { return r.ok ? r.json() : null; })
@@ -143,30 +196,16 @@
 
         if (mode === "standalone") {
           if (authed) window.location.replace("./");
-          else ensureFragmentThenWire();
+          else { showSplashContainer(); ensureFragmentThenWire(); }
           return;
         }
 
-        if (!authed) {
-          document.body.classList.add("__splash_on");
-          var host = document.getElementById("__splash");
-          if (host) host.style.display = "block";
-          ensureFragmentThenWire();
-        } else {
-          document.body.classList.remove("__splash_on");
-          var host2 = document.getElementById("__splash");
-          if (host2) host2.style.display = "none";
-        }
+        if (!authed) { showSplashContainer(); ensureFragmentThenWire(); }
+        else { hideSplashContainer(); }
       })
       .catch(function () {
-        if (mode === "standalone") {
-          ensureFragmentThenWire();
-        } else {
-          document.body.classList.add("__splash_on");
-          var host = document.getElementById("__splash");
-          if (host) host.style.display = "block";
-          ensureFragmentThenWire();
-        }
+        showSplashContainer();
+        ensureFragmentThenWire();
       });
   }
 

@@ -7,7 +7,7 @@
            onerror="this.onerror=null;this.src='./assets/taks-logo.svg'">
     </div>
 
-    <!-- populated by splash.js using ./assets/brand.json -->
+    <!-- populated by splash.js using /api/public/brand?unit=... -->
     <div class="brandchain">
       <div class="brandchain-row" id="__brand_logos"></div>
     </div>
@@ -22,6 +22,11 @@
         <div class="field">
           <label>Username</label>
           <input id="__u" autocomplete="username" />
+        </div>
+
+        <div class="field">
+          <label>Role</label>
+          <input id="__r" autocomplete="organization-title" placeholder="e.g. operator, admin, battalion-s4" />
         </div>
 
         <div class="field">
