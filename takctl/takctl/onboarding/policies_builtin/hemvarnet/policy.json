@@ -1,44 +1,43 @@
 {
   "id": "hemvarnet",
   "name": "Hemvärnet (SE)",
-  "version": "0.1",
+  "version": "0.3",
   "identity_fields": [
     {
-      "key": "callsign",
-      "label": "Callsign",
-      "type": "text",
-      "required": false,
-      "readonly": true,
-      "default": ""
-    },
-    {
-      "key": "team",
-      "label": "Team color",
-      "type": "text",
-      "required": false,
-      "readonly": true,
-      "default": ""
-    },
-    {
-      "key": "unit",
-      "label": "Unit",
+      "key": "battalion",
+      "label": "Battalion",
       "type": "text",
       "required": true,
-      "default": "46HV"
+      "default": "46"
+    },
+    {
+      "key": "battalion_fal",
+      "label": "FALA Battalion",
+      "type": "text",
+      "required": true,
+      "default": "VQ"
     },
     {
       "key": "company",
       "label": "Company",
       "type": "text",
       "required": true,
-      "default": "1"
+      "default": "Q"
     },
     {
       "key": "platoon",
       "label": "Platoon",
       "type": "text",
       "required": true,
-      "default": "1"
+      "default": "A"
+    },
+    {
+      "key": "group",
+      "label": "Group",
+      "type": "select",
+      "required": true,
+      "default": "1",
+      "options": ["1", "2", "3", "4"]
     },
     {
       "key": "n",
@@ -48,16 +47,35 @@
       "default": "1"
     },
     {
-      "key": "role",
-      "label": "Role",
+      "key": "team_color",
+      "label": "Team color",
       "type": "select",
       "required": true,
-      "default": "staff",
-      "options": [
-        "staff",
-        "member",
-        "observer"
-      ]
+      "default": "Blue",
+      "options": ["Black","White","Orange","Magenta","Cyan","Purple","Blue","Maroon","Green","Yellow","Red"]
+    },
+    {
+      "key": "atak_role_type",
+      "label": "ATAK Role (My Role)",
+      "type": "select",
+      "required": true,
+      "default": "Soldier",
+      "options": ["Soldier", "Team Lead"]
+    },
+    {
+      "key": "remarks",
+      "label": "Remarks",
+      "type": "text",
+      "required": false,
+      "default": "#soldat"
+    },
+    {
+      "key": "callsign",
+      "label": "Callsign",
+      "type": "text",
+      "required": false,
+      "readonly": false,
+      "default": ""
     }
   ],
   "group_fields": [
@@ -86,20 +104,14 @@
       "label": "Coordinate system",
       "type": "select",
       "default": "MGRS",
-      "options": [
-        "MGRS",
-        "LatLon"
-      ]
+      "options": ["MGRS", "LatLon"]
     },
     {
       "key": "units",
       "label": "Units",
       "type": "select",
       "default": "metric",
-      "options": [
-        "metric",
-        "imperial"
-      ]
+      "options": ["metric", "imperial"]
     },
     {
       "key": "allow_callsign_change",

@@ -7,25 +7,37 @@ from typing import Any, Tuple
 def strip_code_fences(text: str) -> str:
     """
     Remove a single surrounding Markdown code fence if present.
-    Handles ```json ... ``` and ``` ... ```.
-    Conservative: only strips the outermost fence once.
+
+    IMPORTANT:
+    LLMs sometimes emit *multiple* fences, e.g.:
+        ```\n\n```json\n{...}\n```
+
+    The old implementation used split("```", 2) which can accidentally keep only the
+    empty middle part and discard the actual JSON.
+
+    This version strips ONLY the outermost fence when the text both starts with ```
+    and ends with ``` (after whitespace trim). It uses rfind to locate the final fence.
     """
     t = (text or "").strip()
     if not t.startswith("```"):
         return t
 
-    parts = t.split("```", 2)
-    if len(parts) < 3:
-        return t.strip()
+    last = t.rfind("```")
+    # Need a distinct closing fence at the very end
+    if last <= 0 or last + 3 != len(t):
+        return t
 
-    inner = parts[1]
-    inner_lines = inner.splitlines()
-    if inner_lines:
-        first = inner_lines[0].strip().lower()
+    inner = t[3:last]
+
+    # Drop an optional language line immediately after the opening fence.
+    inner2 = inner.lstrip("\r\n")
+    lines = inner2.splitlines()
+    if lines:
+        first = lines[0].strip().lower()
         if first in ("json", "javascript", "js", "text", "yaml", "yml"):
-            inner = "\n".join(inner_lines[1:])
+            inner2 = "\n".join(lines[1:])
 
-    return inner.strip()
+    return inner2.strip()
 
 
 def extract_json_from_text(
@@ -36,12 +48,6 @@ def extract_json_from_text(
 
     Returns:
         (parsed_dict | None, error | None, json_candidate | None)
-
-    Strategy:
-      1) Strip code fences
-      2) Try json.loads on whole text
-      3) Scan for embedded JSON using JSONDecoder.raw_decode
-      4) Last-resort trimming from first '{'
     """
     if not text:
         return None, "empty_text", None
@@ -86,4 +92,3 @@ def extract_json_from_text(
                 return val, None, fragment
 
     return None, "no_json_object_found", candidate
-

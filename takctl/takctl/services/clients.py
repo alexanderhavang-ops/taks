@@ -1,115 +1,98 @@
 from __future__ import annotations
 
-from datetime import datetime
-import re
+import os
+from dataclasses import dataclass
+from typing import Any, Optional, Tuple
 
-from takctl.appctx import AppContext
-from takctl.domain.models import Client
-
-
-_TZ_HH_ONLY = re.compile(r"([+-])(\d{2})$")  # matches ...-05 or ...+02
+from takctl.services.llm_http import http_post_json
 
 
-def _parse_pg_ts(s: str) -> datetime:
+def _http_timeout_sec() -> float:
     """
-    Parse Postgres-ish timestamp strings returned by psql_sudo.
-
-    Examples we see:
-      - '2026-01-30 08:12:30.716-05'
-      - '2026-01-29 10:15:49.408-05'
-      - sometimes with +00 or +01 etc
-
-    Python's datetime.fromisoformat requires timezone as ±HH:MM, not ±HH.
+    Default LLM HTTP timeout.
+    Generation on CPU can exceed 90s easily.
+    Override with TAKS_LLM_HTTP_TIMEOUT_SEC.
     """
-    s = s.strip().replace(" ", "T", 1)  # only first space
-    s = _TZ_HH_ONLY.sub(lambda m: f"{m.group(1)}{m.group(2)}:00", s)
-    return datetime.fromisoformat(s)
-
-
-class ClientsError(RuntimeError):
-    pass
-
-
-def _preflight_clients(ctx: AppContext) -> None:
-    """
-    Fail fast with actionable errors instead of a giant traceback.
-    """
-    # 1) DB connectivity
+    v = (os.environ.get("TAKS_LLM_HTTP_TIMEOUT_SEC") or "").strip()
+    if not v:
+        return 600.0
     try:
-        ctx.db.scalar("SELECT 1")
-    except Exception as e:
-        raise ClientsError(
-            "DB connection failed.\n"
-            f"db_mode={ctx.cfg.db_mode} host={ctx.cfg.db_host} port={ctx.cfg.db_port} db={ctx.cfg.db_name} user={ctx.cfg.db_user}\n"
-            f"error={e}"
-        ) from e
+        return float(v)
+    except Exception:
+        return 600.0
 
-    # 2) Required tables exist
-    required = ["client_endpoint_event", "client_endpoint"]
-    for t in required:
+
+@dataclass
+class LLMClient:
+    llm_url: str
+    model: str = "local-small"
+
+    def completions_debug(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 800,
+        temperature: float = 0.0,
+        timeout_sec: float | None = None,
+    ) -> Tuple[str, int, Any, Optional[str]]:
+        """
+        Calls llama.cpp OpenAI-compatible completions endpoint:
+          POST {llm_url}/v1/completions
+
+        Returns: (text, http_code, body(parsed_json_or_text), err)
+        IMPORTANT: 'text' is the raw choices[0].text (no stripping/sanitization).
+        """
+        base = (self.llm_url or "").rstrip("/")
+        if not base:
+            raise RuntimeError("llm_url is empty")
+
+        req: dict[str, Any] = {
+            "model": self.model,
+            "prompt": prompt,
+            "max_tokens": int(max_tokens),
+            "temperature": float(temperature),
+            "stream": False,
+        }
+
+        code, body, err = http_post_json(
+            f"{base}/v1/completions",
+            payload=req,
+            timeout_sec=float(timeout_sec if timeout_sec is not None else _http_timeout_sec()),
+        )
+
+        if code != 200 or not isinstance(body, dict):
+            # Keep body/err for debugging
+            raise RuntimeError(f"LLM HTTP error: code={code} err={err} body_type={type(body).__name__}")
+
         try:
-            ok = ctx.db.scalar(
-                "SELECT 1 FROM information_schema.tables "
-                "WHERE table_schema=%s AND table_name=%s",
-                ("public", t),
-            )
-        except Exception as e:
-            # information_schema access should generally be allowed; if not, give a hint
-            raise ClientsError(
-                "DB schema check failed (information_schema not readable?).\n"
-                "Hint: grant at least USAGE on schema public and SELECT on required tables.\n"
-                f"error={e}"
-            ) from e
+            txt = ((body.get("choices") or [{}])[0] or {}).get("text") or ""
+        except Exception:
+            txt = ""
 
-        if str(ok).strip() != "1":
-            raise ClientsError(
-                f"Missing required table: public.{t}\n"
-                "Expected TAK schema to include it.\n"
-                "If your schema differs, adjust takctl/services/clients.py query accordingly."
-            )
+        return str(txt), int(code), body, err
 
-    # 3) Privilege check: do harmless SELECTs
-    for t in required:
-        try:
-            ctx.db.scalar(f"SELECT 1 FROM public.{t} LIMIT 1")
-        except Exception as e:
-            # Give the exact fix
-            raise ClientsError(
-                f"Insufficient DB privileges for table public.{t}.\n"
-                "Fix (run as postgres):\n"
-                f"  GRANT CONNECT ON DATABASE {ctx.cfg.db_name} TO {ctx.cfg.db_user};\n"
-                f"  GRANT USAGE ON SCHEMA public TO {ctx.cfg.db_user};\n"
-                f"  GRANT SELECT ON TABLE public.{t} TO {ctx.cfg.db_user};\n"
-                f"error={e}"
-            ) from e
+    def completions_text(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 800,
+        temperature: float = 0.0,
+        timeout_sec: float | None = None,
+    ) -> str:
+        """
+        Backwards-compatible: return ONLY raw text.
+        """
+        txt, _code, _body, _err = self.completions_debug(
+            prompt, max_tokens=max_tokens, temperature=temperature, timeout_sec=timeout_sec
+        )
+        return txt
 
 
-def list_clients(ctx: AppContext, limit: int = 30) -> list[Client]:
-    _preflight_clients(ctx)
-
-    q = """
-    SELECT ce.callsign,
-           ce.uid,
-           max(cee.created_ts) AS last_seen
-    FROM client_endpoint_event cee
-    JOIN client_endpoint ce ON ce.id = cee.client_endpoint_id
-    GROUP BY ce.callsign, ce.uid
-    ORDER BY last_seen DESC
-    LIMIT %s;
+def build_llm_client_from_env() -> LLMClient:
     """
-    rows = ctx.db.fetchall(q, (limit,))
-    out: list[Client] = []
-
-    for callsign, uid, last_seen in rows:
-        if isinstance(last_seen, str):
-            try:
-                last_seen_dt = _parse_pg_ts(last_seen)
-            except Exception:
-                last_seen_dt = datetime.fromtimestamp(0)
-        else:
-            last_seen_dt = last_seen
-
-        out.append(Client(callsign=str(callsign), uid=str(uid), last_seen=last_seen_dt))
-
-    return out
-
+    Backwards-compatible helper used by takctl.services.llmchat.
+    Keep it tiny and deterministic.
+    """
+    llm_url = (os.environ.get("TAKS_LLM_URL") or "http://127.0.0.1:8090").strip()
+    model = (os.environ.get("TAKS_LLM_MODEL") or "local-small").strip()
+    return LLMClient(llm_url=llm_url, model=model)
