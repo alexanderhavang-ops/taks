@@ -1,1 +1,33 @@
-{}
+{
+  "logos": [
+    {
+      "n": 1,
+      "uploaded": true,
+      "ext": "svg",
+      "asset_svg": "./assets/logo1.svg"
+    },
+    {
+      "n": 2,
+      "uploaded": true,
+      "ext": "svg",
+      "asset_svg": "./assets/logo2.svg"
+    },
+    {
+      "n": 3,
+      "uploaded": true,
+      "ext": "png",
+      "asset_svg": "./assets/logo3.svg"
+    },
+    {
+      "n": 4,
+      "uploaded": false,
+      "ext": null,
+      "asset_svg": "./assets/logo4.svg"
+    }
+  ],
+  "current_n": 3,
+  "slogan": "HEMVÄRNET - ÖVERALLT - ALLTID!",
+  "login": {
+    "role": false
+  }
+}

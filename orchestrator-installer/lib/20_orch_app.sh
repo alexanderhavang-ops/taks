@@ -88,6 +88,32 @@ EOF
   install -d -m 0755 -o ubuntu -g ubuntu /opt/tak-orch/orchestrator/orchestrator_api/static/shared/takctl
   rsync -a --delete ${BASE_DIR}/../takctl/web/ /opt/tak-orch/orchestrator/orchestrator_api/static/shared/takctl/
 
+  # -------------------------------------------------------------------
+  # ensure orchestrator shared login.role=true (Role field visible)
+  # Node uses the same source bundle but should hide Role by default.
+  # So we flip the DEST copy after rsync.
+  # -------------------------------------------------------------------
+  ## ensure orchestrator shared login.role=true
+  python3 - <<'PY'
+import json
+from pathlib import Path
+bp = Path('/opt/tak-orch/orchestrator/orchestrator_api/static/shared/takctl/assets/brand.json')
+if bp.exists():
+    o = json.loads(bp.read_text(encoding='utf-8'))
+    if not isinstance(o, dict):
+        o = {}
+    login = o.get('login')
+    if not isinstance(login, dict):
+        login = {}
+    o['login'] = login
+    o['login']['role'] = True
+    bp.write_text(json.dumps(o, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    print('patched:', bp, 'login.role=true')
+else:
+    print('missing:', bp)
+PY
+
+
   # Wait for backend to be reachable (avoid nginx 502 race)
   echo "[orch-install] waiting for taks-orch backend on 127.0.0.1:8090 ..."
   for i in $(seq 1 20); do
