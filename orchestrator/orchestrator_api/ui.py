@@ -159,7 +159,15 @@ def whoami(req: Request):
 
 @router.get("/login", response_class=HTMLResponse)
 def login_get(req: Request):
-  # Normal login page (server-rendered). Avoid redirect loops.
+  # Prefer the shared takctl splash login UI
+  if _is_authed(req):
+    return RedirectResponse("/", status_code=302)
+  return RedirectResponse("/splash.html", status_code=302)
+
+  if _is_authed(req):
+    return RedirectResponse("/", status_code=302)
+  return RedirectResponse("/splash.html", status_code=302)
+
   if _is_authed(req):
     return RedirectResponse("/", status_code=302)
   return HTMLResponse(_html("login.html"))
