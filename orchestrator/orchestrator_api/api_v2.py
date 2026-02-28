@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, Request
 from orchestrator_core.core import NodeRequest, aws_dry_run, aws_launch, aws_list_nodes, plan_node
 from orchestrator_core.nodes_state import list_nodes, touch_heartbeat, upsert_node
+from orchestrator_core.units_state import list_units, create_unit
 
 from .auth import verify_token
 from .bundles_v2 import STATIC_BUNDLE_NAME, bundle_dir, ensure_static_bundle
@@ -305,3 +306,26 @@ def nodes_heartbeat(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     rec = touch_heartbeat(node_id, status=status, extra=extra)
     return {"ok": True, "node_id": node_id, "last_seen_ts": rec.get("last_seen_ts"), "status": rec.get("status")}
 
+
+
+# ----------------------------
+# Units: simple file-backed org tree (operator auth)
+# ----------------------------
+@router.get("/units")
+def units_list(request: Request) -> Dict[str, Any]:
+    require_operator(request)
+    items = list_units()
+    return {"count": len(items), "items": items}
+
+
+@router.post("/units")
+def units_create(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    require_operator(request)
+    unit_path = str((req or {}).get("unit_path") or "").strip()
+    title = str((req or {}).get("title") or "").strip()
+    parent_path = str((req or {}).get("parent_path") or "").strip()
+    try:
+        obj = create_unit(unit_path=unit_path, title=title, parent_path=parent_path)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "unit": obj}

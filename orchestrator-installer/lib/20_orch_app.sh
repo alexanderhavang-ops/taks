@@ -31,6 +31,35 @@ orch_app_install(){
   install -d -m 0755 -o ubuntu -g ubuntu /opt/tak-orch/state
   install -d -m 0755 /etc/systemd/system/taks-orch.service.d
 
+  # ------------------------------------------------------------
+  # Operator env (KISS, deterministic)
+  # - Drop-in always present (so /etc/taks/orchestrator.env is honored)
+  # - Env file always readable by service user (ubuntu)
+  # ------------------------------------------------------------
+  install -d -m 0755 /etc/taks
+
+  cat > /etc/systemd/system/taks-orch.service.d/10-local-env.conf <<'EOF'
+[Service]
+# Operator overrides (wins over /opt/tak-orch/state/defaults.env)
+EnvironmentFile=-/etc/taks/orchestrator.env
+EOF
+
+  if [[ ! -f /etc/taks/orchestrator.env ]]; then
+    cat > /etc/taks/orchestrator.env <<'EOF'
+# Operator overrides for taks-orch (read by systemd)
+# Keep this file SIMPLE and stable.
+TAKS_LAUNCH_ENABLED=1
+AWS_REGION=eu-north-1
+AWS_DEFAULT_REGION=eu-north-1
+# Optional (used by launcher):
+#TAKS_AWS_SG_ID=sg-xxxxxxxx
+#TAKS_AWS_KEY_NAME=your-key-name
+EOF
+  fi
+
+  chown root:ubuntu /etc/taks/orchestrator.env
+  chmod 0640 /etc/taks/orchestrator.env
+
   # kill legacy installer-managed drop-ins to avoid config split-brain
   rm -f /etc/systemd/system/taks-orch.service.d/10-aws.env.conf \
         /etc/systemd/system/taks-orch.service.d/20-launch-overrides.conf \
