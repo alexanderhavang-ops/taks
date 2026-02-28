@@ -159,18 +159,11 @@ def whoami(req: Request):
 
 @router.get("/login", response_class=HTMLResponse)
 def login_get(req: Request):
-  # Prefer the shared takctl splash login UI
+  # Prefer the shared takctl splash login UI (single entry-point)
   if _is_authed(req):
     return RedirectResponse("/", status_code=302)
   return RedirectResponse("/splash.html", status_code=302)
 
-  if _is_authed(req):
-    return RedirectResponse("/", status_code=302)
-  return RedirectResponse("/splash.html", status_code=302)
-
-  if _is_authed(req):
-    return RedirectResponse("/", status_code=302)
-  return HTMLResponse(_html("login.html"))
 @router.post("/login")
 def login_post(password: str = Form(...), role: str = Form(default=""), username: str = Form(default="admin")):
   """
