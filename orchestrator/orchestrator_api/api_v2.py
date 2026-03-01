@@ -311,21 +311,4 @@ def nodes_heartbeat(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 # ----------------------------
 # Units: simple file-backed org tree (operator auth)
 # ----------------------------
-@router.get("/units")
-def units_list(request: Request) -> Dict[str, Any]:
-    require_operator(request)
-    items = list_units()
-    return {"count": len(items), "items": items}
 
-
-@router.post("/units")
-def units_create(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
-    require_operator(request)
-    unit_path = str((req or {}).get("unit_path") or "").strip()
-    title = str((req or {}).get("title") or "").strip()
-    parent_path = str((req or {}).get("parent_path") or "").strip()
-    try:
-        obj = create_unit(unit_path=unit_path, title=title, parent_path=parent_path)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    return {"ok": True, "unit": obj}

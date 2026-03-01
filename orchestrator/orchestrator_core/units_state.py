@@ -4,7 +4,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 # NOTE: Keep consistent with other state modules
 def _state_dir() -> Path:
@@ -14,16 +14,6 @@ def _units_dir() -> Path:
     return _state_dir() / "units"
 
 def _safe_unit_path(unit_path: str) -> str:
-    """
-    unit_path is a logical path like:
-      "46hvbat" or "46hvbat/460" or "46hvbat/ledplut"
-    We store it under state/units/<unit_path>/unit.json
-
-    Rules:
-      - no empty segments
-      - no '.' or '..' segments
-      - no backslashes
-    """
     up = (unit_path or "").strip().strip("/")
     if not up:
         raise ValueError("missing unit_path")
@@ -42,6 +32,20 @@ def _unit_dir(unit_path: str) -> Path:
 def _unit_file(unit_path: str) -> Path:
     return _unit_dir(unit_path) / "unit.json"
 
+def _overlay_dir(unit_path: str) -> Path:
+    # Conventional location for unit bundle overlays
+    return _unit_dir(unit_path) / "bundle" / "overlay"
+
+def _count_overlay_files(unit_path: str) -> int:
+    d = _overlay_dir(unit_path)
+    if not d.exists():
+        return 0
+    n = 0
+    for p in d.rglob("*"):
+        if p.is_file():
+            n += 1
+    return n
+
 def ensure_units_dir() -> None:
     _units_dir().mkdir(parents=True, exist_ok=True)
 
@@ -57,10 +61,13 @@ def create_unit(unit_path: str, title: str = "", parent_path: str = "") -> Dict[
     now = int(time.time())
 
     if f.exists():
-        # Do NOT overwrite existing; treat as idempotent create
-        obj = json.loads(f.read_text(encoding="utf-8"))
-        if isinstance(obj, dict):
-            return obj
+        # idempotent create
+        try:
+            obj = json.loads(f.read_text(encoding="utf-8"))
+            if isinstance(obj, dict) and obj.get("unit_path"):
+                return obj
+        except Exception:
+            pass
 
     obj: Dict[str, Any] = {
         "unit_path": up,
@@ -76,6 +83,15 @@ def create_unit(unit_path: str, title: str = "", parent_path: str = "") -> Dict[
     return obj
 
 def list_units() -> List[Dict[str, Any]]:
+    """
+    Returns one row per unit_path under state/units.
+
+    Schema (stable, KISS):
+      unit_path
+      overlay_files   (count of files under units/<unit>/bundle/overlay/)
+      meta            (reserved; always dict)
+      + if unit.json exists: title, parent_path, created_ts, updated_ts
+    """
     ensure_units_dir()
     base = _units_dir()
     out: List[Dict[str, Any]] = []
@@ -83,13 +99,41 @@ def list_units() -> List[Dict[str, Any]]:
     if not base.exists():
         return out
 
+    # Unit paths are directories under units/ (recursive).
+    # A unit "exists" if either:
+    #  - unit.json exists, OR
+    #  - bundle/overlay exists (historical usage)
+    seen = set()
+
     for f in base.rglob("unit.json"):
         try:
             obj = json.loads(f.read_text(encoding="utf-8"))
             if isinstance(obj, dict) and obj.get("unit_path"):
-                out.append(obj)
+                up = str(obj["unit_path"])
+                row = dict(obj)
+                row["meta"] = {}
+                row["overlay_files"] = _count_overlay_files(up)
+                out.append(row)
+                seen.add(up)
         except Exception:
-            # ignore broken files (don't brick listing)
+            continue
+
+    # Also include overlay-only units that have no unit.json yet
+    for d in base.rglob("bundle/overlay"):
+        try:
+            # path: units/<unit_path>/bundle/overlay
+            rel = d.relative_to(base)
+            parts = rel.parts
+            if len(parts) >= 3 and parts[-3:] == ("bundle", "overlay"):
+                up = "/".join(parts[:-2])  # drop bundle/overlay
+                if up and up not in seen:
+                    out.append({
+                        "unit_path": up,
+                        "meta": {},
+                        "overlay_files": _count_overlay_files(up),
+                    })
+                    seen.add(up)
+        except Exception:
             continue
 
     out.sort(key=lambda x: x.get("unit_path") or "")

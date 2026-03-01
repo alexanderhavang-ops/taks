@@ -99,26 +99,12 @@ def _list_overlay_files(root: Path) -> List[Dict[str, Any]]:
 @router.get("")
 def units_list(request: Request) -> Dict[str, Any]:
     require_operator(request)
-    udir = _state_dir() / "units"
-    udir.mkdir(parents=True, exist_ok=True)
 
-    items: List[Dict[str, Any]] = []
-    for p in sorted(udir.iterdir()):
-        if not p.is_dir():
-            continue
-        unit_path = p.name
-        meta = _read_json(p / "meta.json")
-        overlay_root = p / "bundle"
-        items.append(
-            {
-                "unit_path": unit_path,
-                "meta": meta,
-                "overlay_files": len(_list_overlay_files(overlay_root)) if overlay_root.exists() else 0,
-            }
-        )
+    # Source of truth: file-backed units (unit.json)
+    from orchestrator_core.units_state import list_units as _list_units
 
+    items = _list_units()
     return {"count": len(items), "items": items}
-
 
 @router.get("/{unit_path}")
 def unit_get(unit_path: str, request: Request) -> Dict[str, Any]:

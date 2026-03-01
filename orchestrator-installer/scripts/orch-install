@@ -34,6 +34,7 @@ apply(){
   pkg_install
   ensure_swap /swapfile 4
   orch_app_install
+  orchestrator-installer/scripts/check-routes.sh
   install -d -m 0755 -o www-data -g www-data /var/log/tak-orch
   ensure_webroot
   nginx_quarantine_conflicts
