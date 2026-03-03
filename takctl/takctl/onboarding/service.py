@@ -107,7 +107,7 @@ def _build_identity(*, ident: Optional[UserIdentity]) -> Dict[str, Any]:
     return {
         # TAKS structural concepts (policy-defined meaning)
         "battalion": ctx.get("battalion"),
-        "unit": ctx.get("unit"),
+        "unit": ctx.get("unit") or ctx.get("battalion"),
         "company": ctx.get("company"),
         "platoon": ctx.get("platoon"),
         "squad": ctx.get("squad"),
@@ -129,7 +129,7 @@ def _build_header(*, username: str, identity: Dict[str, Any], groups: List[str],
     """
     return {
         "username": username,
-        "callsign": identity.get("callsign"),
+        "callsign": identity.get("callsign") or username,
         "unit": identity.get("unit") or identity.get("battalion"),
         "role": identity.get("role"),
         "atak_role_type": identity.get("atak_role_type"),
@@ -146,9 +146,6 @@ def _build_authority(*, ident: Optional[UserIdentity]) -> Dict[str, Any]:
     """
     origin = getattr(ident, "origin", None) if ident is not None else None
 
-    # Password "known to TAKS" should be true if either:
-    #  - the model explicitly says password_known=True, OR
-    #  - a password value exists in the identity record (common in our JSON store)
     password_known_flag = bool(getattr(ident, "password_known", False)) if ident is not None else False
     password_value_present = bool(getattr(ident, "password", None)) if ident is not None else False
     known_to_taks = bool(password_known_flag or password_value_present)
@@ -173,33 +170,207 @@ def _build_authority(*, ident: Optional[UserIdentity]) -> Dict[str, Any]:
     }
 
 
-    return {
-        "tak_user": "marti_xml",
-        "groups": {
-            "authoritative": "marti_xml",
-            "writable_by_taks": False,
-            "notes": "Groups are currently observed from UserAuthenticationFile.xml; TAKS does not write them yet.",
-        },
-        "password": {
-            "authoritative": "taks",
-            "known_to_taks": password_known,
-        },
-        "identity": {
-            "authoritative": "taks_overlay" if ident is not None else None,
-            "overlay_present": ident is not None,
-            "origin": origin,
-        },
+def _status_value(rec: Optional[OnboardingRecord]) -> Optional[str]:
+    if rec is None:
+        return None
+    st = getattr(rec, "status", None)
+    if st is None:
+        return None
+    return st.value if hasattr(st, "value") else str(st)
+
+
+def _is_offboarded(rec: Optional[OnboardingRecord]) -> bool:
+    if rec is None:
+        return False
+    # best-effort: allow either boolean field or status enum
+    if bool(getattr(rec, "offboarded", False)):
+        return True
+    st = _status_value(rec) or ""
+    return st.lower() in ("offboarded", "retired", "disabled", "revoked")
+
+
+def _artifact_evidence(*, username: str) -> Dict[str, Any]:
+    """
+    File-based evidence only. Never used as proof of client activity.
+    """
+    try:
+        from pathlib import Path
+        root = Path("/opt/tak/takctl-state/onboarding/artifacts") / username
+        present = root.exists()
+
+        def _exists(p: str) -> bool:
+            return (root / p).exists()
+
+        any_qr = False
+        if present:
+            for pat in ("*.png", "*.PNG"):
+                if list(root.glob(pat)):
+                    any_qr = True
+                    break
+
+        return {
+            "artifacts_root": str(root),
+            "present": bool(present),
+            "atak_package_zip": bool(_exists("atak/package.zip") or _exists("package.zip")),
+            "atak_package_creds_zip": bool(_exists("atak/package-creds.zip") or _exists("package-creds.zip")),
+            "any_qr_png": bool(any_qr),
+        }
+    except Exception:
+        return {"present": False}
+
+
+def _db_query(db: Any, sql: str, params: tuple) -> list[dict[str, Any]]:
+    """
+    Support both:
+      - takctl.services.db.client.DB (has .query/.query_one)
+      - raw psycopg2 connection (has .cursor)
+      - takctl.infra.db.DB-like (has .fetchall)
+    """
+    if db is None:
+        return []
+    if hasattr(db, "fetchall") and callable(getattr(db, "fetchall")):
+        rows = db.fetchall(sql, params) or []
+        return list(rows)
+    if hasattr(db, "query") and callable(getattr(db, "query")):
+        return list(db.query(sql, params))  # type: ignore
+    cur = db.cursor()
+    cur.execute(sql, params)
+    rows = cur.fetchall() or []
+    if rows and isinstance(rows[0], dict):
+        return rows
+    cols = [d[0] for d in (cur.description or [])]
+    out = []
+    for r in rows:
+        out.append({cols[i]: r[i] for i in range(min(len(cols), len(r)))})
+    return out
+
+
+def _db_query_one(db: Any, sql: str, params: tuple) -> Optional[dict[str, Any]]:
+    rows = _db_query(db, sql, params)
+    return rows[0] if rows else None
+
+
+def _fetch_marti_client_evidence(*, db: Any, username: str) -> Dict[str, Any]:
+    """
+    Evidence from TAK Server Postgres (Marti concepts), but kept SMALL:
+      - public.client_endpoint (count + latest endpoint summary)
+      - public.client_endpoint_event (latest event summary)
+      - public.certificate (counts + latest cert summary)
+
+    IMPORTANT:
+      - DO NOT select client_endpoint_event.groups (bit varying / massive).
+    """
+    if db is None:
+        return {"db_used": False}
+
+    endpoints = _db_query(
+        db,
+        "SELECT id, callsign, uid, username FROM public.client_endpoint WHERE username=%s ORDER BY id DESC;",
+        (username,),
+    )
+    endpoint_ids = [e.get("id") for e in endpoints if isinstance(e, dict) and e.get("id") is not None]
+    endpoint_uids = [e.get("uid") for e in endpoints if isinstance(e, dict) and e.get("uid")]
+
+    latest_endpoint: Optional[dict[str, Any]] = endpoints[0] if endpoints else None
+
+    latest_event = None
+    if endpoint_ids:
+        latest_event = _db_query_one(
+            db,
+            """
+            SELECT e.id, e.client_endpoint_id, e.connection_event_type_id, e.created_ts, e.client_version
+            FROM public.client_endpoint_event e
+            WHERE e.client_endpoint_id = ANY(%s)
+            ORDER BY e.created_ts DESC
+            LIMIT 1;
+            """,
+            (endpoint_ids,),
+        )
+
+    certs_user = _db_query(
+        db,
+        """
+        SELECT id, issuance_date, effective_date, expiration_date, revocation_date, client_uid
+        FROM public.certificate
+        WHERE user_dn=%s
+        ORDER BY issuance_date DESC;
+        """,
+        (username,),
+    )
+    certs_uid = []
+    if endpoint_uids:
+        certs_uid = _db_query(
+            db,
+            """
+            SELECT id, issuance_date, effective_date, expiration_date, revocation_date, client_uid
+            FROM public.certificate
+            WHERE client_uid = ANY(%s)
+            ORDER BY issuance_date DESC;
+            """,
+            (endpoint_uids,),
+        )
+
+    def _revoked_count(rows: list[dict[str, Any]]) -> int:
+        n = 0
+        for r in rows or []:
+            if isinstance(r, dict) and r.get("revocation_date") is not None:
+                n += 1
+        return n
+
+    latest_cert = (certs_user[0] if certs_user else (certs_uid[0] if certs_uid else None))
+
+    out: Dict[str, Any] = {
+        "db_used": True,
+        "endpoints_n": len(endpoints),
+        "endpoint_uids": endpoint_uids,
+        "latest_endpoint": None,
+        "latest_endpoint_event": None,
+        "certs_by_user_dn_n": len(certs_user),
+        "certs_by_client_uid_n": len(certs_uid),
+        "certs_revoked_n": _revoked_count(certs_user) + _revoked_count(certs_uid),
+        "latest_cert": None,
+        # convenience flags for lifecycle
+        "has_endpoint": bool(endpoints),
+        "has_endpoint_event": bool(latest_event),
+        "has_certificate": bool(certs_user or certs_uid),
     }
+
+    if isinstance(latest_endpoint, dict):
+        out["latest_endpoint"] = {
+            "id": latest_endpoint.get("id"),
+            "callsign": latest_endpoint.get("callsign"),
+            "uid": latest_endpoint.get("uid"),
+            "username": latest_endpoint.get("username"),
+        }
+
+    if isinstance(latest_event, dict):
+        out["latest_endpoint_event"] = {
+            "id": latest_event.get("id"),
+            "client_endpoint_id": latest_event.get("client_endpoint_id"),
+            "connection_event_type_id": latest_event.get("connection_event_type_id"),
+            "created_ts": _iso_or_none(latest_event.get("created_ts")),
+            "client_version": latest_event.get("client_version"),
+        }
+
+    if isinstance(latest_cert, dict):
+        out["latest_cert"] = {
+            "id": latest_cert.get("id"),
+            "client_uid": latest_cert.get("client_uid"),
+            "issuance_date": _iso_or_none(latest_cert.get("issuance_date")),
+            "effective_date": _iso_or_none(latest_cert.get("effective_date")),
+            "expiration_date": _iso_or_none(latest_cert.get("expiration_date")),
+            "revocation_date": _iso_or_none(latest_cert.get("revocation_date")),
+        }
+
+    return out
 
 
 def _build_onboarding_out(rec: Optional[OnboardingRecord]) -> Optional[Dict[str, Any]]:
     if rec is None:
         return None
     if hasattr(rec, "to_dict") and callable(getattr(rec, "to_dict")):
-        # Ensure datetimes are already ISO in to_dict(); if not, callers will see them.
         return rec.to_dict()
 
-    # Fallback minimal form (should rarely be used)
     out: Dict[str, Any] = {
         "username": rec.username,
         "status": rec.status.value if hasattr(rec.status, "value") else str(rec.status),
@@ -239,7 +410,6 @@ def _build_activity_out(act: Any, *, recent_minutes: int) -> Optional[Dict[str, 
     return {
         "cot_seen": True,
         "uid": getattr(act, "uid", None),
-        # Observed callsign (telemetry only; NOT identity)
         "callsign": getattr(act, "callsign", None),
         "last_cot_time": last_time_utc.isoformat() if last_time_utc else None,
         "stale": stale_utc.isoformat() if stale_utc else None,
@@ -249,6 +419,64 @@ def _build_activity_out(act: Any, *, recent_minutes: int) -> Optional[Dict[str, 
         "recent_minutes": int(recent_minutes),
         "seen_recently": (age_sec is not None) and (age_sec <= (int(recent_minutes) * 60)),
     }
+
+
+def _compute_lifecycle(
+    *,
+    username: str,
+    ident: Optional[UserIdentity],
+    selection: Any,
+    rec: Optional[OnboardingRecord],
+    activity: Optional[Dict[str, Any]],
+    marti_client: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Evidence-based lifecycle:
+      SG0: external user (not created by TAKS)
+      SG1: created by TAKS, but NO cert and NO endpoint and NO CoT
+      SG2: certificate issued OR endpoint exists, but no events/CoT activity yet
+      SG3: endpoint event exists OR CoT seen
+      SG4: offboarded
+    """
+    evidence: Dict[str, Any] = {
+        "username": username,
+        "taks_identity_present": ident is not None,
+        "taks_origin": getattr(ident, "origin", None) if ident is not None else None,
+        "taks_password_known": bool(getattr(ident, "password_known", False) or getattr(ident, "password", None)) if ident is not None else False,
+        "selection_present": selection is not None,
+        "onboarding_status": _status_value(rec),
+        "offboarded": _is_offboarded(rec),
+        "cot_seen": bool((activity or {}).get("cot_seen")) if activity is not None else False,
+        "seen_recently": bool((activity or {}).get("seen_recently")) if activity is not None else False,
+        "marti_client": marti_client or {},
+        "artifacts": _artifact_evidence(username=username),
+    }
+
+    created_by_taks = (evidence["taks_origin"] == "taks")
+    cot_seen = bool(evidence["cot_seen"])
+
+    has_cert = bool((marti_client or {}).get("has_certificate"))
+    has_endpoint = bool((marti_client or {}).get("has_endpoint"))
+    has_endpoint_event = bool((marti_client or {}).get("has_endpoint_event"))
+
+    if evidence["offboarded"]:
+        stage = "SG4"
+        label = "Offboarded"
+    elif not created_by_taks:
+        stage = "SG0"
+        label = "External user (not created by TAKS)"
+    else:
+        if cot_seen or has_endpoint_event:
+            stage = "SG3"
+            label = "Active (endpoint events and/or CoT seen)"
+        elif has_cert or has_endpoint:
+            stage = "SG2"
+            label = "Enrolled (certificate and/or endpoint present), not active yet"
+        else:
+            stage = "SG1"
+            label = "Created by TAKS (no cert/endpoint/CoT yet)"
+
+    return {"stage": stage, "label": label, "evidence": evidence}
 
 
 # ---------------------------------------------------------------------
@@ -320,45 +548,51 @@ class OnboardingService:
                 policy_id=policy_id,
             )
 
+            act = _build_activity_out(activity_map.get(r.username), recent_minutes=int(recent_minutes))
+            marti_client = _fetch_marti_client_evidence(db=db, username=r.username) if db is not None else {"db_used": False}
+
+            lifecycle = _compute_lifecycle(
+                username=r.username,
+                ident=ident,
+                selection=None,
+                rec=r.onboarding,
+                activity=act,
+                marti_client=marti_client,
+            )
+
             user_out: Dict[str, Any] = {
                 "header": header,
                 "identity": identity,
-                "marti": {"groups": list(r.groups)},
+                "marti": {"groups": list(r.groups), "client": marti_client},
                 "policy": {"id": policy_id},
                 "authority": _build_authority(ident=ident),
+                "lifecycle": lifecycle,
                 "onboarding_status": r.onboarding_status.value,
                 "onboarding": _build_onboarding_out(r.onboarding),
-                "activity": _build_activity_out(activity_map.get(r.username), recent_minutes=int(recent_minutes)),
-                # Selection is per-user; for list view keep it out (heavy / noisy)
+                "activity": act,
                 "selection": None,
             }
 
             users_out.append(user_out)
 
-        # Summary
         total_users = len(users_out)
         cot_seen = sum(1 for u in users_out if u.get("activity") is not None)
         never_seen = total_users - cot_seen
         seen_recently = sum(1 for u in users_out if (u.get("activity") or {}).get("seen_recently") is True)
         is_current = sum(1 for u in users_out if (u.get("activity") or {}).get("is_current") is True)
 
-        # Unknown endpoints summary is best-effort (depends on DB query output)
         unknown_out: List[Dict[str, Any]] = []
         for e in unknown:
             out_e = dict(e)
             last_time = e.get("last_cot_time")
             stale = e.get("stale")
-            # normalize datetimes if present
             if isinstance(last_time, datetime):
                 out_e["last_cot_time"] = _to_utc(last_time).isoformat()
             if isinstance(stale, datetime):
                 out_e["stale"] = _to_utc(stale).isoformat()
             unknown_out.append(out_e)
 
-        unknown_seen_recently = 0
-        for e in unknown_out:
-            if e.get("seen_recently") is True:
-                unknown_seen_recently += 1
+        unknown_seen_recently = sum(1 for e in unknown_out if e.get("seen_recently") is True)
 
         return {
             "summary": {
@@ -378,9 +612,6 @@ class OnboardingService:
     def user_card(self, *, username: str, db=None, recent_minutes: int = 120) -> dict:
         """
         Single canonical card model.
-
-        Order is intentional:
-          header -> identity -> marti -> policy -> authority -> onboarding -> activity -> selection
         """
         from takctl.onboarding.selection import load_selection
         from takctl.onboarding.activity_pg import fetch_activity_for_usernames
@@ -393,14 +624,16 @@ class OnboardingService:
         ident = self.store.get_identity(username)
         sel = load_selection(username) or None
 
-        # Optional activity
-        act = None
+        act_obj = None
         if db is not None:
             try:
                 m = fetch_activity_for_usernames(db, [username])
-                act = m.get(username)
+                act_obj = m.get(username)
             except Exception:
-                act = None
+                act_obj = None
+
+        act = _build_activity_out(act_obj, recent_minutes=int(recent_minutes))
+        marti_client = _fetch_marti_client_evidence(db=db, username=username) if db is not None else {"db_used": False}
 
         ctx = (ident.ctx or {}) if ident is not None else {}
         policy_id = _policy_id_from_ctx(ctx)
@@ -413,15 +646,23 @@ class OnboardingService:
             policy_id=policy_id,
         )
 
-        card = {
+        lifecycle = _compute_lifecycle(
+            username=username,
+            ident=ident,
+            selection=sel,
+            rec=rec,
+            activity=act,
+            marti_client=marti_client,
+        )
+
+        return {
             "header": header,
             "identity": identity,
-            "marti": {"groups": list(u.groups)},
+            "marti": {"groups": list(u.groups), "client": marti_client},
             "policy": {"id": policy_id},
             "authority": _build_authority(ident=ident),
+            "lifecycle": lifecycle,
             "onboarding": _build_onboarding_out(rec),
-            "activity": _build_activity_out(act, recent_minutes=int(recent_minutes)),
+            "activity": act,
             "selection": sel,
         }
-
-        return card
