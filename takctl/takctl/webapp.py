@@ -28,6 +28,7 @@ from fastapi.staticfiles import StaticFiles
 from takctl.api.health import router as health_router
 from takctl.api.meta import router as meta_router
 from takctl.services.marti_auth import check_userauthfile
+from takctl.web.api import llm2_debug
 
 app = FastAPI(title="takctl-web")
 
@@ -98,6 +99,9 @@ WEB_DIR = Path("/opt/tak/tools/takctl/web")
 # - symlinks pointing into runtime user-uploads
 USER_UPLOADS_DIR = Path("/opt/tak/tools/takctl/user-uploads")
 
+# Runtime-owned brand metadata (uploader/orchestrator writes here)
+BRAND_JSON = Path("/opt/tak/tools/takctl/assets/brand.json")
+
 
 def _is_within(path: Path, root: Path) -> bool:
     try:
@@ -105,6 +109,40 @@ def _is_within(path: Path, root: Path) -> bool:
         return True
     except Exception:
         return False
+
+
+def _safe_relpath(relpath: str) -> str:
+    rp = str(relpath or "")
+    if rp.startswith("/") or rp.startswith("..") or "/.." in rp or "\.." in rp:
+        raise HTTPException(status_code=400, detail="bad asset path")
+    return rp
+
+def _safe_unit_fs(unit: str) -> str:
+    # Keep it simple: allow [A-Za-z0-9._/-] only; block traversal.
+    u = str(unit or "").strip()
+    if not u:
+        raise HTTPException(status_code=400, detail="bad unit")
+    if u.startswith("/") or u.startswith("..") or "/.." in u or "\.." in u:
+        raise HTTPException(status_code=400, detail="bad unit")
+    # basic character whitelist
+    for ch in u:
+        o = ord(ch)
+        ok = (
+            (48 <= o <= 57) or (65 <= o <= 90) or (97 <= o <= 122) or
+            ch in "._-/"
+        )
+        if not ok:
+            raise HTTPException(status_code=400, detail="bad unit")
+    return u
+
+def _unit_root(unit_fs: str) -> Path:
+    # unit-scoped upload root
+    return USER_UPLOADS_DIR / unit_fs
+
+def _unit_assets_dir(unit_fs: str) -> Path:
+    # where splash.js expects unit logos: /u/<unit>/assets/logoN.ext
+    return _unit_root(unit_fs) / "assets"
+
 
 
 @app.get("/assets/{relpath:path}")
@@ -168,6 +206,75 @@ async def splash_css():
 @app.get("/splash.js")
 async def splash_js():
     return Response((WEB_DIR / "splash.js").read_text(encoding="utf-8"), media_type="application/javascript")
+
+# ---------------------------------------------------------------------
+# Public unit branding (NO AUTH): used by splash.js
+# Contract matches orchestrator:
+#   GET /api/public/brand?unit=<unit_path>
+# Returns brand.json if present; otherwise 404.
+# On a node, 'unit' is optional; we serve the node-local brand.json regardless.
+# ---------------------------------------------------------------------
+
+@app.get("/api/public/brand")
+async def public_brand(unit: str | None = None):
+    """
+    Public brand endpoint used by shared splash.js.
+
+    Node behavior:
+      - Prefer runtime override: /opt/tak/tools/takctl/assets/brand.json
+      - Fallback to packaged default: <WEB_DIR>/assets/brand.json
+      - IMPORTANT: on node, default login.role=false if missing (hide Role field)
+    """
+    import json
+
+    candidates = [
+        BRAND_JSON,
+        (WEB_DIR / "assets" / "brand.json"),
+    ]
+
+    for bp in candidates:
+        try:
+            if bp.exists() and bp.is_file():
+                data = json.loads(bp.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    data = {}
+
+                # Default behavior on node: hide Role unless explicitly set
+                login = data.get("login")
+                if not isinstance(login, dict):
+                    login = {}
+                data["login"] = login
+                if "role" not in login:
+                    login["role"] = False
+
+                return JSONResponse(data)
+        except Exception:
+            raise HTTPException(status_code=500, detail="Invalid brand.json")
+
+    raise HTTPException(status_code=404, detail="Not Found")
+# Orchestrator-compatible unit asset path:
+#   /u/<unit_path>/assets/<relpath>
+# On a node, map this to runtime user-uploads:
+#   /opt/tak/tools/takctl/user-uploads/<unit_path>/assets/<relpath>
+@app.get("/u/{unit_path:path}/assets/{relpath:path}")
+async def public_unit_asset(unit_path: str, relpath: str):
+    # basic traversal protection
+    if relpath.startswith("/") or relpath.startswith("..") or "/.." in relpath:
+        raise HTTPException(status_code=400, detail="bad asset path")
+    if unit_path.startswith("/") or unit_path.startswith("..") or "/.." in unit_path:
+        raise HTTPException(status_code=400, detail="bad unit path")
+
+    req_path = (USER_UPLOADS_DIR / unit_path / "assets" / relpath)
+    try:
+        resolved = req_path.resolve(strict=True)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    uploads_root = USER_UPLOADS_DIR.resolve()
+    if not _is_within(resolved, uploads_root):
+        raise HTTPException(status_code=404, detail="Not Found")
+
+    return FileResponse(str(resolved))
 
 
 @app.get("/styles.css")
@@ -235,22 +342,16 @@ async def login(req: Request):
 
 # --- existing routers ---
 
-# Keep legacy paths:
-app.include_router(health_router)
-app.include_router(meta_router)
-
-# Preferred API namespace:
+# Preferred API namespace (NO legacy mounts):
 app.include_router(health_router, prefix="/api")
 app.include_router(meta_router, prefix="/api")
-app.include_router(onboarding_router)
-app.include_router(onboarding_policies_router, prefix="/api")
-app.include_router(onboarding_packages_router)
-app.include_router(onboarding_cards_router)
 app.include_router(onboarding_router, prefix="/api")
+app.include_router(onboarding_policies_router, prefix="/api")
 app.include_router(onboarding_packages_router, prefix="/api")
 app.include_router(onboarding_cards_json_router, prefix="/api")
 app.include_router(onboarding_identity_router, prefix="/api")
 app.include_router(onboarding_cards_router, prefix="/api")
+app.include_router(llm2_debug.router)
 
 
 # -----------------------------------------------------------------------------

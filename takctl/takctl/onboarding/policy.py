@@ -17,6 +17,10 @@ class Identity:
     team: str
     atak_role_type: Optional[str] = None
 
+    # NEW: read-only debug/preview fields for UI
+    callsign_variants: Optional[Dict[str, str]] = None
+    callsign_policy_effective: Optional[str] = None
+
 
 class PolicyError(RuntimeError):
     pass
@@ -133,7 +137,7 @@ class Policy:
         return "Blue"
 
     # -------------------------
-    # Callsign resolution
+    # Callsign resolution (legacy/template path)
     # -------------------------
     def resolve_callsign(self, ctx: Dict[str, Any]) -> str:
         """
@@ -168,9 +172,8 @@ class Policy:
         callsign_raw = template.format_map(_SafeFormatDict(fmt))
         return self._normalize_callsign(callsign_raw)
 
-    
     def resolve_identity(self, ctx: Dict[str, Any]) -> Identity:
-        ctx = dict(ctx)
+        ctx = dict(ctx or {})
 
         # Inject derived FAL fields FIRST (non-destructive)
         try:
@@ -181,8 +184,10 @@ class Policy:
         except Exception:
             pass
 
-        # Policy grammar AFTER FAL enrichment
+        # Grammar is authoritative for callsign/team/role_type (+ variants)
         g = derive_grammar(self.policy_id, ctx)
+        if not isinstance(g, dict) or not g.get("callsign"):
+            raise RuntimeError("Grammar did not produce callsign")
 
         def _nonempty(v: Any) -> bool:
             try:
@@ -190,6 +195,7 @@ class Policy:
             except Exception:
                 return False
 
+        # Only fill ctx from grammar if user didn't explicitly set a value
         if not _nonempty(ctx.get("callsign")) and _nonempty(g.get("callsign")):
             ctx["callsign"] = g.get("callsign")
         if not _nonempty(ctx.get("team")) and _nonempty(g.get("team")):
@@ -197,11 +203,10 @@ class Policy:
         if not _nonempty(ctx.get("atak_role_type")) and _nonempty(g.get("atak_role_type")):
             ctx["atak_role_type"] = g.get("atak_role_type")
 
+        callsign = self._normalize_callsign(str(g.get("callsign") or ""))
+
         team_override = (str(ctx.get("team")).strip() if ctx.get("team") is not None else "")
         team = team_override if team_override else self.resolve_team(ctx)
-
-        callsign_override = (str(ctx.get("callsign")).strip() if ctx.get("callsign") is not None else "")
-        callsign = self._normalize_callsign(callsign_override) if callsign_override else self.resolve_callsign(ctx)
 
         atak_role_type = None
         role = (ctx.get("role") or "").strip().lower()
@@ -213,5 +218,15 @@ class Policy:
         if ctx.get("atak_role_type"):
             atak_role_type = str(ctx.get("atak_role_type")).strip() or atak_role_type
 
-        return Identity(callsign=callsign, team=team, atak_role_type=atak_role_type)
+        # NEW: variants + effective policy for UI (read-only)
+        variants = g.get("callsign_variants") if isinstance(g.get("callsign_variants"), dict) else None
+        eff = g.get("callsign_policy_effective")
+        eff = str(eff).strip() if eff else None
 
+        return Identity(
+            callsign=callsign,
+            team=team,
+            atak_role_type=atak_role_type,
+            callsign_variants=variants,
+            callsign_policy_effective=eff,
+        )

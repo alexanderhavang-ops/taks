@@ -1,4 +1,5 @@
 /* global React */
+/* ob-namebadge-v3 (KISS) */
 (function () {
   var h = (window.h || React.createElement); window.h = h;
 
@@ -8,69 +9,59 @@
   const helpers = (window.TaksOnboarding.createUser && window.TaksOnboarding.createUser.helpers) || null;
   function needHelpers(){ if (!helpers) throw new Error("Missing create_user/helpers.js"); return helpers; }
 
-  function NameBadge({ callsign, row2, teamColor, statusText }) {
-    const bg = needHelpers().teamColorToCss(teamColor) || "#1f2937";
+  // KISS badge:
+  // - same proportions/feel as the example badge
+  // - uses team color
+  // - no extra chrome, no status text
+  function NameBadge({ callsign, row2, teamColor }) {
+    const bg = needHelpers().teamColorToCss(teamColor) || "#c01616";
 
-    // Use the unit logo from assets (your runtime symlink points it at logo3.svg)
-    // Make it white via CSS filter.
-    const logoUrl = "/assets/unit-current.svg";
-
-    return h("div", { className: "box", style: { marginBottom: "12px", padding: "14px" } },
+    return h("div", {
+      style: {
+        height: "86px",
+        minWidth: "260px",
+        maxWidth: "460px",
+        borderRadius: "6px",
+        padding: "12px 14px",
+        background: bg,
+        boxShadow: "0 8px 18px rgba(0,0,0,0.38)",
+        border: "1px solid rgba(0,0,0,0.12)",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        gap: "6px",
+        overflow: "hidden"
+      }
+    },
       h("div", {
         style: {
-          display: "flex",
-          alignItems: "center",
-          gap: "16px",
-          borderRadius: "12px",
-          padding: "14px 16px",
-          background: bg,
-          border: "1px solid rgba(255,255,255,0.08)",
-          boxShadow: "0 14px 40px rgba(0,0,0,.25)"
+          fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
+          fontWeight: 900,
+          fontSize: "20px",
+          lineHeight: 1.0,
+          letterSpacing: "0.02em",
+          textTransform: "uppercase",
+          color: "#fff",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis"
         }
-      },
-        h("img", {
-          src: logoUrl,
-          alt: "unit",
-          style: {
-            width: "34px",
-            height: "34px",
-            objectFit: "contain",
-            // force white
-            filter: "brightness(0) invert(1)",
-            opacity: 0.95,
-            flex: "0 0 auto"
-          }
-        }),
+      }, String(callsign || "—")),
 
-        // TWO ROWS ONLY (match the sample badge feel)
-        h("div", { style: { minWidth: 0, flex: "1 1 auto" } },
-          h("div", {
-            style: {
-              fontWeight: 900,
-              fontSize: "22px",
-              lineHeight: 1.05,
-              letterSpacing: ".02em",
-              textTransform: "uppercase",
-              color: "#fff"
-            }
-          }, String(callsign || "—")),
-
-          h("div", {
-            style: {
-              marginTop: "4px",
-              fontWeight: 700,
-              fontSize: "12px",
-              letterSpacing: ".04em",
-              textTransform: "uppercase",
-              color: "rgba(255,255,255,.85)"
-            }
-          }, String(row2 || "—"))
-        ),
-
-        h("div", { className: "muted", style: { fontSize: "12px", textAlign: "right" } },
-          String(statusText || "—")
-        )
-      )
+      h("div", {
+        style: {
+          fontFamily: "ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif",
+          fontWeight: 800,
+          fontSize: "12px",
+          lineHeight: 1.0,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          color: "rgba(255,255,255,0.92)",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis"
+        }
+      }, String(row2 || "—"))
     );
   }
 

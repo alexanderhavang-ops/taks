@@ -14,7 +14,7 @@
       "key": "battalion_fal",
       "label": "FALA Battalion",
       "type": "text",
-      "required": true,
+      "required": false,
       "default": "VQ"
     },
     {
@@ -36,8 +36,13 @@
       "label": "Group",
       "type": "select",
       "required": true,
-      "default": "1",
-      "options": ["1", "2", "3", "4"]
+      "default": "E",
+      "options": [
+        "E",
+        "F",
+        "G",
+        "H"
+      ]
     },
     {
       "key": "n",
@@ -47,12 +52,24 @@
       "default": "1"
     },
     {
-      "key": "team_color",
+      "key": "team",
       "label": "Team color",
       "type": "select",
       "required": true,
       "default": "Blue",
-      "options": ["Black","White","Orange","Magenta","Cyan","Purple","Blue","Maroon","Green","Yellow","Red"]
+      "options": [
+        "Black",
+        "White",
+        "Orange",
+        "Magenta",
+        "Cyan",
+        "Purple",
+        "Blue",
+        "Maroon",
+        "Green",
+        "Yellow",
+        "Red"
+      ]
     },
     {
       "key": "atak_role_type",
@@ -60,7 +77,10 @@
       "type": "select",
       "required": true,
       "default": "Soldier",
-      "options": ["Soldier", "Team Lead"]
+      "options": [
+        "Soldier",
+        "Team Lead"
+      ]
     },
     {
       "key": "remarks",
@@ -68,14 +88,6 @@
       "type": "text",
       "required": false,
       "default": "#soldat"
-    },
-    {
-      "key": "callsign",
-      "label": "Callsign",
-      "type": "text",
-      "required": false,
-      "readonly": false,
-      "default": ""
     }
   ],
   "group_fields": [
@@ -104,20 +116,124 @@
       "label": "Coordinate system",
       "type": "select",
       "default": "MGRS",
-      "options": ["MGRS", "LatLon"]
+      "options": [
+        "MGRS",
+        "LatLon"
+      ]
     },
     {
       "key": "units",
       "label": "Units",
       "type": "select",
       "default": "metric",
-      "options": ["metric", "imperial"]
+      "options": [
+        "metric",
+        "imperial"
+      ]
     },
     {
       "key": "allow_callsign_change",
       "label": "Allow callsign change",
       "type": "bool",
       "default": false
+    },
+    {
+      "key": "coord_display",
+      "label": "Coordinate Display",
+      "type": "select",
+      "default": "MGRS",
+      "options": [
+        "MGRS",
+        "DD",
+        "DMS",
+        "UTM"
+      ]
+    },
+    {
+      "key": "alt_display",
+      "label": "Altitude Display",
+      "type": "select",
+      "default": "MSL",
+      "options": [
+        "MSL",
+        "HAE"
+      ]
+    },
+    {
+      "key": "alt_units",
+      "label": "Altitude Units",
+      "type": "select",
+      "default": "Meters",
+      "options": [
+        "Meters",
+        "Feet"
+      ]
+    },
+    {
+      "key": "speed_units",
+      "label": "Speed Units",
+      "type": "select",
+      "default": "km/h",
+      "options": [
+        "km/h",
+        "m/s",
+        "mph",
+        "knots"
+      ]
+    },
+    {
+      "key": "compass_heading_display",
+      "label": "Compass Heading Display",
+      "type": "select",
+      "default": "Numeric",
+      "options": [
+        "Numeric",
+        "Cardinal"
+      ]
+    },
+    {
+      "key": "bearing_units",
+      "label": "Bearing Units",
+      "type": "select",
+      "default": "Mils",
+      "options": [
+        "Mils",
+        "Degrees"
+      ]
+    },
+    {
+      "key": "range_units",
+      "label": "Range Units",
+      "type": "select",
+      "default": "Meters/kilometers",
+      "options": [
+        "Meters/kilometers",
+        "Feet/miles",
+        "Nautical"
+      ]
+    },
+    {
+      "key": "north_ref",
+      "label": "North Reference",
+      "type": "select",
+      "default": "Grid North",
+      "options": [
+        "Grid North",
+        "True North",
+        "Magnetic North"
+      ]
+    },
+    {
+      "key": "domain_pref",
+      "label": "Set Domain Preference",
+      "type": "select",
+      "default": "Ground",
+      "options": [
+        "Ground",
+        "Air",
+        "Sea",
+        "Space"
+      ]
     }
   ],
   "defaults": {
@@ -125,5 +241,15 @@
     "units": "metric",
     "allow_callsign_change": false
   },
-  "notes": "Doc is shipped as doc.pdf next to this file (replaceable at runtime via /opt/tak/takctl-state/policies.d)."
+  "notes": "Doc is shipped as doc.pdf next to this file (replaceable at runtime via /opt/tak/takctl-state/policies.d).",
+  "maps": {
+    "battalion_to_fal": {
+      "46": "VQ",
+      "48": "VW"
+    },
+    "fal_to_battalion": {
+      "VQ": "46",
+      "VW": "48"
+    }
+  }
 }

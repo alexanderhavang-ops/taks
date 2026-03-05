@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,10 @@ from takctl.services.llm2.db import run_sql
 from takctl.services.llm2.domain_config import load_domain_config
 from takctl.services.llm2.paths import domains_root, runs_root, latest_root
 from takctl.services.llm2.store import write_json
+
+
+def _utc_iso() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def run_phase1(*, run_id: str) -> dict[str, Any]:
@@ -34,44 +39,65 @@ def run_phase1(*, run_id: str) -> dict[str, Any]:
                 out["domains"].append(dom_entry)
                 continue
 
-            # run every *.sql (crash isolated per file)
-            results: dict[str, Any] = {"ok": True, "domain": dom_name, "phase": "phase1", "queries": []}
+            # -------------------------
+            # Evidence (for Phase2): MINIMAL, no noise.
+            # Trace (for debugging): full detail.
+            # -------------------------
+            evidence: dict[str, Any] = {
+                "domain": dom_name,
+                "ok": True,
+                "phase": "phase1",
+                "generated_utc": _utc_iso(),
+                "queries": [],
+            }
             trace: dict[str, Any] = {"ok": True, "domain": dom_name, "phase": "phase1", "items": []}
 
             for sp in sorted(sql_dir.glob("*.sql")):
                 name = sp.stem
-                item: dict[str, Any] = {"name": name, "path": str(sp)}
+                trace_item: dict[str, Any] = {"name": name, "path": str(sp)}
+
                 try:
                     sql = sp.read_text(encoding="utf-8")
                 except Exception as e:
-                    item.update({"ok": False, "error": f"read_failed: {type(e).__name__}: {e}"})
-                    trace["items"].append(item)
-                    dom_entry["queries"].append({"name": name, "ok": False, "error": item["error"]})
+                    msg = f"read_failed: {type(e).__name__}: {e}"
+                    trace_item.update({"ok": False, "error": msg})
+                    trace["items"].append(trace_item)
+                    dom_entry["queries"].append({"name": name, "ok": False, "error": msg})
+                    evidence["ok"] = False
+                    evidence["queries"].append({"name": name, "columns": None, "rows": None, "error": msg})
                     continue
 
                 r = run_sql(sql)
-                item.update({
-                    "ok": bool(r.ok),
-                    "elapsed_ms": r.elapsed_ms,
-                    "rowcount": r.rowcount,
-                    "columns": r.columns,
-                    # keep rows for now (can be dropped later); safe cap is in db.run_sql
-                    "rows": r.rows,
-                    "error": r.error,
-                })
-                trace["items"].append(item)
-                dom_entry["queries"].append({"name": name, "ok": item["ok"], "elapsed_ms": r.elapsed_ms, "rowcount": r.rowcount, "error": r.error})
+                trace_item.update(
+                    {
+                        "ok": bool(r.ok),
+                        "elapsed_ms": r.elapsed_ms,
+                        "rowcount": r.rowcount,
+                        "columns": r.columns,
+                        "rows": r.rows,
+                        "error": r.error,
+                    }
+                )
+                trace["items"].append(trace_item)
+                dom_entry["queries"].append(
+                    {"name": name, "ok": bool(r.ok), "elapsed_ms": r.elapsed_ms, "rowcount": r.rowcount, "error": r.error}
+                )
 
-                results["queries"].append(item)
+                # Minimal evidence item
+                ev_item: dict[str, Any] = {"name": name, "columns": r.columns, "rows": r.rows}
+                if not r.ok:
+                    evidence["ok"] = False
+                    ev_item["error"] = r.error
+                evidence["queries"].append(ev_item)
 
             # write run artifacts
             run_dir = runs_root() / run_id / dom_name / "phase1"
-            write_json(run_dir / "evidence.json", results)
+            write_json(run_dir / "evidence.json", evidence)
             write_json(run_dir / "trace.json", trace)
 
             # write latest pointers for domain/phase
             latest_dir = latest_root() / dom_name / "phase1"
-            write_json(latest_dir / "latest.json", results)
+            write_json(latest_dir / "latest.json", evidence)
             write_json(latest_dir / "trace.json", trace)
 
         except Exception as e:

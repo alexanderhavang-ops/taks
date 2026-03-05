@@ -35,17 +35,23 @@ def _alexander_append(tag: str, raw: bytes) -> None:
 
 
 def _alexander_append_json(tag: str, obj: Any) -> None:
-    """
-    Best-effort append JSON meta as utf-8 bytes.
-    MUST NEVER raise.
-    """
+    # Never fail silently. If JSON encoding fails, write an explicit error meta block.
     try:
-        raw = (json.dumps(obj, ensure_ascii=False, indent=2) + "\n").encode("utf-8", "ignore")
-        _alexander_append(tag, raw)
-    except Exception:
-        return
+        raw = (json.dumps(obj, ensure_ascii=False, indent=2, default=str) + "\n").encode("utf-8", "ignore")
+    except Exception as e:
+        try:
+            fallback = {
+                "alexander_json_dump_failed": True,
+                "tag": tag,
+                "exc": f"{type(e).__name__}: {e}",
+                "obj_type": type(obj).__name__,
+                "obj_repr": repr(obj)[:4000],
+            }
+            raw = (json.dumps(fallback, ensure_ascii=False, indent=2) + "\n").encode("utf-8", "ignore")
+        except Exception:
+            raw = (f"alexander_json_dump_failed tag={tag} exc={type(e).__name__}: {e}\n").encode("utf-8", "ignore")
 
-
+    _alexander_append(tag, raw)
 def _http_dump_dir() -> str:
     return (os.environ.get("TAKS_LLM_HTTP_DUMP_DIR") or "").strip()
 

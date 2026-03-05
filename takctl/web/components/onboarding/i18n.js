@@ -17,6 +17,7 @@
 
       // header / policy
       "page.onboarding_create": "Onboarding — Create user",
+      "page.onboarding_edit": "Onboarding — Edit user",
       "policy.label": "Policy",
       "policy.open_pdf": "Open policy PDF",
       "policy.node_global": "Policy is node-global.",
@@ -29,24 +30,24 @@
 
       // identity fields (source)
       "field.callsign": "Callsign",
-      "field.team_color": "Team color",
+      "field.team": "Team",
+      "field.team_color": "Team color", // legacy key (older UI)
       "field.battalion": "Battalion",
+      "field.battalion_fal": "FALA Battalion",
       "field.company": "Company",
       "field.platoon": "Platoon",
+      "field.group": "Group",
       "field.number": "Number",
-
-      // derived
-      "derived.title": "Derived outputs",
-      "derived.hint": "Edits here are temporary; changing source fields re-derives and overwrites them.",
-      "derived.team": "Team",
+      "field.n": "Number",
 
       // buttons
-      "btn.copy_callsign": "Copy callsign",
-      "btn.copy_team": "Copy team",
       "btn.create_user": "Create user",
+      "btn.save_changes": "Save changes",
+      "btn.edit": "Edit",
 
       // advanced / client-profile
-      "field.atak_role": "ATAK Role (My Role)",
+      "field.atak_role_type": "ATAK Role (My Role)",
+      "field.atak_role": "ATAK Role (My Role)", // legacy key (older UI)
       "field.remarks": "Remarks",
       "hint.remarks": "Use hashtags, e.g. #soldier",
 
@@ -65,6 +66,7 @@
 
       // header / policy
       "page.onboarding_create": "Onboarding — Skapa användare",
+      "page.onboarding_edit": "Onboarding — Redigera användare",
       "policy.label": "Policy",
       "policy.open_pdf": "Öppna policy-PDF",
       "policy.node_global": "Policyn är nodglobal.",
@@ -77,24 +79,24 @@
 
       // identity fields (source)
       "field.callsign": "Anropssignal",
-      "field.team_color": "Lagfärg",
+      "field.team": "Lag",
+      "field.team_color": "Lagfärg", // legacy key (older UI)
       "field.battalion": "Bataljon",
+      "field.battalion_fal": "FALA bataljon",
       "field.company": "Kompani",
       "field.platoon": "Pluton",
+      "field.group": "Grupp",
       "field.number": "Nummer",
-
-      // derived
-      "derived.title": "Härlett",
-      "derived.hint": "Ändringar här är temporära; när du ändrar källfälten härleds värdena om och skriver över dina ändringar.",
-      "derived.team": "Lag",
+      "field.n": "Nummer",
 
       // buttons
-      "btn.copy_callsign": "Kopiera anropssignal",
-      "btn.copy_team": "Kopiera lag",
       "btn.create_user": "Skapa användare",
+      "btn.save_changes": "Spara ändringar",
+      "btn.edit": "Redigera",
 
       // advanced / client-profile
-      "field.atak_role": "ATAK-roll (Min roll)",
+      "field.atak_role_type": "ATAK-roll (Min roll)",
+      "field.atak_role": "ATAK-roll (Min roll)", // legacy key (older UI)
       "field.remarks": "Kommentarer",
       "hint.remarks": "Använd hashtags, t.ex. #soldat",
 
@@ -166,7 +168,6 @@
   window.currentLang = current;
 
   // small helper: auto-translate DOM nodes with data-i18n attribute (if used)
-  // <span data-i18n="nav.create_user"></span>
   function applyToDOM(root = document) {
     const nodes = root.querySelectorAll("[data-i18n]");
     nodes.forEach(n => {
@@ -185,7 +186,6 @@
 
   window.taksI18nApply = applyToDOM;
 
-  // when language changes, reapply to DOM automatically
   window.addEventListener("TAKS_LANG_CHANGED", () => {
     try { applyToDOM(document); } catch (e) { /* ignore */ }
   });

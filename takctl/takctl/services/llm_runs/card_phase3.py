@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
@@ -67,46 +68,83 @@ def _read_pack(pack_name: str) -> Tuple[str, str]:
 
 
 # ------------------------------------------------------------
-# Sanitize LLM output
+# Parse helpers
 # ------------------------------------------------------------
 
-def _sanitize_html_fragment(raw: str) -> str:
+def _strip_outer_code_fence(text: str) -> str:
     """
-    Make HTML parsing resilient to common llama.cpp quirks:
-      - multiple leading markdown fences
-      - ```html / ``` blocks
-      - stray empty fenced blocks before the real output
-      - trailing fence
-      - extra surrounding whitespace/blank lines
+    Best-effort: if text is wrapped in a single outer ```...``` fence, strip it.
+    If the model emits just ``` this returns "```" (caller will fail JSON parse).
     """
-    t = (raw or "").strip()
-    if not t:
+    t = (text or "").strip()
+    if not t.startswith("```"):
         return t
+    last = t.rfind("```")
+    if last <= 0 or last + 3 != len(t):
+        return t
+    inner = t[3:last]
+    inner2 = inner.lstrip("\r\n")
+    lines = inner2.splitlines()
+    if lines:
+        first = lines[0].strip().lower()
+        if first in ("json", "javascript", "js", "text"):
+            inner2 = "\n".join(lines[1:])
+    return inner2.strip()
 
-    # Drop any number of leading fence lines and blank lines.
-    # Example seen:
-    #   ```\n\n```html\n<div>...</div>\n```
-    for _ in range(10):  # bounded
-        u = t.lstrip()
-        if u.startswith("```"):
-            lines = u.splitlines()
-            lines = lines[1:] if lines else []
-            t = "\n".join(lines).strip()
-            continue
-        if t.startswith("\n"):
-            t = t.lstrip("\n").strip()
-            continue
-        break
 
-    # Drop trailing fence if present (after trimming blank lines)
-    lines = t.splitlines()
-    while lines and not lines[-1].strip():
-        lines.pop()
-    if lines and lines[-1].strip() == "```":
-        lines.pop()
+def _parse_phase3_json(raw: str) -> Tuple[dict[str, Any] | None, str | None]:
+    """
+    Returns (obj, err). Expects obj to be a JSON object.
+    """
+    t = _strip_outer_code_fence(raw)
+    try:
+        obj = json.loads(t)
+    except Exception as e:
+        return None, f"json_decode_failed: {type(e).__name__}: {e}"
+    if not isinstance(obj, dict):
+        return None, "not_object"
+    return obj, None
 
-    t = "\n".join(lines).strip()
-    return t
+
+def _extract_html_from_obj(obj: dict[str, Any]) -> Tuple[str, str | None]:
+    """
+    Accept either:
+      - {"html_lines": [str, ...]}
+      - {"html": "<div>...</div>"}
+    Prefer html_lines.
+    """
+    if isinstance(obj.get("html_lines"), list):
+        lines = []
+        for it in obj.get("html_lines") or []:
+            if isinstance(it, str) and it.strip():
+                lines.append(it.rstrip("\r\n"))
+        if not lines:
+            return "", "empty_html_lines"
+        return "\n".join(lines).strip(), None
+
+    h = obj.get("html")
+    if isinstance(h, str) and h.strip():
+        return h.strip(), None
+
+    return "", "missing_html"
+
+
+def _phase3_json_schema() -> dict[str, Any]:
+    # Robust “creative but bounded” schema: HTML as lines (preferred) or a single string.
+    # NOTE: if your llama.cpp json_schema implementation supports oneOf, keep it simple:
+    # we enforce html_lines only to maximize determinism.
+    return {
+        "type": "object",
+        "properties": {
+            "html_lines": {
+                "type": "array",
+                "minItems": 3,
+                "items": {"type": "string", "minLength": 1},
+            }
+        },
+        "required": ["html_lines"],
+        "additionalProperties": False,
+    }
 
 
 # ------------------------------------------------------------
@@ -126,33 +164,71 @@ def run_phase3_card(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     prompt_path = out_dir / "prompt.txt"
-    response_path = out_dir / "response.html"
+    response_path = out_dir / "response.txt"          # raw model text (verbatim)
+    response_http_path = out_dir / "response.http.json"
+    response_html_path = out_dir / "response.html"    # joined HTML fragment (best-effort)
+
+    t0 = time.time()
 
     sys_txt, usr_tpl = _read_pack(pack_name)
 
+    # Embed phase2 JSON into user template
     phase2_json = json.dumps(phase2_findings_obj, ensure_ascii=False, indent=2)
     user_txt = usr_tpl.replace("{{PHASE2_JSON}}", phase2_json)
+
+    # Add a tiny, explicit envelope instruction at the end (do NOT mention markdown/fences)
+    user_txt = (
+        user_txt.strip()
+        + "\n\n"
+        + "OUTPUT_FORMAT:\n"
+        + "Return a single JSON object with key 'html_lines' (array of strings).\n"
+        + "No other text.\n"
+    )
 
     prompt = (sys_txt.strip() + "\n\n" + user_txt.strip()).strip() + "\n"
     prompt_path.write_text(prompt, encoding="utf-8")
 
-    llm = LLMClient(llm_url=os.environ.get("LLM_URL", "http://127.0.0.1:8090"))
+    llm = LLMClient(llm_url=(os.environ.get("TAKS_LLM_URL") or "http://127.0.0.1:8090").strip())
 
-    llm_error = None
-    html = ""
+    llm_error: str | None = None
+    raw = ""
+    http_code = 0
+    http_body: Any = None
+    http_err: str | None = None
 
     try:
-        raw = llm.completions_text(
+        # Use completions_debug so we can persist verbatim HTTP body like Phase 2 does.
+        raw, http_code, http_body, http_err = llm.completions_debug(
             prompt,
             max_tokens=max_tokens,
             temperature=temperature,
+            json_schema=_phase3_json_schema(),
         )
-        html = _sanitize_html_fragment(raw)
+        # Persist verbatim HTTP body for debug parity with Phase2
+        response_http_path.write_text(json.dumps(http_body, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     except Exception as e:
         llm_error = f"{type(e).__name__}: {e}"
-        html = ""
+        raw = ""
+        try:
+            response_http_path.write_text("", encoding="utf-8")
+        except Exception:
+            pass
 
-    response_path.write_text(html or "", encoding="utf-8")
+    # Persist raw text as-is (even if empty / garbage)
+    response_path.write_text(raw or "", encoding="utf-8")
+
+    # Parse JSON -> extract html -> validate
+    parse_err: str | None = None
+    obj: dict[str, Any] | None = None
+    html = ""
+
+    if raw:
+        obj, parse_err = _parse_phase3_json(raw)
+        if obj is not None and parse_err is None:
+            html, parse_err = _extract_html_from_obj(obj)
+
+    # Always write the computed html fragment (empty if failed)
+    response_html_path.write_text(html or "", encoding="utf-8")
 
     chk = _validate_html_fragment(html)
 
@@ -167,15 +243,25 @@ def run_phase3_card(
         card_obj["html"] = html.strip()
     else:
         card_obj["error"] = chk["error"]
+        if parse_err:
+            card_obj["parse_error"] = parse_err
+        if http_err:
+            card_obj["http_err"] = http_err
+        if http_code and http_code != 200:
+            card_obj["http_code"] = int(http_code)
 
     trace_obj: Dict[str, Any] = {
-        "ok": chk["ok"] and (llm_error is None),
+        "ok": chk["ok"] and (llm_error is None) and (parse_err is None) and (http_code in (0, 200)),
         "run_id": run_id,
         "pack": pack_name,
         "llm_error": llm_error,
-        "parse": chk,
+        "http": {"code": http_code, "err": http_err, "body_type": type(http_body).__name__ if http_body is not None else None},
+        "parse_error": parse_err,
         "prompt_path": str(prompt_path),
         "response_path": str(response_path),
+        "response_http_path": str(response_http_path),
+        "response_html_path": str(response_html_path),
+        "elapsed_ms": int((time.time() - t0) * 1000),
     }
 
     return card_obj, trace_obj

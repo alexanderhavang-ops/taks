@@ -77,6 +77,8 @@ class LLMClient:
         timeout_sec: float | None = None,
         seed: Optional[int] = None,
         stop: Optional[list[str]] = None,
+        json_schema: Any | None = None,
+        grammar: str | None = None,
     ) -> Tuple[str, int, Any, Optional[str]]:
         base = (self.llm_url or "").rstrip("/")
         if not base:
@@ -100,6 +102,12 @@ class LLMClient:
         if stop:
             payload["stop"] = stop
 
+        # llama.cpp server extensions (best-effort; ignored if unsupported)
+        if json_schema is not None:
+            payload["json_schema"] = json_schema
+        if grammar:
+            payload["grammar"] = grammar
+
         url = f"{base}/v1/completions"
         t0 = time.time()
 
@@ -107,7 +115,6 @@ class LLMClient:
 
         if _env_str("LLM_DEBUG", "").lower() in ("1", "true", "yes", "on"):
             dt_ms = int((time.time() - t0) * 1000)
-            # tiny debug line (no prompt dump)
             print(
                 "[llm_client] "
                 + str(
@@ -119,6 +126,8 @@ class LLMClient:
                         "temperature": payload.get("temperature"),
                         "seed": payload.get("seed"),
                         "stop": payload.get("stop", None),
+                        "has_json_schema": "json_schema" in payload,
+                        "has_grammar": "grammar" in payload,
                         "err": err,
                     }
                 )
@@ -131,7 +140,6 @@ class LLMClient:
             except Exception:
                 txt = ""
 
-        # Never raise here; Phase2 wants visibility.
         if code != 200 and not err:
             err = f"http_{code}"
 
@@ -146,6 +154,8 @@ class LLMClient:
         timeout_sec: float | None = None,
         seed: Optional[int] = None,
         stop: Optional[list[str]] = None,
+        json_schema: Any | None = None,
+        grammar: str | None = None,
     ) -> Dict[str, Any]:
         txt, code, body, err = self.completions_debug(
             prompt,
@@ -154,6 +164,8 @@ class LLMClient:
             timeout_sec=timeout_sec,
             seed=seed,
             stop=stop,
+            json_schema=json_schema,
+            grammar=grammar,
         )
         if code != 200 or not isinstance(body, dict):
             return {"ok": False, "error": err or f"http_{code}", "code": code, "raw": body, "text": txt}
@@ -168,6 +180,8 @@ class LLMClient:
         timeout_sec: float | None = None,
         seed: Optional[int] = None,
         stop: Optional[list[str]] = None,
+        json_schema: Any | None = None,
+        grammar: str | None = None,
     ) -> str:
         obj = self.completions(
             prompt,
@@ -176,6 +190,8 @@ class LLMClient:
             timeout_sec=timeout_sec,
             seed=seed,
             stop=stop,
+            json_schema=json_schema,
+            grammar=grammar,
         )
         if isinstance(obj, dict):
             try:

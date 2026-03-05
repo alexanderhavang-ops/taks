@@ -43,23 +43,59 @@
     );
   };
 
+  // ---------------------------------------------------------------------------
+  // URLs + routing helpers
+  // ---------------------------------------------------------------------------
+
   lib.userUrls = function (username) {
     const u = encodeURIComponent(String(username || ""));
     const base = `api/onboarding/users/${u}`;
-    return { card: `${base}/card` };
+    return {
+      card: `${base}/card`,
+      api_get: `/api/onboarding/users/${u}`,
+      api_create: `/api/onboarding/users/${u}/create`,
+    };
   };
 
-  lib.parseHashSub = function () {
+  // Route format (hash):
+  //   #onboarding/list
+  //   #onboarding/create
+  //   #onboarding/import
+  //   #onboarding/create:<username>   (may be URL-encoded as create%3Aalice)
+  //
+  // parseHashRoute() returns: { sub: "list|create|import", username: "" }
+  lib.parseHashRoute = function () {
     const raw = String(window.location.hash || "");
-    const m = raw.match(/#onboarding(?:\/([a-z0-9_-]+))?/i);
-    const sub = (m && m[1]) ? String(m[1]).toLowerCase() : "list";
-    if (sub === "create" || sub === "import" || sub === "list") return sub;
-    return "list";
+
+    // Accept anything after #onboarding/ up to end, then decode percent-escapes.
+    const m = raw.match(/#onboarding(?:\/([^?]+))?/i);
+    let tail = (m && m[1]) ? String(m[1]) : "list";
+
+    try { tail = decodeURIComponent(tail); } catch (e) {}
+
+    tail = String(tail || "").trim();
+    if (!tail) tail = "list";
+
+    // Split on ":" for create:<username>
+    const parts = tail.split(":");
+    const sub = String(parts[0] || "").toLowerCase();
+    const username = (parts.length > 1) ? String(parts.slice(1).join(":") || "").trim() : "";
+
+    if (sub === "create" || sub === "import" || sub === "list") {
+      return { sub, username };
+    }
+    return { sub: "list", username: "" };
   };
 
-  lib.setHashSub = function (sub) {
+  lib.setHashRoute = function (sub, username) {
     const s = String(sub || "list").toLowerCase();
-    window.location.hash = `#onboarding/${encodeURIComponent(s)}`;
+    const u = String(username || "").trim();
+
+    let tail = s;
+    if (s === "create" && u) tail = `create:${u}`;
+
+    // Encode to keep hash URL-safe (":" becomes %3A, which we decode in parseHashRoute)
+    window.location.hash = `#onboarding/${encodeURIComponent(tail)}`;
   };
 
   lib.splitCsv = function (s) {

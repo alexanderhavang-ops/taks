@@ -56,6 +56,22 @@
 
         setSlogan(b.slogan);
 
+        // Role field toggle (shared splash.fragment.html):
+        // Default: show role if present.
+        // If brand.json contains { "login": { "role": false } }, hide it (node login).
+        try {
+          var rf = document.getElementById("__r");
+          if (rf) {
+            var wantRole = true;
+            if (b && b.login && b.login.role === false) wantRole = false;
+            // hide the whole field wrapper (the parent .field)
+            var wrap = rf.closest ? rf.closest(".field") : null;
+            if (wrap) wrap.style.display = wantRole ? "" : "none";
+            else rf.style.display = wantRole ? "" : "none";
+          }
+        } catch (_) {}
+
+
         if (!b.logos || !b.logos.length) return;
 
         b.logos.forEach(function (it) {
@@ -138,8 +154,22 @@
       .then(function () {
         window.location.replace("./");
       })
-      .catch(function () {
-        setErr("Login failed");
+      .catch(function (e) {
+        var msg = "Login failed";
+        try {
+          if (e && e.message) {
+            // If backend returned JSON, message may contain it. Try to extract detail.
+            var t = String(e.message || "");
+            try {
+              var j = JSON.parse(t);
+              if (j && j.detail) msg = "Login failed: " + j.detail;
+              else msg = "Login failed: " + t;
+            } catch (_) {
+              msg = "Login failed: " + t;
+            }
+          }
+        } catch (_) {}
+        setErr(msg);
       })
       .finally(function () {
         go.disabled = false;
