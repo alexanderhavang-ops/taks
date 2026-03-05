@@ -50,6 +50,24 @@
     }, JSON.stringify(obj, null, 2));
   }
 
+  function TextBlock(txt, maxH){
+    return e("pre",{
+      style:{
+        margin:0,
+        maxHeight:maxH||520,
+        overflow:"auto",
+        maxWidth:"100%",
+        fontFamily:"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, \"Liberation Mono\", \"Courier New\", monospace",
+        fontSize:12,
+        lineHeight:"16px",
+        whiteSpace:"pre-wrap",
+        overflowWrap:"anywhere",
+        wordBreak:"break-word",
+        opacity:.95
+      }
+    }, String(txt||""));
+  }
+
   function domainBadge(phaseObj){
     if (!phaseObj) return Pill("missing","bad");
     if (phaseObj.ok === true) return Pill("ok","ok");
@@ -71,11 +89,10 @@
         : null;
 
     const latestDir = (p1 && p1.dir) ? String(p1.dir) : "";
-
     return { p1, p2, p3, qcount, elapsed, latestDir };
   }
 
-  // Normalize llm2_debug shape (api/llm2/latest returns files.latest.json as "latest.json")
+  // Normalize llm2_debug shape (api/llm2/latest returns files["latest.json"] etc)
   function fixupLatestShape(data){
     try{
       const out = JSON.parse(JSON.stringify(data||{}));
@@ -87,12 +104,22 @@
           if (!phObj || !phObj.files) return;
           if (phObj.files["latest.json"] && !phObj.files.latest_json) phObj.files.latest_json = phObj.files["latest.json"];
           if (phObj.files["trace.json"]  && !phObj.files.trace_json)  phObj.files.trace_json  = phObj.files["trace.json"];
+          if (phObj.files["findings.json"] && !phObj.files.findings_json) phObj.files.findings_json = phObj.files["findings.json"];
+          if (phObj.files["card.json"] && !phObj.files.card_json) phObj.files.card_json = phObj.files["card.json"];
         });
       });
       return out;
     }catch{
       return data;
     }
+  }
+
+  function renderCardHtml(htmlStr){
+    return e("div", {
+      className:"llm-card-render",
+      style:{marginTop:8},
+      dangerouslySetInnerHTML:{__html: String(htmlStr||"")}
+    });
   }
 
   window.LLMView = function TacticalOperationsView() {
@@ -115,7 +142,7 @@
     const topOk = data && data.ok===true;
     const topStatus = topOk ? Pill("OK","ok") : Pill("ERR","bad");
     const phase = (data && data.run && data.run.phase) ? String(data.run.phase) : "—";
-    const runId = (data && data.run && data.run.run_id) ? String(data.run.run_id) : "—";
+    const runId = (data && data.run && (data.run.run_id || data.run.rid)) ? String(data.run.run_id || data.run.rid) : "—";
 
     const header = e("div",{style:{display:"flex",alignItems:"center",gap:12,marginBottom:14}},[
       e("h2",{style:{margin:"0 10px 0 0"}}, "Tactical Operations"),
@@ -123,7 +150,7 @@
       e("div",{style:{opacity:.9,fontSize:12}},["phase ", Mono(phase)]),
       e("div",{style:{marginLeft:"auto",display:"flex",gap:10,alignItems:"center"}},[
         e("button",{onClick:load}, "Reload"),
-        e("button",{onClick:()=>setShowDebug(!showDebug)}, showDebug ? "Hide debug" : "Show debug")
+        e("button",{onClick:()=>setShowDebug(!showDebug)}, showDebug ? "Hide debug" : "Debug view")
       ])
     ]);
 
@@ -149,18 +176,88 @@
         s.elapsed ? e("span",{style:{opacity:.9}}, s.elapsed) : null,
       ]);
 
-      const body = showDebug ? e("div",null,[
-        showDebug ? e("div",{style:{opacity:.9,fontSize:12,marginBottom:6, overflowWrap:"anywhere"}}, "latest dir: " + (s.latestDir || "—")) : null,
-        e("div",{style:{opacity:.9,margin:"10px 0 6px"}}, "Debug (API payload excerpts)"),
-        s.p1 && s.p1.files && s.p1.files.latest_json ? e("details",null,[
+      // Operative view: render phase3 card if present.
+      const p3card = (((s.p3||{}).files||{}).card_json||null);
+      const cardHtml = (p3card && typeof p3card.html === "string") ? p3card.html : "";
+      const operativeBody = e("div",null,[
+        cardHtml
+          ? renderCardHtml(cardHtml)
+          : e("div",{style:{opacity:.85,fontSize:13,marginTop:8}},[
+              e("div",null,"No card available yet."),
+              e("div",null,["run_id ", Mono(runId)])
+            ])
+      ]);
+
+      if (!showDebug){
+        return Card(name, subtitle, operativeBody);
+      }
+
+      // Debug view: phase payloads + run file excerpts (if present).
+      const p1 = s.p1 || {};
+      const p2 = s.p2 || {};
+      const p3 = s.p3 || {};
+      const runFiles = (dom && dom.run_files) ? dom.run_files : {};
+
+      const body = e("div",null,[
+        e("div",{style:{opacity:.9,fontSize:12,marginBottom:6, overflowWrap:"anywhere"}}, "latest dir: " + (s.latestDir || "—")),
+
+        e("div",{style:{opacity:.9,margin:"10px 0 6px"}}, "Debug (latest/*)"),
+        (p1.files && p1.files.latest_json) ? e("details",null,[
           e("summary",null,"phase1/latest.json"),
-          Json(s.p1.files.latest_json, 520)
+          Json(p1.files.latest_json, 520)
         ]) : null,
-        s.p1 && s.p1.files && s.p1.files.trace_json ? e("details",null,[
+        (p1.files && p1.files.trace_json) ? e("details",null,[
           e("summary",null,"phase1/trace.json"),
-          Json(s.p1.files.trace_json, 520)
+          Json(p1.files.trace_json, 520)
         ]) : null,
-      ]) : null;
+
+        (p2.files && p2.files.findings_json) ? e("details",null,[
+          e("summary",null,"phase2/findings.json"),
+          Json(p2.files.findings_json, 520)
+        ]) : null,
+        (p2.files && p2.files.trace_json) ? e("details",null,[
+          e("summary",null,"phase2/trace.json"),
+          Json(p2.files.trace_json, 520)
+        ]) : null,
+
+        (p3.files && p3.files.card_json) ? e("details",null,[
+          e("summary",null,"phase3/card.json"),
+          Json(p3.files.card_json, 520)
+        ]) : null,
+        (p3.files && p3.files.trace_json) ? e("details",null,[
+          e("summary",null,"phase3/trace.json"),
+          Json(p3.files.trace_json, 520)
+        ]) : null,
+
+        e("div",{style:{opacity:.9,margin:"10px 0 6px"}}, "Debug (runs/<run_id>/…)"),
+
+        (runFiles && runFiles.phase1 && runFiles.phase1.ok) ? e("details",null,[
+          e("summary",null,"phase1 run files (prompt/response/cleaned/request/http)"),
+          runFiles.phase1.prompt_txt ? e("details",null,[ e("summary",null,"prompt.txt"), TextBlock(runFiles.phase1.prompt_txt, 520) ]) : null,
+          runFiles.phase1.response_text_txt ? e("details",null,[ e("summary",null,"response_text.txt"), TextBlock(runFiles.phase1.response_text_txt, 520) ]) : null,
+          runFiles.phase1.cleaned_text_txt ? e("details",null,[ e("summary",null,"cleaned_text.txt"), TextBlock(runFiles.phase1.cleaned_text_txt, 520) ]) : null,
+          runFiles.phase1.request_json ? e("details",null,[ e("summary",null,"request.json"), Json(runFiles.phase1.request_json, 520) ]) : null,
+          runFiles.phase1.response_http_json ? e("details",null,[ e("summary",null,"response.http.json"), Json(runFiles.phase1.response_http_json, 520) ]) : null,
+        ]) : null,
+
+        (runFiles && runFiles.phase2 && runFiles.phase2.ok) ? e("details",null,[
+          e("summary",null,"phase2 run files (prompt/response/cleaned/request/http)"),
+          runFiles.phase2.prompt_txt ? e("details",null,[ e("summary",null,"prompt.txt"), TextBlock(runFiles.phase2.prompt_txt, 520) ]) : null,
+          runFiles.phase2.response_text_txt ? e("details",null,[ e("summary",null,"response_text.txt"), TextBlock(runFiles.phase2.response_text_txt, 520) ]) : null,
+          runFiles.phase2.cleaned_text_txt ? e("details",null,[ e("summary",null,"cleaned_text.txt"), TextBlock(runFiles.phase2.cleaned_text_txt, 520) ]) : null,
+          runFiles.phase2.request_json ? e("details",null,[ e("summary",null,"request.json"), Json(runFiles.phase2.request_json, 520) ]) : null,
+          runFiles.phase2.response_http_json ? e("details",null,[ e("summary",null,"response.http.json"), Json(runFiles.phase2.response_http_json, 520) ]) : null,
+        ]) : null,
+
+        (runFiles && runFiles.phase3 && runFiles.phase3.ok) ? e("details",null,[
+          e("summary",null,"phase3 run files (prompt/response/cleaned/request/http)"),
+          runFiles.phase3.prompt_txt ? e("details",null,[ e("summary",null,"prompt.txt"), TextBlock(runFiles.phase3.prompt_txt, 520) ]) : null,
+          runFiles.phase3.response_text_txt ? e("details",null,[ e("summary",null,"response_text.txt"), TextBlock(runFiles.phase3.response_text_txt, 520) ]) : null,
+          runFiles.phase3.cleaned_text_txt ? e("details",null,[ e("summary",null,"cleaned_text.txt"), TextBlock(runFiles.phase3.cleaned_text_txt, 520) ]) : null,
+          runFiles.phase3.request_json ? e("details",null,[ e("summary",null,"request.json"), Json(runFiles.phase3.request_json, 520) ]) : null,
+          runFiles.phase3.response_http_json ? e("details",null,[ e("summary",null,"response.http.json"), Json(runFiles.phase3.response_http_json, 520) ]) : null,
+        ]) : null,
+      ]);
 
       return Card(name, subtitle, body);
     }));
@@ -168,10 +265,10 @@
     const debugFooter = showDebug ? Card(
       "Debug",
       null,
-      showDebug ? showDebug ? showDebug ? e("div",null,[
+      e("div",null,[
         e("div",{style:{opacity:.9,marginBottom:8}}, ["run_id ", Mono(runId)]),
         e("details",null,[ e("summary",null,"Full /api/llm2/latest (raw)"), Json(data || {missing:true}, 520) ])
-      ]) : null : null : null
+      ])
     ) : null;
 
     return e("div",{className:"llm-page", style:{overflowX:"hidden"}},[
