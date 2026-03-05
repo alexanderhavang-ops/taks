@@ -2,27 +2,15 @@
 (function () {
   var h = (window.h || React.createElement); window.h = h;
 
-  const useState = React.useState;
-  const useMemo = React.useMemo;
-  const useEffect = React.useEffect;
-
   // shared onboarding helpers
   const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
-  function _needLib() { if (!lib) throw new Error('Missing onboarding lib: load components/onboarding/lib.js before Onboarding.js'); return lib; }
+  function _needLib() { if (!lib) throw new Error('Missing onboarding lib: load components/onboarding/lib.js before OnboardingList.js'); return lib; }
   function _colText(v){ return _needLib().colText(v); }
-  function _groups(u){ return _needLib().groups(u); }
-  function _tail(act){ return _needLib().tail(act); }
   function _deriveState(act){ return _needLib().deriveState(act); }
   function _badgeForState(stateRaw){ return _needLib().badgeForState(stateRaw); }
   function _userUrls(username){ return _needLib().userUrls(username); }
-  function _parseHashSub(){ return _needLib().parseHashSub(); }
-  function _setHashSub(sub){ return _needLib().setHashSub(sub); }
-  function _splitCsv(s){ return _needLib().splitCsv(s); }
 
-  // ---------------------------------------------------------------------------
-  // tables (List)
-  // ---------------------------------------------------------------------------
-  function OnboardingTable({ rows }) {
+  function OnboardingTable({ rows, onEdit }) {
     return h(
       "table",
       { className: "tbl" },
@@ -38,7 +26,7 @@
           h("th", null, "State"),
           h("th", null, "Age"),
           h("th", null, "Callsign / UID"),
-          h("th", null, "Onboarding")
+          h("th", null, "Actions")
         )
       ),
       h(
@@ -90,6 +78,16 @@
                     title: "Open the onboarding card (QR codes + links)",
                   },
                   "Card"
+                ),
+                h(
+                  "button",
+                  {
+                    className: "btn",
+                    type: "button",
+                    onClick: () => (onEdit ? onEdit(username) : _needLib().setHashRoute("create", username)),
+                    title: "Edit this user (opens Create page with username prefilled)",
+                  },
+                  "Edit"
                 )
               )
             )
@@ -136,7 +134,7 @@
     );
   }
 
-  function OnboardingListPage() {
+  function OnboardingListPage({ onEdit }) {
     const data = useApi("api/onboarding/status", { cacheMs: 2000, pollMs: 10000 });
 
     const ok = data && data.ok;
@@ -164,7 +162,7 @@
           `Unknown=${_colText(summary.unknown_endpoints)}  ` +
           `DB=${(typeof meta.db_attached === "boolean") ? (meta.db_attached ? "attached" : "none") : "?"} (${_colText((meta && meta.db_source) || "no meta")})`
       ),
-      h(OnboardingTable, { rows: users }),
+      h(OnboardingTable, { rows: users, onEdit }),
       unknown && unknown.length
         ? h(
             "div",
@@ -175,10 +173,6 @@
         : null
     );
   }
-
-  // ---------------------------------------------------------------------------
-  // Create user (single-user UI smoke test)
-  // ---------------------------------------------------------------------------
 
   window.OnboardingListPage = OnboardingListPage;
 })();
