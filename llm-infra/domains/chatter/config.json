@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "domain": "chatter",
+  "phases": {
+    "phase1": { "sql_dir": "sql/phase1" },
+    "phase2": { "prompt_dir": "prompts/phase2" },
+    "phase3": { "prompt_dir": "prompts/phase3" }
+  }
+}

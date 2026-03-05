@@ -1,0 +1,3 @@
+Create a compact operator-facing HTML "card" for domain "missions" from the input findings.
+Return HTML ONLY (no JSON, no markdown fences, no explanations).
+Use simple semantic HTML (div/h3/p/ul/li).
