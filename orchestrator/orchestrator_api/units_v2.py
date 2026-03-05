@@ -1,217 +1,198 @@
-# orchestrator/orchestrator_api/units_v2.py
 from __future__ import annotations
 
-import base64
 import json
 import os
+import shutil
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 
-from .operator_auth import require_operator
 
 router = APIRouter(prefix="/api/v2/units")
 
 
-# ----------------------------
-# Paths + safety
-# ----------------------------
+# ---- Validation --------------------------------------------------------------
+
+def _validate_unit_id(s: str, *, field: str) -> str:
+    """
+    Unit identifiers are *single tokens* (no '/'), because they map to:
+      /state/units/<unit_id>/unit.json
+
+    The hierarchy is expressed via parent_path (HC) pointing to another unit_id.
+    """
+    s = str(s or "").strip()
+    if not s:
+        raise HTTPException(status_code=400, detail=f"{field} is required")
+    if "/" in s:
+        raise HTTPException(status_code=400, detail=f"{field} must be a single id (no '/')")
+    if s in (".", "..") or ".." in s:
+        raise HTTPException(status_code=400, detail=f"{field} is invalid")
+    return s
+
+
+def _validate_parent_id(s: str) -> str:
+    s = str(s or "").strip()
+    if not s:
+        return ""
+    return _validate_unit_id(s, field="parent_path")
+
+
+# ---- State paths -------------------------------------------------------------
+
 def _state_dir() -> Path:
-    return Path(os.environ.get("TAKS_STATE_DIR") or "/opt/tak-orch/state")
+    p = os.environ.get("TAKS_STATE_DIR", "/opt/tak-orch/state")
+    return Path(p)
 
 
-def _safe_unit_fs(unit_path: str) -> str:
-    up = (unit_path or "").strip().strip("/")
-    if not up:
-        raise HTTPException(status_code=400, detail="Missing unit_path")
-    if ".." in up.split("/"):
-        raise HTTPException(status_code=400, detail="Invalid unit_path")
-    return up
+def _units_root() -> Path:
+    return _state_dir() / "units"
 
 
-def _safe_relpath(relpath: str) -> str:
-    rp = (relpath or "").strip().lstrip("/")
-    if not rp:
-        raise HTTPException(status_code=400, detail="Missing relpath")
-    parts = [p for p in rp.split("/") if p]
-    if any(p in (".", "..") for p in parts):
-        raise HTTPException(status_code=400, detail="Invalid relpath")
-    # Keep it boring: no backslashes
-    if any("\\" in p for p in parts):
-        raise HTTPException(status_code=400, detail="Invalid relpath")
-    return "/".join(parts)
+def _quarantine_root() -> Path:
+    return _state_dir() / "quarantine" / "units"
 
 
-def unit_dir(unit_path: str) -> Path:
-    up = _safe_unit_fs(unit_path)
-    d = _state_dir() / "units" / up
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+def _unit_dir(unit_id: str) -> Path:
+    return _units_root() / unit_id
 
 
-def unit_meta_path(unit_path: str) -> Path:
-    return unit_dir(unit_path) / "meta.json"
+def _unit_json_path(unit_id: str) -> Path:
+    return _unit_dir(unit_id) / "unit.json"
 
 
-def unit_bundle_overlay_dir(unit_path: str) -> Path:
-    d = unit_dir(unit_path) / "bundle"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+def _now() -> int:
+    return int(time.time())
 
+
+# ---- Helpers -----------------------------------------------------------------
 
 def _read_json(p: Path) -> Dict[str, Any]:
-    if not p.exists():
-        return {}
     try:
         return json.loads(p.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid JSON in {p}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to read json: {p}: {e}")
 
 
 def _write_json(p: Path, obj: Dict[str, Any]) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(obj, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(p)
 
 
-def _list_overlay_files(root: Path) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def _normalize_unit_record(unit_id: str, j: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "unit_path": j.get("unit_path", unit_id),
+        "title": j.get("title", unit_id),
+        "parent_path": j.get("parent_path", "") or "",
+        "created_ts": int(j.get("created_ts") or 0),
+        "updated_ts": int(j.get("updated_ts") or 0),
+        "meta": j.get("meta") or {},
+        "overlay_files": int(j.get("overlay_files") or 0),
+    }
+
+
+def _list_units() -> List[Dict[str, Any]]:
+    root = _units_root()
     if not root.exists():
-        return out
-    for p in sorted(root.rglob("*")):
-        if not p.is_file():
+        return []
+    out: List[Dict[str, Any]] = []
+    for d in sorted([x for x in root.iterdir() if x.is_dir()]):
+        uj = d / "unit.json"
+        if not uj.exists():
+            # ignore junk dirs
             continue
-        rel = str(p.relative_to(root))
-        st = p.stat()
-        out.append(
-            {
-                "path": rel,
-                "bytes": int(st.st_size),
-                "mtime": int(st.st_mtime),
-            }
-        )
+        j = _read_json(uj)
+        out.append(_normalize_unit_record(d.name, j))
     return out
 
 
-# ----------------------------
-# API
-# ----------------------------
+# ---- Routes ------------------------------------------------------------------
+
 @router.get("")
-def units_list(request: Request) -> Dict[str, Any]:
-    require_operator(request)
-
-    # Source of truth: file-backed units (unit.json)
-    from orchestrator_core.units_state import list_units as _list_units
-
+def list_units() -> JSONResponse:
     items = _list_units()
-    return {"count": len(items), "items": items}
+    return JSONResponse({"count": len(items), "items": items})
 
-@router.get("/{unit_path}")
-def unit_get(unit_path: str, request: Request) -> Dict[str, Any]:
-    require_operator(request)
-    up = _safe_unit_fs(unit_path)
 
-    meta_p = unit_meta_path(up)
-    meta = _read_json(meta_p)
+@router.post("")
+async def create_unit(req: Request) -> JSONResponse:
+    body = await req.json()
 
-    overlay_root = unit_bundle_overlay_dir(up)
-    files = _list_overlay_files(overlay_root)
+    unit_id = _validate_unit_id(body.get("unit_path"), field="unit_path")
+    title = str(body.get("title") or "").strip() or unit_id
+    parent_id = _validate_parent_id(body.get("parent_path"))
+    meta = body.get("meta") or {}
 
-    return {
-        "unit_path": up,
+    uj = _unit_json_path(unit_id)
+    if uj.exists():
+        raise HTTPException(status_code=409, detail="unit already exists")
+
+    now = _now()
+    j = {
+        "unit_path": unit_id,
+        "title": title,
+        "parent_path": parent_id,
+        "created_ts": now,
+        "updated_ts": now,
         "meta": meta,
-        "bundle_overlay": {
-            "root": str(overlay_root),
-            "files": files,
-        },
+        "overlay_files": 0,
     }
+    _write_json(uj, j)
+    return JSONResponse(_normalize_unit_record(unit_id, j))
 
 
-@router.put("/{unit_path}/meta")
-def unit_put_meta(unit_path: str, req: Dict[str, Any], request: Request) -> Dict[str, Any]:
-    require_operator(request)
-    up = _safe_unit_fs(unit_path)
+@router.patch("/{unit_path}")
+async def update_unit(unit_path: str, req: Request) -> JSONResponse:
+    unit_id = _validate_unit_id(unit_path, field="unit_path")
+    body = await req.json()
 
-    # Keep it flexible but JSON-object only
-    if not isinstance(req, dict):
-        raise HTTPException(status_code=400, detail="meta must be a JSON object")
+    uj = _unit_json_path(unit_id)
+    if not uj.exists():
+        raise HTTPException(status_code=404, detail="unit not found")
 
-    p = unit_meta_path(up)
-    _write_json(p, req)
+    j = _read_json(uj)
 
-    return {"ok": True, "unit_path": up, "meta_path": str(p)}
+    if "title" in body:
+        j["title"] = str(body.get("title") or "").strip()
+    if "parent_path" in body:
+        j["parent_path"] = _validate_parent_id(body.get("parent_path"))
+    if "meta" in body:
+        j["meta"] = body.get("meta") or {}
+
+    j["unit_path"] = j.get("unit_path", unit_id)
+    j["updated_ts"] = _now()
+
+    _write_json(uj, j)
+    return JSONResponse(_normalize_unit_record(unit_id, j))
 
 
-@router.put("/{unit_path}/bundle/{relpath:path}")
-def unit_put_overlay_file(unit_path: str, relpath: str, req: Dict[str, Any], request: Request) -> Dict[str, Any]:
-    require_operator(request)
-    up = _safe_unit_fs(unit_path)
-    rp = _safe_relpath(relpath)
-
+@router.delete("/{unit_path}")
+def delete_unit(unit_path: str) -> JSONResponse:
     """
-    Body options:
-
-      1) { "b64": "<base64 bytes>" }
-      2) { "text": "..." }  (utf-8)
-      3) { "json": {..} }   (written pretty as json)
-
-    Optional:
-      - "mode": 420  (octal 0644 as decimal) or 384 (0600), etc
+    Safe delete: move unit dir to quarantine with timestamp prefix.
     """
-    if not isinstance(req, dict):
-        raise HTTPException(status_code=400, detail="body must be a JSON object")
+    unit_id = _validate_unit_id(unit_path, field="unit_path")
+    d = _unit_dir(unit_id)
+    if not d.exists():
+        raise HTTPException(status_code=404, detail="unit not found")
 
-    data: Optional[bytes] = None
-    if "b64" in req:
-        try:
-            data = base64.b64decode(str(req["b64"]), validate=True)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"invalid b64: {e}")
-    elif "text" in req:
-        data = str(req["text"]).encode("utf-8")
-    elif "json" in req:
-        if not isinstance(req["json"], (dict, list)):
-            raise HTTPException(status_code=400, detail="json must be an object or array")
-        data = (json.dumps(req["json"], indent=2, sort_keys=True) + "\n").encode("utf-8")
-    else:
-        raise HTTPException(status_code=400, detail="missing one of: b64, text, json")
+    qroot = _quarantine_root()
+    qroot.mkdir(parents=True, exist_ok=True)
 
-    overlay_root = unit_bundle_overlay_dir(up)
-    out = overlay_root / rp
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(data)
+    ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    dest = qroot / f"{ts}__{unit_id}"
+    if dest.exists():
+        dest = qroot / f"{ts}__{unit_id}__{_now()}"
 
-    mode = req.get("mode")
-    if mode is not None:
-        try:
-            os.chmod(out, int(mode))
-        except Exception:
-            pass
+    try:
+        shutil.move(str(d), str(dest))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to quarantine unit: {e}")
 
-    st = out.stat()
-    return {
-        "ok": True,
-        "unit_path": up,
-        "path": rp,
-        "abs_path": str(out),
-        "bytes": int(st.st_size),
-        "mtime": int(st.st_mtime),
-    }
-
-
-@router.delete("/{unit_path}/bundle/{relpath:path}")
-def unit_delete_overlay_file(unit_path: str, relpath: str, request: Request) -> Dict[str, Any]:
-    require_operator(request)
-    up = _safe_unit_fs(unit_path)
-    rp = _safe_relpath(relpath)
-
-    overlay_root = unit_bundle_overlay_dir(up)
-    p = overlay_root / rp
-    if not p.exists():
-        raise HTTPException(status_code=404, detail="file not found")
-    if not p.is_file():
-        raise HTTPException(status_code=400, detail="not a file")
-
-    p.unlink()
-    return {"ok": True, "unit_path": up, "path": rp}
-
+    return JSONResponse({"ok": True, "unit_path": unit_id, "quarantined_to": str(dest)})

@@ -1,3 +1,4 @@
+/* global CORE */
 (function(){
 
   function fmtAge(sec){
@@ -33,7 +34,7 @@
 
   function renderActive(tbody, nodes){
     if(!nodes?.length){
-      tbody.innerHTML = `<tr><td colspan="8" class="muted">no active nodes</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="8" class="muted">—</td></tr>`;
       return;
     }
     tbody.innerHTML = '';
@@ -68,7 +69,7 @@
 
   function renderOrphaned(tbody, nodes){
     if(!nodes?.length){
-      tbody.innerHTML = `<tr><td colspan="6" class="muted">no orphaned nodes</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="muted">—</td></tr>`;
       return;
     }
     tbody.innerHTML = '';
@@ -84,7 +85,7 @@
 
       const btn = document.createElement('button');
       btn.className = 'btn btn--danger';
-      btn.textContent = 'Delete';
+      btn.textContent = CORE.t('units.delete');
       btn.onclick = () => deleteNode(n.node_id);
 
       tr.append(
@@ -103,30 +104,29 @@
     const activeBody = CORE.el('nodes_active_tbody');
     const orphanBody = CORE.el('nodes_orphaned_tbody');
 
-    activeBody.innerHTML = `<tr><td colspan="8" class="muted">loading…</td></tr>`;
-    orphanBody.innerHTML = `<tr><td colspan="6" class="muted">loading…</td></tr>`;
+    activeBody.innerHTML = `<tr><td colspan="8" class="muted">${CORE.t('common.loading')}</td></tr>`;
+    orphanBody.innerHTML = `<tr><td colspan="6" class="muted">${CORE.t('common.loading')}</td></tr>`;
 
     try{
       const j = await CORE.api('GET','/api/v2/nodes');
-
       renderActive(activeBody, j.items);
       renderOrphaned(orphanBody, j.orphaned_items);
-
     }catch(e){
-      activeBody.innerHTML = `<tr><td colspan="8">${e}</td></tr>`;
+      const d = CORE.errorDetails(e);
+      activeBody.innerHTML = `<tr><td colspan="8">${(d.msg || 'Error')}${d.detail ? '<br><br>' + d.detail : ''}</td></tr>`;
       orphanBody.innerHTML = '';
     }
   }
 
+  window.PAGES = window.PAGES || {};
   window.PAGES.nodes = function(container){
     container.innerHTML=`
-
       <section class="card">
         <div class="card__head">
-          <h3>Active nodes</h3>
+          <h3>${CORE.t('nodes.active')}</h3>
           <div class="card__actions">
-            <button id="btn_refresh_nodes" class="btn">Refresh</button>
-            <a class="btn btn--secondary" href="#/nodes/new">New node</a>
+            <button id="btn_refresh_nodes" class="btn btn--secondary">${CORE.t('nodes.refresh')}</button>
+            <a class="btn" href="#/nodes/spawn">${CORE.t('nodes.spawn')}</a>
           </div>
         </div>
 
@@ -145,7 +145,7 @@
 
       <section class="card" style="margin-top:20px">
         <div class="card__head">
-          <h3>Orphaned nodes</h3>
+          <h3>${CORE.t('nodes.orphaned')}</h3>
         </div>
 
         <div class="tablewrap">
