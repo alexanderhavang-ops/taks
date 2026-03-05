@@ -2,15 +2,27 @@
 (function () {
   var h = (window.h || React.createElement); window.h = h;
 
+  const useState = React.useState;
+  const useMemo = React.useMemo;
+  const useEffect = React.useEffect;
+
+  const _t = (window.t || function (k) { return k; });
+
   // shared onboarding helpers
   const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
-  function _needLib() { if (!lib) throw new Error('Missing onboarding lib: load components/onboarding/lib.js before OnboardingList.js'); return lib; }
+  function _needLib() { if (!lib) throw new Error('Missing onboarding lib: load components/onboarding/lib.js before Onboarding.js'); return lib; }
   function _colText(v){ return _needLib().colText(v); }
+  function _groups(u){ return _needLib().groups(u); }
+  function _tail(act){ return _needLib().tail(act); }
   function _deriveState(act){ return _needLib().deriveState(act); }
   function _badgeForState(stateRaw){ return _needLib().badgeForState(stateRaw); }
   function _userUrls(username){ return _needLib().userUrls(username); }
+  function _splitCsv(s){ return _needLib().splitCsv(s); }
 
-  function OnboardingTable({ rows, onEdit }) {
+  // ---------------------------------------------------------------------------
+  // tables (List)
+  // ---------------------------------------------------------------------------
+  function OnboardingTable({ rows }) {
     return h(
       "table",
       { className: "tbl" },
@@ -20,13 +32,13 @@
         h(
           "tr",
           null,
-          h("th", null, "Username"),
-          h("th", null, "Groups"),
-          h("th", null, "Onboard"),
-          h("th", null, "State"),
-          h("th", null, "Age"),
-          h("th", null, "Callsign / UID"),
-          h("th", null, "Actions")
+          h("th", null, _t("list.username")),
+          h("th", null, _t("list.groups")),
+          h("th", null, _t("list.onboard")),
+          h("th", null, _t("list.state")),
+          h("th", null, _t("list.age")),
+          h("th", null, _t("list.callsign_uid")),
+          h("th", null, _t("list.actions"))
         )
       ),
       h(
@@ -72,22 +84,33 @@
                   "a",
                   {
                     className: "btn",
-                    href: urls.card,
+                    href: (function(){
+                      try {
+                        var lang = (window.currentLang || '').toString();
+                        if (!lang) return urls.card;
+                        return urls.card + (urls.card.indexOf('?') >= 0 ? '&' : '?') + 'lang=' + encodeURIComponent(lang);
+                      } catch (e) { return urls.card; }
+                    })(),
                     target: "_blank",
                     rel: "noopener noreferrer",
                     title: "Open the onboarding card (QR codes + links)",
                   },
-                  "Card"
+                  _t("btn.card")
                 ),
                 h(
                   "button",
                   {
                     className: "btn",
-                    type: "button",
-                    onClick: () => (onEdit ? onEdit(username) : _needLib().setHashRoute("create", username)),
-                    title: "Edit this user (opens Create page with username prefilled)",
+                    onClick: () => {
+                      // route: #onboarding/create:<username>
+                      try {
+                        const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
+                        if (lib && typeof lib.setHashRoute === "function") lib.setHashRoute("create", username);
+                        else window.location.hash = "#onboarding/create:" + encodeURIComponent(username);
+                      } catch (e) {}
+                    }
                   },
-                  "Edit"
+                  _t("btn.edit")
                 )
               )
             )
@@ -107,10 +130,10 @@
         h(
           "tr",
           null,
-          h("th", null, "Username"),
-          h("th", null, "State"),
-          h("th", null, "Age"),
-          h("th", null, "Callsign"),
+          h("th", null, _t("list.username")),
+          h("th", null, _t("list.state")),
+          h("th", null, _t("list.age")),
+          h("th", null, _t("field.callsign")),
           h("th", null, "UID")
         )
       ),
@@ -134,7 +157,7 @@
     );
   }
 
-  function OnboardingListPage({ onEdit }) {
+  function OnboardingListPage() {
     const data = useApi("api/onboarding/status", { cacheMs: 2000, pollMs: 10000 });
 
     const ok = data && data.ok;
@@ -147,11 +170,11 @@
     return h(
       "div",
       null,
-      h("div", { className: "card-title" }, "Onboarding — List"),
+      h("div", { className: "card-title" }, _t("page.onboarding_list")),
       h(
         "div",
         { className: "muted", style: { marginBottom: "8px" } },
-        ok ? "Live view from /api/onboarding/status" : "Loading…"
+        ok ? _t("list.live_view") : _t("list.loading")
       ),
       h(
         "div",
@@ -162,12 +185,12 @@
           `Unknown=${_colText(summary.unknown_endpoints)}  ` +
           `DB=${(typeof meta.db_attached === "boolean") ? (meta.db_attached ? "attached" : "none") : "?"} (${_colText((meta && meta.db_source) || "no meta")})`
       ),
-      h(OnboardingTable, { rows: users, onEdit }),
+      h(OnboardingTable, { rows: users }),
       unknown && unknown.length
         ? h(
             "div",
             { style: { marginTop: "18px" } },
-            h("div", { className: "card-title", style: { fontSize: "14px" } }, "Unmanaged endpoints"),
+            h("div", { className: "card-title", style: { fontSize: "14px" } }, _t("list.unmanaged_endpoints")),
             h(UnknownTable, { rows: unknown })
           )
         : null

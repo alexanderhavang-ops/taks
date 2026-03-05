@@ -80,7 +80,181 @@ def _fmt_dt(v: object) -> str:
     return _code(s)
 
 
-def _profile_block(*, username: str, groups: list[str], sel: dict, ident) -> str:
+# -----------------------------------------------------------------------------
+# i18n (server-side, deterministic)
+# -----------------------------------------------------------------------------
+
+_I18N = {
+    "en": {
+        "soldier.html_lang": "en",
+        "soldier.title": "Soldier Card",
+        "soldier.title_for": "Soldier Card for {username}",
+        "soldier.expires": "Expires",
+        "soldier.token_url": "Token URL",
+        "soldier.copy": "Copy",
+
+        "soldier.atak_import": "ATAK — Import package",
+        "soldier.step1": "1) Scan QR to import server + identity defaults",
+        "soldier.step2": "2) Enter credentials (if provided)",
+        "soldier.step3": "3) Connect",
+        "soldier.qr_payload": "QR payload",
+        "soldier.package": "Package",
+        "soldier.after_import": "After import",
+
+        "soldier.profile": "Profile",
+        "soldier.lifecycle": "Lifecycle",
+        "soldier.credentials": "Credentials",
+
+        "field.username": "Username",
+        "field.role": "Role",
+        "field.remarks": "Remarks",
+        "field.groups": "Groups",
+
+        "unit.company": "Company {n}",
+        "unit.platoon": "Platoon {n}",
+        "unit.group": "Group {n}",
+        "unit.n": "N {n}",
+
+        "pw.unknown_no_record": "Password: unknown (no TAKS identity record)",
+        "pw.marti_note": "If created in Marti UI, TAKS does not know the password.",
+        "pw.unknown_origin": "Password: unknown (origin={origin})",
+        "pw.external_note": "This user appears created outside TAKS. Ask admin for out-of-band password or reset.",
+        "pw.hidden": "Password: hidden (admin chose out-of-band)",
+
+        "lc.none": "No lifecycle data.",
+        "lc.head": "Stage gate",
+        "lc.taks_origin": "TAKS origin",
+        "lc.onboarding_status": "Onboarding status",
+        "lc.password_known": "Password known",
+        "lc.offboarded": "Offboarded",
+
+        "lc.cot_block": "CoT",
+        "lc.cot_sub": "presence / timing",
+        "lc.cot_seen": "CoT seen",
+        "lc.seen_recently": "Seen recently",
+        "lc.cot_callsign": "CoT callsign",
+        "lc.cot_uid": "CoT uid",
+        "lc.last_cot": "Last CoT",
+        "lc.stale": "Stale",
+        "lc.age": "Age",
+        "lc.is_current": "Is current",
+
+        "lc.marti_block": "Marti",
+        "lc.marti_sub": "endpoints / events / certs",
+        "lc.has_endpoint": "Has endpoint",
+        "lc.has_endpoint_event": "Has endpoint event",
+        "lc.has_certificate": "Has certificate",
+        "lc.endpoints": "Endpoints",
+        "lc.certs_by_user_dn": "Certs by user_dn",
+        "lc.certs_by_client_uid": "Certs by client_uid",
+        "lc.certs_revoked": "Certs revoked",
+        "lc.latest_endpoint": "Latest endpoint",
+        "lc.latest_endpoint_event": "Latest endpoint event",
+        "lc.latest_certificate": "Latest certificate",
+
+        "lc.artifacts_block": "Artifacts",
+        "lc.artifacts_sub": "file evidence only",
+        "lc.artifacts_present": "Artifacts present",
+        "lc.artifacts_path": "Artifacts path",
+        "lc.atak_package_zip": "ATAK package.zip",
+        "lc.atak_package_creds_zip": "ATAK package-creds.zip",
+        "lc.any_qr_png": "Any QR png",
+    },
+    "sv": {
+        "soldier.html_lang": "sv",
+        "soldier.title": "Soldatkort",
+        "soldier.title_for": "Soldatkort för {username}",
+        "soldier.expires": "Går ut",
+        "soldier.token_url": "Token-URL",
+        "soldier.copy": "Kopiera",
+
+        "soldier.atak_import": "ATAK — Importera paket",
+        "soldier.step1": "1) Skanna QR för att importera server + identitetsstandard",
+        "soldier.step2": "2) Ange inloggning (om den finns)",
+        "soldier.step3": "3) Anslut",
+        "soldier.qr_payload": "QR-payload",
+        "soldier.package": "Paket",
+        "soldier.after_import": "Efter import",
+
+        "soldier.profile": "Profil",
+        "soldier.lifecycle": "Livscykel",
+        "soldier.credentials": "Inloggning",
+
+        "field.username": "Användarnamn",
+        "field.role": "Roll",
+        "field.remarks": "Kommentarer",
+        "field.groups": "Grupper",
+
+        "unit.company": "Kompani {n}",
+        "unit.platoon": "Pluton {n}",
+        "unit.group": "Grupp {n}",
+        "unit.n": "N {n}",
+
+        "pw.unknown_no_record": "Lösenord: okänt (ingen TAKS-identitet)",
+        "pw.marti_note": "Om användaren skapats i Marti UI så känner TAKS inte lösenordet.",
+        "pw.unknown_origin": "Lösenord: okänt (origin={origin})",
+        "pw.external_note": "Denna användare verkar skapad utanför TAKS. Be admin om lösenord eller återställ.",
+        "pw.hidden": "Lösenord: dolt (admin valde out-of-band)",
+
+        "lc.none": "Ingen livscykeldata.",
+        "lc.head": "Stage gate",
+        "lc.taks_origin": "TAKS origin",
+        "lc.onboarding_status": "Onboarding-status",
+        "lc.password_known": "Lösenord känt",
+        "lc.offboarded": "Avvecklad",
+
+        "lc.cot_block": "CoT",
+        "lc.cot_sub": "närvaro / tid",
+        "lc.cot_seen": "CoT sedd",
+        "lc.seen_recently": "Sedd nyligen",
+        "lc.cot_callsign": "CoT anropssignal",
+        "lc.cot_uid": "CoT uid",
+        "lc.last_cot": "Senaste CoT",
+        "lc.stale": "Stale",
+        "lc.age": "Ålder",
+        "lc.is_current": "Aktuell",
+
+        "lc.marti_block": "Marti",
+        "lc.marti_sub": "endpoints / events / certs",
+        "lc.has_endpoint": "Har endpoint",
+        "lc.has_endpoint_event": "Har endpoint-event",
+        "lc.has_certificate": "Har certifikat",
+        "lc.endpoints": "Endpoints",
+        "lc.certs_by_user_dn": "Certs by user_dn",
+        "lc.certs_by_client_uid": "Certs by client_uid",
+        "lc.certs_revoked": "Certs revoked",
+        "lc.latest_endpoint": "Senaste endpoint",
+        "lc.latest_endpoint_event": "Senaste endpoint-event",
+        "lc.latest_certificate": "Senaste certifikat",
+
+        "lc.artifacts_block": "Artefakter",
+        "lc.artifacts_sub": "bara filbevis",
+        "lc.artifacts_present": "Artefakter finns",
+        "lc.artifacts_path": "Artefaktsökväg",
+        "lc.atak_package_zip": "ATAK package.zip",
+        "lc.atak_package_creds_zip": "ATAK package-creds.zip",
+        "lc.any_qr_png": "Någon QR png",
+    },
+}
+
+def _lang_norm(lang: str | None) -> str:
+    l = (lang or "").strip().lower()
+    if l.startswith("en"):
+        return "en"
+    return "sv"
+
+def _t(lang: str | None, key: str, **fmt) -> str:
+    l = _lang_norm(lang)
+    s = (_I18N.get(l) or {}).get(key)
+    if s is None:
+        s = (_I18N.get("en") or {}).get(key, key)
+    try:
+        return s.format(**fmt)
+    except Exception:
+        return s
+
+
+def _profile_block(*, lang: str | None, username: str, groups: list[str], sel: dict, ident) -> str:
     ctx = _ctx_from(ident, sel)
 
     callsign = _norm(ctx.get("callsign")) or _safe(username)
@@ -116,43 +290,43 @@ def _profile_block(*, username: str, groups: list[str], sel: dict, ident) -> str
         chips.append(_pill(f"{battalion} HVBAT", "unit"))
 
     if company:
-        chips.append(_pill(f"Company {company}", "unit"))
+        chips.append(_pill(_t(lang, "unit.company", n=company), "unit"))
     if platoon:
-        chips.append(_pill(f"Platoon {platoon}", "unit"))
+        chips.append(_pill(_t(lang, "unit.platoon", n=platoon), "unit"))
     if group:
-        chips.append(_pill(f"Group {group}", "unit"))
+        chips.append(_pill(_t(lang, "unit.group", n=group), "unit"))
     if n:
-        chips.append(_pill(f"N {n}", "meta"))
+        chips.append(_pill(_t(lang, "unit.n", n=n), "meta"))
 
     if chips:
         top.append(f'<div class="chips">{"".join(chips)}</div>')
 
     rows = []
     rows.append(
-        f'<div class="row"><b>Username</b>: '
+        f'<div class="row"><b>{_h(_t(lang, "field.username"))}</b>: '
         f'<code id="taks_username">{_h(_safe(username))}</code> '
-        f'<button class="btn" onclick="copyId(\'taks_username\')">Copy</button></div>'
+        f'<button class="btn" onclick="copyId(\'taks_username\')">{_h(_t(lang, "soldier.copy"))}</button></div>'
     )
 
     if atak_role:
-        rows.append(f'<div class="row"><b>Role</b>: <code>{_h(atak_role)}</code></div>')
+        rows.append(f'<div class="row"><b>{_h(_t(lang, "field.role"))}</b>: <code>{_h(atak_role)}</code></div>')
 
     if remarks:
-        rows.append(f'<div class="row"><b>Remarks</b>: <code>{_h(remarks)}</code></div>')
+        rows.append(f'<div class="row"><b>{_h(_t(lang, "field.remarks"))}</b>: <code>{_h(remarks)}</code></div>')
 
     if groups_txt:
-        rows.append(f'<div class="row"><b>Groups</b>: <code>{_h(groups_txt)}</code></div>')
+        rows.append(f'<div class="row"><b>{_h(_t(lang, "field.groups"))}</b>: <code>{_h(groups_txt)}</code></div>')
 
     rows = [r for r in rows if r]
     return '<div class="note">' + "".join(top) + "<hr/>" + "".join(rows) + "</div>"
 
 
-def _pw_block(*, username: str, ident, reveal_password: bool) -> str:
+def _pw_block(*, lang: str | None, username: str, ident, reveal_password: bool) -> str:
     if ident is None:
-        return """
+        return f"""
 <div class="note">
-  Password: <b>unknown</b> (no TAKS identity record)<br/>
-  If created in Marti UI, TAKS does not know the password.
+  {_h(_t(lang, "pw.unknown_no_record"))}<br/>
+  {_h(_t(lang, "pw.marti_note"))}
 </div>
 """
 
@@ -160,41 +334,41 @@ def _pw_block(*, username: str, ident, reveal_password: bool) -> str:
     pw_known = bool(_get(ident, "password_known", False))
     pw_val = _get(ident, "password", None) if pw_known else None
 
-    if not pw_known or origin != "taks":
+    if (not pw_known) or (origin != "taks"):
         return f"""
 <div class="note">
-  Password: <b>unknown</b> (origin={_h(_safe(origin))})<br/>
-  This user appears created outside TAKS. Ask admin for out-of-band password or reset.
+  {_h(_t(lang, "pw.unknown_origin", origin=_safe(origin)))}<br/>
+  {_h(_t(lang, "pw.external_note"))}
 </div>
 """
 
     if not reveal_password:
         return f"""
 <div class="note">
-  Username: <code id="taks_username2">{_h(_safe(username))}</code>
-  <button class="btn" onclick="copyId('taks_username2')">Copy</button><br/>
-  Password: <b>hidden</b> (admin chose out-of-band)
+  {_h(_t(lang, "field.username"))}: <code id="taks_username2">{_h(_safe(username))}</code>
+  <button class="btn" onclick="copyId('taks_username2')">{_h(_t(lang, "soldier.copy"))}</button><br/>
+  {_h(_t(lang, "pw.hidden"))}
 </div>
 """
 
     return f"""
 <div class="note">
-  Username: <code id="taks_username2">{_h(_safe(username))}</code>
-  <button class="btn" onclick="copyId('taks_username2')">Copy</button><br/>
+  {_h(_t(lang, "field.username"))}: <code id="taks_username2">{_h(_safe(username))}</code>
+  <button class="btn" onclick="copyId('taks_username2')">{_h(_t(lang, "soldier.copy"))}</button><br/>
   Password: <code id="taks_password">{_h(_safe(pw_val))}</code>
-  <button class="btn" onclick="copyId('taks_password')">Copy</button>
+  <button class="btn" onclick="copyId('taks_password')">{_h(_t(lang, "soldier.copy"))}</button>
 </div>
 """
 
 
-def _lifecycle_card_block(lifecycle: dict | None) -> str:
+def _lifecycle_card_block(lang: str | None, lifecycle: dict | None) -> str:
     """
     Dedicated lifecycle card with evidence (compact, date-heavy).
     Expects lifecycle shape:
       { "stage": "...", "label": "...", "evidence": {...} }
     """
     if not isinstance(lifecycle, dict) or not lifecycle:
-        return '<div class="note">No lifecycle data.</div>'
+        return f'<div class="note">{_h(_t(lang, "lc.none"))}</div>'
 
     stage = _norm(lifecycle.get("stage"))
     label = _norm(lifecycle.get("label"))
@@ -202,17 +376,15 @@ def _lifecycle_card_block(lifecycle: dict | None) -> str:
     if not isinstance(ev, dict):
         ev = {}
 
-    # headline
     headline = stage or ""
     if label:
         headline = f"{headline} — {label}" if headline else label
     if not headline:
-        headline = "Lifecycle"
+        headline = _t(lang, "soldier.lifecycle")
 
     parts: list[str] = []
-    parts.append(f'<div class="note"><div class="row"><b>Stage gate</b>: <code>{_h(headline)}</code></div>')
+    parts.append(f'<div class="note"><div class="row"><b>{_h(_t(lang, "lc.head"))}</b>: <code>{_h(headline)}</code></div>')
 
-    # TAKS / onboarding facts
     taks_origin = _norm(ev.get("taks_origin"))
     taks_pw_known = bool(ev.get("taks_password_known"))
     onboarding_status = _norm(ev.get("onboarding_status"))
@@ -220,25 +392,23 @@ def _lifecycle_card_block(lifecycle: dict | None) -> str:
 
     small = []
     if taks_origin:
-        small.append(_row("TAKS origin", _code(taks_origin)))
+        small.append(_row(_t(lang, "lc.taks_origin"), _code(taks_origin)))
     if onboarding_status:
-        small.append(_row("Onboarding status", _code(onboarding_status)))
-    small.append(_row("Password known", _boolpill(taks_pw_known)))
-    small.append(_row("Offboarded", _boolpill(offboarded)))
+        small.append(_row(_t(lang, "lc.onboarding_status"), _code(onboarding_status)))
+    small.append(_row(_t(lang, "lc.password_known"), _boolpill(taks_pw_known)))
+    small.append(_row(_t(lang, "lc.offboarded"), _boolpill(offboarded)))
 
     small = [s for s in small if s]
     if small:
         parts.append('<hr/>')
         parts.extend(small)
 
-    # CoT evidence (if present)
     cot_seen = bool(ev.get("cot_seen"))
     seen_recently = bool(ev.get("seen_recently"))
-    act = ev.get("activity")  # not currently set by service, but keep forward-compatible
+    act = ev.get("activity")
     if not isinstance(act, dict):
         act = {}
 
-    # In current implementation we only have booleans in evidence, but include fields if present.
     cot_last = act.get("last_cot_time") or ev.get("last_cot_time")
     cot_stale = act.get("stale") or ev.get("stale")
     cot_uid = act.get("uid") or ev.get("cot_uid")
@@ -247,28 +417,27 @@ def _lifecycle_card_block(lifecycle: dict | None) -> str:
     cot_is_current = act.get("is_current") if "is_current" in act else ev.get("is_current")
 
     cot_rows = []
-    cot_rows.append(_row("CoT seen", _boolpill(cot_seen)))
-    cot_rows.append(_row("Seen recently", _boolpill(seen_recently)))
+    cot_rows.append(_row(_t(lang, "lc.cot_seen"), _boolpill(cot_seen)))
+    cot_rows.append(_row(_t(lang, "lc.seen_recently"), _boolpill(seen_recently)))
     if cot_callsign:
-        cot_rows.append(_row("CoT callsign", _code(cot_callsign)))
+        cot_rows.append(_row(_t(lang, "lc.cot_callsign"), _code(cot_callsign)))
     if cot_uid:
-        cot_rows.append(_row("CoT uid", _code(cot_uid)))
+        cot_rows.append(_row(_t(lang, "lc.cot_uid"), _code(cot_uid)))
     if cot_last:
-        cot_rows.append(_row("Last CoT", _fmt_dt(cot_last)))
+        cot_rows.append(_row(_t(lang, "lc.last_cot"), _fmt_dt(cot_last)))
     if cot_stale:
-        cot_rows.append(_row("Stale", _fmt_dt(cot_stale)))
+        cot_rows.append(_row(_t(lang, "lc.stale"), _fmt_dt(cot_stale)))
     if cot_age:
-        cot_rows.append(_row("Age", _code(cot_age)))
+        cot_rows.append(_row(_t(lang, "lc.age"), _code(cot_age)))
     if cot_is_current is not None:
-        cot_rows.append(_row("Is current", _boolpill(bool(cot_is_current))))
+        cot_rows.append(_row(_t(lang, "lc.is_current"), _boolpill(bool(cot_is_current))))
 
     cot_rows = [r for r in cot_rows if r]
     if cot_rows:
         parts.append('<hr/>')
-        parts.append('<div class="row"><b>CoT</b>: <span class="muted">presence / timing</span></div>')
+        parts.append(f'<div class="row"><b>{_h(_t(lang, "lc.cot_block"))}</b>: <span class="muted">{_h(_t(lang, "lc.cot_sub"))}</span></div>')
         parts.extend(cot_rows)
 
-    # Marti evidence (from service.py: marti_client is already compact)
     marti = ev.get("marti_client") or {}
     if not isinstance(marti, dict):
         marti = {}
@@ -286,19 +455,18 @@ def _lifecycle_card_block(lifecycle: dict | None) -> str:
         latest_cert = {}
 
     m_rows = []
-    m_rows.append(_row("Has endpoint", _boolpill(bool(marti.get("has_endpoint")))))
-    m_rows.append(_row("Has endpoint event", _boolpill(bool(marti.get("has_endpoint_event")))))
-    m_rows.append(_row("Has certificate", _boolpill(bool(marti.get("has_certificate")))))
+    m_rows.append(_row(_t(lang, "lc.has_endpoint"), _boolpill(bool(marti.get("has_endpoint")))))
+    m_rows.append(_row(_t(lang, "lc.has_endpoint_event"), _boolpill(bool(marti.get("has_endpoint_event")))))
+    m_rows.append(_row(_t(lang, "lc.has_certificate"), _boolpill(bool(marti.get("has_certificate")))))
     if marti.get("endpoints_n") is not None:
-        m_rows.append(_row("Endpoints", _code(marti.get("endpoints_n"))))
+        m_rows.append(_row(_t(lang, "lc.endpoints"), _code(marti.get("endpoints_n"))))
     if marti.get("certs_by_user_dn_n") is not None:
-        m_rows.append(_row("Certs by user_dn", _code(marti.get("certs_by_user_dn_n"))))
+        m_rows.append(_row(_t(lang, "lc.certs_by_user_dn"), _code(marti.get("certs_by_user_dn_n"))))
     if marti.get("certs_by_client_uid_n") is not None:
-        m_rows.append(_row("Certs by client_uid", _code(marti.get("certs_by_client_uid_n"))))
+        m_rows.append(_row(_t(lang, "lc.certs_by_client_uid"), _code(marti.get("certs_by_client_uid_n"))))
     if marti.get("certs_revoked_n") is not None:
-        m_rows.append(_row("Certs revoked", _code(marti.get("certs_revoked_n"))))
+        m_rows.append(_row(_t(lang, "lc.certs_revoked"), _code(marti.get("certs_revoked_n"))))
 
-    # latest endpoint summary
     if latest_ep:
         ep_bits = []
         if latest_ep.get("callsign"):
@@ -308,9 +476,8 @@ def _lifecycle_card_block(lifecycle: dict | None) -> str:
         if latest_ep.get("id") is not None:
             ep_bits.append(f"id={_norm(latest_ep.get('id'))}")
         if ep_bits:
-            m_rows.append(_row("Latest endpoint", _code(", ".join(ep_bits))))
+            m_rows.append(_row(_t(lang, "lc.latest_endpoint"), _code(", ".join(ep_bits))))
 
-    # latest event summary
     if latest_evt:
         evt_bits = []
         if latest_evt.get("created_ts"):
@@ -324,9 +491,8 @@ def _lifecycle_card_block(lifecycle: dict | None) -> str:
         if latest_evt.get("id") is not None:
             evt_bits.append(f"id={_norm(latest_evt.get('id'))}")
         if evt_bits:
-            m_rows.append(_row("Latest endpoint event", _code(", ".join(evt_bits))))
+            m_rows.append(_row(_t(lang, "lc.latest_endpoint_event"), _code(", ".join(evt_bits))))
 
-    # latest cert summary
     if latest_cert:
         cert_bits = []
         if latest_cert.get("client_uid"):
@@ -340,35 +506,34 @@ def _lifecycle_card_block(lifecycle: dict | None) -> str:
         if latest_cert.get("revocation_date"):
             cert_bits.append(f"revoked={_norm(latest_cert.get('revocation_date'))}")
         if cert_bits:
-            m_rows.append(_row("Latest certificate", _code(", ".join(cert_bits))))
+            m_rows.append(_row(_t(lang, "lc.latest_certificate"), _code(", ".join(cert_bits))))
 
     m_rows = [r for r in m_rows if r]
     if m_rows:
         parts.append('<hr/>')
-        parts.append('<div class="row"><b>Marti</b>: <span class="muted">endpoints / events / certs</span></div>')
+        parts.append(f'<div class="row"><b>{_h(_t(lang, "lc.marti_block"))}</b>: <span class="muted">{_h(_t(lang, "lc.marti_sub"))}</span></div>')
         parts.extend(m_rows)
 
-    # Artifacts evidence
     art = ev.get("artifacts") or {}
     if not isinstance(art, dict):
         art = {}
 
     a_rows = []
     if "present" in art:
-        a_rows.append(_row("Artifacts present", _boolpill(bool(art.get("present")))))
+        a_rows.append(_row(_t(lang, "lc.artifacts_present"), _boolpill(bool(art.get("present")))))
     if art.get("artifacts_root"):
-        a_rows.append(_row("Artifacts path", _code(art.get("artifacts_root"))))
+        a_rows.append(_row(_t(lang, "lc.artifacts_path"), _code(art.get("artifacts_root"))))
     if "atak_package_zip" in art:
-        a_rows.append(_row("ATAK package.zip", _boolpill(bool(art.get("atak_package_zip")))))
+        a_rows.append(_row(_t(lang, "lc.atak_package_zip"), _boolpill(bool(art.get("atak_package_zip")))))
     if "atak_package_creds_zip" in art:
-        a_rows.append(_row("ATAK package-creds.zip", _boolpill(bool(art.get("atak_package_creds_zip")))))
+        a_rows.append(_row(_t(lang, "lc.atak_package_creds_zip"), _boolpill(bool(art.get("atak_package_creds_zip")))))
     if "any_qr_png" in art:
-        a_rows.append(_row("Any QR png", _boolpill(bool(art.get("any_qr_png")))))
+        a_rows.append(_row(_t(lang, "lc.any_qr_png"), _boolpill(bool(art.get("any_qr_png")))))
 
     a_rows = [r for r in a_rows if r]
     if a_rows:
         parts.append('<hr/>')
-        parts.append('<div class="row"><b>Artifacts</b>: <span class="muted">file evidence only</span></div>')
+        parts.append(f'<div class="row"><b>{_h(_t(lang, "lc.artifacts_block"))}</b>: <span class="muted">{_h(_t(lang, "lc.artifacts_sub"))}</span></div>')
         parts.extend(a_rows)
 
     parts.append("</div>")
@@ -377,6 +542,7 @@ def _lifecycle_card_block(lifecycle: dict | None) -> str:
 
 def render_soldier_card_page(
     *,
+    lang: str | None,
     username: str,
     groups: list[str],
     base: str,
@@ -388,14 +554,15 @@ def render_soldier_card_page(
     lifecycle: dict | None = None,
 ) -> str:
     bump = int(datetime.now(timezone.utc).timestamp())
+    l = _lang_norm(lang)
 
     atak_import_qr = f"{base}/api/onboarding/cards/{token}/packages/atak/qr.png?b={bump}"
     atak_import_txt = f"{base}/api/onboarding/cards/{token}/packages/atak/qr.txt?b={bump}"
     atak_pkg = f"{base}/api/onboarding/cards/{token}/packages/atak/package.zip"
 
-    creds_html = _pw_block(username=username, ident=ident, reveal_password=reveal_password)
-    profile_html = _profile_block(username=username, groups=groups, sel=sel, ident=ident)
-    lifecycle_html = _lifecycle_card_block(lifecycle)
+    creds_html = _pw_block(lang=l, username=username, ident=ident, reveal_password=reveal_password)
+    profile_html = _profile_block(lang=l, username=username, groups=groups, sel=sel, ident=ident)
+    lifecycle_html = _lifecycle_card_block(l, lifecycle)
 
     token_url = f"{base}/api/onboarding/cards/{token}"
     exp = expires_at_utc.replace(microsecond=0).isoformat()
@@ -565,10 +732,10 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monos
 </style>"""
 
     return f"""<!doctype html>
-<html lang="en"><head>
+<html lang="{_h(_t(l, "soldier.html_lang"))}"><head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Soldier Card for {_h(_safe(username))}</title>
+<title>{_h(_t(l, "soldier.title_for", username=_safe(username)))}</title>
 {style_html}
 <style>{btn_css}</style>
 </head>
@@ -579,44 +746,44 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monos
       <span class="brandchain-row" id="__brand_logos"></span>
     </div>
     <div class="meta">
-      Expires: <code>{_h(_safe(exp))}</code><br/>
-      Token URL: <code id="taks_token_url">{_h(_safe(token_url))}</code>
-      <button class="btn" onclick="copyId('taks_token_url')">Copy</button>
+      {_h(_t(l, "soldier.expires"))}: <code>{_h(_safe(exp))}</code><br/>
+      {_h(_t(l, "soldier.token_url"))}: <code id="taks_token_url">{_h(_safe(token_url))}</code>
+      <button class="btn" onclick="copyId('taks_token_url')">{_h(_t(l, "soldier.copy"))}</button>
     </div>
   </div>
 
   <div class="hdr">
-    <div class="title">Soldier Card</div>
+    <div class="title">{_h(_t(l, "soldier.title"))}</div>
   </div>
 
   <div class="grid">
     <div class="card">
-      <h3>ATAK – Import package</h3>
+      <h3>{_h(_t(l, "soldier.atak_import"))}</h3>
       <div class="note">
-        1) Scan QR to import server + identity defaults<br/>
-        2) Enter credentials (if provided)<br/>
-        3) Connect
+        {_h(_t(l, "soldier.step1"))}<br/>
+        {_h(_t(l, "soldier.step2"))}<br/>
+        {_h(_t(l, "soldier.step3"))}
       </div>
       <div class="qr"><img alt="ATAK Import QR" src="{atak_import_qr}" /></div>
       <div class="meta" style="margin-top:10px;">
-        QR payload: <a href="{atak_import_txt}">qr.txt</a><br/>
-        Package: <a href="{atak_pkg}">{_h(_safe(atak_pkg))}</a><br/>
-        After import: <code>ATAK → Settings → TAK Server → (server) → Username/Password</code>
+        {_h(_t(l, "soldier.qr_payload"))}: <a href="{atak_import_txt}">qr.txt</a><br/>
+        {_h(_t(l, "soldier.package"))}: <a href="{atak_pkg}">{_h(_safe(atak_pkg))}</a><br/>
+        {_h(_t(l, "soldier.after_import"))}: <code>ATAK → Settings → TAK Server → (server) → Username/Password</code>
       </div>
     </div>
 
     <div class="card">
-      <h3>Profile</h3>
+      <h3>{_h(_t(l, "soldier.profile"))}</h3>
       {profile_html}
     </div>
 
     <div class="card">
-      <h3>Lifecycle</h3>
+      <h3>{_h(_t(l, "soldier.lifecycle"))}</h3>
       {lifecycle_html}
     </div>
 
     <div class="card">
-      <h3>Credentials</h3>
+      <h3>{_h(_t(l, "soldier.credentials"))}</h3>
       {creds_html}
     </div>
   </div>

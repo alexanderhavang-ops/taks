@@ -18,6 +18,8 @@
       // header / policy
       "page.onboarding_create": "Onboarding — Create user",
       "page.onboarding_edit": "Onboarding — Edit user",
+      "page.onboarding_list": "Onboarding — List",
+
       "policy.label": "Policy",
       "policy.open_pdf": "Open policy PDF",
       "policy.node_global": "Policy is node-global.",
@@ -40,10 +42,23 @@
       "field.number": "Number",
       "field.n": "Number",
 
+      // list table
+      "list.live_view": "Live view from /api/onboarding/status",
+      "list.loading": "Loading…",
+      "list.username": "Username",
+      "list.groups": "Groups",
+      "list.onboard": "Onboard",
+      "list.state": "State",
+      "list.age": "Age",
+      "list.callsign_uid": "Callsign / UID",
+      "list.actions": "Actions",
+      "list.unmanaged_endpoints": "Unmanaged endpoints",
+
       // buttons
       "btn.create_user": "Create user",
       "btn.save_changes": "Save changes",
       "btn.edit": "Edit",
+      "btn.card": "Card",
 
       // advanced / client-profile
       "field.atak_role_type": "ATAK Role (My Role)",
@@ -53,7 +68,22 @@
 
       // presets (display values)
       "role.soldier": "Soldier",
-      "role.team_lead": "Team Lead"
+      "role.team_lead": "Team Lead",
+
+      // soldier card (server-rendered page)
+      "soldier.title": "Soldier Card",
+      "soldier.atak_import": "ATAK — Import package",
+      "soldier.step1": "Scan QR to import server + identity defaults",
+      "soldier.step2": "Enter credentials (if provided)",
+      "soldier.step3": "Connect",
+      "soldier.profile": "Profile",
+      "soldier.lifecycle": "Lifecycle",
+      "soldier.credentials": "Credentials",
+      "soldier.token_expires": "Expires",
+      "soldier.token_url": "Token URL",
+      "soldier.copy": "Copy",
+      "soldier.password_unknown": "Password: unknown (origin=marti)",
+      "soldier.password_external": "This user appears created outside TAKS. Ask admin for out-of-band password or reset."
     },
 
     sv: {
@@ -67,6 +97,8 @@
       // header / policy
       "page.onboarding_create": "Onboarding — Skapa användare",
       "page.onboarding_edit": "Onboarding — Redigera användare",
+      "page.onboarding_list": "Onboarding — Lista",
+
       "policy.label": "Policy",
       "policy.open_pdf": "Öppna policy-PDF",
       "policy.node_global": "Policyn är nodglobal.",
@@ -89,10 +121,23 @@
       "field.number": "Nummer",
       "field.n": "Nummer",
 
+      // list table
+      "list.live_view": "Live vy från /api/onboarding/status",
+      "list.loading": "Laddar…",
+      "list.username": "Användarnamn",
+      "list.groups": "Grupper",
+      "list.onboard": "Onboard",
+      "list.state": "Status",
+      "list.age": "Ålder",
+      "list.callsign_uid": "Anropssignal / UID",
+      "list.actions": "Åtgärder",
+      "list.unmanaged_endpoints": "Ohanterade klienter",
+
       // buttons
       "btn.create_user": "Skapa användare",
       "btn.save_changes": "Spara ändringar",
       "btn.edit": "Redigera",
+      "btn.card": "Kort",
 
       // advanced / client-profile
       "field.atak_role_type": "ATAK-roll (Min roll)",
@@ -102,7 +147,22 @@
 
       // presets (display values)
       "role.soldier": "Soldat",
-      "role.team_lead": "Gruppchef"
+      "role.team_lead": "Gruppchef",
+
+      // soldier card (server-rendered page)
+      "soldier.title": "Soldatkort",
+      "soldier.atak_import": "ATAK — Importpaket",
+      "soldier.step1": "Skanna QR för att importera server + identitet",
+      "soldier.step2": "Ange uppgifter (om tillhandahålls)",
+      "soldier.step3": "Anslut",
+      "soldier.profile": "Profil",
+      "soldier.lifecycle": "Livscykel",
+      "soldier.credentials": "Autentisering",
+      "soldier.token_expires": "Går ut",
+      "soldier.token_url": "Token-URL",
+      "soldier.copy": "Kopiera",
+      "soldier.password_unknown": "Lösenord: okänt (origin=marti)",
+      "soldier.password_external": "Denna användare skapades utanför TAKS. Be admin om lösenord eller återställning."
     }
   };
 

@@ -513,13 +513,18 @@ def onboarding_card_html(req: Request, token: str):
     exp = getattr(ct, "expires_at_utc", None) or getattr(ct, "expires_at", None)
     reveal = bool(getattr(ct, "reveal_password", False))
 
+    lang = (req.query_params.get("lang") or "").strip().lower()
+
+
+
     html = render_soldier_card_page(
+        lang=lang,
         username=username,
         groups=groups,
         base=base,
         sel=sel,
         ident=ident,
-        token=str(token),
+        token=token,
         expires_at_utc=exp,
         reveal_password=reveal,
         lifecycle=lifecycle,
