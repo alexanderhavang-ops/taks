@@ -1,117 +1,114 @@
 /* global CORE */
 (function(){
   function esc(s){
-    return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    return String(s ?? '').replace(/[&<>"']/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
   }
 
-  function pick(o, keys, fallback){
-    for(const k of keys){
-      const v = o && o[k];
-      if(v !== undefined && v !== null && String(v).trim() !== '') return v;
+  function getRouteUnitPath(){
+    const h = (location.hash || '').trim();
+    if(!h.startsWith('#/')) return '';
+    const rest = h.slice(2);
+    const qpos = rest.indexOf('?');
+    const path = (qpos >= 0 ? rest.slice(0, qpos) : rest);
+    const parts = path.split('/').filter(Boolean);
+    if(parts.length >= 2 && parts[0] === 'units'){
+      try { return decodeURIComponent(parts.slice(1).join('/')); }
+      catch (_) { return parts.slice(1).join('/'); }
     }
-    return fallback;
+    return '';
   }
 
-  async function loadUnit(unitPath){
-    const uResp = await CORE.api('GET','/api/v2/units');
+  async function loadUnitFromList(unitPath){
+    const uResp = await CORE.api('GET', '/api/v2/units');
     const items = (uResp && Array.isArray(uResp.items)) ? uResp.items : [];
-    const u = items.find(x => String(x.unit_path || '') === unitPath);
+    const u = items.find(function(x){ return String(x.unit_path || '') === unitPath; });
     return u || { unit_path: unitPath, title: unitPath, parent_path: '' };
   }
 
-  async function loadNodes(){
-    const nResp = await CORE.api('GET','/api/v2/nodes');
-    // Expect shape: { items:[...], count:n } but tolerate other shapes
-    if(nResp && Array.isArray(nResp.items)) return nResp.items;
-    if(Array.isArray(nResp)) return nResp;
-    return [];
+  async function loadBrand(unitPath){
+    const url = '/api/public/brand?unit=' + encodeURIComponent(unitPath);
+    return await CORE.api('GET', url);
   }
 
-  function renderNodesTable(nodes){
-    if(!nodes.length){
-      return `<div class="muted" style="margin-top:8px">Inga noder i denna enhet.</div>`;
-    }
+  function setLogoImg(imgEl, unitPath){
+    if(!imgEl) return;
 
-    const rows = nodes.map(n => {
-      const name = pick(n, ['name','hostname','fqdn','instance_id','id'], '—');
-      const role = pick(n, ['role'], '—');
-      const itype = pick(n, ['instance_type'], '—');
-      const state = pick(n, ['state','status','lifecycle','phase'], '—');
-      const fqdn = pick(n, ['fqdn'], '');
-      const inst = pick(n, ['instance_id'], '');
-      return `
-        <tr>
-          <td><code>${esc(name)}</code></td>
-          <td>${esc(role)}</td>
-          <td>${esc(itype)}</td>
-          <td>${esc(state)}</td>
-          <td class="muted"><code>${esc(fqdn || inst || '—')}</code></td>
-        </tr>
-      `;
-    }).join('');
+    const unitUrl = '/u/' + encodeURIComponent(unitPath) + '/assets/logo.svg';
+    const sharedUrl = '/assets/taks-logo.svg';
 
-    return `
-      <div class="tablewrap" style="margin-top:10px">
-        <table class="table">
-          <thead>
-            <tr>
-              <th>Nod</th>
-              <th>Roll</th>
-              <th>Typ</th>
-              <th>Status</th>
-              <th class="muted">FQDN / Instance</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-    `;
+    imgEl.onerror = function(){
+      imgEl.onerror = null;
+      imgEl.src = sharedUrl;
+    };
+
+    imgEl.src = unitUrl;
   }
 
-  async function render(container, ctx){
-    const unitPath = String(ctx?.unit_path || '').trim();
-    container.innerHTML = `
-      <section class="card">
-        <div class="card__head">
-          <h3>Enhet</h3>
-          <div class="card__actions">
-            <a class="btn btn--secondary" href="#/units">Tillbaka</a>
-          </div>
-        </div>
-        <div class="muted">Laddar…</div>
-      </section>
-    `;
+  async function render(container){
+    const unitPath = getRouteUnitPath();
+
+    container.innerHTML = ''
+      + '<section class="card">'
+      + '  <div class="card__head">'
+      + '    <h3>Enhet</h3>'
+      + '    <div class="card__actions">'
+      + '      <a class="btn btn--secondary" href="#/units">Tillbaka</a>'
+      + '    </div>'
+      + '  </div>'
+      + '  <div class="muted">Laddar…</div>'
+      + '</section>';
 
     try{
-      const [u, allNodes] = await Promise.all([loadUnit(unitPath), loadNodes()]);
-      const nodes = allNodes.filter(n => String(n.unit_path || '') === unitPath);
+      const u = await loadUnitFromList(unitPath);
 
-      const spawnHref = `#/nodes/spawn?unit_path=${encodeURIComponent(unitPath)}`;
+      container.innerHTML = ''
+        + '<section class="card">'
+        + '  <div class="card__head">'
+        + '    <h3>' + esc(u.title) + (u.unit_path ? ' (' + esc(u.unit_path) + ')' : '') + '</h3>'
+        + '    <div class="card__actions">'
+        + '      <a class="btn btn--secondary" href="#/units">Tillbaka</a>'
+        + '    </div>'
+        + '  </div>'
+        + '</section>'
 
-      container.innerHTML = `
-        <section class="card">
-          <div class="card__head">
-            <div>
-              <h3>${esc(u.title)} (${esc(u.unit_path)})</h3>
-              <div class="muted" style="margin-top:4px">Orchestrator-vy: noder, config, assets.</div>
-            </div>
-            <div class="card__actions">
-              <a class="btn" href="${spawnHref}">Skapa nod</a>
-              <a class="btn btn--secondary" href="#/units">Tillbaka</a>
-            </div>
-          </div>
+        + '<section class="card">'
+        + '  <div class="card__head"><h3>Noder</h3></div>'
+        + '  <div class="muted">Kommer: visa nod, skapa nod för denna enhet (sen: exakt 1 nod per enhet).</div>'
+        + '</section>'
 
-          <div class="spacer"></div>
+        + '<section class="card">'
+        + '  <div class="card__head"><h3>Branding</h3></div>'
+        + '  <div class="grid grid--4" style="align-items:start; margin-top:10px">'
+        + '    <div>'
+        + '      <div class="muted" style="margin-bottom:8px">Logotyp</div>'
+        + '      <div style="background:rgba(255,255,255,.03); border:1px solid var(--border); border-radius:12px; padding:12px; display:flex; align-items:center; justify-content:center; min-height:120px">'
+        + '        <img id="unit_logo_img" alt="logo" style="max-width:100%; max-height:140px; display:block">'
+        + '      </div>'
+        + '    </div>'
+        + '    <div style="grid-column: span 3;">'
+        + '      <div class="muted" style="margin-bottom:8px">Slogan</div>'
+        + '      <div id="unit_slogan" style="font-size:18px; font-weight:700; line-height:1.25">—</div>'
+        + '      <div class="muted" style="margin-top:10px">Kommer: ladda upp logotyp + redigera slogan för denna enhet.</div>'
+        + '    </div>'
+        + '  </div>'
+        + '</section>';
 
-          <div class="muted"><b>Noder</b> · ${nodes.length} st</div>
-          ${renderNodesTable(nodes)}
-        </section>
-      `;
+      const brand = await loadBrand(unitPath);
+      const slogan = String((brand && brand.slogan) || '').trim() || '—';
+
+      const slogEl = document.getElementById('unit_slogan');
+      if(slogEl) slogEl.textContent = slogan;
+
+      const img = document.getElementById('unit_logo_img');
+      setLogoImg(img, unitPath);
+
     }catch(e){
-      container.innerHTML = `<div class="card"><div class="muted">${esc(String(e))}</div></div>`;
+      container.innerHTML = '<div class="card"><div class="muted">' + esc(String((e && e.message) ? e.message : e)) + '</div></div>';
     }
   }
 
   window.TAKS_PAGES = window.TAKS_PAGES || {};
-  window.TAKS_PAGES.unit = { render };
+  window.TAKS_PAGES.unit = { render: render };
 })();
