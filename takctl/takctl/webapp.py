@@ -29,6 +29,7 @@ from takctl.api.health import router as health_router
 from takctl.api.meta import router as meta_router
 from takctl.services.marti_auth import check_userauthfile
 from takctl.web.api import llm2_debug
+from takctl.web.api import onboarding_import
 
 app = FastAPI(title="takctl-web")
 
@@ -351,6 +352,7 @@ app.include_router(onboarding_packages_router, prefix="/api")
 app.include_router(onboarding_cards_json_router, prefix="/api")
 app.include_router(onboarding_identity_router, prefix="/api")
 app.include_router(onboarding_cards_router, prefix="/api")
+app.include_router(onboarding_import.router)
 app.include_router(llm2_debug.router)
 
 

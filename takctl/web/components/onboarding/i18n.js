@@ -251,3 +251,50 @@
   });
 
 })();
+
+/* --- Import users page --------------------------------------------------- */
+
+window.TaksI18N = window.TaksI18N || {};
+const I = window.TaksI18N;
+
+(I.en = I.en || {}).page_onboarding_import = "Onboarding — Import users";
+
+Object.assign(I.en, {
+  "page.onboarding_import": "Onboarding — Import users",
+  "import.how_it_works": "How it works",
+  "import.how_it_works_body": "Upload Excel/CSV → preview mapping → confirm → bulk create",
+
+  "import.step1": "Step 1 — Choose file",
+  "import.selected": "Selected file",
+  "import.sample_rows": "Sample rows",
+  "import.preview": "Preview",
+  "import.working": "Working…",
+
+  "import.step2": "Step 2 — Preview",
+  "import.mapping": "Header mapping",
+  "import.sample_users": "Sample users",
+
+  "import.col_idx": "Col",
+  "import.header": "Header",
+  "import.header_norm": "Normalized",
+  "import.maps_to": "Maps to",
+
+  "import.row": "Row",
+  "import.username": "Username",
+  "import.password": "Password",
+  "import.is_admin": "Admin",
+  "import.groups": "Groups",
+
+  "import.apply": "Apply import",
+  "import.apply_dry_run": "Apply (dry-run)",
+
+  "import.update_existing": "Update existing users",
+
+  "import.preview_ok": "Preview OK — ready to import",
+  "import.preview_not_ok": "Preview shows issues — fix file first",
+
+  "import.result": "Import result",
+  "import.error": "Error",
+  "import.raw_preview": "Raw preview JSON"
+});
+

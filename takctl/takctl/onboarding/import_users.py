@@ -1,0 +1,439 @@
+from __future__ import annotations
+
+import csv
+import secrets
+from pathlib import Path
+from typing import List, Dict, Any, Callable, Optional
+
+try:
+    import openpyxl
+except Exception:
+    openpyxl = None
+
+from takctl.onboarding.policy import Policy
+from takctl.onboarding.selection import save_selection
+from takctl.services.usermgr import UserMgrService, UserMgrError
+
+
+# ------------------------------------------------------------
+# file readers
+# ------------------------------------------------------------
+
+def _read_csv(path: Path) -> List[Dict[str, str]]:
+    rows: List[Dict[str, str]] = []
+
+    with path.open("r", encoding="utf-8-sig") as f:
+        r = csv.DictReader(f)
+        for row in r:
+            out: Dict[str, str] = {}
+            for k, v in row.items():
+                kk = (str(k).strip().lower() if k is not None else "")
+                if not kk:
+                    continue
+                out[kk] = (v or "").strip()
+            rows.append(out)
+
+    return rows
+
+
+def _read_xlsx(path: Path) -> List[Dict[str, str]]:
+    if openpyxl is None:
+        raise RuntimeError("openpyxl not installed")
+
+    wb = openpyxl.load_workbook(path)
+    ws = wb.active
+
+    header: List[str] = []
+    rows: List[Dict[str, str]] = []
+
+    for i, row in enumerate(ws.iter_rows(values_only=True)):
+        if i == 0:
+            header = [(str(c).strip().lower() if c is not None else "") for c in row]
+            continue
+
+        d: Dict[str, str] = {}
+        for k, v in zip(header, row):
+            if not k:
+                continue
+            d[k] = (str(v).strip() if v is not None else "")
+
+        rows.append(d)
+
+    return rows
+
+
+def load_file(path: str) -> List[Dict[str, str]]:
+    p = Path(path)
+
+    if not p.exists():
+        raise RuntimeError(f"file not found: {path}")
+
+    if p.suffix.lower() == ".csv":
+        return _read_csv(p)
+
+    if p.suffix.lower() in (".xlsx", ".xlsm"):
+        return _read_xlsx(p)
+
+    raise RuntimeError(f"unsupported file type: {p.suffix}")
+
+
+# ------------------------------------------------------------
+# helpers
+# ------------------------------------------------------------
+
+def _bool(v: str) -> bool:
+    return str(v or "").strip().lower() in ("1", "true", "yes", "y", "on", "admin")
+
+
+def _group_list_from_row(row: Dict[str, str]) -> List[str]:
+    """
+    Preferred v1 schema:
+      group1, group2, group3
+
+    Back-compat:
+      groups = "A;B;C" or "A,B,C"
+    """
+    out: List[str] = []
+
+    for k in ("group1", "group2", "group3"):
+        v = (row.get(k) or "").strip()
+        if v:
+            out.append(v)
+
+    if not out:
+        raw = (row.get("groups") or "").strip()
+        if raw:
+            sep = ";" if ";" in raw else ","
+            out = [x.strip() for x in raw.split(sep) if x and x.strip()]
+
+    seen = set()
+    final: List[str] = []
+    for g in out:
+        if g not in seen:
+            seen.add(g)
+            final.append(g)
+    return final
+
+
+def _gen_strong_password(length: int = 20) -> str:
+    """
+    Marti/UserManager-compatible:
+      - min 15 chars
+      - uppercase, lowercase, digit, special
+    """
+    specials = r"-_!@#$%^&*(){}[]+=~`|:;<>,./?"
+    uppers = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    lowers = "abcdefghijklmnopqrstuvwxyz"
+    digits = "0123456789"
+
+    n = max(int(length), 15)
+
+    chars = [
+        secrets.choice(uppers),
+        secrets.choice(lowers),
+        secrets.choice(digits),
+        secrets.choice(specials),
+    ]
+
+    alphabet = uppers + lowers + digits + specials
+    while len(chars) < n:
+        chars.append(secrets.choice(alphabet))
+
+    for i in range(len(chars) - 1, 0, -1):
+        j = secrets.randbelow(i + 1)
+        chars[i], chars[j] = chars[j], chars[i]
+
+    return "".join(chars)
+
+
+def _ctx_from_row(row: Dict[str, str]) -> Dict[str, Any]:
+    """
+    Keep this permissive. Minimal imports only need username/groups/admin,
+    but we allow future-friendly optional identity columns too.
+    """
+    ctx: Dict[str, Any] = {}
+
+    for k in (
+        "policy_id",
+        "battalion",
+        "battalion_fal",
+        "company",
+        "platoon",
+        "group",
+        "n",
+        "team",
+        "callsign",
+        "callsign_policy",
+        "role",
+        "remarks",
+    ):
+        v = (row.get(k) or "").strip()
+        if v:
+            ctx[k] = v
+
+    if "policy_id" not in ctx:
+        ctx["policy_id"] = "hemvarnet"
+
+    return ctx
+
+
+# ------------------------------------------------------------
+# validation
+# ------------------------------------------------------------
+
+IDENTITY_FIELDS = ["company", "platoon", "group", "n"]
+
+
+def validate_rows(rows: List[Dict[str, str]]) -> None:
+    if not rows:
+        raise RuntimeError("import file is empty")
+
+    first = rows[0]
+
+    if "username" not in first and not all(x in first for x in IDENTITY_FIELDS):
+        raise RuntimeError(
+            "file must contain either 'username' or identity columns "
+            "(company, platoon, group, n)"
+        )
+
+
+# ------------------------------------------------------------
+# row apply
+# ------------------------------------------------------------
+
+def _apply_row(
+    service,
+    row: Dict[str, str],
+    *,
+    update_existing: bool,
+) -> Dict[str, Any]:
+    username = (row.get("username") or "").strip()
+    if not username:
+        raise RuntimeError("username is required in import v1")
+
+    ctx = _ctx_from_row(row)
+    password_in = (row.get("password") or "").strip()
+    admin = _bool(row.get("is_admin", row.get("admin", "")))
+    groups = _group_list_from_row(row)
+
+    existing_user = service.ud.get_user(username)
+    if existing_user is not None and not update_existing:
+        return {"status": "skipped", "username": username, "reason": "exists"}
+
+    password_to_set = None
+    if existing_user is None:
+        password_to_set = password_in or _gen_strong_password(20)
+    else:
+        password_to_set = password_in or None
+
+    um = UserMgrService()
+    try:
+        um.user_set(
+            username,
+            password=password_to_set,
+            admin=True if admin else None,
+            groups=groups,
+            in_groups=[],
+            out_groups=[],
+            append=False,
+            remove=False,
+        )
+    except UserMgrError as e:
+        raise RuntimeError(f"UserManager failed: {e}")
+
+    tak_user = service.ud.get_user(username)
+    if tak_user is None:
+        raise RuntimeError(f"user not found after create/update in UserAuthenticationFile.xml: {username}")
+
+    policy_id = str(ctx.get("policy_id") or "hemvarnet").strip() or "hemvarnet"
+    ident_out: Dict[str, Any] = {}
+    try:
+        pol = Policy(policy_id=policy_id)
+        ident = pol.resolve_identity(ctx)
+        ident_out = {
+            "callsign": getattr(ident, "callsign", None),
+            "team": getattr(ident, "team", None),
+            "atak_role_type": getattr(ident, "atak_role_type", None),
+        }
+        v = getattr(ident, "callsign_variants", None)
+        if isinstance(v, dict) and v:
+            ident_out["callsign_variants"] = v
+        eff = getattr(ident, "callsign_policy_effective", None)
+        if eff:
+            ident_out["callsign_policy_effective"] = eff
+    except Exception as e:
+        ctx = dict(ctx)
+        ctx.setdefault("_policy_error", str(e))
+
+    service.store.upsert_identity(
+        username=username,
+        origin="taks",
+        ctx=ctx,
+        identity=ident_out,
+        password=password_to_set,
+    )
+
+    save_selection(username, {
+        "ctx": ctx,
+        "paths": {"B": True, "itak": True, "wintak": True},
+        "endpoints": {},
+    })
+
+    return {
+        "status": "updated" if existing_user is not None else "created",
+        "username": username,
+        "password_generated": bool(existing_user is None and not password_in),
+        "groups": groups,
+        "admin": bool(admin),
+    }
+
+
+# ------------------------------------------------------------
+# importer
+# ------------------------------------------------------------
+
+ProgressCb = Optional[Callable[[Dict[str, Any]], None]]
+
+
+def _emit_progress(progress_cb: ProgressCb, payload: Dict[str, Any]) -> None:
+    if progress_cb is None:
+        return
+    try:
+        progress_cb(payload)
+    except Exception:
+        pass
+
+
+def import_users(
+    service,
+    rows: List[Dict[str, str]],
+    *,
+    dry_run: bool = False,
+    update_existing: bool = False,
+    progress_cb: ProgressCb = None,
+) -> Dict[str, Any]:
+
+    created = 0
+    updated = 0
+    skipped = 0
+    errors: List[Dict[str, Any]] = []
+    results: List[Dict[str, Any]] = []
+    total_rows = len(rows)
+
+    for i, row in enumerate(rows, start=1):
+        username = (row.get("username") or "").strip()
+
+        try:
+            exists = bool(username and service.ud.get_user(username) is not None)
+
+            if exists and not update_existing:
+                skipped += 1
+                item = {
+                    "row": i,
+                    "status": "skipped",
+                    "username": username,
+                    "reason": "exists",
+                }
+                results.append(item)
+                _emit_progress(progress_cb, {
+                    "row": i,
+                    "total_rows": total_rows,
+                    "username": username,
+                    "status": "skipped",
+                    "created": created,
+                    "updated": updated,
+                    "skipped": skipped,
+                    "error_count": len(errors),
+                })
+                continue
+
+            if dry_run:
+                st = "updated" if exists else "created"
+                if exists:
+                    updated += 1
+                else:
+                    created += 1
+
+                item = {
+                    "row": i,
+                    "status": st,
+                    "username": username,
+                    "admin": _bool(row.get("is_admin", row.get("admin", ""))),
+                    "groups": _group_list_from_row(row),
+                }
+                results.append(item)
+                _emit_progress(progress_cb, {
+                    "row": i,
+                    "total_rows": total_rows,
+                    "username": username,
+                    "status": st,
+                    "created": created,
+                    "updated": updated,
+                    "skipped": skipped,
+                    "error_count": len(errors),
+                })
+                continue
+
+            res = _apply_row(service, row, update_existing=update_existing)
+            results.append({"row": i, **res})
+
+            if res["status"] == "created":
+                created += 1
+            elif res["status"] == "updated":
+                updated += 1
+            elif res["status"] == "skipped":
+                skipped += 1
+
+            _emit_progress(progress_cb, {
+                "row": i,
+                "total_rows": total_rows,
+                "username": username or res.get("username"),
+                "status": res.get("status"),
+                "created": created,
+                "updated": updated,
+                "skipped": skipped,
+                "error_count": len(errors),
+            })
+
+        except Exception as e:
+            errors.append({
+                "row": i,
+                "error": str(e),
+                "data": row,
+            })
+            _emit_progress(progress_cb, {
+                "row": i,
+                "total_rows": total_rows,
+                "username": username,
+                "status": "error",
+                "error": str(e),
+                "created": created,
+                "updated": updated,
+                "skipped": skipped,
+                "error_count": len(errors),
+            })
+
+    return {
+        "rows": len(rows),
+        "created": created,
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors,
+        "results": results,
+    }
+
+
+# ------------------------------------------------------------
+# entrypoint
+# ------------------------------------------------------------
+
+def run_import(service, path: str, *, dry_run=False, update_existing=False, progress_cb: ProgressCb = None):
+    rows = load_file(path)
+    validate_rows(rows)
+    return import_users(
+        service,
+        rows,
+        dry_run=dry_run,
+        update_existing=update_existing,
+        progress_cb=progress_cb,
+    )

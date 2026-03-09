@@ -1,0 +1,11 @@
+Create a compact operator-facing HTML card for the overall summary.
+
+Input is summary findings JSON with keys: important, newest, details.
+
+Render:
+- one short headline in <h3>
+- one short summary paragraph in <p>
+- optional second short paragraph or short bullet list only if it adds clear value
+
+Keep it compact and readable.
+Do not mention phases, prompts, pipelines, or internal processing unless the input absolutely requires it.

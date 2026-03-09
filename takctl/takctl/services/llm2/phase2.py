@@ -265,6 +265,69 @@ def _validate_obj(obj: Any) -> Dict[str, Any]:
     return obj
 
 
+def _gather_phase2_findings_for_summary(*, latest_dir: Path) -> Dict[str, Any]:
+    """
+    Build a stable/small JSON evidence object for _summary phase2 by reading
+    other domains' phase2 findings ONLY.
+
+    IMPORTANT:
+      - Do NOT include trace.json, prompt text, raw responses, file paths, etc.
+        That explodes token/prompt size and can cause llama.cpp 400s.
+      - Keep this strictly reducer-evidence: findings {important,newest,details} per domain.
+    """
+    domains: Dict[str, Any] = {}
+    if not latest_dir.exists():
+        return {"ok": False, "error": "latest_root_missing", "domains": domains}
+
+    for dom_dir in sorted([p for p in latest_dir.iterdir() if p.is_dir()]):
+        dom = dom_dir.name
+        if dom == "_summary":
+            continue
+
+        p_find = dom_dir / "phase2" / "findings.json"
+
+        entry: Dict[str, Any] = {"ok": False}
+
+        if not p_find.exists():
+            entry["error"] = "phase2_findings_missing"
+            domains[dom] = entry
+            continue
+
+        try:
+            fo = _read_json(p_find)
+        except Exception as e:
+            entry["error"] = f"phase2_findings_invalid_json:{type(e).__name__}: {e}"
+            domains[dom] = entry
+            continue
+
+        if not isinstance(fo, dict):
+            entry["error"] = "phase2_findings_not_object"
+            domains[dom] = entry
+            continue
+
+        # Keep only the contract keys, always as strings.
+        reduced: Dict[str, str] = {}
+        for k in REQ_KEYS:
+            v = fo.get(k)
+            if v is None:
+                reduced[k] = ""
+            elif isinstance(v, str):
+                reduced[k] = v
+            else:
+                reduced[k] = str(v)
+
+        # ok means we have at least something non-empty, but do not overthink it.
+        entry["ok"] = bool(reduced.get("important") or reduced.get("newest") or reduced.get("details"))
+        entry["findings"] = reduced
+        domains[dom] = entry
+
+    return {
+        "ok": True,
+        "generated_utc": _now_iso(),
+        "domains": domains,
+    }
+
+
 def run_phase2(*, run_id: str) -> Dict[str, Any]:
     started = _now_iso()
     t0 = time.time()
@@ -277,7 +340,8 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
     n_predict = int(os.environ.get("TAKCTL_LLM_N_PREDICT", "700"))
     temperature = float(os.environ.get("TAKCTL_LLM_TEMPERATURE", "0.2"))
 
-    domains = ["chatter", "missions", "_summary"]
+    # IMPORTANT: keep phase2 domain loop agnostic. _summary is a special reducer step AFTER the loop.
+    domains = ["chatter", "missions"]
 
     out: Dict[str, Any] = {
         "ok": True,
@@ -289,7 +353,7 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
         "timeout_s": timeout_s,
         "n_predict": n_predict,
         "temperature": temperature,
-        "stop": ["}\\n"],
+        "stop": ["}\n"],
     }
 
     any_fail = False
@@ -297,7 +361,11 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
     (runs_root() / run_id).mkdir(parents=True, exist_ok=True)
     latest_root().mkdir(parents=True, exist_ok=True)
 
-    for dom in domains:
+    def _run_one_domain(
+        dom: str, *, evidence_override_json: str | None = None, phase1_gate_override: Tuple[bool, str] | None = None
+    ) -> None:
+        nonlocal any_fail
+
         dom_t0 = time.time()
         dom_started = _now_iso()
 
@@ -350,26 +418,34 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
         }
 
         try:
-            ok, reason = _phase1_gate(latest_dom_dir)
+            if phase1_gate_override is not None:
+                ok, reason = phase1_gate_override
+            else:
+                ok, reason = _phase1_gate(latest_dom_dir)
             trace["phase1_gate"] = {"ok": ok, "reason": reason}
-            if not ok:
+
+            if not ok and evidence_override_json is None:
                 print(f"\n===== PHASE2 SKIP [{dom}] reason={reason} =====")
                 obj = {"important": f"No evidence ({reason}).", "newest": "", "details": ""}
                 write_json(findings_path, obj)
                 write_json(latest_findings_path, obj)
                 trace["ok"] = True
                 trace["note"] = "phase2_short_circuit_no_phase1_evidence"
-                continue
+                return
 
-            evidence = _phase1_evidence_text(latest_dom_dir)
+            if evidence_override_json is not None:
+                evidence = evidence_override_json
+            else:
+                evidence = _phase1_evidence_text(latest_dom_dir)
+
             if not evidence.strip():
-                print(f"\n===== PHASE2 SKIP [{dom}] reason=phase1_latest_empty =====")
+                print(f"\n===== PHASE2 SKIP [{dom}] reason=empty_evidence =====")
                 obj = {"important": "No evidence.", "newest": "", "details": ""}
                 write_json(findings_path, obj)
                 write_json(latest_findings_path, obj)
                 trace["ok"] = True
                 trace["note"] = "phase2_short_circuit_empty_evidence"
-                continue
+                return
 
             system_txt, user_txt = _load_prompt(infra_dir, dom)
             prompt = _build_prompt(system_txt, user_txt, evidence)
@@ -475,6 +551,30 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
 
             print(f"\n===== PHASE2 TRACE [{dom}] =====")
             print(json.dumps(trace, ensure_ascii=False, indent=2))
+
+    # 1) Normal domains (unchanged behavior)
+    for dom in domains:
+        _run_one_domain(dom)
+
+    # 2) _summary reducer domain: reads OTHER domains' phase2 findings as evidence
+    try:
+        summary_evidence_obj = _gather_phase2_findings_for_summary(latest_dir=latest_root())
+        summary_evidence_json = json.dumps(summary_evidence_obj, ensure_ascii=False, indent=2, sort_keys=True)
+    except Exception as e:
+        # If evidence aggregation fails, still run _summary with a minimal evidence payload
+        summary_evidence_json = json.dumps(
+            {"ok": False, "error": f"summary_aggregate_failed:{type(e).__name__}: {e}", "domains": {}},
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+
+    # phase1 gate is not applicable for _summary, but keep a non-error-ish signal
+    _run_one_domain(
+        "_summary",
+        evidence_override_json=summary_evidence_json,
+        phase1_gate_override=(True, "n/a_summary_reducer"),
+    )
 
     out["ok"] = not any_fail
     out["ended_at"] = _now_iso()

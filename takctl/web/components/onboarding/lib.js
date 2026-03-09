@@ -61,13 +61,12 @@
   //   #onboarding/list
   //   #onboarding/create
   //   #onboarding/import
+  //   #onboarding/import-jobs
   //   #onboarding/create:<username>   (may be URL-encoded as create%3Aalice)
   //
-  // parseHashRoute() returns: { sub: "list|create|import", username: "" }
+  // parseHashRoute() returns: { sub: "...", username: "" }
   lib.parseHashRoute = function () {
     const raw = String(window.location.hash || "");
-
-    // Accept anything after #onboarding/ up to end, then decode percent-escapes.
     const m = raw.match(/#onboarding(?:\/([^?]+))?/i);
     let tail = (m && m[1]) ? String(m[1]) : "list";
 
@@ -76,12 +75,11 @@
     tail = String(tail || "").trim();
     if (!tail) tail = "list";
 
-    // Split on ":" for create:<username>
     const parts = tail.split(":");
     const sub = String(parts[0] || "").toLowerCase();
     const username = (parts.length > 1) ? String(parts.slice(1).join(":") || "").trim() : "";
 
-    if (sub === "create" || sub === "import" || sub === "list") {
+    if (sub === "create" || sub === "import" || sub === "import-jobs" || sub === "list") {
       return { sub, username };
     }
     return { sub: "list", username: "" };
@@ -94,7 +92,6 @@
     let tail = s;
     if (s === "create" && u) tail = `create:${u}`;
 
-    // Encode to keep hash URL-safe (":" becomes %3A, which we decode in parseHashRoute)
     window.location.hash = `#onboarding/${encodeURIComponent(tail)}`;
   };
 

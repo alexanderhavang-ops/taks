@@ -363,6 +363,7 @@ def run_phase3(*, run_id: str) -> Dict[str, Any]:
         card_path = run_dom_dir / "card.json"
 
         latest_path = latest_phase3_dir / "latest.json"
+        latest_card_path = latest_phase3_dir / "card.json"   # <-- IMPORTANT: publish to latest/
         trace_run_path = run_dom_dir / "trace.json"
         trace_latest_path = latest_phase3_dir / "trace.json"
 
@@ -391,6 +392,7 @@ def run_phase3(*, run_id: str) -> Dict[str, Any]:
             if not ok:
                 html_card = f"<div><h3>{html.escape(dom)}</h3><p><em>No phase2 findings ({html.escape(reason)}).</em></p></div>"
                 write_json(card_path, {"html": html_card})
+                write_json(latest_card_path, {"html": html_card})  # <-- publish
                 write_json(latest_path, {"ok": True, "domain": dom, "run_id": run_id, "generated_utc": _now_iso(), "html": html_card})
                 trace["ok"] = True
                 continue
@@ -399,6 +401,7 @@ def run_phase3(*, run_id: str) -> Dict[str, Any]:
             if not findings.strip():
                 html_card = _fallback_card(dom, findings_obj)
                 write_json(card_path, {"html": html_card})
+                write_json(latest_card_path, {"html": html_card})  # <-- publish
                 write_json(latest_path, {"ok": True, "domain": dom, "run_id": run_id, "generated_utc": _now_iso(), "html": html_card})
                 trace["ok"] = True
                 continue
@@ -478,6 +481,7 @@ def run_phase3(*, run_id: str) -> Dict[str, Any]:
             }
 
             write_json(card_path, {"html": cleaned})
+            write_json(latest_card_path, {"html": cleaned})  # <-- publish
             write_json(latest_path, {"ok": True, "domain": dom, "run_id": run_id, "generated_utc": _now_iso(), "html": cleaned})
 
             trace["ok"] = True
