@@ -236,3 +236,79 @@ def static_files(path: str, req: Request):
   if not _is_authed(req):
     return RedirectResponse("/login", status_code=302)
   return _file_or_404(_safe_join(_STATIC_DIR, path))
+
+# ---------------------------------------------------------------------
+# Unit logo upload
+# ---------------------------------------------------------------------
+
+from fastapi import UploadFile, File
+
+@router.post("/api/v2/units/{unit_path:path}/logo")
+async def upload_unit_logo(unit_path: str, file: UploadFile = File(...), req: Request = None):
+    if not _is_authed(req):
+        raise HTTPException(status_code=401)
+
+    up = _safe_unit_fs(unit_path)
+    ext = (file.filename or "").split(".")[-1].lower()
+
+    if ext not in ("svg", "png"):
+        raise HTTPException(status_code=400, detail="Only svg or png allowed")
+
+    d = _unit_assets_dir(up)
+
+    # remove existing logos
+    for f in d.glob("logo.*"):
+        try:
+            f.unlink()
+        except Exception:
+            pass
+
+    dst = d / f"logo.{ext}"
+
+    with dst.open("wb") as out:
+        while True:
+            chunk = await file.read(1024 * 1024)
+            if not chunk:
+                break
+            out.write(chunk)
+
+    return {"ok": True, "unit": up, "file": dst.name}
+
+
+# ---------------------------------------------------------------------
+# Unit brand metadata save (slogan + symbol)
+# ---------------------------------------------------------------------
+
+class UnitBrandSave(BaseModel):
+  slogan: str = ""
+  symbol: str = ""
+
+@router.post("/api/v2/units/{unit_path:path}/brand")
+def save_unit_brand(unit_path: str, body: UnitBrandSave, req: Request):
+  if not _is_authed(req):
+    raise HTTPException(status_code=401)
+
+  up = _safe_unit_fs(unit_path)
+  d = _unit_assets_dir(up)
+  bp = d / "brand.json"
+
+  current = {}
+  if bp.exists() and bp.is_file():
+    try:
+      current = json.loads(bp.read_text(encoding="utf-8"))
+      if not isinstance(current, dict):
+        current = {}
+    except Exception:
+      current = {}
+
+  current["slogan"] = str(body.slogan or "").strip()
+  current["symbol"] = str(body.symbol or "").strip()
+
+  bp.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+  return JSONResponse({
+    "ok": True,
+    "unit": up,
+    "brand": current,
+  })
+

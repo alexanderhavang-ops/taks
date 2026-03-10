@@ -47,7 +47,16 @@
     return { items, orphaned };
   }
 
-  function renderTreeRow(node, depth, openSet, unitToNodes, rows){
+  async function loadBrand(unitPath){
+    const url = '/api/public/brand?unit=' + encodeURIComponent(unitPath);
+    try{
+      return await CORE.api('GET', url);
+    }catch(_){
+      return {};
+    }
+  }
+
+  function renderTreeRow(node, depth, openSet, unitToNodes, unitToSymbol, rows){
     const u = node.u;
     const children = node.children || [];
     const hasKids = children.length > 0;
@@ -56,6 +65,7 @@
     const indent = depth * 18;
     const assigned = unitToNodes.get(u.unit_path) || [];
     const count = assigned.length;
+    const symbol = String(unitToSymbol.get(u.unit_path) || '').trim();
 
     const name = `${u.title}${u.unit_path ? ` (${u.unit_path})` : ''}`;
 
@@ -66,7 +76,11 @@
                   title="${hasKids ? (isOpen ? 'Fäll ihop' : 'Fäll ut') : ''}"
                   data-action="toggle-open"
                   data-unit="${esc(u.unit_path)}">${isOpen ? '▾' : '▸'}</button>
-          <span class="treeDot" aria-hidden="true"></span>
+          ${
+            symbol
+              ? `<span class="treeSymbol" aria-hidden="true">${esc(symbol)}</span>`
+              : `<span class="treeDot" aria-hidden="true"></span>`
+          }
           <a class="treeRow__title" href="#/units/${encodeURIComponent(u.unit_path)}">${esc(name)}</a>
         </div>
 
@@ -98,7 +112,7 @@
 
     if(hasKids && isOpen){
       for(const c of children){
-        renderTreeRow(c, depth+1, openSet, unitToNodes, rows);
+        renderTreeRow(c, depth+1, openSet, unitToNodes, unitToSymbol, rows);
       }
     }
   }
@@ -166,6 +180,21 @@
           background:rgba(255,255,255,.18);
           box-shadow:0 0 0 1px rgba(255,255,255,.10);
         }
+        .treeSymbol{
+          min-width:20px;
+          height:20px;
+          display:inline-flex;
+          align-items:center;
+          justify-content:center;
+          font-weight:700;
+          font-size:12px;
+          line-height:1;
+          color:#8aa4ff;
+          border:1px solid rgba(138,164,255,.18);
+          border-radius:6px;
+          background:rgba(138,164,255,.08);
+          padding:0 4px;
+        }
         .treeRow__title{
           font-weight:700;
           color:var(--text);
@@ -181,7 +210,6 @@
       </style>
     `;
 
-    // Persist expand/collapse in-memory for this session
     const openSet = new Set();
 
     async function refresh(){
@@ -200,20 +228,25 @@
         const unitToNodes = new Map();
         for(const u of units) unitToNodes.set(u.unit_path, []);
 
-        // if nodes later carry unit_path, this will start populating
         for(const n of nodes.items){
           const up = String(n.unit_path || '').trim();
           if(up && unitToNodes.has(up)) unitToNodes.get(up).push(n);
         }
+
+        const unitToSymbol = new Map();
+        await Promise.all(units.map(async (u) => {
+          const brand = await loadBrand(u.unit_path);
+          const sym = String((brand && brand.symbol) || '').trim();
+          if(sym) unitToSymbol.set(u.unit_path, sym);
+        }));
 
         summary.textContent = `Enheter: ${units.length} · Noder: ${nodes.items.length}`;
 
         const tree = buildTree(units);
         const rows = [];
         for(const top of tree){
-          // Default open first-level to avoid “empty tree” feel
           openSet.add(top.u.unit_path);
-          renderTreeRow(top, 0, openSet, unitToNodes, rows);
+          renderTreeRow(top, 0, openSet, unitToNodes, unitToSymbol, rows);
         }
         treeBox.innerHTML = rows.join('') || `<div class="muted">No units.</div>`;
       }catch(e){
@@ -282,7 +315,6 @@
     function toggleOpen(unitPath){
       if(openSet.has(unitPath)) openSet.delete(unitPath);
       else openSet.add(unitPath);
-      // re-render cheap way: just refresh from API (small scale now)
       refresh();
     }
 
