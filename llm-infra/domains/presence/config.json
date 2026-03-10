@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "domain": "presence",
+  "phases": {
+    "phase1": { "enabled": true },
+    "phase2": { "enabled": true },
+    "phase3": { "enabled": true }
+  }
+}

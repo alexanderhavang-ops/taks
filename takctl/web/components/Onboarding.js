@@ -46,9 +46,16 @@
     const username = (route && route.username) ? String(route.username) : "";
 
     let page = null;
-    if (sub === "create") page = h(window.OnboardingCreateUserPage, { routeUsername: username });
-    else if (sub === "import") page = h(window.OnboardingImportUsersPage);
-    else page = h(window.OnboardingListPage, { onEdit: (u) => nav("create", u) });
+
+    if (sub === "create") {
+      page = h(window.OnboardingCreateUserPage, { routeUsername: username });
+    } else if (sub === "import") {
+      page = h(window.OnboardingImportUsersPage);
+    } else if (sub === "import-jobs") {
+      page = h(window.OnboardingImportJobsPage);
+    } else {
+      page = h(window.OnboardingListPage, { onEdit: (u) => nav("create", u) });
+    }
 
     return h(
       "div",
@@ -66,9 +73,34 @@
           h(
             "div",
             { style: { display: "flex", flexDirection: "column", gap: "8px" } },
-            h(SideItem, { id: "list", cur: sub, label: (window.t ? window.t("nav.list") : "List"), onClick: () => nav("list") }),
-            h(SideItem, { id: "create", cur: sub, label: (window.t ? window.t("nav.create_user") : "Create user"), onClick: () => nav("create") }),
-            h(SideItem, { id: "import", cur: sub, label: (window.t ? window.t("nav.import_users") : "Import users file"), onClick: () => nav("import") })
+
+            h(SideItem, {
+              id: "list",
+              cur: sub,
+              label: (window.t ? window.t("nav.list") : "List"),
+              onClick: () => nav("list")
+            }),
+
+            h(SideItem, {
+              id: "create",
+              cur: sub,
+              label: (window.t ? window.t("nav.create_user") : "Create user"),
+              onClick: () => nav("create")
+            }),
+
+            h(SideItem, {
+              id: "import",
+              cur: sub,
+              label: (window.t ? window.t("nav.import_users") : "Import users file"),
+              onClick: () => nav("import")
+            }),
+
+            h(SideItem, {
+              id: "import-jobs",
+              cur: sub,
+              label: (window.t ? window.t("nav.import_jobs") : "Import jobs"),
+              onClick: () => nav("import-jobs")
+            })
           )
         ),
 

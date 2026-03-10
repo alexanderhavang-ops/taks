@@ -15,8 +15,9 @@ from takctl.onboarding.import_jobs import (
     load_result,
     start_job_thread,
 )
+from takctl.onboarding.import_users import load_file, run_import
 from takctl.onboarding.import_users_preview import preview_import
-from takctl.onboarding.import_users import run_import
+from takctl.onboarding.import_users_validate import validate_rows_static
 
 router = APIRouter(prefix="/api/onboarding/import")
 
@@ -45,6 +46,15 @@ def _save_upload(upload: UploadFile) -> Path:
 def import_preview(req: Request, file: UploadFile = File(...), sample_n: int = 5):
     p = _save_upload(file)
     out = preview_import(str(p), sample_n=int(sample_n))
+    out["upload_tmp_path"] = str(p)
+    return JSONResponse(out, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+
+
+@router.post("/validate")
+def import_validate(req: Request, file: UploadFile = File(...)):
+    p = _save_upload(file)
+    rows = load_file(str(p))
+    out = validate_rows_static(rows)
     out["upload_tmp_path"] = str(p)
     return JSONResponse(out, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 

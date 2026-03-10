@@ -1,0 +1,1 @@
+Create a compact operator-facing HTML card for domain "presence" from the input findings.
