@@ -41,16 +41,70 @@
     return h("span", { className: cls }, s.toUpperCase());
   }
 
-  function JobTable({ jobs, onOpen }) {
+  function progressPct(job) {
+    const done = Number((job && job.done_rows) || 0);
+    const total = Number((job && job.total_rows) || 0);
+    if (!total || total < 1) return 0;
+    const pct = Math.round((done * 100) / total);
+    return Math.max(0, Math.min(100, pct));
+  }
+
+  function ProgressBar({ job }) {
+    const pct = progressPct(job);
+    return h(
+      "div",
+      { style: { minWidth: "180px" } },
+      h("div", {
+        style: {
+          width: "100%",
+          height: "10px",
+          borderRadius: "999px",
+          background: "rgba(255,255,255,0.08)",
+          overflow: "hidden"
+        }
+      },
+        h("div", {
+          style: {
+            width: pct + "%",
+            height: "100%",
+            background: "rgba(120,180,255,0.9)"
+          }
+        })
+      ),
+      h("div", { className: "muted", style: { marginTop: "4px", fontSize: "12px" } },
+        _colText((job && job.done_rows) || 0) + " / " + _colText((job && job.total_rows) || 0) + " (" + pct + "%)"
+      )
+    );
+  }
+
+  function _hashQueryParam(name) {
+    try {
+      const raw = String(window.location.hash || "");
+      const qidx = raw.indexOf("?");
+      if (qidx < 0) return "";
+      const qs = raw.slice(qidx + 1);
+      const p = new URLSearchParams(qs);
+      return String(p.get(name) || "");
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function _setHashWithJob(jobId) {
+    const hash = "#onboarding/import-jobs" + (jobId ? ("?job_id=" + encodeURIComponent(String(jobId))) : "");
+    window.location.hash = hash;
+  }
+
+  function JobTable({ jobs, selectedJobId, onOpen }) {
     return h(
       "table",
       { className: "tbl", style: { marginTop: "10px" } },
       h("thead", null,
         h("tr", null,
-          h("th", null, "Created"),
           h("th", null, "Job ID"),
           h("th", null, "State"),
-          h("th", null, "Rows"),
+          h("th", null, "Progress"),
+          h("th", null, "Created at"),
           h("th", null, "Created"),
           h("th", null, "Updated"),
           h("th", null, "Skipped"),
@@ -60,12 +114,13 @@
         )
       ),
       h("tbody", null,
-        (jobs || []).map((job) =>
-          h("tr", { key: String(job.job_id || "") },
-            h("td", null, _colText(job.created_at)),
+        (jobs || []).map((job) => {
+          const selected = String(job.job_id || "") === String(selectedJobId || "");
+          return h("tr", { key: String(job.job_id || ""), style: selected ? { outline: "1px solid rgba(120,180,255,0.45)" } : null },
             h("td", null, _colText(job.job_id)),
             h("td", null, stateBadge(job)),
-            h("td", null, _colText(job.done_rows) + " / " + _colText(job.total_rows)),
+            h("td", null, h(ProgressBar, { job })),
+            h("td", null, _colText(job.created_at)),
             h("td", null, _colText(job.created)),
             h("td", null, _colText(job.updated)),
             h("td", null, _colText(job.skipped)),
@@ -75,8 +130,72 @@
               ((job.current_username ? (" / " + String(job.current_username)) : ""))
             ),
             h("td", null,
-              h("button", { className: "btn", onClick: () => onOpen(job.job_id) }, "View")
+              h("button", { className: "btn", onClick: function () { onOpen(job.job_id); } }, "View")
             )
+          );
+        })
+      )
+    );
+  }
+
+  function RowResultsTable({ rows }) {
+    const items = Array.isArray(rows) ? rows : [];
+    if (!items.length) return null;
+
+    return h(
+      "table",
+      { className: "tbl", style: { marginTop: "8px" } },
+      h("thead", null,
+        h("tr", null,
+          h("th", null, "Row"),
+          h("th", null, "Username"),
+          h("th", null, "Status"),
+          h("th", null, "Message")
+        )
+      ),
+      h("tbody", null,
+        items.map((x, idx) => {
+          const status = String(x && (x.status || x.result || x.outcome || "") || "");
+          let cls = "badge badge-never";
+          if (status === "created" || status === "updated" || status === "ok") cls = "badge badge-current";
+          else if (status === "skipped" || status === "dry_run") cls = "badge badge-recent";
+          else if (status === "error" || status === "failed") cls = "badge badge-stale";
+
+          return h("tr", { key: "rr:" + idx },
+            h("td", null, _colText(x && x.row)),
+            h("td", null, _colText(x && x.username)),
+            h("td", null, h("span", { className: cls }, _colText(status || "—"))),
+            h("td", null, _colText((x && (x.message || x.detail || x.error)) || ""))
+          );
+        })
+      )
+    );
+  }
+
+  function ErrorTable({ rows }) {
+    const items = Array.isArray(rows) ? rows : [];
+    if (!items.length) return null;
+
+    return h(
+      "table",
+      { className: "tbl", style: { marginTop: "8px" } },
+      h("thead", null,
+        h("tr", null,
+          h("th", null, "Row"),
+          h("th", null, "Username"),
+          h("th", null, "Code"),
+          h("th", null, "Message"),
+          h("th", null, "Detail")
+        )
+      ),
+      h("tbody", null,
+        items.map((x, idx) =>
+          h("tr", { key: "er:" + idx },
+            h("td", null, _colText(x && x.row)),
+            h("td", null, _colText(x && x.username)),
+            h("td", null, h("span", { className: "badge badge-stale" }, _colText(x && x.code))),
+            h("td", null, _colText(x && x.message)),
+            h("td", null, _colText(x && x.detail))
           )
         )
       )
@@ -101,10 +220,19 @@
 
       h("div", { style: { marginTop: "10px", display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "10px" } },
         h("div", { className: "note" }, h("b", null, "State"), h("div", { style: { marginTop: "6px" } }, stateBadge(job))),
-        h("div", { className: "note" }, h("b", null, "Rows"), h("div", { style: { marginTop: "6px" } }, _colText(job.done_rows) + " / " + _colText(job.total_rows))),
+        h("div", { className: "note" }, h("b", null, "Progress"), h("div", { style: { marginTop: "6px" } }, h(ProgressBar, { job }))),
         h("div", { className: "note" }, h("b", null, "Created / Updated / Skipped"), h("div", { style: { marginTop: "6px" } }, _colText(job.created) + " / " + _colText(job.updated) + " / " + _colText(job.skipped))),
         h("div", { className: "note" }, h("b", null, "Errors"), h("div", { style: { marginTop: "6px" } }, _colText(job.error_count)))
       ),
+
+      job.current_row || job.current_username
+        ? h("div", { className: "note", style: { marginTop: "10px" } },
+            h("b", null, "Current row"),
+            h("div", { style: { marginTop: "6px" } },
+              _colText(job.current_row) + (job.current_username ? (" / " + String(job.current_username)) : "")
+            )
+          )
+        : null,
 
       job.last_error
         ? h("div", { className: "note", style: { marginTop: "10px", borderColor: "rgba(255,0,0,0.35)" } },
@@ -114,18 +242,23 @@
         : null,
 
       result
-        ? h("details", { style: { marginTop: "12px" }, open: true },
-            h("summary", { className: "muted" }, "Row results"),
-            h("pre", { style: { marginTop: "8px", whiteSpace: "pre-wrap" } }, JSON.stringify(results, null, 2))
+        ? h("div", { style: { marginTop: "12px" } },
+            h("div", { className: "muted" }, "Row results"),
+            h(RowResultsTable, { rows: results })
           )
         : null,
 
-      result
-        ? h("details", { style: { marginTop: "12px" }, open: errors.length > 0 },
-            h("summary", { className: "muted" }, "Errors"),
-            h("pre", { style: { marginTop: "8px", whiteSpace: "pre-wrap" } }, JSON.stringify(errors, null, 2))
+      result && errors.length
+        ? h("div", { style: { marginTop: "12px" } },
+            h("div", { className: "muted" }, "Errors"),
+            h(ErrorTable, { rows: errors })
           )
-        : null
+        : null,
+
+      h("details", { style: { marginTop: "12px" } },
+        h("summary", { className: "muted" }, "Raw job detail"),
+        h("pre", { style: { marginTop: "8px", whiteSpace: "pre-wrap" } }, JSON.stringify(detail, null, 2))
+      )
     );
   }
 
@@ -141,7 +274,17 @@
       setErr("");
       try {
         const out = await fetchJson("/api/onboarding/import/jobs?limit=50");
-        setJobs((out && out.jobs) || []);
+        const list = (out && out.jobs) || [];
+        setJobs(list);
+
+        if (!selectedJobId) {
+          const hashJobId = _hashQueryParam("job_id");
+          if (hashJobId) {
+            setSelectedJobId(String(hashJobId));
+          } else if (list.length > 0) {
+            setSelectedJobId(String(list[0].job_id || ""));
+          }
+        }
       } catch (e) {
         setErr(String((e && e.message) || e));
       } finally {
@@ -149,9 +292,8 @@
       }
     }
 
-    async function openJob(jobId) {
+    async function refreshSelectedJob(jobId) {
       if (!jobId) return;
-      setSelectedJobId(String(jobId));
       setErr("");
       try {
         const out = await fetchJson("/api/onboarding/import/jobs/" + encodeURIComponent(String(jobId)));
@@ -159,6 +301,13 @@
       } catch (e) {
         setErr(String((e && e.message) || e));
       }
+    }
+
+    function openJob(jobId) {
+      if (!jobId) return;
+      const id = String(jobId);
+      setSelectedJobId(id);
+      _setHashWithJob(id);
     }
 
     useEffect(() => {
@@ -169,8 +318,9 @@
 
     useEffect(() => {
       if (!selectedJobId) return;
+      refreshSelectedJob(selectedJobId);
       const id = window.setInterval(function () {
-        openJob(selectedJobId);
+        refreshSelectedJob(selectedJobId);
       }, 2000);
       return () => window.clearInterval(id);
     }, [selectedJobId]);
@@ -199,7 +349,7 @@
           )
         : null,
 
-      h(JobTable, { jobs, onOpen: openJob }),
+      h(JobTable, { jobs: jobs, selectedJobId: selectedJobId, onOpen: openJob }),
 
       detail ? h(ResultBlock, { detail }) : null
     );

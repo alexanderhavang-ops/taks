@@ -6,7 +6,6 @@
 
   const _t = (window.t || function (k) { return k; });
 
-  // shared onboarding helpers (optional)
   const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
   function _needLib() { if (!lib) throw new Error('Missing onboarding lib: load components/onboarding/lib.js before Onboarding.js'); return lib; }
   function _colText(v){ return _needLib().colText(v); }
@@ -99,6 +98,43 @@
     );
   }
 
+  function ValidationIssuesTable({ title, issues, bad }) {
+    const rows = issues || [];
+    if (!rows.length) return null;
+
+    return h(
+      "div",
+      { style: { marginTop: "12px" } },
+      h("div", { className: "muted" }, title),
+      h(
+        "table",
+        { className: "tbl", style: { marginTop: "8px" } },
+        h("thead", null,
+          h("tr", null,
+            h("th", null, "Row"),
+            h("th", null, "Username"),
+            h("th", null, "Code"),
+            h("th", null, "Message"),
+            h("th", null, "Detail")
+          )
+        ),
+        h("tbody", null,
+          rows.map((x, idx) =>
+            h("tr", { key: title + ":" + idx },
+              h("td", null, _colText(x.row)),
+              h("td", null, _colText(x.username)),
+              h("td", null,
+                h("span", { className: bad ? "badge badge-stale" : "badge badge-recent" }, _colText(x.code))
+              ),
+              h("td", null, _colText(x.message)),
+              h("td", null, _colText(x.detail))
+            )
+          )
+        )
+      )
+    );
+  }
+
   function OnboardingImportUsersPage() {
     const [file, setFile] = useState(null);
     const [sampleN, setSampleN] = useState(5);
@@ -107,6 +143,7 @@
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
     const [preview, setPreview] = useState(null);
+    const [validation, setValidation] = useState(null);
     const [result, setResult] = useState(null);
 
     async function doPreview() {
@@ -123,16 +160,65 @@
       }
     }
 
-    async function doApply(dryRun) {
+    async function doValidate() {
       if (!file) return;
-      setBusy(true); setErr("");
+      setBusy(true); setErr(""); setResult(null);
+      try {
+        const out = await postMultipartJson("/api/onboarding/import/validate", file, "file");
+        setValidation(out);
+      } catch (e) {
+        setErr(String((e && e.message) || e));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    function goJobs(jobId) {
+      var hash = "#onboarding/import-jobs";
+      if (jobId) hash += "?job_id=" + encodeURIComponent(String(jobId));
+      try {
+        window.location.hash = hash;
+      } catch (e) {
+        window.location.hash = "#onboarding/import-jobs";
+      }
+    }
+
+    async function doStartJob(dryRun) {
+      if (!file) return;
+
+      if (!preview) {
+        setErr("Run preview first.");
+        return;
+      }
+
+      const missingRequired = (preview && preview.missing_required) || [];
+      if (missingRequired.length > 0) {
+        setErr("Preview shows missing required columns. Fix them before starting the import job.");
+        return;
+      }
+
+      if (!validation) {
+        setErr("Run validation before starting the import job.");
+        return;
+      }
+
+      if (validation && validation.ok === false) {
+        const errs = (validation && validation.errors) || [];
+        if (errs.length > 0) {
+          setErr("Validation has blocking errors. Fix them before starting the import job.");
+          return;
+        }
+      }
+
+      setBusy(true); setErr(""); setResult(null);
       try {
         const qs =
           "?dry_run=" + encodeURIComponent(dryRun ? "true" : "false") +
           "&update_existing=" + encodeURIComponent(updateExisting ? "true" : "false");
-        const url = "/api/onboarding/import/apply" + qs;
+        const url = "/api/onboarding/import/jobs" + qs;
         const out = await postMultipartJson(url, file, "file");
         setResult(out);
+        goJobs(out && out.job_id);
       } catch (e) {
         setErr(String((e && e.message) || e));
       } finally {
@@ -141,7 +227,14 @@
     }
 
     const missingRequired = (preview && preview.missing_required) || [];
-    const okPreview = preview && Array.isArray(missingRequired) && missingRequired.length === 0;
+    const okPreview = !!preview && Array.isArray(missingRequired) && missingRequired.length === 0;
+
+    const vSummary = (validation && validation.summary) || {};
+    const vErrors = (validation && validation.errors) || [];
+    const vWarnings = (validation && validation.warnings) || [];
+    const vOk = !!(validation && validation.ok === true);
+
+    const canStart = !!file && !!preview && okPreview && !!validation && !busy && (vErrors.length === 0);
 
     return h(
       "div",
@@ -151,7 +244,10 @@
 
       h("div", { className: "muted", style: { marginBottom: "10px" } },
         h("div", null, _t("import.how_it_works")),
-        h("div", { style: { opacity: 0.75, marginTop: "2px" } }, _t("import.how_it_works_body"))
+        h("div", { style: { opacity: 0.75, marginTop: "2px" } }, _t("import.how_it_works_body")),
+        h("div", { style: { opacity: 0.75, marginTop: "6px" } },
+          "Tip: leave password blank to auto-generate a compliant password."
+        )
       ),
 
       h("div", { className: "card", style: { marginTop: "10px" } },
@@ -165,6 +261,7 @@
               const f = (e && e.target && e.target.files && e.target.files[0]) ? e.target.files[0] : null;
               setFile(f);
               setPreview(null);
+              setValidation(null);
               setResult(null);
               setErr("");
             }
@@ -185,6 +282,14 @@
 
           h("button", { className: "btn", disabled: busy || !file, onClick: doPreview },
             busy ? _t("import.working") : _t("import.preview")
+          ),
+
+          h("button", { className: "btn", disabled: busy || !file, onClick: doValidate },
+            busy ? _t("import.working") : "Validate"
+          ),
+
+          h("button", { className: "btn", onClick: function () { goJobs(); } },
+            "Import jobs"
           )
         ),
 
@@ -220,18 +325,56 @@
         h("div", { className: "muted", style: { marginTop: "12px" } }, _t("import.sample_users")),
         h(SampleUsersTable, { preview }),
 
-        h("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "12px" } },
-          h("button", { className: "btn", disabled: busy || !file, onClick: () => doApply(true) },
-            _t("import.apply_dry_run")
-          ),
-          h("button", { className: "btn", disabled: busy || !file, onClick: () => doApply(false) },
-            _t("import.apply")
-          )
-        ),
-
         h("details", { style: { marginTop: "12px" } },
           h("summary", { className: "muted" }, _t("import.raw_preview")),
           h("pre", { style: { marginTop: "8px", whiteSpace: "pre-wrap" } }, _jsonPretty(preview))
+        )
+      ) : null,
+
+      validation ? h("div", { className: "card", style: { marginTop: "12px" } },
+        h("div", { className: "card-title", style: { fontSize: "14px" } }, "Validation"),
+
+        h("div", { className: "note", style: { marginTop: "8px", borderColor: vOk ? "rgba(0,180,0,0.35)" : "rgba(255,180,0,0.35)" } },
+          "Rows=" + _colText(vSummary.rows) +
+          "  Errors=" + _colText(vSummary.errors) +
+          "  Warnings=" + _colText(vSummary.warnings) +
+          "  Result=" + (vOk ? "OK" : "CHECK REQUIRED")
+        ),
+
+        ValidationIssuesTable({ title: "Errors", issues: vErrors, bad: true }),
+        ValidationIssuesTable({ title: "Warnings", issues: vWarnings, bad: false }),
+
+        h("details", { style: { marginTop: "12px" } },
+          h("summary", { className: "muted" }, "Raw validation"),
+          h("pre", { style: { marginTop: "8px", whiteSpace: "pre-wrap" } }, _jsonPretty(validation))
+        )
+      ) : null,
+
+      (preview || validation) ? h("div", { className: "card", style: { marginTop: "12px" } },
+        h("div", { className: "card-title", style: { fontSize: "14px" } }, "Start import"),
+
+        h("div", { className: "muted", style: { marginBottom: "10px" } },
+          !preview
+            ? "Run preview first."
+            : !okPreview
+              ? "Preview shows missing required columns. Fix them before starting the import job."
+              : !validation
+                ? "Run validation before starting the import job."
+                : vErrors.length
+                  ? "Validation has blocking errors. Start job is disabled."
+                  : "Validation passed. You can start the import job."
+        ),
+
+        h("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap" } },
+          h("button", { className: "btn", disabled: !canStart, onClick: function () { doStartJob(true); } },
+            "Start dry-run job"
+          ),
+          h("button", { className: "btn", disabled: !canStart, onClick: function () { doStartJob(false); } },
+            "Start import job"
+          ),
+          h("button", { className: "btn", onClick: function () { goJobs(); } },
+            "Open import jobs"
+          )
         )
       ) : null,
 
