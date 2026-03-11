@@ -12,7 +12,7 @@ from orchestrator_core.nodes_state import list_nodes, touch_heartbeat, upsert_no
 from orchestrator_core.units_state import list_units, create_unit
 
 from .auth import verify_token
-from .bundles_v2 import STATIC_BUNDLE_NAME, bundle_dir, ensure_static_bundle
+from .bundles_v2 import bundle_name_for_unit, bundle_dir, ensure_unit_bundle
 
 router = APIRouter(prefix="/api/v2")
 
@@ -78,16 +78,13 @@ def _normalize_node_req(req: Dict[str, Any]) -> Dict[str, Any]:
     role = str(d.get("role") or "tak-node").strip()
     d["role"] = role
 
-    # hostname default: stable + DNS-safe-ish
     if not str(d.get("hostname") or "").strip():
         safe = unit_path.replace("/", "-").replace("_", "-")
         d["hostname"] = f"tak-{safe}" if safe else "tak-node"
 
-    # name default: AWS tag Name (default to hostname)
     if not str(d.get("name") or "").strip():
         d["name"] = str(d.get("hostname") or "tak-node")
 
-    # fqdn default: best-effort if caller didn't provide one
     if not str(d.get("fqdn") or "").strip():
         base = os.environ.get("TAKS_DEFAULT_NODE_DOMAIN") or "tak-hv-sandbox.se"
         if unit_path and "." in unit_path:
@@ -95,9 +92,8 @@ def _normalize_node_req(req: Dict[str, Any]) -> Dict[str, Any]:
         else:
             d["fqdn"] = f"{unit_path}.{base}"
 
-    # bundle: default to a stable orchestrator-built bundle file name
     if not str(d.get("bundle_name") or "").strip():
-        d["bundle_name"] = STATIC_BUNDLE_NAME
+        d["bundle_name"] = bundle_name_for_unit(unit_path)
 
     return d
 
@@ -107,7 +103,6 @@ def _node_req(req: Dict[str, Any]) -> NodeRequest:
     try:
         return NodeRequest(**d)
     except TypeError as e:
-        # Defensive: surface clean error instead of 500 tracebacks.
         raise HTTPException(status_code=400, detail=f"Invalid node request: {e}")
 
 
@@ -121,10 +116,7 @@ def api_status() -> Dict[str, Any]:
         out = {"provider": "aws", "error": "unexpected aws_list_nodes() response"}
 
     out["launch_enabled"] = (os.environ.get("TAKS_LAUNCH_ENABLED") == "1")
-
-    p = bundle_dir() / STATIC_BUNDLE_NAME
-    out["static_bundle"] = {"name": STATIC_BUNDLE_NAME, "path": str(p), "exists": p.exists()}
-
+    out["bundle_dir"] = str(bundle_dir())
     return out
 
 
@@ -136,8 +128,7 @@ def nodes_preview(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     require_operator(request)
     nr = _node_req(req)
 
-    # Ensure static bundle exists before we generate cloud-init that references it.
-    ensure_static_bundle(nr.unit_path, nr.role)
+    ensure_unit_bundle(nr.unit_path, nr.role)
 
     plan = plan_node(nr)
     return {
@@ -151,7 +142,7 @@ def nodes_preview(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 def nodes_dry_run(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     require_operator(request)
     nr = _node_req(req)
-    ensure_static_bundle(nr.unit_path, nr.role)
+    ensure_unit_bundle(nr.unit_path, nr.role)
     return aws_dry_run(nr)
 
 
@@ -161,7 +152,7 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     if os.environ.get("TAKS_LAUNCH_ENABLED") != "1":
         raise HTTPException(status_code=400, detail="Launch disabled (set TAKS_LAUNCH_ENABLED=1)")
     nr = _node_req(req)
-    ensure_static_bundle(nr.unit_path, nr.role)
+    ensure_unit_bundle(nr.unit_path, nr.role)
     return aws_launch(nr)
 
 
@@ -172,10 +163,7 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 def nodes_list(request: Request) -> Dict[str, Any]:
     require_operator(request)
 
-    # 1) Orchestrator state (what we *think* exists)
     items = list_nodes()
-
-    # 2) AWS state (what *actually* exists right now)
     aws = aws_list_nodes()
     aws_instances = list(aws.get("instances") or [])
 
@@ -192,12 +180,10 @@ def nodes_list(request: Request) -> Dict[str, Any]:
         inst_id = (row.get("instance_id") or "").strip()
         node_id = (row.get("node_id") or "").strip()
 
-        # Back-compat: older state used node_id=<ec2 instance id> with instance_id empty
         if not inst_id and node_id.startswith("i-"):
             inst_id = node_id
             row["instance_id"] = inst_id
 
-        # Treat orchestrator/local records honestly
         if node_id == "tak-orchestrator" and not inst_id:
             row["aws_state"] = "local"
             row["heartbeat_age_sec"] = (now - int(row.get("last_seen_ts") or 0)) if row.get("last_seen_ts") else None
@@ -205,11 +191,9 @@ def nodes_list(request: Request) -> Dict[str, Any]:
             out.append(row)
             continue
 
-        # Heartbeat age (from orchestrator state)
         last_seen = int(row.get("last_seen_ts") or 0)
         heartbeat_age = (now - last_seen) if last_seen else None
 
-        # Join to AWS: prefer instance_id, fallback to IPs
         aws_rec = None
         if inst_id and inst_id in aws_by_id:
             aws_rec = aws_by_id.get(inst_id)
@@ -220,7 +204,6 @@ def nodes_list(request: Request) -> Dict[str, Any]:
 
         aws_state = (aws_rec or {}).get("state") or "unknown"
 
-        # Derived UI status (simple + honest)
         if aws_state == "terminated":
             derived = "terminated"
         elif aws_state == "stopped":
@@ -239,13 +222,11 @@ def nodes_list(request: Request) -> Dict[str, Any]:
         row["heartbeat_age_sec"] = heartbeat_age
         row["derived_status"] = derived
 
-        # If AWS has IPs, prefer them (they're fresher / authoritative)
         if aws_rec:
             row["aws_instance_id"] = aws_rec.get("instance_id")
             row["aws_private_ip"] = aws_rec.get("private_ip")
             row["aws_public_ip"] = aws_rec.get("public_ip")
 
-            # Populate canonical fields used by the UI
             if aws_rec.get("instance_id"):
                 row["instance_id"] = aws_rec.get("instance_id")
             if aws_rec.get("public_ip"):
@@ -255,7 +236,6 @@ def nodes_list(request: Request) -> Dict[str, Any]:
 
         out.append(row)
 
-    # Sort: running -> stale -> stopped -> unknown -> terminated -> local, newest heartbeat first
     order = {"running": 0, "stale": 1, "stopped": 2, "unknown": 3, "terminated": 4, "local": 5}
     out.sort(key=lambda x: (order.get(x.get("derived_status") or "unknown", 99),
                             -(int(x.get("last_seen_ts") or 0))))
@@ -311,4 +291,3 @@ def nodes_heartbeat(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 # ----------------------------
 # Units: simple file-backed org tree (operator auth)
 # ----------------------------
-

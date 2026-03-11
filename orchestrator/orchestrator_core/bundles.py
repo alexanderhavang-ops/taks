@@ -20,6 +20,12 @@ def bundles_dir() -> Path:
     return d
 
 
+def rendered_bundles_dir() -> Path:
+    d = bundles_dir() / "rendered"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def units_dir() -> Path:
     d = _state_dir() / "units"
     d.mkdir(parents=True, exist_ok=True)
@@ -130,6 +136,10 @@ def build_bundle_from_state(
       1) default_bundle/
       2) roles/<role>/bundle/
       3) units/<unit_path>/bundle/
+
+    Rendered tarballs are written under:
+
+      /opt/tak-orch/state/bundles/rendered/
     """
 
     up = _safe_unit_fs(unit_path)
@@ -145,8 +155,8 @@ def build_bundle_from_state(
         tar_name = base + ".tar.gz"
         bundle_root = base
 
-    out_tar = bundles_dir() / tar_name
-    out_manifest = bundles_dir() / (bundle_root + ".manifest.json")
+    out_tar = rendered_bundles_dir() / tar_name
+    out_manifest = rendered_bundles_dir() / (bundle_root + ".manifest.json")
 
     overlays: List[Dict[str, Any]] = []
 
@@ -159,7 +169,6 @@ def build_bundle_from_state(
         root = td_path / bundle_root
         root.mkdir(parents=True, exist_ok=True)
 
-        # Layering order:
         overlays.append(_copy_tree(default_src, root))
         overlays.append(_copy_tree(role_src, root))
         overlays.append(_copy_tree(unit_src, root))
@@ -176,4 +185,3 @@ def build_bundle_from_state(
         manifest_path=out_manifest,
         overlays=overlays,
     )
-

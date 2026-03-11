@@ -105,6 +105,17 @@ EOF
     chmod 0644 /opt/tak-orch/state/defaults.env
   fi
 
+  # ------------------------------------------------------------
+  # Installer-owned runtime state dirs for artifacts + rendered bundles
+  # ------------------------------------------------------------
+  install -d -m 2775 -o ubuntu -g taks-state /opt/tak-orch/state/artifacts
+  install -d -m 2775 -o ubuntu -g taks-state /opt/tak-orch/state/artifacts/takserver
+  install -d -m 2775 -o ubuntu -g taks-state /opt/tak-orch/state/artifacts/taks
+  install -d -m 2775 -o ubuntu -g taks-state /opt/tak-orch/state/artifacts/coturn
+  install -d -m 2775 -o ubuntu -g taks-state /opt/tak-orch/state/artifacts/plugins
+  install -d -m 2775 -o ubuntu -g taks-state /opt/tak-orch/state/bundles
+  install -d -m 2775 -o ubuntu -g taks-state /opt/tak-orch/state/bundles/rendered
+
   systemctl daemon-reload
   systemctl enable --now taks-orch.service
   systemctl restart taks-orch.service

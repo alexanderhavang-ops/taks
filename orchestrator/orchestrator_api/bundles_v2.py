@@ -1,4 +1,3 @@
-# orchestrator/orchestrator_api/bundles_v2.py
 from __future__ import annotations
 
 import hashlib
@@ -14,21 +13,27 @@ from fastapi import HTTPException
 from orchestrator_core.bundles import (
     build_bundle_from_state,
     bundles_dir,
+    rendered_bundles_dir,
     default_bundle_dir,
     role_bundle_overlay_dir,
     unit_bundle_overlay_dir,
 )
-
-STATIC_BUNDLE_NAME = "taks_orch_bundle.tar.gz"
 
 
 def bundle_dir() -> Path:
     return Path(os.environ.get("TAKS_BUNDLE_DIR") or "/opt/tak-orch/state/bundles")
 
 
+def bundle_name_for_unit(unit_path: str) -> str:
+    up = str(unit_path or "").strip().strip("/")
+    if not up:
+        raise ValueError("unit_path is required")
+    safe = up.replace("/", "-")
+    return f"{safe}.tar.gz"
+
+
 def resolve_bundle_path(bundle_name: str) -> Path:
-    d = bundle_dir()
-    d.mkdir(parents=True, exist_ok=True)
+    d = rendered_bundles_dir()
 
     p = d / bundle_name
     if p.exists():
@@ -58,9 +63,6 @@ def ts_iso(ts: float) -> str:
 
 
 def _iter_files(root: Path) -> Iterable[Tuple[str, int, int]]:
-    """
-    Return tuples of (relative_path, size, mtime_ns) for all regular files under root.
-    """
     if not root.exists():
         return []
     if not root.is_dir():
@@ -75,10 +77,6 @@ def _iter_files(root: Path) -> Iterable[Tuple[str, int, int]]:
 
 
 def _overlay_fingerprint(unit_path: str, role: str) -> str:
-    """
-    Fingerprint default + role + unit overlay trees so we can rebuild the static tar
-    when overlay content changes.
-    """
     h = hashlib.sha256()
 
     def _add_tree(tag: str, root: Path) -> None:
@@ -97,19 +95,19 @@ def _overlay_fingerprint(unit_path: str, role: str) -> str:
     return h.hexdigest()
 
 
-def ensure_static_bundle(unit_path: str, role: str) -> Path:
+def ensure_unit_bundle(unit_path: str, role: str) -> Path:
     """
-    Ensure a stable bundle file exists at:
+    Ensure a stable unit bundle file exists at:
 
-      /opt/tak-orch/state/bundles/taks_orch_bundle.tar.gz
+      /opt/tak-orch/state/bundles/rendered/<unit>.tar.gz
 
     Rebuild when overlay fingerprint changes (default + role + unit).
     """
-    d = bundle_dir()
-    d.mkdir(parents=True, exist_ok=True)
+    d = rendered_bundles_dir()
 
-    wanted = d / STATIC_BUNDLE_NAME
-    stamp = d / (STATIC_BUNDLE_NAME + ".fingerprint")
+    bundle_name = bundle_name_for_unit(unit_path)
+    wanted = d / bundle_name
+    stamp = d / (bundle_name + ".fingerprint")
 
     fp = _overlay_fingerprint(unit_path=unit_path, role=role)
 
@@ -123,32 +121,30 @@ def ensure_static_bundle(unit_path: str, role: str) -> Path:
 
     built: Any = None
 
-    # Try safest variants (signature drift across iterations)
     if "bundle_name" in params:
         built = build_bundle_from_state(
             unit_path=unit_path,
             role=role,
-            bundle_name=STATIC_BUNDLE_NAME,
+            bundle_name=bundle_name,
         )
     else:
         try:
-            built = build_bundle_from_state(unit_path, role, STATIC_BUNDLE_NAME)
+            built = build_bundle_from_state(unit_path, role, bundle_name)
         except TypeError:
             built = build_bundle_from_state(unit_path, role)
 
-    # Resolve produced tarball
     tar_path = None
-    bundle_name = None
+    built_bundle_name = None
 
     if hasattr(built, "tar_path"):
         tar_path = Path(getattr(built, "tar_path"))
     if hasattr(built, "bundle_name"):
-        bundle_name = str(getattr(built, "bundle_name"))
+        built_bundle_name = str(getattr(built, "bundle_name"))
 
     if tar_path and tar_path.exists():
         src = tar_path
-    elif bundle_name:
-        src = bundles_dir() / bundle_name
+    elif built_bundle_name:
+        src = rendered_bundles_dir() / built_bundle_name
     else:
         raise RuntimeError("Bundle build did not produce a tarball")
 
