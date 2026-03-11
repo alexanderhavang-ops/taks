@@ -10,6 +10,7 @@ pkg_install_online(){
     postgresql postgresql-client \
     nginx \
     xmlstarlet \
+    msmtp-mta \
     certbot python3-certbot-nginx
 }
 

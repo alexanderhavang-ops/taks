@@ -16,7 +16,6 @@
 
   const t = (window.t && typeof window.t === "function") ? window.t : (k) => String(k || "");
 
-  // For config.pref-backed identity/config fields: show localized label + canonical ATAK key in parentheses
   const ATAK_PREF_KEYS = new Set([
     "callsign",
     "atak_role_type",
@@ -71,8 +70,6 @@
     if (ty === "select") {
       const opts = (f && f.options) || [];
 
-      // Special-case: group must be free-text (lots of real-world special cases),
-      // but keep policy options as suggestions.
       if (k === "group") {
         const dlId = "__dl_group";
         return h(Field, { label: required ? (label + " *") : label },
@@ -156,9 +153,6 @@
     );
   }
 
-  // -----------------------------
-  // Callsign policy (KISS)
-  // -----------------------------
   const CALLSIGN_POLICIES = [
     { id: "FAL", label: "FAL" },
     { id: "FALFAL", label: "FALFAL" },
@@ -190,7 +184,7 @@
 
   function _normalizePolicyId(x) {
     const s = String(x || "").trim().toUpperCase();
-    if (s === "FALSPECIAL") return "FAL_TAK"; // legacy alias
+    if (s === "FALSPECIAL") return "FAL_TAK";
     if (_isValidPolicyId(s)) return s;
     return "";
   }
@@ -211,27 +205,21 @@
 
     const [tab, setTab] = useState("identity");
 
-    // Account
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [admin, setAdmin] = useState(false);
+    const [emailAddr, setEmailAddr] = useState("");
 
-    // Advanced
     const [revealPassword, setRevealPassword] = useState(true);
     const [ttlSec, setTtlSec] = useState(600);
 
-    // Global default callsign policy (persists)
     const [callsignPolicyDefault, setCallsignPolicyDefault] = useState("FAL_TAK");
-
-    // Per-user override (optional; stored in ctx.callsign_policy)
     const [callsignPolicyOverride, setCallsignPolicyOverride] = useState("");
 
-    // Identity + Groups + Config
     const [ident, setIdent] = useState({});
     const [groups, setGroups] = useState({ groups_rw: "46hvbat", groups_in: "", groups_out: "" });
     const [cfg, setCfg] = useState({});
 
-    // Derived preview + single editable override: callsign
     const [derived, setDerived] = useState(null);
     const [derivedErr, setDerivedErr] = useState("");
     const [deriveBusy, setDeriveBusy] = useState(false);
@@ -241,21 +229,21 @@
     const [callsignEdit, setCallsignEdit] = useState("");
     const callsignDirtyRef = React.useRef(false);
 
-    // Edit mode (when routeUsername provided)
     const isEdit = !!_norm(routeUsername);
 
-    // Result
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState("");
     const [result, setResult] = useState(null);
 
-    // Load global default once
+    const [emailBusy, setEmailBusy] = useState(false);
+    const [emailErr, setEmailErr] = useState("");
+    const [emailResult, setEmailResult] = useState(null);
+
     useEffect(() => {
       const v = _normalizePolicyId(_lsGet(LS_KEY_DEFAULT_CALLSIGN_POLICY, "FAL_TAK")) || "FAL_TAK";
       setCallsignPolicyDefault(v);
     }, []);
 
-    // If routed to create:<username>, prefill username and load user
     useEffect(() => {
       const u = _norm(routeUsername);
       if (!u) return;
@@ -268,31 +256,27 @@
           const j = await r.json().catch(() => ({}));
           if (!r.ok) throw new Error(j.detail || ("HTTP " + r.status));
 
-          // ctx from taks_identity if present
           const ti = (j && j.taks_identity) ? j.taks_identity : null;
           const ctx = (ti && ti.ctx) ? ti.ctx : {};
 
-          // password should not be shown in edit (keep blank)
           setPassword("");
 
-          // groups_rw default to current groups for convenience
           const gg = (j && j.user && Array.isArray(j.user.groups)) ? j.user.groups : [];
           if (gg && gg.length) {
             setGroups(prev => Object.assign({}, prev, { groups_rw: gg.join(", ") }));
           }
 
-          // policy_id from ctx if present
           const pid = (ctx && ctx.policy_id) ? String(ctx.policy_id) : "";
           if (pid) setPolicyId(pid);
 
-          // callsign policy override from ctx
           const cp = (ctx && ctx.callsign_policy) ? _normalizePolicyId(ctx.callsign_policy) : "";
           setCallsignPolicyOverride(cp || "");
 
-          // populate identity fields (best effort; policy load will later ensure defaults)
           setIdent(prev => Object.assign({}, prev, ctx || {}));
 
-          // callsign override: preserve and mark dirty so derive doesn't clobber it
+          const em = (ctx && ctx.email) ? String(ctx.email) : "";
+          if (em) setEmailAddr(em);
+
           const cso = (ctx && ctx.callsign) ? String(ctx.callsign) : "";
           if (cso) {
             callsignDirtyRef.current = true;
@@ -412,7 +396,6 @@
           if (!alive) return;
           setPolicyList(j || null);
           const defId = (j && j.default_policy_id) ? String(j.default_policy_id) : "";
-          // Do NOT clobber policyId if edit-mode set it from ctx already
           setPolicyId(prev => prev ? prev : (defId || ""));
         } catch (e) {
           if (!alive) return;
@@ -557,7 +540,6 @@
 
             setDerived(data || null);
 
-            // Only auto-overwrite callsign if user hasn't touched it
             if (!callsignDirtyRef.current) {
               const di = (data && data.identity) || {};
               setCallsignEdit(di.callsign ? String(di.callsign) : "");
@@ -590,6 +572,8 @@
     async function doCreate() {
       setErr("");
       setResult(null);
+      setEmailErr("");
+      setEmailResult(null);
 
       const u = _norm(username);
       if (!u) { setErr("Username required."); return; }
@@ -611,8 +595,8 @@
       }
 
       ctx.callsign_policy = effectivePolicy;
-
       if (_norm(callsignEdit)) ctx.callsign = String(callsignEdit);
+      if (_norm(emailAddr)) ctx.email = String(emailAddr);
 
       const body = {
         password: _norm(password) || null,
@@ -644,6 +628,39 @@
       }
     }
 
+    async function doEmailLink() {
+      setEmailErr("");
+      setEmailResult(null);
+
+      const u = _norm(username);
+      const em = _norm(emailAddr);
+      if (!u) { setEmailErr("Username required."); return; }
+      if (!em) { setEmailErr("Email required."); return; }
+
+      setEmailBusy(true);
+      try {
+        const resp = await fetch(`api/onboarding/users/${encodeURIComponent(u)}/email-link`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            email: em,
+            ttl_sec: Number(ttlSec || 600),
+            reveal_password: !!revealPassword,
+          }),
+        });
+        const j = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(j.detail || `HTTP ${resp.status}`);
+        setEmailResult(j || {});
+        if (j && j.card_url) {
+          setResult(prev => Object.assign({}, prev || {}, { card_url: j.card_url, card_token: j.card_token }));
+        }
+      } catch (e) {
+        setEmailErr(String((e && e.message) || e || "Failed"));
+      } finally {
+        setEmailBusy(false);
+      }
+    }
+
     const activePolicyName = policy ? `${policy.name} (${policyId})` : (policyId ? policyId : "—");
 
     const badgePrimary = _norm(callsignEdit) || "—";
@@ -654,7 +671,6 @@
 
     const cardUrl = (result && result.card_url) || "";
     const pwValue = (result && result.taks_identity && result.taks_identity.password && result.taks_identity.password.value) || "";
-
     const effectivePolicyUi = _effectiveCallsignPolicy(callsignPolicyOverride, callsignPolicyDefault);
 
     function PolicySelect({ value, onChange, includeDefaultOption }) {
@@ -730,6 +746,9 @@
           h("div", { className: "grid", style: { gridTemplateColumns: "1fr", gap: "12px" } },
             h(Field, { label: "Username *" },
               h("input", Object.assign({}, LP, { type: "text", value: username, placeholder: "e.g. admin.46hvbat", onChange: e => setUsername(e.target.value) }))
+            ),
+            h(Field, { label: "Email" },
+              h("input", Object.assign({}, LP, { type: "email", value: emailAddr, placeholder: "name@example.com", onChange: e => setEmailAddr(e.target.value) }))
             ),
             h(Field, { label: isEdit ? "Password (leave blank to keep unchanged)" : "Password (optional)" },
               h("input", { "data-lpignore": "true", autoComplete: "new-password", type: "text", value: password, placeholder: isEdit ? "leave blank to keep current" : "leave blank for TAKS-generated", onChange: e => setPassword(e.target.value) })
@@ -822,21 +841,17 @@
             appearance: "none",
             WebkitAppearance: "none",
             MozAppearance: "none",
-
             width: "100%",
             padding: "14px 16px",
             borderRadius: "12px",
-
             border: "1px solid rgba(255,255,255,0.18)",
             background: "rgba(255,255,255,0.08)",
             color: "#fff",
-
             boxShadow: "0 10px 24px rgba(0,0,0,0.35)",
             fontWeight: 900,
             fontSize: "13px",
             letterSpacing: "0.10em",
             textTransform: "uppercase",
-
             cursor: busy ? "not-allowed" : "pointer",
             opacity: busy ? 0.65 : 1
           }
@@ -856,7 +871,23 @@
           h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", marginTop: "8px" } },
             h("b", null, "Password:"),
             pwValue || "—"
-          )
+          ),
+          h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", marginTop: "8px" } },
+            h("b", null, "Email:"),
+            _norm(emailAddr) || "—"
+          ),
+          h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", marginTop: "10px" } },
+            h("button", {
+              type: "button",
+              className: "btn",
+              disabled: emailBusy || !_norm(username) || !_norm(emailAddr),
+              onClick: doEmailLink
+            }, emailBusy ? "Emailing…" : "Email link")
+          ),
+          emailErr ? h("div", { className: "muted", style: { marginTop: "8px", whiteSpace: "pre-wrap" } }, "Email error: " + String(emailErr)) : null,
+          emailResult ? h("div", { className: "muted", style: { marginTop: "8px", whiteSpace: "pre-wrap" } },
+            "Email sent to " + _colText(emailResult.email || emailAddr)
+          ) : null
         ) : null
       )
     );

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import threading
 import uuid
@@ -8,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from takctl.api.onboarding_identity import build_service
+from takctl.onboarding.service_builder import build_service
 from takctl.onboarding.import_users import load_file, run_import
 
 ROOT = Path("/opt/tak/takctl-state/onboarding/import-jobs")
@@ -49,6 +50,25 @@ def _events_path(job_id: str) -> Path:
     return _job_dir(job_id) / "events.jsonl"
 
 
+def _external_base_from_env() -> str | None:
+    """
+    Background-job public base URL for soldier card links.
+
+    Preferred:
+      TAKS_EXTERNAL_BASE=https://46hvbat.tak-hv-sandbox.se
+
+    Optional legacy alias:
+      TAKCTL_EXTERNAL_BASE=...
+
+    Returns None if unset.
+    """
+    for k in ("TAKS_EXTERNAL_BASE", "TAKCTL_EXTERNAL_BASE"):
+        v = (os.environ.get(k) or "").strip()
+        if v:
+            return v.rstrip("/")
+    return None
+
+
 def _write_json(path: Path, obj: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -87,6 +107,8 @@ def create_job_from_upload(
     except Exception:
         total_rows = 0
 
+    external_base = _external_base_from_env()
+
     job = {
         "job_id": job_id,
         "state": "queued",
@@ -98,6 +120,7 @@ def create_job_from_upload(
         "source_path": str(source_copy),
         "dry_run": bool(dry_run),
         "update_existing": bool(update_existing),
+        "external_base": external_base,
         "total_rows": int(total_rows),
         "done_rows": 0,
         "created": 0,
@@ -205,7 +228,7 @@ def run_job(job_id: str) -> None:
     _append_event(job_id, {"ts": _iso(_now_utc()), "type": "job_started", "job_id": job_id})
 
     try:
-        svc = build_service()
+        svc = build_service(external_base=job.get("external_base"))
         result = run_import(
             svc,
             str(job["source_path"]),

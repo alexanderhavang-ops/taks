@@ -20,7 +20,6 @@ def _gen_strong_password(length: int = 20) -> str:
 
     n = max(int(length), 15)
 
-    # Ensure required categories
     chars = [
         secrets.choice(uppers),
         secrets.choice(lowers),
@@ -32,7 +31,6 @@ def _gen_strong_password(length: int = 20) -> str:
     while len(chars) < n:
         chars.append(secrets.choice(alphabet))
 
-    # Fisher–Yates shuffle
     for i in range(len(chars) - 1, 0, -1):
         j = secrets.randbelow(i + 1)
         chars[i], chars[j] = chars[j], chars[i]
@@ -52,6 +50,7 @@ from takctl.onboarding.service_builder import build_service
 from takctl.onboarding.http import external_base
 from takctl.onboarding.selection import load_selection, save_selection
 from takctl.onboarding.pages_soldier import render_soldier_card_page
+from takctl.onboarding.emailer import send_onboarding_email, is_valid_email
 
 from takctl.services.usermgr import UserMgrService, UserMgrError
 from takctl.onboarding.policy import Policy
@@ -61,6 +60,76 @@ router = APIRouter(tags=["onboarding"])
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _create_card_token_compat(store, *, username: str, ttl_sec: int, reveal_password: bool):
+    """
+    Store API drift guard:
+      - create_card_token(...)
+      - upsert_card_token(...)
+    """
+    if hasattr(store, "create_card_token"):
+        return store.create_card_token(
+            username=username,
+            ttl_sec=int(ttl_sec),
+            reveal_password=bool(reveal_password),
+        )
+
+    if hasattr(store, "upsert_card_token"):
+        return store.upsert_card_token(
+            username=username,
+            ttl_sec=int(ttl_sec),
+            reveal_password=bool(reveal_password),
+        )
+
+    raise RuntimeError(
+        "Onboarding store missing card-token creator (create_card_token/upsert_card_token)"
+    )
+
+
+def _card_token_json(ct) -> Dict[str, Any]:
+    return {
+        "token": ct.token,
+        "username": ct.username,
+        "expires_at": ct.expires_at_utc.isoformat().replace("+00:00", "Z"),
+        "reveal_password": bool(ct.reveal_password),
+    }
+
+
+def _issue_card_link_base(base: str, svc, *, username: str, ttl_sec: int, reveal_password: bool) -> Dict[str, Any]:
+    """
+    Background-job compatible card link generator.
+
+    Used by:
+      - bulk import
+      - future email senders
+    """
+    ct = _create_card_token_compat(
+        svc.store,
+        username=username,
+        ttl_sec=int(ttl_sec),
+        reveal_password=bool(reveal_password),
+    )
+
+    base = (base or "").rstrip("/")
+    return {
+        "card_token": _card_token_json(ct),
+        "card_url": f"{base}/api/onboarding/cards/{ct.token}",
+    }
+
+
+def _issue_card_link(req: Request, svc, *, username: str, ttl_sec: int, reveal_password: bool) -> Dict[str, Any]:
+    """
+    Web-request variant.
+    """
+    base = external_base(req)
+    return _issue_card_link_base(
+        base,
+        svc,
+        username=username,
+        ttl_sec=ttl_sec,
+        reveal_password=reveal_password,
+    )
 
 
 class IdentityUpsertIn(BaseModel):
@@ -74,40 +143,24 @@ class CardTokenCreateIn(BaseModel):
     reveal_password: bool = Field(default=False)
 
 
-# ---------------------------
-# NEW: user creation endpoint
-# ---------------------------
-
-class UserCreateIn(BaseModel):
-    # If omitted:
-    #  - if user does NOT exist => we generate a strong password and set it
-    #  - if user exists        => we do NOT change password
-    password: Optional[str] = Field(default=None)
-
-    # If true, pass -A to usermod.
-    admin: bool = Field(default=False)
-
-    # Group lists map to UserManager.jar flags -g/-ig/-og
-    groups_rw: List[str] = Field(default_factory=list)
-    groups_in: List[str] = Field(default_factory=list)
-    groups_out: List[str] = Field(default_factory=list)
-
-    # Persisted ctx used by policy.conf. If missing, we still store it (empty) and policy uses defaults.
-    ctx: Dict[str, Any] = Field(default_factory=dict)
-
-    # Persist selection in the same shape as Generate page uses.
-    # Keep defaults aligned with UI.
-    paths: Dict[str, bool] = Field(default_factory=lambda: {"B": True, "itak": True, "wintak": True})
-    endpoints: Dict[str, Any] = Field(default_factory=dict)
-
-    # Card token behavior
-    ttl_sec: int = Field(default=600, ge=60, le=7 * 24 * 3600)
+class EmailLinkIn(BaseModel):
+    email: str = Field(default="")
+    ttl_sec: int = Field(default=3600, ge=60, le=7 * 24 * 3600)
     reveal_password: bool = Field(default=True)
 
 
-# ---------------------------
-# NEW: derive identity preview (policy-driven)
-# ---------------------------
+class UserCreateIn(BaseModel):
+    password: Optional[str] = Field(default=None)
+    admin: bool = Field(default=False)
+    groups_rw: List[str] = Field(default_factory=list)
+    groups_in: List[str] = Field(default_factory=list)
+    groups_out: List[str] = Field(default_factory=list)
+    ctx: Dict[str, Any] = Field(default_factory=dict)
+    paths: Dict[str, bool] = Field(default_factory=lambda: {"B": True, "itak": True, "wintak": True})
+    endpoints: Dict[str, Any] = Field(default_factory=dict)
+    ttl_sec: int = Field(default=600, ge=60, le=7 * 24 * 3600)
+    reveal_password: bool = Field(default=True)
+
 
 class IdentityDeriveIn(BaseModel):
     policy_id: str = Field(default="hemvarnet")
@@ -116,11 +169,6 @@ class IdentityDeriveIn(BaseModel):
 
 @router.post("/onboarding/derive")
 def derive_identity(body: IdentityDeriveIn):
-    """
-    Preview derived identity (callsign/team/atak_role_type) from policy.conf + grammar.
-
-    This is used by the web UI to show computed read-only fields live.
-    """
     policy_id = (body.policy_id or "hemvarnet").strip() or "hemvarnet"
     ctx = dict(body.ctx or {})
     try:
@@ -132,7 +180,6 @@ def derive_identity(body: IdentityDeriveIn):
             "team": ident.team,
             "atak_role_type": getattr(ident, "atak_role_type", None),
         }
-        # Optional debug/UX fields (read-only)
         v = getattr(ident, "callsign_variants", None)
         if isinstance(v, dict) and v:
             identity["callsign_variants"] = v
@@ -161,20 +208,8 @@ def derive_identity(body: IdentityDeriveIn):
         )
 
 
-# ---------------------------
-# NEW: fetch one user (for Edit UI)
-# ---------------------------
-
 @router.get("/onboarding/users/{username}")
 def get_user(username: str):
-    """
-    Fetch a single user model for the web UI "Edit" flow.
-
-    Returns:
-      - user: authoritative groups (from UserAuthenticationFile.xml observer)
-      - taks_identity: overlay ctx/identity (password not revealed here)
-      - selection: selection.json (ctx + paths + endpoints)
-    """
     u = (username or "").strip()
     if not u:
         raise HTTPException(status_code=400, detail="username required")
@@ -204,7 +239,6 @@ def get_user(username: str):
             "password_known": bool(getattr(ident, "password_known", False)),
             "ctx": ident.ctx or {},
             "identity": getattr(ident, "identity", None) or {},
-            # DO NOT reveal password here (Edit UI doesn't need it)
             "password": {"known": False, "value": None},
         }
 
@@ -213,21 +247,11 @@ def get_user(username: str):
 
 @router.post("/onboarding/users/{username}/create")
 def create_user(req: Request, username: str, body: UserCreateIn):
-    """
-    CREATE / ENSURE user in authoritative TAK store (UserAuthenticationFile.xml via UserManager.jar),
-    then persist TAKS-owned overlay + selection + issue a shareable card token.
-
-    Semantics:
-      - If user doesn't exist and password omitted => generate password and set it.
-      - If user exists and password omitted => do NOT change password.
-    """
     u = (username or "").strip()
     if not u:
         raise HTTPException(status_code=400, detail="username required")
 
     svc = build_service()
-
-    # Determine whether user exists BEFORE usermod
     existed = (svc.ud.get_user(u) is not None)
 
     pw_in = (body.password or "").strip()
@@ -236,12 +260,11 @@ def create_user(req: Request, username: str, body: UserCreateIn):
     else:
         pw_to_set = None if existed else _gen_strong_password(20)
 
-    # 1) Create / update authoritative user (jar writes UserAuthenticationFile.xml)
     um = UserMgrService()
     try:
         um.user_set(
             u,
-            password=pw_to_set,  # None => do not change pw
+            password=pw_to_set,
             admin=True if body.admin else None,
             groups=[x for x in (body.groups_rw or []) if str(x).strip()],
             in_groups=[x for x in (body.groups_in or []) if str(x).strip()],
@@ -255,12 +278,10 @@ def create_user(req: Request, username: str, body: UserCreateIn):
             detail=f"UserManager failed: {e}",
         )
 
-    # Re-check existence via authoritative directory (read-only observer)
     tak_user = svc.ud.get_user(u)
     if tak_user is None:
         raise HTTPException(status_code=500, detail=f"User not found after create/update in UserAuthenticationFile.xml: {u}")
 
-    # 2) Derive identity via policy grammar and persist taks_identity overlay
     ctx = dict(body.ctx or {})
     policy_id = (ctx.get("policy_id") or "hemvarnet").strip() or "hemvarnet"
     try:
@@ -276,13 +297,11 @@ def create_user(req: Request, username: str, body: UserCreateIn):
         ctx = dict(ctx)
         ctx.setdefault("_policy_error", str(e))
 
-    # Preserve existing stored password if we didn't change it and it was known
     existing_ident = svc.store.get_identity(u)
     pw_for_store: Optional[str] = None
     if pw_to_set is not None:
         pw_for_store = pw_to_set
     else:
-        # unchanged: keep previous known password if any
         if existing_ident is not None and bool(getattr(existing_ident, "password_known", False)):
             pw_for_store = getattr(existing_ident, "password", None)
 
@@ -294,7 +313,6 @@ def create_user(req: Request, username: str, body: UserCreateIn):
         password=pw_for_store,
     )
 
-    # 3) Persist selection.json (same shape Generate page expects)
     sel = {
         "ctx": ctx,
         "paths": dict(body.paths or {"B": True, "itak": True, "wintak": True}),
@@ -302,16 +320,16 @@ def create_user(req: Request, username: str, body: UserCreateIn):
     }
     save_selection(u, sel)
 
-    # 4) Issue a shareable card token
-    ct = svc.store.create_card_token(username=u, ttl_sec=int(body.ttl_sec), reveal_password=bool(body.reveal_password))
+    card_info = _issue_card_link(
+        req,
+        svc,
+        username=u,
+        ttl_sec=int(body.ttl_sec),
+        reveal_password=bool(body.reveal_password),
+    )
 
-    base = external_base(req).rstrip("/")
-    card_url = f"{base}/api/onboarding/cards/{ct.token}"
-
-    # Decide what to return about password:
-    # - If we set it now, we can reveal it (for create flow).
-    # - If unchanged, we do not know it (unless it was previously known and stored).
-    pw_known = pw_for_store is not None and bool(getattr(svc.store.get_identity(u), "password_known", False))
+    ident_after = svc.store.get_identity(u)
+    pw_known = pw_for_store is not None and bool(getattr(ident_after, "password_known", False))
     pw_value = pw_for_store if (pw_to_set is not None) else (pw_for_store if pw_known else None)
 
     return JSONResponse(
@@ -328,13 +346,7 @@ def create_user(req: Request, username: str, body: UserCreateIn):
                 "password": {"known": bool(pw_known), "value": pw_value},
             },
             "selection": sel,
-            "card_token": {
-                "token": ct.token,
-                "username": ct.username,
-                "expires_at": ct.expires_at_utc.isoformat().replace("+00:00", "Z"),
-                "reveal_password": bool(ct.reveal_password),
-            },
-            "card_url": card_url,
+            **card_info,
         },
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
@@ -352,7 +364,6 @@ def upsert_identity(username: str, body: IdentityUpsertIn):
 
     svc = build_service()
 
-    # only allow identities for users that exist in authoritative directory
     u = svc.ud.get_user(username)
     if u is None:
         raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {username}")
@@ -361,7 +372,7 @@ def upsert_identity(username: str, body: IdentityUpsertIn):
         username=username,
         origin=origin,
         ctx=(body.ctx or {}),
-        identity={},  # reserved for future
+        identity={},
         password=(body.password or None),
     )
     return JSONResponse(
@@ -378,45 +389,76 @@ def upsert_identity(username: str, body: IdentityUpsertIn):
 
 
 @router.post("/onboarding/users/{username}/card-token")
-def create_card_token(username: str, body: CardTokenCreateIn):
+def create_card_token(req: Request, username: str, body: CardTokenCreateIn):
     username = (username or "").strip()
     if not username:
         raise HTTPException(status_code=400, detail="username required")
 
     svc = build_service()
 
-    # only allow tokens for users that exist in authoritative directory
     u = svc.ud.get_user(username)
     if u is None:
         raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {username}")
 
-    # Store API drift guard:
-    if hasattr(svc.store, "create_card_token"):
-        ct = svc.store.create_card_token(
+    try:
+        out = _issue_card_link(
+            req,
+            svc,
             username=username,
             ttl_sec=int(body.ttl_sec),
             reveal_password=bool(body.reveal_password),
         )
-    elif hasattr(svc.store, "upsert_card_token"):
-        ct = svc.store.upsert_card_token(
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return JSONResponse(
+        out,
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.post("/onboarding/users/{username}/email-link")
+def email_link(req: Request, username: str, body: EmailLinkIn):
+    username = (username or "").strip()
+    if not username:
+        raise HTTPException(status_code=400, detail="username required")
+
+    email = (body.email or "").strip()
+    if not email:
+        raise HTTPException(status_code=400, detail="email required")
+    if not is_valid_email(email):
+        raise HTTPException(status_code=400, detail=f"invalid email address: {email!r}")
+
+    svc = build_service()
+
+    u = svc.ud.get_user(username)
+    if u is None:
+        raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {username}")
+
+    try:
+        card_info = _issue_card_link(
+            req,
+            svc,
             username=username,
             ttl_sec=int(body.ttl_sec),
             reveal_password=bool(body.reveal_password),
         )
-    else:
-        raise HTTPException(
-            status_code=500,
-            detail="Onboarding store missing card-token creator (create_card_token/upsert_card_token)",
+        email_status = send_onboarding_email(
+            to_addr=email,
+            username=username,
+            card_url=str(card_info.get("card_url") or ""),
         )
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"email send failed: {e}")
 
     return JSONResponse(
         {
-            "card_token": {
-                "token": ct.token,
-                "username": ct.username,
-                "expires_at": ct.expires_at_utc.isoformat().replace("+00:00", "Z"),
-                "reveal_password": bool(ct.reveal_password),
-            }
+            "username": username,
+            "email": email,
+            **card_info,
+            "email_status": email_status,
         },
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
@@ -476,9 +518,6 @@ def onboarding_card_by_token_json(
 
 @router.get("/onboarding/cards/{token}")
 def onboarding_card_html(req: Request, token: str):
-    """
-    Public, shareable soldier card (NO web auth).
-    """
     svc = build_service()
 
     ct = svc.store.get_card_token(token)
@@ -490,7 +529,6 @@ def onboarding_card_html(req: Request, token: str):
     if not username:
         raise HTTPException(status_code=404, detail="Not Found")
 
-    # Pull lifecycle/groups from canonical card model (best effort, DB optional)
     try:
         card = svc.user_card(username=username, db=None, recent_minutes=120)
     except Exception:
@@ -515,8 +553,6 @@ def onboarding_card_html(req: Request, token: str):
 
     lang = (req.query_params.get("lang") or "").strip().lower()
 
-
-
     html = render_soldier_card_page(
         lang=lang,
         username=username,
@@ -530,3 +566,4 @@ def onboarding_card_html(req: Request, token: str):
         lifecycle=lifecycle,
     )
     return HTMLResponse(html, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+

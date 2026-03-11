@@ -13,6 +13,7 @@ except Exception:
 from takctl.onboarding.policy import Policy
 from takctl.onboarding.selection import save_selection
 from takctl.services.usermgr import UserMgrService, UserMgrError
+from takctl.api.onboarding_identity import _issue_card_link_base
 
 
 # ------------------------------------------------------------
@@ -166,6 +167,7 @@ def _ctx_from_row(row: Dict[str, str]) -> Dict[str, Any]:
         "callsign_policy",
         "role",
         "remarks",
+        "email",
     ):
         v = (row.get(k) or "").strip()
         if v:
@@ -213,6 +215,7 @@ def _apply_row(
 
     ctx = _ctx_from_row(row)
     password_in = (row.get("password") or "").strip()
+    email = (row.get("email") or "").strip()
     admin = _bool(row.get("is_admin", row.get("admin", "")))
     groups = _group_list_from_row(row)
 
@@ -221,10 +224,22 @@ def _apply_row(
         return {"status": "skipped", "username": username, "reason": "exists"}
 
     password_to_set = None
+    password_source = "unchanged"
+
     if existing_user is None:
-        password_to_set = password_in or _gen_strong_password(20)
+        if password_in:
+            password_to_set = password_in
+            password_source = "provided"
+        else:
+            password_to_set = _gen_strong_password(20)
+            password_source = "generated"
     else:
-        password_to_set = password_in or None
+        if password_in:
+            password_to_set = password_in
+            password_source = "provided"
+        else:
+            password_to_set = None
+            password_source = "unchanged"
 
     um = UserMgrService()
     try:
@@ -279,12 +294,32 @@ def _apply_row(
         "endpoints": {},
     })
 
+    # Generate soldier card link for this user
+    card_url = None
+    try:
+        base = getattr(service, "external_base", None) or ""
+        if base:
+            card_info = _issue_card_link_base(
+                base,
+                service,
+                username=username,
+                ttl_sec=3600,
+                reveal_password=True,
+            )
+            card_url = card_info.get("card_url")
+    except Exception:
+        card_url = None
+
     return {
         "status": "updated" if existing_user is not None else "created",
         "username": username,
-        "password_generated": bool(existing_user is None and not password_in),
+        "email": email or None,
+        "password_set": bool(password_to_set),
+        "password_generated": password_source == "generated",
+        "password_source": password_source,
         "groups": groups,
         "admin": bool(admin),
+        "card_url": card_url,
     }
 
 
@@ -322,6 +357,8 @@ def import_users(
 
     for i, row in enumerate(rows, start=1):
         username = (row.get("username") or "").strip()
+        password_in = (row.get("password") or "").strip()
+        email = (row.get("email") or "").strip()
 
         try:
             exists = bool(username and service.ud.get_user(username) is not None)
@@ -333,6 +370,10 @@ def import_users(
                     "status": "skipped",
                     "username": username,
                     "reason": "exists",
+                    "email": email or None,
+                    "password_set": False,
+                    "password_generated": False,
+                    "password_source": "unchanged",
                 }
                 results.append(item)
                 _emit_progress(progress_cb, {
@@ -351,15 +392,25 @@ def import_users(
                 st = "updated" if exists else "created"
                 if exists:
                     updated += 1
+                    password_source = "provided" if password_in else "unchanged"
+                    password_set = bool(password_in)
+                    password_generated = False
                 else:
                     created += 1
+                    password_source = "provided" if password_in else "generated"
+                    password_set = True
+                    password_generated = not bool(password_in)
 
                 item = {
                     "row": i,
                     "status": st,
                     "username": username,
+                    "email": email or None,
                     "admin": _bool(row.get("is_admin", row.get("admin", ""))),
                     "groups": _group_list_from_row(row),
+                    "password_set": password_set,
+                    "password_generated": password_generated,
+                    "password_source": password_source,
                 }
                 results.append(item)
                 _emit_progress(progress_cb, {

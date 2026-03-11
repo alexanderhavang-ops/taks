@@ -19,10 +19,130 @@
   function _userUrls(username){ return _needLib().userUrls(username); }
   function _splitCsv(s){ return _needLib().splitCsv(s); }
 
+  const PRINT_MODES = [
+    { id: "cards", label: "Cards only" },
+    { id: "passwords", label: "Passwords only" },
+    { id: "cards_inline_passwords", label: "Cards + passwords same page" },
+    { id: "cards_then_passwords", label: "Cards + passwords separate pages" },
+  ];
+
+  function _rowUsername(u) {
+    const hdr = (u && u.header) || {};
+    return String(hdr.username || u.username || "");
+  }
+
+  function _submitPrintPack(usernames, printMode) {
+    const list = Array.isArray(usernames) ? usernames.filter(Boolean).map(String) : [];
+    if (!list.length) {
+      throw new Error("No users selected for print");
+    }
+
+    const lang = (window.currentLang || "").toString().trim().toLowerCase() || "";
+
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "/api/onboarding/print-pack";
+    form.target = "_blank";
+    form.style.display = "none";
+
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = "payload";
+    input.value = JSON.stringify({
+      usernames: list,
+      print_mode: String(printMode || "cards"),
+      lang: lang || null,
+    });
+    form.appendChild(input);
+
+    document.body.appendChild(form);
+    try {
+      form.submit();
+    } finally {
+      document.body.removeChild(form);
+    }
+  }
+
+  function PrintToolbar({
+    rows,
+    selectedMap,
+    onClear,
+    onSelectAllVisible,
+    printMode,
+    onPrintMode,
+  }) {
+    const usernames = (rows || []).map(_rowUsername).filter(Boolean);
+    const selectedUsernames = usernames.filter((u) => !!selectedMap[u]);
+
+    return h(
+      "div",
+      {
+        className: "card",
+        style: {
+          marginBottom: "12px",
+          padding: "12px",
+          display: "flex",
+          gap: "10px",
+          flexWrap: "wrap",
+          alignItems: "center"
+        }
+      },
+      h("div", { className: "muted", style: { marginRight: "8px" } },
+        "Selected=" + _colText(selectedUsernames.length) + " / " + _colText(usernames.length)
+      ),
+
+      h("button", {
+        className: "btn",
+        type: "button",
+        onClick: function () { onSelectAllVisible(); }
+      }, "Select all"),
+
+      h("button", {
+        className: "btn",
+        type: "button",
+        onClick: function () { onClear(); }
+      }, "Clear selection"),
+
+      h("div", { className: "muted", style: { marginLeft: "6px" } }, "Print mode:"),
+
+      h("select", {
+        className: "inp",
+        value: String(printMode || "cards"),
+        onChange: function (e) { onPrintMode(String(e.target.value || "cards")); },
+        style: { minWidth: "260px" }
+      },
+        PRINT_MODES.map(function (m) {
+          return h("option", { key: m.id, value: m.id }, m.label);
+        })
+      ),
+
+      h("button", {
+        className: "btn",
+        type: "button",
+        disabled: selectedUsernames.length === 0,
+        onClick: function () {
+          _submitPrintPack(selectedUsernames, printMode);
+        }
+      }, "Print selected"),
+
+      h("button", {
+        className: "btn",
+        type: "button",
+        disabled: usernames.length === 0,
+        onClick: function () {
+          _submitPrintPack(usernames, printMode);
+        }
+      }, "Print all")
+    );
+  }
+
   // ---------------------------------------------------------------------------
   // tables (List)
   // ---------------------------------------------------------------------------
-  function OnboardingTable({ rows }) {
+  function OnboardingTable({ rows, selectedMap, onToggleOne, onToggleAllVisible }) {
+    const allUsernames = (rows || []).map(_rowUsername).filter(Boolean);
+    const allSelected = allUsernames.length > 0 && allUsernames.every((u) => !!selectedMap[u]);
+
     return h(
       "table",
       { className: "tbl" },
@@ -32,6 +152,13 @@
         h(
           "tr",
           null,
+          h("th", { style: { width: "36px" } },
+            h("input", {
+              type: "checkbox",
+              checked: !!allSelected,
+              onChange: function () { onToggleAllVisible(); }
+            })
+          ),
           h("th", null, _t("list.username")),
           h("th", null, _t("list.groups")),
           h("th", null, _t("list.onboard")),
@@ -68,6 +195,13 @@
           return h(
             "tr",
             { key },
+            h("td", null,
+              h("input", {
+                type: "checkbox",
+                checked: !!selectedMap[username],
+                onChange: function () { onToggleOne(username); }
+              })
+            ),
             h("td", null, _colText(username || "—")),
             h("td", null, _colText(groupsTxt)),
             h("td", null, _colText(onboard || "—")),
@@ -101,8 +235,7 @@
                   "button",
                   {
                     className: "btn",
-                    onClick: () => {
-                      // route: #onboarding/create:<username>
+                    onClick: function () {
                       try {
                         const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
                         if (lib && typeof lib.setHashRoute === "function") lib.setHashRoute("create", username);
@@ -167,6 +300,55 @@
     const users = d.users || [];
     const unknown = d.unknown_endpoints || [];
 
+    const [selectedMap, setSelectedMap] = useState({});
+    const [printMode, setPrintMode] = useState("cards");
+
+    useEffect(function () {
+      const known = {};
+      (users || []).forEach(function (u) {
+        const username = _rowUsername(u);
+        if (username) known[username] = true;
+      });
+
+      setSelectedMap(function (prev) {
+        const out = {};
+        Object.keys(prev || {}).forEach(function (k) {
+          if (known[k] && prev[k]) out[k] = true;
+        });
+        return out;
+      });
+    }, [users]);
+
+    function toggleOne(username) {
+      const u = String(username || "");
+      if (!u) return;
+      setSelectedMap(function (prev) {
+        const out = Object.assign({}, prev || {});
+        if (out[u]) delete out[u];
+        else out[u] = true;
+        return out;
+      });
+    }
+
+    function toggleAllVisible() {
+      const usernames = (users || []).map(_rowUsername).filter(Boolean);
+      const allSelected = usernames.length > 0 && usernames.every(function (u) { return !!selectedMap[u]; });
+
+      setSelectedMap(function (prev) {
+        const out = Object.assign({}, prev || {});
+        if (allSelected) {
+          usernames.forEach(function (u) { delete out[u]; });
+        } else {
+          usernames.forEach(function (u) { out[u] = true; });
+        }
+        return out;
+      });
+    }
+
+    function clearSelection() {
+      setSelectedMap({});
+    }
+
     return h(
       "div",
       null,
@@ -185,7 +367,23 @@
           `Unknown=${_colText(summary.unknown_endpoints)}  ` +
           `DB=${(typeof meta.db_attached === "boolean") ? (meta.db_attached ? "attached" : "none") : "?"} (${_colText((meta && meta.db_source) || "no meta")})`
       ),
-      h(OnboardingTable, { rows: users }),
+
+      h(PrintToolbar, {
+        rows: users,
+        selectedMap: selectedMap,
+        onClear: clearSelection,
+        onSelectAllVisible: toggleAllVisible,
+        printMode: printMode,
+        onPrintMode: setPrintMode
+      }),
+
+      h(OnboardingTable, {
+        rows: users,
+        selectedMap: selectedMap,
+        onToggleOne: toggleOne,
+        onToggleAllVisible: toggleAllVisible
+      }),
+
       unknown && unknown.length
         ? h(
             "div",

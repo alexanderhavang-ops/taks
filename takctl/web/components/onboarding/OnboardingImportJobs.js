@@ -138,6 +138,36 @@
     );
   }
 
+  function passwordSourceBadge(v) {
+    const s = String(v || "");
+    let cls = "badge badge-never";
+    if (s === "generated") cls = "badge badge-current";
+    else if (s === "provided") cls = "badge badge-recent";
+    else if (s === "unchanged") cls = "badge badge-never";
+    return h("span", { className: cls }, s ? s.toUpperCase() : "—");
+  }
+
+  function emailStatusCell(emailStatus) {
+    if (!emailStatus) return "—";
+
+    if (emailStatus.ok) {
+      return h(
+        "div",
+        null,
+        h("span", { className: "badge badge-current" }, "SENT"),
+        emailStatus.to ? h("div", { className: "muted", style: { marginTop: "4px" } }, _colText(emailStatus.to)) : null
+      );
+    }
+
+    return h(
+      "div",
+      null,
+      h("span", { className: "badge badge-stale" }, "FAILED"),
+      emailStatus.to ? h("div", { className: "muted", style: { marginTop: "4px" } }, _colText(emailStatus.to)) : null,
+      emailStatus.error ? h("div", { className: "muted", style: { marginTop: "4px", whiteSpace: "pre-wrap" } }, _colText(emailStatus.error)) : null
+    );
+  }
+
   function RowResultsTable({ rows }) {
     const items = Array.isArray(rows) ? rows : [];
     if (!items.length) return null;
@@ -150,6 +180,9 @@
           h("th", null, "Row"),
           h("th", null, "Username"),
           h("th", null, "Status"),
+          h("th", null, "Password"),
+          h("th", null, "Email"),
+          h("th", null, "Card"),
           h("th", null, "Message")
         )
       ),
@@ -161,11 +194,27 @@
           else if (status === "skipped" || status === "dry_run") cls = "badge badge-recent";
           else if (status === "error" || status === "failed") cls = "badge badge-stale";
 
+          const cardUrl = (x && x.card_url) ? String(x.card_url) : "";
+          const emailStatus = x && x.email_status;
+          const pwSource = x && x.password_source;
+
           return h("tr", { key: "rr:" + idx },
             h("td", null, _colText(x && x.row)),
             h("td", null, _colText(x && x.username)),
             h("td", null, h("span", { className: cls }, _colText(status || "—"))),
-            h("td", null, _colText((x && (x.message || x.detail || x.error)) || ""))
+            h("td", null,
+              h("div", null, passwordSourceBadge(pwSource)),
+              (x && x.password_generated)
+                ? h("div", { className: "muted", style: { marginTop: "4px" } }, "generated")
+                : null
+            ),
+            h("td", null, emailStatusCell(emailStatus)),
+            h("td", null,
+              cardUrl
+                ? h("a", { href: cardUrl, target: "_blank", rel: "noopener noreferrer" }, "Open card")
+                : "—"
+            ),
+            h("td", null, _colText((x && (x.message || x.detail || x.error || x.reason)) || ""))
           );
         })
       )
@@ -195,7 +244,7 @@
             h("td", null, _colText(x && x.username)),
             h("td", null, h("span", { className: "badge badge-stale" }, _colText(x && x.code))),
             h("td", null, _colText(x && x.message)),
-            h("td", null, _colText(x && x.detail))
+            h("td", null, _colText((x && (x.detail || x.error)) || ""))
           )
         )
       )

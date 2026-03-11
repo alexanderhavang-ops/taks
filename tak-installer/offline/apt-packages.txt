@@ -21,6 +21,9 @@ nginx
 # Config manipulation/validation (optional but useful)
 xmlstarlet
 
+# Sendmail-compatible lightweight SMTP client for onboarding email delivery
+msmtp-mta
+
 # NOTE: Let's Encrypt is NOT offline-friendly. In offline mode, you’ll use internal CA instead.
 # certbot
 # python3-certbot-nginx
