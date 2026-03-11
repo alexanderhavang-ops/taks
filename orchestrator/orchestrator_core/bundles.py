@@ -1,11 +1,9 @@
 from __future__ import annotations
 
-import json
 import os
 import tarfile
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,6 +24,12 @@ def rendered_bundles_dir() -> Path:
     return d
 
 
+def artifacts_dir() -> Path:
+    d = _state_dir() / "artifacts"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def units_dir() -> Path:
     d = _state_dir() / "units"
     d.mkdir(parents=True, exist_ok=True)
@@ -39,15 +43,7 @@ def roles_dir() -> Path:
 
 
 def default_bundle_dir() -> Path:
-    """
-    Built-in base bundle content, shipped in source:
-      orchestrator/orchestrator_core/default_bundle/
-    """
     return Path(__file__).resolve().parent / "default_bundle"
-
-
-def _utc_iso(ts: float) -> str:
-    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
 def _safe_unit_fs(unit_path: str) -> str:
@@ -96,24 +92,35 @@ def _copy_tree(src: Path, dst: Path) -> Dict[str, Any]:
     return out
 
 
-def _manifest_from_root(root_dir: Path, bundle_root_name: str) -> Dict[str, Any]:
-    dirs: List[str] = []
-    if root_dir.exists():
-        for p in sorted(root_dir.iterdir()):
-            if p.is_dir():
-                dirs.append(p.name + "/")
+def _copy_artifact_payload(src: Path, dst: Path) -> Dict[str, Any]:
+    out: Dict[str, Any] = {"src": str(src), "files": 0, "bytes": 0, "exists": src.exists()}
 
-    return {
-        "version": 1,
-        "name": bundle_root_name.rstrip("/"),
-        "description": "TAKS bundle built from default + role + unit overlays.",
-        "built_utc": _utc_iso(root_dir.stat().st_mtime) if root_dir.exists()
-        else _utc_iso(datetime.now(tz=timezone.utc).timestamp()),
-        "layout": {
-            "root": bundle_root_name if bundle_root_name.endswith("/") else bundle_root_name + "/",
-            "directories": dirs,
-        },
-    }
+    payload_root = src / "current" if (src / "current").is_dir() else src
+    if not payload_root.exists():
+        return out
+    if not payload_root.is_dir():
+        raise ValueError(f"artifact payload is not a directory: {payload_root}")
+
+    for p in sorted(payload_root.rglob("*")):
+        rel = p.relative_to(payload_root)
+        target = dst / rel
+        if p.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        if not p.is_file():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        data = p.read_bytes()
+        target.write_bytes(data)
+        try:
+            os.chmod(target, p.stat().st_mode & 0o777)
+        except Exception:
+            pass
+        out["files"] += 1
+        out["bytes"] += len(data)
+
+    out["src"] = str(payload_root)
+    return out
 
 
 @dataclass
@@ -136,10 +143,16 @@ def build_bundle_from_state(
       1) default_bundle/
       2) roles/<role>/bundle/
       3) units/<unit_path>/bundle/
+      4) global artifacts/<name>/[current/]... -> packages/<name>/
 
-    Rendered tarballs are written under:
+    Output:
+      /opt/tak-orch/state/bundles/rendered/<unit>.tar.gz
 
-      /opt/tak-orch/state/bundles/rendered/
+    KISS:
+      - always rebuild
+      - overwrite tarball
+      - no fingerprint
+      - no external manifest file
     """
 
     up = _safe_unit_fs(unit_path)
@@ -156,7 +169,6 @@ def build_bundle_from_state(
         bundle_root = base
 
     out_tar = rendered_bundles_dir() / tar_name
-    out_manifest = rendered_bundles_dir() / (bundle_root + ".manifest.json")
 
     overlays: List[Dict[str, Any]] = []
 
@@ -173,15 +185,23 @@ def build_bundle_from_state(
         overlays.append(_copy_tree(role_src, root))
         overlays.append(_copy_tree(unit_src, root))
 
-        manifest = _manifest_from_root(root, bundle_root + "/")
-        out_manifest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        packages_root = root / "packages"
+        packages_root.mkdir(parents=True, exist_ok=True)
 
-        with tarfile.open(out_tar, "w:gz") as tf:
+        for name in ("takserver", "taks", "coturn", "plugins"):
+            src = artifacts_dir() / name
+            dst = packages_root / name
+            _copy_artifact_payload(src, dst)
+
+        tmp_tar = out_tar.with_suffix(".tmp")
+        with tarfile.open(tmp_tar, "w:gz") as tf:
             tf.add(str(root), arcname=bundle_root)
+
+        os.replace(tmp_tar, out_tar)
 
     return BuildResult(
         bundle_name=tar_name,
         tar_path=out_tar,
-        manifest_path=out_manifest,
+        manifest_path=out_tar,
         overlays=overlays,
     )

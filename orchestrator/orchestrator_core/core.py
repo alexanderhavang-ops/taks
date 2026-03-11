@@ -27,32 +27,17 @@ def jinja_env() -> Environment:
     )
 
 
-def render_cloud_init(*, unit_path: str, role: str, fqdn: str, hostname: str, bundle_url: str | None = None, bundle_sha256: str | None = None) -> str:
+def render_cloud_init(*, unit_path: str, role: str, fqdn: str, hostname: str) -> str:
     """
     Render cloud-init for a node.
 
     Template-driven so WebUI / CLI / API stay consistent.
-    Injects headless orchestrator credentials so the node can call back home.
-
-    bundle_url is optional; template may ignore it (safe).
+    Cloud-init is intentionally super-KISS: download rendered unit bundle and run startup.sh.
     """
     orch_api_url = (
         os.environ.get("TAKS_ORCH_API_URL")
         or os.environ.get("ORCH_API_URL")
         or "https://master.tak-hv-sandbox.se"
-    )
-
-    orch_api_user = (
-        os.environ.get("TAKS_API_USER")
-        or os.environ.get("ORCH_API_USER")
-        or "orchestrator"
-    ).strip()
-
-    orch_api_password = (
-        os.environ.get("TAKS_API_PASSWORD")
-        or os.environ.get("ORCH_API_PASSWORD")
-        or os.environ.get("TAKS_UI_PASSWORD")
-        or "changeme"
     )
 
     tpl = jinja_env().get_template("tak-node.cloud-init.yml.j2")
@@ -62,10 +47,6 @@ def render_cloud_init(*, unit_path: str, role: str, fqdn: str, hostname: str, bu
         fqdn=fqdn,
         hostname=hostname,
         orch_api_url=orch_api_url,
-        orch_api_user=orch_api_user,
-        orch_api_password=orch_api_password,
-        bundle_url=bundle_url,
-        bundle_sha256=bundle_sha256,
     )
 
 
@@ -149,11 +130,9 @@ class NodeRequest:
     aws_key_name: str | None = None
     aws_sg_id: str | None = None
 
-    # Bundle wiring (optional)
+    # Bundle naming
     bundle_name: str | None = None
     bundle_ttl: int | None = None
-    bundle_url: str | None = None
-    bundle_sha256: str | None = None
 def plan_node(req: NodeRequest) -> Dict[str, Any]:
     r = region()
     ami = resolve_ubuntu_2204_ami(region_name=r)
@@ -164,8 +143,6 @@ def plan_node(req: NodeRequest) -> Dict[str, Any]:
         role=req.role,
         fqdn=req.fqdn,
         hostname=req.hostname,
-        bundle_url=req.bundle_url,
-        bundle_sha256=req.bundle_sha256,
     )
     validate_cloud_init(ci)
 

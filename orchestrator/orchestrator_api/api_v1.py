@@ -14,11 +14,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from .authz import require_auth
-from .operator_auth import require_operator
 from orchestrator_core.nodes_state import upsert_node, touch_heartbeat, list_nodes
-from orchestrator_core.core import NodeRequest, plan_node, aws_dry_run, aws_launch, aws_list_nodes
-from orchestrator_core.bundles import build_bundle_from_state
-from orchestrator_core.bundles import bundles_dir
+from orchestrator_core.bundles import rendered_bundles_dir
 
 router = APIRouter(prefix="/api/v1")
 
@@ -27,7 +24,7 @@ router = APIRouter(prefix="/api/v1")
 # Bundles: signed-url helpers
 # ----------------------------
 def _bundle_dir() -> Path:
-    return Path(os.environ.get("TAKS_BUNDLE_DIR") or "/opt/tak-orch/state/bundles")
+    return rendered_bundles_dir()
 
 
 def _sha256_file(p: Path) -> str:
@@ -190,101 +187,10 @@ def bundles_build(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 # ----------------------------
 # Nodes (auth)
 # ----------------------------
-@router.post("/nodes/preview")
-def nodes_preview(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
-    require_auth(request)
-    nr = NodeRequest(**_normalize_node_req(req))
-    return plan_node(nr)
 
 
-@router.post("/nodes/dry-run")
-def nodes_dry_run(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
-    require_auth(request)
-    nr = NodeRequest(**_normalize_node_req(req))
-    return aws_dry_run(nr)
 
 
-@router.post("/nodes/cloud-init")
-def nodes_cloud_init(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
-    """
-    Render the exact cloud-init we would send to EC2, including signed bundle URL if bundle_name is provided.
-    This is verification-only (no AWS calls).
-    """
-    require_auth(request)
-    nr = NodeRequest(**_normalize_node_req(req))
-
-    # Auto-build bundle if requested and missing
-    if nr.bundle_name:
-        want = nr.bundle_name
-        if want and not (want.endswith(".tar.gz") or want.endswith(".zip")):
-            want = want + ".tar.gz"
-        p_try = bundles_dir() / want
-        if p_try.exists():
-            nr.bundle_name = want
-        else:
-            built = build_bundle_from_state(unit_path=nr.unit_path, role=nr.role, bundle_name=want)
-            nr.bundle_name = built.bundle_name
-
-        # Mint signed bundle URL and inject into cloud-init via nr.bundle_url
-        p = _resolve_bundle_path(nr.bundle_name)
-        sha = _sha256_file(p)
-
-        ttl = int(nr.bundle_ttl or 3600)
-        if ttl < 60:
-            ttl = 60
-        if ttl > 7 * 24 * 3600:
-            ttl = 7 * 24 * 3600
-
-        exp = int(time.time()) + ttl
-        token = _token_sign(p.name, exp, sha)
-        dl = request.url_for("bundle_download", bundle_name=p.name)
-        nr.bundle_url = f"{dl}?exp={exp}&token={token}"
-        nr.bundle_sha256 = sha
-
-    plan = plan_node(nr)
-    return {
-        "bundle_url": nr.bundle_url,
-        "cloud_init": plan.get("cloud_init", ""),
-        "plan": {k: plan[k] for k in ("region", "ami", "vpc_id", "subnet_id", "instance_type", "tags") if k in plan},
-    }
-
-
-@router.post("/nodes/launch")
-def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
-    require_auth(request)
-    nr = NodeRequest(**_normalize_node_req(req))
-
-    if os.environ.get("TAKS_LAUNCH_ENABLED") != "1":
-        raise HTTPException(status_code=400, detail="Launch disabled (set TAKS_LAUNCH_ENABLED=1)")
-
-    # Auto-build bundle if requested and missing, then mint signed URL
-    if nr.bundle_name:
-        p_try = bundles_dir() / nr.bundle_name
-        if not p_try.exists():
-            built = build_bundle_from_state(unit_path=nr.unit_path, role=nr.role, bundle_name=nr.bundle_name)
-            nr.bundle_name = built.bundle_name
-
-        p = _resolve_bundle_path(nr.bundle_name)
-        sha = _sha256_file(p)
-
-        ttl = int(nr.bundle_ttl or 3600)
-        if ttl < 60:
-            ttl = 60
-        if ttl > 7 * 24 * 3600:
-            ttl = 7 * 24 * 3600
-
-        exp = int(time.time()) + ttl
-        token = _token_sign(p.name, exp, sha)
-        dl = request.url_for("bundle_download", bundle_name=p.name)
-        nr.bundle_url = f"{dl}?exp={exp}&token={token}"
-        nr.bundle_sha256 = sha
-
-    return aws_launch(nr)
-
-
-# ----------------------------
-# Node state (auth)
-# ----------------------------
 @router.get("/nodes")
 def nodes_list(request: Request) -> Dict[str, Any]:
     require_auth(request)
@@ -405,26 +311,6 @@ def bundle_manifest(bundle_name: str, request: Request) -> Dict[str, Any]:
 
     return {"name": m.name, "manifest": data}
 
-
-@router.get("/bundles/{bundle_name}/signed-url")
-def bundle_signed_url(bundle_name: str, request: Request, ttl: int = 3600) -> Dict[str, Any]:
-    require_auth(request)
-
-    p = _resolve_bundle_path(bundle_name)
-    sha = _sha256_file(p)
-
-    ttl = int(ttl)
-    if ttl < 60:
-        ttl = 60
-    if ttl > 7 * 24 * 3600:
-        ttl = 7 * 24 * 3600
-
-    exp = int(time.time()) + ttl
-    token = _token_sign(p.name, exp, sha)
-    dl = request.url_for("bundle_download", bundle_name=p.name)
-    url = f"{dl}?exp={exp}&token={token}"
-
-    return {"name": p.name, "exp": exp, "token": token, "sha256": sha, "url": url}
 
 
 @router.api_route("/bundles/{bundle_name}/download", methods=["GET", "HEAD"], operation_id="bundle_download_v1")

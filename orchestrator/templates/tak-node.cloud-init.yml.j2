@@ -4,6 +4,6 @@ package_upgrade: false
 
 runcmd:
   - [ bash, -lc, 'set -euo pipefail; mkdir -p /opt/taks-bootstrap' ]
-  - [ bash, -lc, 'set -euo pipefail; cd /opt/taks-bootstrap; rm -f bundle.tar.gz; curl -fsSLo bundle.tar.gz "{{ bundle_url or (orch_api_url ~ "/bundles/" ~ unit_path ~ ".tar.gz") }}"' ]
+  - [ bash, -lc, 'set -euo pipefail; cd /opt/taks-bootstrap; rm -f bundle.tar.gz; curl -fsSLo bundle.tar.gz "{{ orch_api_url }}/bundles/{{ unit_path }}.tar.gz"' ]
   - [ bash, -lc, 'set -euo pipefail; cd /opt/taks-bootstrap; rm -rf "{{ unit_path }}"; tar -xzf bundle.tar.gz' ]
   - [ bash, -lc, 'set -euo pipefail; cd /opt/taks-bootstrap/{{ unit_path }}; bash startup.sh' ]

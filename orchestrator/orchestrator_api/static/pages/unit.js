@@ -37,7 +37,8 @@
       'III': 'Regiment',
       'X': 'Brigade',
       'XX': 'Division',
-      'XXX': 'Corps'
+      'XXX': 'Corps',
+      '⚑': 'Flag / command'
     };
     if(!s) return '';
     return m[s] || 'Custom';
@@ -50,6 +51,39 @@
     help.textContent = symbolHelp(inp.value);
   }
 
+  function spawnPayload(){
+    const g = id => byId(id) ? byId(id).value.trim() : '';
+    return {
+      unit_path: g('node_unit_path'),
+      role: g('node_role'),
+      fqdn: g('node_fqdn'),
+      hostname: g('node_hostname'),
+      name: g('node_name'),
+      instance_type: g('node_instance_type')
+    };
+  }
+
+  async function callNode(path){
+    const p = byId('node_out_plan');
+    const c = byId('node_out_cloudinit');
+    const r = byId('node_out_raw');
+
+    if(p) p.textContent = '…';
+    if(c) c.textContent = '…';
+    if(r) r.textContent = '…';
+
+    try{
+      const j = await CORE.api('POST', path, spawnPayload());
+      if(p) p.textContent = JSON.stringify(j.plan || {}, null, 2);
+      if(c) c.textContent = j.cloud_init || '—';
+      if(r) r.textContent = JSON.stringify(j, null, 2);
+    }catch(e){
+      if(p) p.textContent = String(e && e.message ? e.message : e);
+      if(c) c.textContent = '—';
+      if(r) r.textContent = String(e && e.message ? e.message : e);
+    }
+  }
+
   async function loadUnitFromList(unitPath){
     const uResp = await CORE.api('GET','/api/v2/units');
     const items = (uResp && Array.isArray(uResp.items)) ? uResp.items : [];
@@ -60,6 +94,10 @@
   async function loadBrand(unitPath){
     const url = '/api/public/brand?unit=' + encodeURIComponent(unitPath);
     return await CORE.api('GET', url);
+  }
+
+  async function loadNodes(){
+    return await CORE.api('GET','/api/v2/nodes');
   }
 
   async function saveBrand(unitPath, slogan, symbol){
@@ -122,6 +160,38 @@
     throw new Error(msg || ('HTTP ' + r.status));
   }
 
+  function findNodeForUnit(nodesResp, unitPath){
+    const items = (nodesResp && Array.isArray(nodesResp.items)) ? nodesResp.items : [];
+    return items.find(function(n){
+      return String(n.unit_path || '').trim() === String(unitPath || '').trim();
+    }) || null;
+  }
+
+  function fmtNodeSummary(node){
+    if(!node) return '<div class="muted">Ingen nod för denna enhet.</div>';
+
+    const nodeId = esc(node.node_id || node.instance_id || '—');
+    const fqdn = esc(node.fqdn || '—');
+    const status = esc(node.derived_status || node.status || 'unknown');
+    const aws = esc(node.aws_state || '—');
+
+    return ''
+      + '<div class="grid grid--6" style="margin-top:6px">'
+      + '  <div><label class="label">Node</label><div>' + nodeId + '</div></div>'
+      + '  <div style="grid-column: span 2;"><label class="label">FQDN</label><div>' + fqdn + '</div></div>'
+      + '  <div><label class="label">Status</label><div>' + status + '</div></div>'
+      + '  <div><label class="label">AWS</label><div>' + aws + '</div></div>'
+      + '</div>';
+  }
+
+  function defaultFqdn(unitPath){
+    return String(unitPath || '') + '.tak-hv-sandbox.se';
+  }
+
+  function defaultHostname(unitPath){
+    return 'tak-' + String(unitPath || '');
+  }
+
   async function render(container){
     const unitPath = getRouteUnitPath();
 
@@ -138,11 +208,29 @@
 
     try{
       const u = await loadUnitFromList(unitPath);
+      const brand = await loadBrand(unitPath);
+      const nodesResp = await loadNodes();
+
+      const slogan = String((brand && brand.slogan) || '').trim();
+      const symbol = String((brand && brand.symbol) || '').trim();
+      const node = findNodeForUnit(nodesResp, unitPath);
+
+      const headerTitle =
+        (symbol ? '[' + esc(symbol) + '] ' : '') +
+        esc(u.title) +
+        (u.unit_path ? ' (' + esc(u.unit_path) + ')' : '');
+
+      const headerSlogan = slogan
+        ? '<div class="muted" style="margin-top:6px;font-size:15px">' + esc(slogan) + '</div>'
+        : '';
 
       container.innerHTML =
         '<section class="card">' +
           '<div class="card__head">' +
-            '<h3>' + esc(u.title) + (u.unit_path ? ' (' + esc(u.unit_path) + ')' : '') + '</h3>' +
+            '<div>' +
+              '<h3>' + headerTitle + '</h3>' +
+              headerSlogan +
+            '</div>' +
             '<div class="card__actions">' +
               '<a class="btn btn--secondary" href="#/units">Tillbaka</a>' +
             '</div>' +
@@ -150,8 +238,59 @@
         '</section>' +
 
         '<section class="card">' +
-          '<div class="card__head"><h3>Noder</h3></div>' +
-          '<div class="muted">Kommer: visa nod, skapa nod för denna enhet (sen: exakt 1 nod per enhet).</div>' +
+          '<div class="card__head">' +
+            '<h3>Noder</h3>' +
+            '<div class="card__actions">' +
+              (node ? '' : '<button id="btn_toggle_spawn" class="btn">Skapa nod</button>') +
+            '</div>' +
+          '</div>' +
+          fmtNodeSummary(node) +
+          '<div class="muted" style="margin-top:10px">Noden ärver branding, filer och senare settings från denna enhet och dess parent-kedja.</div>' +
+          (node
+            ? '<div class="muted" style="margin-top:10px">Stoppa nod / Terminera nod kommer här när backend-endpoints finns.</div>'
+            : '') +
+
+          (!node ? (
+            '<div id="unit_spawn_box" style="display:none; margin-top:14px">' +
+              '<div class="grid grid--6">' +
+                '<div>' +
+                  '<label class="label">unit_path</label>' +
+                  '<input id="node_unit_path" value="' + esc(unitPath) + '">' +
+                '</div>' +
+                '<div>' +
+                  '<label class="label">role</label>' +
+                  '<input id="node_role" value="tak-node">' +
+                '</div>' +
+                '<div>' +
+                  '<label class="label">fqdn</label>' +
+                  '<input id="node_fqdn" value="' + esc(defaultFqdn(unitPath)) + '">' +
+                '</div>' +
+                '<div>' +
+                  '<label class="label">hostname</label>' +
+                  '<input id="node_hostname" value="' + esc(defaultHostname(unitPath)) + '">' +
+                '</div>' +
+                '<div>' +
+                  '<label class="label">name</label>' +
+                  '<input id="node_name" value="' + esc(defaultHostname(unitPath)) + '">' +
+                '</div>' +
+                '<div>' +
+                  '<label class="label">instance_type</label>' +
+                  '<input id="node_instance_type" value="t3.micro">' +
+                '</div>' +
+              '</div>' +
+
+              '<div class="card__actions" style="margin-top:12px">' +
+                '<button id="btn_node_preview" class="btn">Preview</button>' +
+                '<button id="btn_node_dryrun" class="btn btn--secondary">Dry-run</button>' +
+                '<button id="btn_node_launch" class="btn btn--danger">Launch</button>' +
+                '<button id="btn_node_close" class="btn btn--secondary">Stäng</button>' +
+              '</div>' +
+
+              '<details open style="margin-top:12px"><summary>Plan</summary><pre id="node_out_plan">—</pre></details>' +
+              '<details><summary>Cloud-init</summary><pre id="node_out_cloudinit">—</pre></details>' +
+              '<details><summary>Raw</summary><pre id="node_out_raw">—</pre></details>' +
+            '</div>'
+          ) : '') +
         '</section>' +
 
         '<section class="card">' +
@@ -205,10 +344,6 @@
 
           '</div>' +
         '</section>';
-
-      const brand = await loadBrand(unitPath);
-      const slogan = String((brand && brand.slogan) || '').trim();
-      const symbol = String((brand && brand.symbol) || '').trim();
 
       const sloganInput = byId('brand_slogan');
       const symbolInput = byId('brand_symbol');
@@ -277,6 +412,31 @@
           saveBtn.disabled = false;
         }
       };
+
+      const btnToggleSpawn = byId('btn_toggle_spawn');
+      const spawnBox = byId('unit_spawn_box');
+      const btnNodeClose = byId('btn_node_close');
+      const btnNodePreview = byId('btn_node_preview');
+      const btnNodeDryrun = byId('btn_node_dryrun');
+      const btnNodeLaunch = byId('btn_node_launch');
+
+      if(btnToggleSpawn && spawnBox){
+        btnToggleSpawn.onclick = function(){
+          spawnBox.style.display = 'block';
+          btnToggleSpawn.style.display = 'none';
+        };
+      }
+
+      if(btnNodeClose && spawnBox && btnToggleSpawn){
+        btnNodeClose.onclick = function(){
+          spawnBox.style.display = 'none';
+          btnToggleSpawn.style.display = '';
+        };
+      }
+
+      if(btnNodePreview) btnNodePreview.onclick = function(){ callNode('/api/v2/nodes/preview'); };
+      if(btnNodeDryrun) btnNodeDryrun.onclick = function(){ callNode('/api/v2/nodes/dry-run'); };
+      if(btnNodeLaunch) btnNodeLaunch.onclick = function(){ callNode('/api/v2/nodes/launch'); };
 
     }catch(e){
       container.innerHTML =
