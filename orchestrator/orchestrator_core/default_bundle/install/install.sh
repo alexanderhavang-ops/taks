@@ -1,24 +1,72 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "== TAKS default bundle: install starting =="
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BUNDLE_ROOT="$ROOT"
 
-# Basic node config location (future: hostname, slogan, branding, etc)
-install -d -m 0755 /etc/taks
+log() {
+  printf '[install] %s\n' "$*"
+}
 
-# If a node.env was included (from unit overlay), install it
-if [[ -f ./install/node.env ]]; then
-  install -m 0644 ./install/node.env /etc/taks/node.env
-  echo "installed /etc/taks/node.env"
-fi
+run_step() {
+  local name="$1"
+  local path="$2"
 
-# Placeholder: branding assets
-# (unit overlay can drop ./assets/logo.png etc; we just place it predictably)
-if [[ -f ./assets/logo.png ]]; then
-  install -d -m 0755 /opt/taks/assets
-  install -m 0644 ./assets/logo.png /opt/taks/assets/logo.png
-  echo "installed /opt/taks/assets/logo.png"
-fi
+  if [ ! -f "$path" ]; then
+    log "skip $name (missing: $path)"
+    return 0
+  fi
 
-echo "== TAKS default bundle: install complete =="
+  log "running $name: $path"
+  bash "$path"
+}
 
+install_base_files() {
+  mkdir -p /etc/taks
+
+  if [ -f "$BUNDLE_ROOT/config/unit.json" ]; then
+    install -m 0644 "$BUNDLE_ROOT/config/unit.json" /etc/taks/unit.json
+    log "installed /etc/taks/unit.json"
+  fi
+
+  if [ -f "$BUNDLE_ROOT/install/node.env" ]; then
+    install -m 0600 "$BUNDLE_ROOT/install/node.env" /etc/taks/node.env
+    log "installed /etc/taks/node.env"
+  fi
+}
+
+install_heartbeat() {
+  mkdir -p /opt/taks/install
+  install -m 0755 "$BUNDLE_ROOT/install/taks-heartbeat.sh" /opt/taks/install/taks-heartbeat.sh
+  install -m 0644 "$BUNDLE_ROOT/install/systemd/taks-heartbeat.service" /etc/systemd/system/taks-heartbeat.service
+  install -m 0644 "$BUNDLE_ROOT/install/systemd/taks-heartbeat.timer" /etc/systemd/system/taks-heartbeat.timer
+
+  systemctl daemon-reload
+
+  if [ -f /etc/taks/node.env ]; then
+    systemctl enable --now taks-heartbeat.timer
+    log "enabled taks-heartbeat.timer"
+  else
+    log "node.env missing, not enabling taks-heartbeat.timer"
+  fi
+}
+
+main() {
+  install_base_files
+  install_heartbeat
+
+  run_step "os-tuning" "$BUNDLE_ROOT/install/os-tuning.sh"
+  run_step "takserver" "$BUNDLE_ROOT/install/takserver.sh"
+
+  if [ -f "$BUNDLE_ROOT/install/taks.sh" ]; then
+    if bash "$BUNDLE_ROOT/install/taks.sh"; then
+      log "taks step completed"
+    else
+      log "WARNING: taks step failed; continuing"
+    fi
+  fi
+
+  log "install complete"
+}
+
+main "$@"

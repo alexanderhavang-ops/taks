@@ -1,0 +1,10 @@
+[Unit]
+Description=Run TAKS heartbeat every 30 seconds
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=30s
+Unit=taks-heartbeat.service
+
+[Install]
+WantedBy=timers.target

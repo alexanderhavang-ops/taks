@@ -225,6 +225,26 @@ def aws_launch(req: NodeRequest) -> Dict[str, Any]:
     }
 
 
+
+def aws_terminate(instance_id: str) -> Dict[str, Any]:
+    iid = str(instance_id or "").strip()
+    if not iid:
+        raise ValueError("missing instance_id")
+
+    r = region()
+    ec2 = boto3.client("ec2", region_name=r)
+    resp = ec2.terminate_instances(InstanceIds=[iid])
+
+    items = list(resp.get("TerminatingInstances") or [])
+    row = items[0] if items else {}
+    return {
+        "instance_id": iid,
+        "previous_state": ((row.get("PreviousState") or {}).get("Name") or "").strip() or None,
+        "current_state": ((row.get("CurrentState") or {}).get("Name") or "").strip() or "terminating",
+        "region": r,
+    }
+
+
 def aws_list_nodes() -> Dict[str, Any]:
     r = region()
     ec2 = boto3.client("ec2", region_name=r)
@@ -238,12 +258,17 @@ def aws_list_nodes() -> Dict[str, Any]:
     instances: List[Dict[str, Any]] = []
     for res in resp.get("Reservations", []):
         for i in res.get("Instances", []):
+            tags = {str(t.get("Key") or ""): str(t.get("Value") or "") for t in (i.get("Tags") or [])}
             instances.append(
                 {
                     "instance_id": i.get("InstanceId"),
                     "state": (i.get("State") or {}).get("Name"),
                     "private_ip": i.get("PrivateIpAddress"),
                     "public_ip": i.get("PublicIpAddress"),
+                    "public_dns": i.get("PublicDnsName"),
+                    "name": tags.get("Name", ""),
+                    "role": tags.get("taks.role", ""),
+                    "unit_path": tags.get("taks.unit_path", ""),
                 }
             )
 

@@ -230,6 +230,10 @@
 
         for(const n of nodes.items){
           const up = String(n.unit_path || '').trim();
+          const st = String(n.derived_status || n.status || '').trim().toLowerCase();
+
+          if(st === 'terminated' || st === 'untracked') continue;
+
           if(up && unitToNodes.has(up)) unitToNodes.get(up).push(n);
         }
 
@@ -240,7 +244,12 @@
           if(sym) unitToSymbol.set(u.unit_path, sym);
         }));
 
-        summary.textContent = `Enheter: ${units.length} · Noder: ${nodes.items.length}`;
+        const liveNodeCount = nodes.items.filter(function(n){
+          const st = String(n.derived_status || n.status || '').trim().toLowerCase();
+          return st !== 'terminated' && st !== 'untracked';
+        }).length;
+
+        summary.textContent = `Enheter: ${units.length} · Noder: ${liveNodeCount}`;
 
         const tree = buildTree(units);
         const rows = [];

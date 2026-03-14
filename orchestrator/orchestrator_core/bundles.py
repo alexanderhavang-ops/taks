@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import json
 import os
 import tarfile
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+SUBTREES = ("packages", "branding", "users", "plugins", "maps", "missions", "misc")
 
 
 def _state_dir() -> Path:
@@ -20,12 +24,6 @@ def bundles_dir() -> Path:
 
 def rendered_bundles_dir() -> Path:
     d = bundles_dir() / "rendered"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
-
-
-def artifacts_dir() -> Path:
-    d = _state_dir() / "artifacts"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -53,9 +51,16 @@ def _safe_unit_fs(unit_path: str) -> str:
     return up
 
 
+def _unit_dir(unit_path: str) -> Path:
+    return units_dir() / _safe_unit_fs(unit_path)
+
+
+def _unit_json_path(unit_path: str) -> Path:
+    return _unit_dir(unit_path) / "unit.json"
+
+
 def unit_bundle_overlay_dir(unit_path: str) -> Path:
-    up = _safe_unit_fs(unit_path)
-    return units_dir() / up / "bundle"
+    return _unit_dir(unit_path) / "bundle"
 
 
 def role_bundle_overlay_dir(role: str) -> Path:
@@ -63,6 +68,50 @@ def role_bundle_overlay_dir(role: str) -> Path:
     if not r:
         raise ValueError("role must be non-empty")
     return roles_dir() / r / "bundle"
+
+
+def unit_files_root(unit_path: str) -> Path:
+    return _unit_dir(unit_path) / "files"
+
+
+def _read_json(p: Path) -> Dict[str, Any]:
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+def _read_unit_meta(unit_path: str) -> Dict[str, Any]:
+    p = _unit_json_path(unit_path)
+    if not p.exists():
+        return {}
+    try:
+        j = _read_json(p)
+    except Exception:
+        return {}
+    return j if isinstance(j, dict) else {}
+
+
+def _unit_parent(unit_path: str) -> str:
+    j = _read_unit_meta(unit_path)
+    return str(j.get("parent_path") or "").strip()
+
+
+def _unit_chain_root_to_leaf(unit_path: str) -> List[str]:
+    """
+    Follow parent_path until root and return [root, ..., leaf].
+    """
+    leaf = _safe_unit_fs(unit_path)
+    seen = set()
+    chain_rev: List[str] = []
+    cur = leaf
+
+    while cur:
+        if cur in seen:
+            raise ValueError(f"cycle in unit parent chain at {cur}")
+        seen.add(cur)
+        chain_rev.append(cur)
+        cur = _unit_parent(cur)
+
+    chain_rev.reverse()
+    return chain_rev
 
 
 def _copy_tree(src: Path, dst: Path) -> Dict[str, Any]:
@@ -92,17 +141,15 @@ def _copy_tree(src: Path, dst: Path) -> Dict[str, Any]:
     return out
 
 
-def _copy_artifact_payload(src: Path, dst: Path) -> Dict[str, Any]:
+def _copy_unit_subtree(src: Path, dst: Path) -> Dict[str, Any]:
     out: Dict[str, Any] = {"src": str(src), "files": 0, "bytes": 0, "exists": src.exists()}
-
-    payload_root = src / "current" if (src / "current").is_dir() else src
-    if not payload_root.exists():
+    if not src.exists():
         return out
-    if not payload_root.is_dir():
-        raise ValueError(f"artifact payload is not a directory: {payload_root}")
+    if not src.is_dir():
+        raise ValueError(f"unit subtree is not a directory: {src}")
 
-    for p in sorted(payload_root.rglob("*")):
-        rel = p.relative_to(payload_root)
+    for p in sorted(src.rglob("*")):
+        rel = p.relative_to(src)
         target = dst / rel
         if p.is_dir():
             target.mkdir(parents=True, exist_ok=True)
@@ -118,8 +165,26 @@ def _copy_artifact_payload(src: Path, dst: Path) -> Dict[str, Any]:
             pass
         out["files"] += 1
         out["bytes"] += len(data)
+    return out
 
-    out["src"] = str(payload_root)
+
+def _write_unit_config(root: Path, *, unit_path: str, role: str, chain: List[str]) -> Path:
+    unit_meta = _read_unit_meta(unit_path)
+    config_dir = root / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+
+    payload: Dict[str, Any] = {
+        "unit_id": unit_path,
+        "role": role,
+        "parent_chain": chain,
+        "title": str(unit_meta.get("title") or ""),
+        "symbol": str(unit_meta.get("symbol") or ""),
+        "slogan": str(unit_meta.get("slogan") or ""),
+        "logo": str(unit_meta.get("logo") or ""),
+    }
+
+    out = config_dir / "unit.json"
+    out.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return out
 
 
@@ -142,11 +207,9 @@ def build_bundle_from_state(
 
       1) default_bundle/
       2) roles/<role>/bundle/
-      3) units/<unit_path>/bundle/
-      4) global artifacts/<name>/[current/]... -> packages/<name>/
-
-    Output:
-      /opt/tak-orch/state/bundles/rendered/<unit>.tar.gz
+      3) units/<unit>/bundle/
+      4) inherited unit file subtrees root->leaf:
+         packages, branding, users, plugins, maps, missions, misc
 
     KISS:
       - always rebuild
@@ -176,6 +239,8 @@ def build_bundle_from_state(
     role_src = role_bundle_overlay_dir(r)
     unit_src = unit_bundle_overlay_dir(up)
 
+    chain = _unit_chain_root_to_leaf(up)
+
     with tempfile.TemporaryDirectory(prefix="taks-bundle-") as td:
         td_path = Path(td)
         root = td_path / bundle_root
@@ -185,15 +250,24 @@ def build_bundle_from_state(
         overlays.append(_copy_tree(role_src, root))
         overlays.append(_copy_tree(unit_src, root))
 
-        packages_root = root / "packages"
-        packages_root.mkdir(parents=True, exist_ok=True)
+        for subtree in SUBTREES:
+            dst_root = root / subtree
+            dst_root.mkdir(parents=True, exist_ok=True)
 
-        for name in ("takserver", "taks", "coturn", "plugins"):
-            src = artifacts_dir() / name
-            dst = packages_root / name
-            _copy_artifact_payload(src, dst)
+            for unit_id in chain:
+                src_root = unit_files_root(unit_id) / subtree
+                stat = _copy_unit_subtree(src_root, dst_root)
+                stat["unit"] = unit_id
+                stat["subtree"] = subtree
+                overlays.append(stat)
 
-        tmp_tar = out_tar.with_suffix(".tmp")
+        unit_cfg = _write_unit_config(root, unit_path=up, role=r, chain=chain)
+        overlays.append({
+            "generated": str(unit_cfg.relative_to(root)),
+            "kind": "unit_config",
+        })
+
+        tmp_tar = out_tar.parent / (out_tar.name + ".tmp")
         with tarfile.open(tmp_tar, "w:gz") as tf:
             tf.add(str(root), arcname=bundle_root)
 

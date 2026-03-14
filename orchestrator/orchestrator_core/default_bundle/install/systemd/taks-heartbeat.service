@@ -1,0 +1,8 @@
+[Unit]
+Description=TAKS heartbeat sender
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/taks/install/taks-heartbeat.sh

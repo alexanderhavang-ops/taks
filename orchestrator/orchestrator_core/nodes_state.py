@@ -39,6 +39,13 @@ def node_path(node_id: str) -> Path:
     return nodes_dir() / f"{safe}.json"
 
 
+def get_node(node_id: str) -> Optional[Dict[str, Any]]:
+    p = node_path(node_id)
+    if not p.exists():
+        return None
+    return _read_json(p)
+
+
 def upsert_node(node_id: str, patch: Dict[str, Any]) -> Dict[str, Any]:
     p = node_path(node_id)
     cur = _read_json(p) or {}
