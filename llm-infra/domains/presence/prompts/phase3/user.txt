@@ -1,1 +1,13 @@
-Create a compact operator-facing HTML card for domain "presence" from the input findings.
+Create a very compact operator-facing HTML card for domain "presence" from the input findings.
+
+Render rules:
+- Start with <div> and output exactly one <div>...</div>.
+- Prefer:
+  <div>
+    <h3>short headline</h3>
+    <p>one short supporting line</p>
+  </div>
+- Only use a bullet list if a single short paragraph would lose important clarity.
+- If using bullets, max 2 bullets, and each bullet must be short.
+- No long paragraphs.
+- No filler words.

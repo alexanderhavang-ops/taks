@@ -1,0 +1,14 @@
+Create a detailed operator-facing HTML view for domain "missions" from the input findings.
+
+Suggested shape:
+<div>
+  <h3>clear headline</h3>
+  <p>short summary paragraph</p>
+  <ul>
+    <li>supporting fact</li>
+    <li>supporting fact</li>
+  </ul>
+</div>
+
+Use structure over verbosity.
+Do not repeat the same point in multiple sections.

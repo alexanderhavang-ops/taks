@@ -1,134 +1,136 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-usage() {
-  cat <<'TXT'
-Usage:
-  runllmphase.sh <all> <fromphase> <tophase>
+RUNTIME_DIR="/opt/tak/tools/takctl"
+PY="${RUNTIME_DIR}/.venv/bin/python"
 
-Examples:
-  runllmphase.sh all phase1 phase1
-  runllmphase.sh all phase1 phase2
-  runllmphase.sh all phase1 phase3
+DB_ENV="${RUNTIME_DIR}/secrets/db.env"
+LLM_ENV="${RUNTIME_DIR}/secrets/llm.env"
 
-Notes:
-- Always runs ALL domains (runner handles them)
-- Uses runtime venv
-- Re-execs as tak user automatically
-- ALWAYS prints trace summaries after each phase (success or fail)
-TXT
-}
-
-DOM="${1:-}"
-FROM="${2:-}"
-TO="${3:-}"
-
-if [[ -z "$DOM" || -z "$FROM" || -z "$TO" ]]; then
-  usage
+if [[ ! -x "$PY" ]]; then
+  echo "ERROR: missing python venv at: $PY" >&2
   exit 2
 fi
 
-if [[ "$DOM" != "all" ]]; then
-  echo "Only 'all' is supported (KISS mode)." >&2
+set -a
+if [[ -f "$DB_ENV" ]]; then
+  . "$DB_ENV"
+fi
+if [[ -f "$LLM_ENV" ]]; then
+  . "$LLM_ENV"
+fi
+set +a
+
+export TAKCTL_CONFIG="${TAKCTL_CONFIG:-${RUNTIME_DIR}/takctl.conf}"
+export TAKCTL_STATE_DIR="${TAKCTL_STATE_DIR:-${RUNTIME_DIR}/state}"
+
+domain="${1:-}"
+ph_from="${2:-}"
+ph_to="${3:-}"
+
+if [[ -z "$domain" || -z "$ph_from" ]]; then
+  echo "Usage: $0 <domain|all> <phase_from> [phase_to]" >&2
   exit 2
 fi
+if [[ -z "$ph_to" ]]; then
+  ph_to="$ph_from"
+fi
 
-phase_num() {
-  case "$1" in
-    phase1) echo 1 ;;
-    phase2) echo 2 ;;
-    phase3) echo 3 ;;
-    *) echo 0 ;;
+norm_phase() {
+  local p="$1"
+  case "$p" in
+    phase1|phase2|phase3) echo "$p" ;;
+    1) echo "phase1" ;;
+    2) echo "phase2" ;;
+    3) echo "phase3" ;;
+    *) echo "" ;;
   esac
 }
 
-F="$(phase_num "$FROM")"
-T="$(phase_num "$TO")"
-
-if [[ "$F" -eq 0 || "$T" -eq 0 || "$F" -gt "$T" ]]; then
-  echo "Invalid phase range: $FROM -> $TO" >&2
+ph_from="$(norm_phase "$ph_from")"
+ph_to="$(norm_phase "$ph_to")"
+if [[ -z "$ph_from" || -z "$ph_to" ]]; then
+  echo "ERROR: phases must be phase1|phase2|phase3 (or 1|2|3)" >&2
   exit 2
 fi
 
-RUNTIME="/opt/tak/tools/takctl"
-PY="$RUNTIME/.venv/bin/python"
-STATE="$RUNTIME/state"
+phases=()
+case "${ph_from}:${ph_to}" in
+  phase1:phase1) phases=(phase1) ;;
+  phase2:phase2) phases=(phase2) ;;
+  phase3:phase3) phases=(phase3) ;;
+  phase1:phase2) phases=(phase1 phase2) ;;
+  phase2:phase3) phases=(phase2 phase3) ;;
+  phase1:phase3) phases=(phase1 phase2 phase3) ;;
+  *)
+    echo "ERROR: invalid phase range ${ph_from} -> ${ph_to}" >&2
+    exit 2
+    ;;
+esac
 
-if [[ "$(id -un)" != "tak" ]]; then
-  exec sudo -u tak -g tak \
-    PYTHONPATH="$RUNTIME" \
-    TAKCTL_STATE_DIR="$STATE" \
-    "$RUNTIME/scripts/runllmphase.sh" "$DOM" "$FROM" "$TO"
+prov="${TAKCTL_LLM_PROVIDER:-local}"
+lurl="${TAKCTL_LLM_URL:-http://127.0.0.1:8090/v1/completions}"
+lmodel="${TAKCTL_LLM_MODEL:-local-small}"
+areg="${TAKCTL_AWS_REGION:-${AWS_REGION:-}}"
+bmodel="${TAKCTL_BEDROCK_MODEL_ID:-}"
+p3mode="${TAKCTL_LLM2_PHASE3_MODE:-fallback}"
+kset="false"
+if [[ -n "${AWS_BEARER_TOKEN_BEDROCK:-}" ]]; then kset="true"; fi
+
+echo "## LLM env overlay"
+echo "provider: ${prov}"
+echo "local url: ${lurl}"
+echo "local model: ${lmodel}"
+echo "bedrock region: ${areg}"
+echo "bedrock model: ${bmodel}"
+echo "phase3 mode: ${p3mode}"
+echo "bedrock key set: ${kset}"
+echo
+
+if [[ "$domain" != "all" ]]; then
+  echo "## NOTE: domain='$domain' requested, but runner currently has no domain selector; running ALL domains."
+  echo
 fi
 
-cd "$RUNTIME"
-export PYTHONPATH="$RUNTIME"
-export TAKCTL_STATE_DIR="$STATE"
-
-print_traces() {
-  local ph="$1"
-  local root="$STATE/llm2/latest"
-  echo "## TRACE SUMMARY ($ph)"
-  find "$root" -maxdepth 3 -type f -path "*/$ph/trace.json" -print 2>/dev/null | sort | while read -r t; do
-    jq -r '
-      [
-        (.domain // "unknown"),
-        (.ok|tostring),
-        ((.error//"")|tostring),
-        ((.elapsed_ms//"")|tostring),
-        ((.llm_used_url//.llm_url//"")|tostring)
-      ] | @tsv
-    ' "$t" || true
-  done
-  echo
-}
-
-dump_phase3_artifacts() {
-  local rid="$1"
-  [[ -z "$rid" ]] && return 0
-  local root="$STATE/llm2/runs/$rid"
-  [[ -d "$root" ]] || return 0
-
-  echo "## PHASE3 ARTIFACTS (rid=$rid)"
-  for dom in chatter missions _summary; do
-    local d="$root/$dom/phase3"
-    [[ -d "$d" ]] || continue
-    echo
-    echo "### $dom"
-    for f in prompt.txt response_text.txt cleaned_text.txt trace.json card.json; do
-      if [[ -f "$d/$f" ]]; then
-        echo "----- $dom/phase3/$f -----"
-        # trace.json can be huge, show short
-        if [[ "$f" == "trace.json" ]]; then
-          jq '{ok, error, elapsed_ms, llm_url, sent_prompt_bytes:(.sent.prompt_bytes//null), received_text_bytes:(.received.text_bytes//null)}' "$d/$f" 2>/dev/null || cat "$d/$f"
-        else
-          cat "$d/$f"
-        fi
-      fi
-    done
-  done
-  echo
-}
-
-extract_rid() {
-  # Prefer the 16-char Zulu RID like 20260305T142927Z anywhere in stdout
-  rg -o '20[0-9]{6}T[0-9]{6}Z' -m 1 || true
-}
-
-for n in $(seq "$F" "$T"); do
-  PH="phase${n}"
-  echo "## RUN $PH"
-
-  # Capture runner output (still print it)
-  out="$("$PY" -m takctl.services.llm2.runner --phase "$PH" --once | tee /dev/fd/2)"
-
-  echo
-  print_traces "$PH"
-
-  RID="$(printf '%s\n' "$out" | extract_rid)"
-  if [[ "$PH" == "phase3" && -n "$RID" ]]; then
-    dump_phase3_artifacts "$RID"
+run_as_tak() {
+  if [[ "$(id -un)" == "tak" ]]; then
+    env \
+      TAKCTL_CONFIG="${TAKCTL_CONFIG:-}" \
+      TAKCTL_STATE_DIR="${TAKCTL_STATE_DIR:-}" \
+      TAKCTL_LLM_PROVIDER="${TAKCTL_LLM_PROVIDER:-}" \
+      TAKCTL_LLM_URL="${TAKCTL_LLM_URL:-}" \
+      TAKCTL_LLM_MODEL="${TAKCTL_LLM_MODEL:-}" \
+      TAKCTL_AWS_REGION="${TAKCTL_AWS_REGION:-}" \
+      AWS_REGION="${AWS_REGION:-}" \
+      TAKCTL_BEDROCK_MODEL_ID="${TAKCTL_BEDROCK_MODEL_ID:-}" \
+      AWS_BEARER_TOKEN_BEDROCK="${AWS_BEARER_TOKEN_BEDROCK:-}" \
+      TAKCTL_LLM2_PHASE3_MODE="${TAKCTL_LLM2_PHASE3_MODE:-}" \
+      "$@"
+  else
+    sudo -u tak -g tak env \
+      TAKCTL_CONFIG="${TAKCTL_CONFIG:-}" \
+      TAKCTL_STATE_DIR="${TAKCTL_STATE_DIR:-}" \
+      TAKCTL_LLM_PROVIDER="${TAKCTL_LLM_PROVIDER:-}" \
+      TAKCTL_LLM_URL="${TAKCTL_LLM_URL:-}" \
+      TAKCTL_LLM_MODEL="${TAKCTL_LLM_MODEL:-}" \
+      TAKCTL_AWS_REGION="${TAKCTL_AWS_REGION:-}" \
+      AWS_REGION="${AWS_REGION:-}" \
+      TAKCTL_BEDROCK_MODEL_ID="${TAKCTL_BEDROCK_MODEL_ID:-}" \
+      AWS_BEARER_TOKEN_BEDROCK="${AWS_BEARER_TOKEN_BEDROCK:-}" \
+      TAKCTL_LLM2_PHASE3_MODE="${TAKCTL_LLM2_PHASE3_MODE:-}" \
+      "$@"
   fi
-done
+}
 
-echo "## Done"
+cd "$RUNTIME_DIR"
+
+run_one() {
+  local ph="$1"
+  echo "## RUN ${ph}"
+  run_as_tak "$PY" -m takctl.services.llm2.runner --phase "$ph" --once
+  echo
+}
+
+for ph in "${phases[@]}"; do
+  run_one "$ph"
+done

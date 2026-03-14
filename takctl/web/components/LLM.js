@@ -13,12 +13,6 @@
     try { return JSON.parse(t); } catch { throw new Error("Non-JSON from " + url + ": " + t.slice(0, 400)); }
   }
 
-  function Mono(txt){
-    return e("span", {
-      style:{fontFamily:"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"}
-    }, String(txt || ""));
-  }
-
   function Pill(txt, kind){
     const bg = (kind==="ok") ? "rgba(46,160,67,.25)" : (kind==="warn") ? "rgba(187,128,9,.25)" : "rgba(248,81,73,.25)";
     const bd = (kind==="ok") ? "rgba(46,160,67,.5)"  : (kind==="warn") ? "rgba(187,128,9,.5)"  : "rgba(248,81,73,.5)";
@@ -56,6 +50,7 @@
     if (name === "_summary") return "Summary";
     if (name === "chatter") return "Friendly Activity";
     if (name === "missions") return "Mission Status";
+    if (name === "presence") return "Presence";
     return String(name || "");
   }
 
@@ -79,6 +74,7 @@
           if (phObj.files["trace.json"] && !phObj.files.trace_json) phObj.files.trace_json = phObj.files["trace.json"];
           if (phObj.files["findings.json"] && !phObj.files.findings_json) phObj.files.findings_json = phObj.files["findings.json"];
           if (phObj.files["card.json"] && !phObj.files.card_json) phObj.files.card_json = phObj.files["card.json"];
+          if (phObj.files["detail.json"] && !phObj.files.detail_json) phObj.files.detail_json = phObj.files["detail.json"];
         });
       });
       return out;
@@ -98,36 +94,50 @@
 
     const p2find = (((p2||{}).files||{}).findings_json || null);
     const p2trace = (((p2||{}).files||{}).trace_json || null);
+
     const p3card = (((p3||{}).files||{}).card_json || null);
+    const p3detail = (((p3||{}).files||{}).detail_json || null);
     const p3trace = (((p3||{}).files||{}).trace_json || null);
 
     const runId =
-      (p3card && p3card.run_id) ||
       (p3trace && p3trace.run_id) ||
       (p2trace && p2trace.run_id) ||
       null;
 
-    return { p1, p2, p3, p2find, p2trace, p3card, p3trace, qcount, latestDir, runId };
+    return { p1, p2, p3, p2find, p2trace, p3card, p3detail, p3trace, qcount, latestDir, runId };
+  }
+
+  function decodeHtmlEntities(s){
+    const t = String(s || "");
+    if (!t) return "";
+    try{
+      const el = document.createElement("textarea");
+      el.innerHTML = t;
+      return el.value;
+    }catch{
+      return t
+        .replace(/&#x27;/gi, "'")
+        .replace(/&#39;/g, "'")
+        .replace(/&quot;/g, "\"")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">");
+    }
   }
 
   function stripHtmlTags(s){
-    return String(s || "")
-      .replace(/<script[\s\S]*?<\/script>/gi, "")
-      .replace(/<style[\s\S]*?<\/style>/gi, "")
-      .replace(/<[^>]+>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
-  function escapeHtml(s){
-    return String(s || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+    return decodeHtmlEntities(
+      String(s || "")
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+    );
   }
 
   function normalizeOperationalText(s){
-    let t = String(s || "").trim();
+    let t = decodeHtmlEntities(String(s || "").trim());
     if (!t) return "";
 
     t = t.replace(/^Phase2 findings$/i, "Latest assessment");
@@ -148,7 +158,7 @@
   function looksLikeTimestamp(s){
     const t = String(s || "").trim();
     if (!t) return false;
-    return /\b\d{4}-\d{2}-\d{2}\b/.test(t) || /\b\d{2}:\d{2}\b/.test(t);
+    return /\b\d{4}-\d{2}-\d{2}\b/.test(t) || /\b\d{2}:\d{2}\b/.test(t) || /\bTNR\s+\d{6,}\w?\b/i.test(t);
   }
 
   function uniqueNonEmpty(arr){
@@ -164,20 +174,57 @@
     return out;
   }
 
-  function extractTextFromP3Card(s){
-    const html = s && s.p3card && typeof s.p3card.html === "string" ? s.p3card.html : "";
-    return normalizeOperationalText(stripHtmlTags(html));
+  function extractFromPhase3Card(s){
+    const htmlCard = s && s.p3card && typeof s.p3card.html === "string" ? s.p3card.html : "";
+    if (!htmlCard) return null;
+
+    const h3m = htmlCard.match(/<h3[^>]*>([\s\S]*?)<\/h3>/i);
+    const pm = htmlCard.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+    const lis = [];
+    const reLi = /<li[^>]*>([\s\S]*?)<\/li>/ig;
+    let m;
+    while ((m = reLi.exec(htmlCard)) !== null) {
+      lis.push(normalizeOperationalText(stripHtmlTags(m[1] || "")));
+      if (lis.length >= 4) break;
+    }
+
+    const headline = h3m ? normalizeOperationalText(stripHtmlTags(h3m[1] || "")) : "";
+    const summary = pm ? normalizeOperationalText(stripHtmlTags(pm[1] || "")) : "";
+
+    return {
+      headline: headline,
+      summary: summary,
+      bullets: uniqueNonEmpty(lis)
+    };
+  }
+
+  function isBadSummaryText(t){
+    const s = String(t || "").trim().toLowerCase();
+    if (!s) return true;
+    if (s === "no current assessment") return true;
+    if (s.indexOf("phase2_failed") >= 0) return true;
+    if (s.indexOf("no_json_object_start") >= 0) return true;
+    if (s.indexOf("failed:") >= 0) return true;
+    return false;
   }
 
   function deriveOperationalModel(name, s){
     const p2 = s.p2find || {};
-    const p3Text = extractTextFromP3Card(s);
+    const p3 = extractFromPhase3Card(s);
 
-    let important = normalizeOperationalText(p2.important || "");
-    let newest = normalizeOperationalText(p2.newest || "");
-    let details = normalizeOperationalText(p2.details || "");
+    let important = "";
+    let newest = "";
+    let details = "";
 
-    if (!important && p3Text) important = p3Text;
+    if (p3 && p3.headline) {
+      important = p3.headline;
+      details = p3.summary || "";
+      newest = "";
+    } else {
+      important = normalizeOperationalText(p2.important || "");
+      newest = normalizeOperationalText(p2.newest || "");
+      details = normalizeOperationalText(p2.details || "");
+    }
 
     const title = niceDomainName(name);
     const eyebrow = niceDomainEyebrow(name);
@@ -186,42 +233,169 @@
     if (looksLikeTimestamp(newest)) timestamp = newest;
 
     let headline = important || details || newest || "No current assessment";
-    let summary = "";
 
     if (name === "_summary"){
-      summary = details && details !== headline ? details : "";
-      if (!summary && newest && newest !== headline && !looksLikeTimestamp(newest)) summary = newest;
+      const summary = details && details !== headline ? details : "";
+      return { title, eyebrow, headline, timestamp, summary, bullets: [] };
+    }
+
+    const bullets = p3 && p3.bullets && p3.bullets.length
+      ? p3.bullets
+      : uniqueNonEmpty([
+          (newest && !looksLikeTimestamp(newest) && newest !== headline) ? newest : "",
+          (details && details !== headline && details !== newest) ? details : ""
+        ]).slice(0, 4);
+
+    const summary = (p3 && p3.summary && p3.summary !== headline) ? p3.summary : "";
+
+    return { title, eyebrow, headline, timestamp, summary, bullets };
+  }
+
+  function buildSummaryFallback(otherNames, doms){
+    const models = otherNames.map(name => deriveOperationalModel(name, domPhaseSummary(doms[name] || {})));
+    const good = models.filter(m => !isBadSummaryText(m.headline));
+
+    if (!good.length) {
       return {
-        title: title,
-        eyebrow: eyebrow,
-        headline: headline,
-        timestamp: timestamp,
-        summary: summary,
+        title: "Summary",
+        eyebrow: "Latest assessment",
+        headline: "No current assessment",
+        timestamp: "",
+        summary: "",
         bullets: []
       };
     }
 
-    const bullets = uniqueNonEmpty([
-      (newest && !looksLikeTimestamp(newest) && newest !== headline) ? newest : "",
-      (details && details !== headline && details !== newest) ? details : ""
-    ]).slice(0, 3);
+    const headline = good.length === 1
+      ? "One active domain shows operationally relevant activity."
+      : good.length + " active domains show operationally relevant activity.";
 
-    if (!summary && looksLikeTimestamp(newest)) summary = newest;
-    if (!summary && details && details !== headline) summary = details;
+    const bullets = [];
+    good.forEach(m=>{
+      const lead = m.headline || "";
+      const extra = m.summary || (m.bullets && m.bullets[0]) || "";
+      bullets.push(
+        extra && extra !== lead
+          ? (m.title + ": " + lead + " " + extra)
+          : (m.title + ": " + lead)
+      );
+    });
 
     return {
-      title: title,
-      eyebrow: eyebrow,
+      title: "Summary",
+      eyebrow: "Latest assessment",
       headline: headline,
-      timestamp: timestamp,
-      summary: summary,
-      bullets: bullets
+      timestamp: "",
+      summary: "",
+      bullets: uniqueNonEmpty(bullets).slice(0, 4)
     };
   }
 
-  function renderOperationalCard(name, s){
-    const m = deriveOperationalModel(name, s);
+  function escapeHtml(s){
+    return String(s || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
 
+  function sanitizeHtmlLite(s){
+    let t = String(s || "");
+    t = t.replace(/<\s*script[\s\S]*?<\/\s*script\s*>/gi, "");
+    t = t.replace(/<\s*style[\s\S]*?<\/\s*style\s*>/gi, "");
+    t = t.replace(/<\s*(iframe|object|embed|link|meta)\b[^>]*>/gi, "");
+    t = t.replace(/\son\w+\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, "");
+    t = t.replace(/\sstyle\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, "");
+    t = t.replace(/\s(href|src)\s*=\s*("|\')\s*javascript:[\s\S]*?\2/gi, "");
+    return t.trim();
+  }
+
+  function hasUsefulHtml(html){
+    const text = stripHtmlTags(html || "");
+    return text && text.length >= 40;
+  }
+
+  function buildFallbackDetailHtml(title, model, meta){
+    const bullets = (model.bullets || []).map(function(b){
+      return "<li>" + escapeHtml(b) + "</li>";
+    }).join("");
+
+    const metaBits = [];
+    if (meta && meta.runId) metaBits.push("Run " + escapeHtml(meta.runId));
+    if (meta && meta.timestamp) metaBits.push(escapeHtml(meta.timestamp));
+    if (meta && meta.latestDir) metaBits.push(escapeHtml(meta.latestDir));
+
+    const metaHtml = metaBits.length
+      ? "<div style=\"display:flex;flex-wrap:wrap;gap:8px;margin:0 0 18px 0;\">"
+          + metaBits.map(function(x){
+              return "<span style=\"display:inline-flex;align-items:center;padding:4px 10px;border-radius:999px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03);font-size:12px;opacity:.86;\">"
+                + x +
+              "</span>";
+            }).join("")
+        + "</div>"
+      : "";
+
+    return ""
+      + "<div class=\"llm-detail-page\">"
+      +   "<div style=\"font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.62;font-weight:700;margin-bottom:12px;\">"
+      +     escapeHtml(model.eyebrow || "")
+      +   "</div>"
+      +   "<h1 style=\"margin:0 0 14px 0;line-height:1.15;font-size:38px;font-weight:800;\">"
+      +     escapeHtml(model.headline || title)
+      +   "</h1>"
+      +   metaHtml
+      +   (model.summary ? "<div style=\"font-size:18px;line-height:1.65;opacity:.94;margin:0 0 20px 0;\">" + escapeHtml(model.summary) + "</div>" : "")
+      +   (bullets ? "<div style=\"margin-top:16px;\"><div style=\"font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.62;font-weight:700;margin-bottom:10px;\">Key points</div><ul style=\"line-height:1.85;font-size:17px;padding-left:24px;\">" + bullets + "</ul></div>" : "")
+      + "</div>";
+  }
+
+  function buildSummaryAggregateDetailHtml(otherNames, doms){
+    const sections = otherNames.map(function(name){
+      const s = domPhaseSummary(doms[name] || {});
+      const model = deriveOperationalModel(name, s);
+      const bullets = (model.bullets || []).map(function(b){
+        return "<li>" + escapeHtml(b) + "</li>";
+      }).join("");
+      return {
+        name: name,
+        title: niceDomainName(name),
+        eyebrow: niceDomainEyebrow(name),
+        headline: model.headline || "",
+        summary: model.summary || "",
+        bullets: bullets
+      };
+    }).filter(function(sec){
+      return !isBadSummaryText(sec.headline);
+    });
+
+    if (!sections.length) {
+      return "<div><h1 style=\"margin:0 0 12px 0;font-size:38px;line-height:1.15;\">No current assessment</h1></div>";
+    }
+
+    const intro = sections.length === 1
+      ? "One domain currently shows operationally relevant activity."
+      : sections.length + " domains currently show operationally relevant activity.";
+
+    return ""
+      + "<div class=\"llm-detail-page\">"
+      +   "<div style=\"font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.62;font-weight:700;margin-bottom:12px;\">Latest assessment</div>"
+      +   "<h1 style=\"margin:0 0 14px 0;line-height:1.15;font-size:38px;font-weight:800;\">Summary</h1>"
+      +   "<div style=\"font-size:18px;line-height:1.65;opacity:.94;margin:0 0 22px 0;\">" + escapeHtml(intro) + "</div>"
+      +   sections.map(function(sec){
+            return ""
+              + "<section style=\"margin:0 0 18px 0;padding:16px 16px 14px 16px;border:1px solid rgba(255,255,255,.06);border-radius:16px;background:rgba(255,255,255,.02);\">"
+              +   "<div style=\"font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.62;font-weight:700;margin-bottom:8px;\">" + escapeHtml(sec.eyebrow) + "</div>"
+              +   "<h2 style=\"margin:0 0 10px 0;font-size:24px;line-height:1.25;\">" + escapeHtml(sec.title) + "</h2>"
+              +   "<div style=\"font-size:18px;line-height:1.55;font-weight:700;margin:0 0 10px 0;\">" + escapeHtml(sec.headline) + "</div>"
+              +   (sec.summary ? "<div style=\"line-height:1.7;opacity:.92;margin:0 0 10px 0;\">" + escapeHtml(sec.summary) + "</div>" : "")
+              +   (sec.bullets ? "<ul style=\"line-height:1.8;padding-left:24px;margin:0;\">" + sec.bullets + "</ul>" : "")
+              + "</section>";
+          }).join("")
+      + "</div>";
+  }
+
+  function renderOperationalCardFromModel(name, m){
     const summaryEl = m.summary
       ? e("div", {style:{opacity:.92, fontSize:15, lineHeight:"22px", marginBottom:m.bullets.length ? 10 : 0}}, m.summary)
       : null;
@@ -268,14 +442,14 @@
     ]);
   }
 
+  function renderOperationalCard(name, s){
+    return renderOperationalCardFromModel(name, deriveOperationalModel(name, s));
+  }
+
   function renderDebugSection(s){
     const p1 = s.p1 || {};
     const p2 = s.p2 || {};
     const p3 = s.p3 || {};
-
-    const p3run = ((s.runId && (s.p3||{}).dir)
-      ? String((s.p3||{}).dir).replace(/\/latest\/[^/]+\/phase3$/, "/runs/" + s.runId + "/" + (((s.p3||{}).dir || "").split("/").slice(-2,-1)[0] || "") + "/phase3")
-      : null);
 
     return e("div",null,[
       e("div",{style:{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:10}},[
@@ -284,58 +458,128 @@
         e("span",null,"p3 "), domainBadge(s.p3),
         s.qcount!=null ? e("span",{style:{opacity:.9}}, "phase1 queries: " + String(s.qcount)) : null
       ]),
-
       e("div",{style:{opacity:.8,fontSize:12,marginBottom:10,overflowWrap:"anywhere"}}, "latest dir: " + (s.latestDir || "—")),
-
       e("div",{style:{opacity:.95,margin:"10px 0 6px"}}, "Debug (latest/*)"),
-      (p1.files && p1.files.latest_json) ? e("details",null,[
-        e("summary",null,"phase1/latest.json"),
-        Json(p1.files.latest_json, 520)
-      ]) : null,
-      (p1.files && p1.files.trace_json) ? e("details",null,[
-        e("summary",null,"phase1/trace.json"),
-        Json(p1.files.trace_json, 520)
-      ]) : null,
-      (p2.files && p2.files.findings_json) ? e("details",null,[
-        e("summary",null,"phase2/findings.json"),
-        Json(p2.files.findings_json, 520)
-      ]) : null,
-      (p2.files && p2.files.trace_json) ? e("details",null,[
-        e("summary",null,"phase2/trace.json"),
-        Json(p2.files.trace_json, 520)
-      ]) : null,
-      (p3.files && p3.files.card_json) ? e("details",null,[
-        e("summary",null,"phase3/card.json"),
-        Json(p3.files.card_json, 520)
-      ]) : null,
-      (p3.files && p3.files.trace_json) ? e("details",null,[
-        e("summary",null,"phase3/trace.json"),
-        Json(p3.files.trace_json, 520)
-      ]) : null,
-
-      e("div",{style:{opacity:.95,margin:"10px 0 6px"}}, "Debug (runs/<run_id>/...)"),
-      s.runId ? e("div",{style:{opacity:.8,fontSize:12,marginBottom:8}}, ["run_id ", Mono(s.runId)]) : null,
-      (s.runId && p3run) ? e("div",{style:{opacity:.8,fontSize:12,marginBottom:8,overflowWrap:"anywhere"}}, p3run) : null,
-      (p3.files && p3.files.trace_json && p3.files.trace_json.files) ? e("details",null,[
-        e("summary",null,"phase3 run files (prompt/response/cleaned/request/http)"),
-        Json(p3.files.trace_json.files, 520)
-      ]) : null
+      (p1.files && p1.files.latest_json) ? e("details",null,[ e("summary",null,"phase1/latest.json"), Json(p1.files.latest_json, 520) ]) : null,
+      (p1.files && p1.files.trace_json) ? e("details",null,[ e("summary",null,"phase1/trace.json"), Json(p1.files.trace_json, 520) ]) : null,
+      (p2.files && p2.files.findings_json) ? e("details",null,[ e("summary",null,"phase2/findings.json"), Json(p2.files.findings_json, 520) ]) : null,
+      (p2.files && p2.files.trace_json) ? e("details",null,[ e("summary",null,"phase2/trace.json"), Json(p2.files.trace_json, 520) ]) : null,
+      (p3.files && p3.files.card_json) ? e("details",null,[ e("summary",null,"phase3/card.json"), Json(p3.files.card_json, 520) ]) : null,
+      (p3.files && p3.files.detail_json) ? e("details",null,[ e("summary",null,"phase3/detail.json"), Json(p3.files.detail_json, 520) ]) : null,
+      (p3.files && p3.files.trace_json) ? e("details",null,[ e("summary",null,"phase3/trace.json"), Json(p3.files.trace_json, 520) ]) : null
     ]);
   }
 
-  function CardShell(title, body, extraStyle){
+  function CardShell(title, body, extraStyle, onClick){
     return e("div",{
       className:"llm-card",
+      onClick: onClick || undefined,
+      title: onClick ? "Open detail page" : undefined,
       style:Object.assign({
         border:"1px solid rgba(255,255,255,.06)",
         borderRadius:18,
         padding:"18px 18px 16px 18px",
         background:"linear-gradient(90deg, rgba(255,255,255,.02), rgba(255,255,255,.01))",
-        boxShadow:"0 0 0 1px rgba(0,0,0,.08) inset"
+        boxShadow:"0 0 0 1px rgba(0,0,0,.08) inset",
+        cursor: onClick ? "pointer" : "default",
+        transition:"transform .12s ease, box-shadow .12s ease, border-color .12s ease"
       }, extraStyle || {})
     },[
-      e("div",{style:{fontSize:15,fontWeight:700,opacity:.96,marginBottom:8}}, title),
+      e("div",{style:{
+        display:"flex",
+        alignItems:"center",
+        gap:10,
+        marginBottom:8
+      }},[
+        e("div",{style:{fontSize:15,fontWeight:700,opacity:.96}}, title),
+        onClick ? e("div",{style:{
+          marginLeft:"auto",
+          fontSize:11,
+          letterSpacing:".08em",
+          textTransform:"uppercase",
+          opacity:.5
+        }}, "Open") : null
+      ]),
       body ? e("div",null, body) : null
+    ]);
+  }
+
+  function getDetailFromLocation(){
+    try{
+      const u = new URL(window.location.href);
+      return u.searchParams.get("detail") || "";
+    }catch{
+      return "";
+    }
+  }
+
+  function setDetailInLocation(name){
+    const u = new URL(window.location.href);
+    if (name) u.searchParams.set("detail", name);
+    else u.searchParams.delete("detail");
+    window.history.pushState({}, "", u.toString());
+  }
+
+  function DetailPageShell(title, eyebrow, html, metaBits){
+    return e("div", {
+      style:{
+        border:"1px solid rgba(255,255,255,.06)",
+        borderRadius:20,
+        padding:22,
+        background:"linear-gradient(90deg, rgba(255,255,255,.02), rgba(255,255,255,.01))"
+      }
+    }, [
+      e("div", {
+        style:{
+          fontSize:12,
+          letterSpacing:".08em",
+          textTransform:"uppercase",
+          opacity:.62,
+          fontWeight:700,
+          marginBottom:10
+        }
+      }, eyebrow || ""),
+      e("div", {
+        style:{
+          fontSize:18,
+          fontWeight:700,
+          opacity:.96,
+          marginBottom:10
+        }
+      }, title),
+      (metaBits && metaBits.length) ? e("div", {
+        style:{
+          display:"flex",
+          flexWrap:"wrap",
+          gap:8,
+          marginBottom:16
+        }
+      }, metaBits.map(function(bit, idx){
+        return e("span", {
+          key: idx,
+          style:{
+            display:"inline-flex",
+            alignItems:"center",
+            padding:"4px 10px",
+            borderRadius:999,
+            border:"1px solid rgba(255,255,255,.08)",
+            background:"rgba(255,255,255,.03)",
+            fontSize:12,
+            opacity:.86
+          }
+        }, bit);
+      })) : null,
+      e("div", {
+        className:"llm-detail-html",
+        style:{
+          border:"1px solid rgba(255,255,255,.05)",
+          borderRadius:16,
+          padding:20,
+          background:"rgba(255,255,255,.02)",
+          lineHeight:1.75
+        },
+        dangerouslySetInnerHTML:{__html: sanitizeHtmlLite(html)}
+      })
     ]);
   }
 
@@ -343,6 +587,13 @@
     const [data, setData] = React.useState(null);
     const [err, setErr] = React.useState(null);
     const [showDebug, setShowDebug] = React.useState(false);
+    const [detailName, setDetailName] = React.useState(getDetailFromLocation());
+
+    const [showConfig, setShowConfig] = React.useState(false);
+    const [cfg, setCfg] = React.useState(null);
+    const [cfgErr, setCfgErr] = React.useState(null);
+    const [cfgSaving, setCfgSaving] = React.useState(false);
+    const [bedrockKeyInput, setBedrockKeyInput] = React.useState("");
 
     async function load(){
       try{
@@ -358,14 +609,80 @@
     React.useEffect(()=>{
       load();
       const t = setInterval(load, 5000);
-      return ()=>clearInterval(t);
+      const onPop = ()=>setDetailName(getDetailFromLocation());
+      window.addEventListener("popstate", onPop);
+      return ()=>{
+        clearInterval(t);
+        window.removeEventListener("popstate", onPop);
+      };
     },[]);
+
+    async function loadConfig(){
+      try{
+        const providerHint = cfg && cfg.provider ? ("?provider=" + encodeURIComponent(cfg.provider)) : "";
+        const c = await fetchJson("/api/config/llm" + providerHint);
+        setCfg(c);
+        setCfgErr(null);
+      }catch(ex){
+        setCfgErr(ex && (ex.message || String(ex)));
+      }
+    }
+
+    async function saveConfig(){
+      if (!cfg) return;
+      setCfgSaving(true);
+      setCfgErr(null);
+      try{
+        const body = {
+          provider: cfg.provider || "local",
+          model_id: cfg.provider === "bedrock" ? (cfg.bedrock_model_id || cfg.model_id || "") : (cfg.local_model || cfg.model_id || ""),
+          local_url: cfg.local_url || "",
+          bedrock_region: cfg.bedrock_region || "",
+          phase3_mode: cfg.phase3_mode || "fallback"
+        };
+        if (cfg.provider === "bedrock" && bedrockKeyInput.trim()) {
+          body.bedrock_api_key = bedrockKeyInput.trim();
+        }
+
+        const r = await fetch("/api/config/llm", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(body)
+        });
+        const t = await r.text();
+        if (!r.ok) throw new Error("HTTP " + r.status + " saving /api/config/llm: " + t.slice(0, 400));
+
+        setBedrockKeyInput("");
+        await loadConfig();
+      }catch(ex){
+        setCfgErr(ex && (ex.message || String(ex)));
+      }finally{
+        setCfgSaving(false);
+      }
+    }
+
+    function openDetailPage(name){
+      setDetailInLocation(name);
+      setDetailName(name);
+    }
+
+    function closeDetailPage(){
+      setDetailInLocation("");
+      setDetailName("");
+    }
 
     const header = e("div",{style:{display:"flex",alignItems:"center",gap:12,marginBottom:14}},[
       e("h2",{style:{margin:"0 10px 0 0"}}, "Tactical Operations"),
       e("div",{style:{marginLeft:"auto",display:"flex",gap:10,alignItems:"center"}},[
+        detailName ? e("button",{onClick:closeDetailPage}, "Back to overview") : null,
         e("button",{onClick:load}, "Reload"),
-        e("button",{onClick:()=>setShowDebug(!showDebug)}, showDebug ? "Operative view" : "Debug view")
+        e("button",{onClick:()=>setShowDebug(!showDebug)}, showDebug ? "Operative view" : "Debug view"),
+        e("button",{onClick:async ()=>{
+          const next = !showConfig;
+          setShowConfig(next);
+          if (next && !cfg) await loadConfig();
+        }}, showConfig ? "Hide config" : "LLM Config")
       ])
     ]);
 
@@ -386,11 +703,72 @@
     const summaryName = domNames.find(n => n === "_summary") || null;
     const otherNames = domNames.filter(n => n !== "_summary");
 
-    const summaryCard = summaryName ? (function(){
-      const s = domPhaseSummary(doms[summaryName] || {});
-      const body = showDebug ? renderDebugSection(s) : renderOperationalCard(summaryName, s);
-      return CardShell("Summary", body, {marginBottom:12});
-    })() : null;
+    if (detailName) {
+      const s = domPhaseSummary(doms[detailName] || {});
+      const model = deriveOperationalModel(detailName, s);
+
+      let title = niceDomainName(detailName);
+      let eyebrow = niceDomainEyebrow(detailName);
+      let html = "";
+      let stateForDebug = s;
+      let metaBits = [];
+
+      if (s.runId) metaBits.push("Run " + s.runId);
+      if (model.timestamp) metaBits.push(model.timestamp);
+
+      if (detailName === "_summary") {
+        const useOwnSummaryDetail = s.p3detail && s.p3detail.html && hasUsefulHtml(s.p3detail.html) && !isBadSummaryText(model.headline);
+        title = "Summary";
+        eyebrow = "Latest assessment";
+        html = useOwnSummaryDetail
+          ? String(s.p3detail.html)
+          : buildSummaryAggregateDetailHtml(otherNames, doms);
+      } else {
+        html = (s.p3detail && s.p3detail.html && hasUsefulHtml(s.p3detail.html))
+          ? String(s.p3detail.html)
+          : buildFallbackDetailHtml(title, model, {
+              runId: s.runId || "",
+              timestamp: model.timestamp || "",
+              latestDir: ""
+            });
+      }
+
+      const detailBody = showDebug
+        ? e("div", null, [
+            e("div", {
+              style:{
+                marginBottom:12,
+                opacity:.85,
+                fontSize:13
+              }
+            }, "Detail page: " + title),
+            renderDebugSection(stateForDebug),
+            e("div", {style:{marginTop:12}}, [
+              DetailPageShell(title, eyebrow, html, metaBits)
+            ])
+          ])
+        : DetailPageShell(title, eyebrow, html, metaBits);
+
+      return e("div",{className:"llm-page", style:{overflowX:"hidden"}},[
+        header,
+        detailBody
+      ]);
+    }
+
+    const summaryCard = (function(){
+      const summaryState = summaryName ? domPhaseSummary(doms[summaryName] || {}) : null;
+      const summaryModel = summaryState ? deriveOperationalModel("_summary", summaryState) : null;
+      const useFallbackSummary = !summaryModel || isBadSummaryText(summaryModel.headline);
+      const fallbackModel = buildSummaryFallback(otherNames, doms);
+
+      const body = showDebug
+        ? (summaryState ? renderDebugSection(summaryState) : renderOperationalCardFromModel("_summary", fallbackModel))
+        : renderOperationalCardFromModel("_summary", useFallbackSummary ? fallbackModel : summaryModel);
+
+      const onClick = !showDebug ? ()=>openDetailPage("_summary") : null;
+
+      return CardShell("Summary", body, {marginBottom:12}, onClick);
+    })();
 
     const othersGrid = e("div",{
       style:{
@@ -401,8 +779,110 @@
     }, otherNames.map(name=>{
       const s = domPhaseSummary(doms[name] || {});
       const body = showDebug ? renderDebugSection(s) : renderOperationalCard(name, s);
-      return CardShell(niceDomainName(name), body, {minHeight: showDebug ? "auto" : 150});
+      const onClick = !showDebug ? ()=>openDetailPage(name) : null;
+      return CardShell(niceDomainName(name), body, {minHeight: showDebug ? "auto" : 150}, onClick);
     }));
+
+    const configPanel = showConfig ? CardShell(
+      "LLM Config",
+      e("div", {style:{display:"grid", gap:12}}, [
+        cfgErr ? e("div",{style:{color:"#ff8f8f", fontSize:13, whiteSpace:"pre-wrap"}}, String(cfgErr)) : null,
+        !cfg ? e("div",{style:{opacity:.8}}, "Loading config...") : e("div",{style:{display:"grid", gap:12}},[
+          e("label",{style:{display:"grid", gap:6}},[
+            e("div",{style:{fontSize:13, opacity:.8}}, "Provider"),
+            e("select",{
+              value: cfg.provider || "local",
+              onChange: async (ev)=>{
+                const provider = String(ev.target.value || "local");
+                const c2 = Object.assign({}, cfg, {provider});
+                setCfg(c2);
+                try{
+                  const fresh = await fetchJson("/api/config/llm?provider=" + encodeURIComponent(provider));
+                  fresh.provider = provider;
+                  setCfg(fresh);
+                }catch(ex){
+                  setCfgErr(ex && (ex.message || String(ex)));
+                }
+              }
+            },[
+              e("option",{value:"local"},"local"),
+              e("option",{value:"bedrock"},"bedrock")
+            ])
+          ]),
+          cfg.provider === "local"
+            ? e("label",{style:{display:"grid", gap:6}},[
+                e("div",{style:{fontSize:13, opacity:.8}}, "Local URL"),
+                e("input",{
+                  value: cfg.local_url || "",
+                  onChange:(ev)=>setCfg(Object.assign({}, cfg, {local_url:String(ev.target.value || "")}))
+                })
+              ])
+            : null,
+          cfg.provider === "local"
+            ? e("label",{style:{display:"grid", gap:6}},[
+                e("div",{style:{fontSize:13, opacity:.8}}, "Local model"),
+                e("select",{
+                  value: cfg.local_model || cfg.model_id || "",
+                  onChange:(ev)=>setCfg(Object.assign({}, cfg, {
+                    local_model:String(ev.target.value || ""),
+                    model_id:String(ev.target.value || "")
+                  }))
+                }, (cfg.available_models || []).map(function(m, i){
+                  return e("option",{key:i, value:m.id}, m.label || m.id);
+                }))
+              ])
+            : null,
+          cfg.provider === "bedrock"
+            ? e("label",{style:{display:"grid", gap:6}},[
+                e("div",{style:{fontSize:13, opacity:.8}}, "Bedrock region"),
+                e("input",{
+                  value: cfg.bedrock_region || "",
+                  onChange:(ev)=>setCfg(Object.assign({}, cfg, {bedrock_region:String(ev.target.value || "")}))
+                })
+              ])
+            : null,
+          cfg.provider === "bedrock"
+            ? e("label",{style:{display:"grid", gap:6}},[
+                e("div",{style:{fontSize:13, opacity:.8}}, "Bedrock model"),
+                e("input",{
+                  value: cfg.bedrock_model_id || cfg.model_id || "",
+                  onChange:(ev)=>setCfg(Object.assign({}, cfg, {
+                    bedrock_model_id:String(ev.target.value || ""),
+                    model_id:String(ev.target.value || "")
+                  }))
+                })
+              ])
+            : null,
+          cfg.provider === "bedrock"
+            ? e("label",{style:{display:"grid", gap:6}},[
+                e("div",{style:{fontSize:13, opacity:.8}}, "Bedrock API key"),
+                e("input",{
+                  type:"password",
+                  placeholder: cfg.bedrock_key_set ? "Stored; enter to replace" : "Paste API key",
+                  value: bedrockKeyInput,
+                  onChange:(ev)=>setBedrockKeyInput(String(ev.target.value || ""))
+                })
+              ])
+            : null,
+          e("label",{style:{display:"grid", gap:6}},[
+            e("div",{style:{fontSize:13, opacity:.8}}, "Phase3 mode"),
+            e("select",{
+              value: cfg.phase3_mode || "fallback",
+              onChange:(ev)=>setCfg(Object.assign({}, cfg, {phase3_mode:String(ev.target.value || "fallback")}))
+            },[
+              e("option",{value:"fallback"},"fallback"),
+              e("option",{value:"llm"},"llm")
+            ])
+          ]),
+          e("div",{style:{display:"flex", gap:10, alignItems:"center"}},[
+            e("button",{onClick:saveConfig, disabled:cfgSaving}, cfgSaving ? "Saving..." : "Save config"),
+            e("button",{onClick:loadConfig, disabled:cfgSaving}, "Reload config"),
+            e("div",{style:{opacity:.7, fontSize:12}}, cfg && cfg.env_path ? cfg.env_path : "")
+          ])
+        ])
+      ]),
+      {marginBottom:12}
+    ) : null;
 
     const debugFooter = showDebug ? CardShell(
       "Debug",
@@ -414,6 +894,7 @@
 
     return e("div",{className:"llm-page", style:{overflowX:"hidden"}},[
       header,
+      configPanel,
       summaryCard,
       othersGrid,
       debugFooter
