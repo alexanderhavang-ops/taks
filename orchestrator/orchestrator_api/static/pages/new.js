@@ -93,7 +93,7 @@
           <div><label class="label">fqdn</label><input id="fqdn"></div>
           <div><label class="label">hostname</label><input id="hostname"></div>
           <div><label class="label">name</label><input id="name"></div>
-          <div><label class="label">instance_type</label><input id="instance_type" value="t3.micro"></div>
+          <div><label class="label">instance_type</label><input id="instance_type" value="t3.small"></div>
         </div>
 
         <details open><summary>Plan</summary><pre id="out_plan">—</pre></details>

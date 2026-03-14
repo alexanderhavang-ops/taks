@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import importlib.util
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Optional
 
 from takctl.services.llm2.db import run_sql
 from takctl.services.llm2.domain_config import load_domain_config
@@ -13,6 +14,34 @@ from takctl.services.llm2.store import write_json
 
 def _utc_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _phase_cfg_value(phase_cfg: Any, key: str, default: Any = None) -> Any:
+    if phase_cfg is None:
+        return default
+    if isinstance(phase_cfg, dict):
+        return phase_cfg.get(key, default)
+    return getattr(phase_cfg, key, default)
+
+
+def _load_enrich_hook(domain_dir: Path, rel_path: str) -> Optional[Callable[..., dict[str, Any]]]:
+    p = (domain_dir / rel_path).resolve()
+    if not p.exists():
+        raise RuntimeError(f"missing_enrich_hook: {p}")
+
+    mod_name = f"llm2_enrich_{domain_dir.name}_{p.stem}_{int(p.stat().st_mtime_ns)}"
+    spec = importlib.util.spec_from_file_location(mod_name, str(p))
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"unable_to_load_enrich_spec: {p}")
+
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    enrich = getattr(mod, "enrich", None)
+    if not callable(enrich):
+        raise RuntimeError(f"enrich_hook_missing_callable_enrich: {p}")
+
+    return enrich
 
 
 def run_phase1(*, run_id: str) -> dict[str, Any]:
@@ -39,10 +68,6 @@ def run_phase1(*, run_id: str) -> dict[str, Any]:
                 out["domains"].append(dom_entry)
                 continue
 
-            # -------------------------
-            # Evidence (for Phase2): MINIMAL, no noise.
-            # Trace (for debugging): full detail.
-            # -------------------------
             evidence: dict[str, Any] = {
                 "domain": dom_name,
                 "ok": True,
@@ -83,19 +108,29 @@ def run_phase1(*, run_id: str) -> dict[str, Any]:
                     {"name": name, "ok": bool(r.ok), "elapsed_ms": r.elapsed_ms, "rowcount": r.rowcount, "error": r.error}
                 )
 
-                # Minimal evidence item
                 ev_item: dict[str, Any] = {"name": name, "columns": r.columns, "rows": r.rows}
                 if not r.ok:
                     evidence["ok"] = False
                     ev_item["error"] = r.error
                 evidence["queries"].append(ev_item)
 
-            # write run artifacts
+            phase1_enrich_rel = _phase_cfg_value(getattr(cfg, "phase1", None), "enrich", None)
+            if phase1_enrich_rel:
+                try:
+                    enrich = _load_enrich_hook(ddir, str(phase1_enrich_rel))
+                    evidence = enrich(evidence) or evidence
+                    trace["enrich"] = {"ok": True, "path": str((ddir / str(phase1_enrich_rel)).resolve())}
+                except Exception as e:
+                    evidence["ok"] = False
+                    trace["ok"] = False
+                    trace["enrich"] = {"ok": False, "error": f"{type(e).__name__}: {e}", "path": str(ddir / str(phase1_enrich_rel))}
+                    dom_entry["ok"] = False
+                    dom_entry["errors"].append(f"phase1_enrich_failed: {type(e).__name__}: {e}")
+
             run_dir = runs_root() / run_id / dom_name / "phase1"
             write_json(run_dir / "evidence.json", evidence)
             write_json(run_dir / "trace.json", trace)
 
-            # write latest pointers for domain/phase
             latest_dir = latest_root() / dom_name / "phase1"
             write_json(latest_dir / "latest.json", evidence)
             write_json(latest_dir / "trace.json", trace)

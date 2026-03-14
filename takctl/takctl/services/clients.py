@@ -90,7 +90,7 @@ class LLMClient:
 
 def build_llm_client_from_env() -> LLMClient:
     """
-    Backwards-compatible helper used by takctl.services.llmchat.
+    Backwards-compatible helper for TAKS local LLM HTTP access.
     Keep it tiny and deterministic.
     """
     llm_url = (os.environ.get("TAKS_LLM_URL") or "http://127.0.0.1:8090").strip()

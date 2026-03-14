@@ -2,8 +2,15 @@
   "enabled": true,
   "domain": "presence",
   "phases": {
-    "phase1": { "enabled": true },
-    "phase2": { "enabled": true },
-    "phase3": { "enabled": true }
+    "phase1": {
+      "enabled": true,
+      "enrich": "enrich/phase1.py"
+    },
+    "phase2": {
+      "enabled": true
+    },
+    "phase3": {
+      "enabled": true
+    }
   }
 }

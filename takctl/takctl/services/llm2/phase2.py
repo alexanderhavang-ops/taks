@@ -1,23 +1,23 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import os
+import re
+import time
+import traceback
+from pathlib import Path
+from typing import Any, Dict, Tuple
+
+from takctl.services.llm2.llm_client import LlmClient
+from takctl.services.llm2.paths import runs_root, latest_root
+from takctl.services.llm2.store import write_json
+
+REQ_KEYS = ("important", "newest", "details")
+PROFILE_ORDER = ("compact", "standard", "full")
+
 
 def _extract_first_json_object(text: str) -> str:
-    """
-    Robustly salvage the FIRST JSON object from messy LLM output.
-
-    Handles:
-      - leading junk (markdown, prose, multiple headings) -> ignored until first '{'
-      - trailing junk after object -> ignored
-      - multiple JSON objects -> returns the first complete one
-      - truncated output missing final '}' -> attempts to auto-close braces
-      - stray backticks / "## OUTPUT_JSON" etc around JSON -> ignored
-
-    Strategy:
-      1) Find first '{'. If none -> ValueError
-      2) Scan forward with a brace counter (string/escape aware) to find the end
-         of the first object. If found -> return that slice.
-      3) If we hit end-of-text before braces close -> append missing '}' braces and return.
-    """
     if not text:
         raise ValueError("empty_text")
 
@@ -26,7 +26,6 @@ def _extract_first_json_object(text: str) -> str:
     if i0 < 0:
         raise ValueError("no_json_object_start")
 
-    # Start scanning at the first '{'
     s = s[i0:]
 
     depth = 0
@@ -46,7 +45,6 @@ def _extract_first_json_object(text: str) -> str:
                 in_str = False
             continue
 
-        # not in string
         if ch == '"':
             in_str = True
             continue
@@ -56,18 +54,15 @@ def _extract_first_json_object(text: str) -> str:
         if ch == "}":
             depth -= 1
             if depth == 0:
-                end_idx = idx + 1  # slice end is exclusive
+                end_idx = idx + 1
                 break
             continue
 
     if end_idx is None:
-        # truncated: auto-close braces (only if we were not inside a string;
-        # if we are inside a string at EOF, we cannot safely salvage)
         if in_str:
             raise ValueError("truncated_inside_string")
 
         if depth <= 0:
-            # Weird, but just try to parse up to last '}' if any
             j = s.rfind("}")
             if j >= 0:
                 return s[: j + 1]
@@ -76,21 +71,6 @@ def _extract_first_json_object(text: str) -> str:
         return s + ("}" * depth)
 
     return s[:end_idx]
-
-
-import hashlib
-import json
-import os
-import time
-import traceback
-import urllib.request
-from pathlib import Path
-from typing import Any, Dict, Tuple
-
-from takctl.services.llm2.paths import runs_root, latest_root
-from takctl.services.llm2.store import write_json
-
-REQ_KEYS = ("important", "newest", "details")
 
 
 def _now_iso() -> str:
@@ -105,29 +85,17 @@ def _read_json(p: Path) -> Any:
     return json.loads(_read_text(p))
 
 
-def _sha256_bytes(b: bytes) -> str:
-    return hashlib.sha256(b).hexdigest()
-
-
 def _sha256_text(s: str) -> str:
     return hashlib.sha256((s or "").encode("utf-8", errors="replace")).hexdigest()
 
 
 def _sanitize_jsonish_text(raw: str) -> str:
-    """
-    Ported from the old working pipeline (ops_findings_phase2.py).
-
-    Make parsing resilient to common llama.cpp / small-instruct quirks:
-      - leading/trailing whitespace
-      - one or more markdown fences (``` or ```json), sometimes preceded by a stray ``` block
-      - extra text before/after JSON (slice to first {/[ and last }/])
-    """
     t = (raw or "").strip()
     if not t:
         return t
 
-    # Drop any number of leading fence lines and blank lines.
-    for _ in range(10):  # bounded
+    # strip common fences
+    for _ in range(10):
         u = t.lstrip()
         if u.startswith("```"):
             lines = u.splitlines()
@@ -139,7 +107,6 @@ def _sanitize_jsonish_text(raw: str) -> str:
             continue
         break
 
-    # Drop trailing fence if present
     lines = t.splitlines()
     while lines and not lines[-1].strip():
         lines.pop()
@@ -150,7 +117,6 @@ def _sanitize_jsonish_text(raw: str) -> str:
     if not t:
         return t
 
-    # Slice to JSON payload (best-effort)
     i_obj = t.find("{")
     i_arr = t.find("[")
     starts = [i for i in (i_obj, i_arr) if i != -1]
@@ -163,34 +129,6 @@ def _sanitize_jsonish_text(raw: str) -> str:
         return t[start:].strip()
 
     return t[start : end + 1].strip()
-
-
-def _extract_text(resp_obj: Any) -> str:
-    """
-    Support OpenAI-like completion shape:
-      {"choices":[{"text":"..."}], ...}
-    """
-    try:
-        if isinstance(resp_obj, dict) and (resp_obj.get("choices") or []):
-            ch0 = (resp_obj.get("choices") or [{}])[0] or {}
-            if isinstance(ch0, dict) and "text" in ch0:
-                return ch0.get("text") or ""
-    except Exception:
-        pass
-    return ""
-
-
-def _llama_post(url: str, payload: Dict[str, Any], timeout_s: int) -> Dict[str, Any]:
-    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-    req = urllib.request.Request(
-        url=url,
-        method="POST",
-        data=data,
-        headers={"Content-Type": "application/json"},
-    )
-    with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-        body = resp.read()
-        return {"status": resp.status, "body_bytes": body}
 
 
 def _phase1_gate(latest_dom_dir: Path) -> Tuple[bool, str]:
@@ -213,14 +151,51 @@ def _phase1_gate(latest_dom_dir: Path) -> Tuple[bool, str]:
     return True, "ok"
 
 
-def _phase1_evidence_text(latest_dom_dir: Path) -> str:
+def _phase2_evidence_profile() -> str:
+    return (os.environ.get("TAKCTL_LLM2_PHASE2_EVIDENCE_PROFILE", "compact") or "compact").strip().lower()
+
+
+def _select_profile_payload_from_phase1(obj: Any) -> tuple[str | None, Any]:
+    if not isinstance(obj, dict):
+        return None, None
+
+    wanted = _phase2_evidence_profile()
+    queries = obj.get("queries")
+    if not isinstance(queries, list):
+        return None, None
+
+    for q in queries:
+        if not isinstance(q, dict):
+            continue
+        evidence = q.get("evidence")
+        if not isinstance(evidence, dict):
+            continue
+
+        if wanted in evidence:
+            return wanted, evidence.get(wanted)
+
+        for name in PROFILE_ORDER:
+            if name in evidence:
+                return name, evidence.get(name)
+
+    return None, None
+
+
+def _phase1_evidence_text(latest_dom_dir: Path, dom: str) -> str:
     p_latest = latest_dom_dir / "phase1" / "latest.json"
     if not p_latest.exists():
         return ""
+
     try:
-        return json.dumps(_read_json(p_latest), ensure_ascii=False, indent=2, sort_keys=True)
+        obj = _read_json(p_latest)
     except Exception:
         return _read_text(p_latest)
+
+    chosen_profile, chosen_payload = _select_profile_payload_from_phase1(obj)
+    if chosen_payload is not None:
+        return json.dumps(chosen_payload, ensure_ascii=False, indent=2, sort_keys=True)
+
+    return json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True)
 
 
 def _load_prompt(infra_dir: Path, dom: str) -> Tuple[str, str]:
@@ -229,17 +204,11 @@ def _load_prompt(infra_dir: Path, dom: str) -> Tuple[str, str]:
     system_txt = _read_text(sys_p).strip()
     user_txt = _read_text(usr_p).strip()
     if not system_txt:
-        # keep it mild like old pipeline
         system_txt = "You produce operational findings based on the provided input."
     return system_txt, user_txt
 
 
 def _build_prompt(system_txt: str, user_txt: str, evidence_json: str) -> str:
-    """
-    Old pipeline style:
-      system + user + marker + JSON
-    The prompt pack carries the JSON shape and guidance.
-    """
     parts = []
     if system_txt.strip():
         parts.append(system_txt.strip())
@@ -247,7 +216,7 @@ def _build_prompt(system_txt: str, user_txt: str, evidence_json: str) -> str:
     if user_txt.strip():
         parts.append(user_txt.strip())
         parts.append("")
-    parts.append("## INPUT_EVIDENCE_JSON")
+    parts.append("## INPUT")
     parts.append(evidence_json.strip())
     parts.append("")
     return "\n".join(parts).strip() + "\n"
@@ -265,16 +234,88 @@ def _validate_obj(obj: Any) -> Dict[str, Any]:
     return obj
 
 
-def _gather_phase2_findings_for_summary(*, latest_dir: Path) -> Dict[str, Any]:
-    """
-    Build a stable/small JSON evidence object for _summary phase2 by reading
-    other domains' phase2 findings ONLY.
+def _pick_sentences(text: str, limit: int) -> list[str]:
+    s = re.sub(r"\s+", " ", (text or "").strip())
+    if not s:
+        return []
+    parts = re.split(r"(?<=[\.\!\?])\s+", s)
+    out = []
+    for p in parts:
+        p = p.strip()
+        if not p:
+            continue
+        out.append(p)
+        if len(out) >= limit:
+            break
+    return out
 
-    IMPORTANT:
-      - Do NOT include trace.json, prompt text, raw responses, file paths, etc.
-        That explodes token/prompt size and can cause llama.cpp 400s.
-      - Keep this strictly reducer-evidence: findings {important,newest,details} per domain.
-    """
+
+def _strip_json_noise(text: str) -> str:
+    s = (text or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"```(?:json)?", "", s, flags=re.IGNORECASE).strip()
+    s = re.sub(r'^\s*[\{\[]', "", s)
+    s = re.sub(r'[\}\]]\s*$', "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def _deterministic_fallback_from_text(raw_text: str, dom: str) -> Dict[str, str]:
+    s = _strip_json_noise(raw_text)
+    sentences = _pick_sentences(s, 6)
+
+    important = sentences[0] if sentences else f"{dom} findings unavailable."
+    newest = sentences[1] if len(sentences) > 1 else ""
+    details = " ".join(sentences[2:6]) if len(sentences) > 2 else s[:600]
+
+    if not details:
+        details = important
+
+    return {
+        "important": important[:400].strip(),
+        "newest": newest[:400].strip(),
+        "details": details[:1200].strip(),
+    }
+
+
+def _repair_response_with_llm(
+    *,
+    client: LlmClient,
+    raw_text: str,
+    evidence_json: str,
+) -> Dict[str, Any]:
+    repair_prompt = (
+        "Return JSON only.\n"
+        "First character must be { and last character must be }.\n"
+        "Return exactly these keys: important, newest, details.\n"
+        "All three values must be strings.\n"
+        "Do not include any other keys.\n"
+        "Do not repeat INPUT.\n"
+        "If RAW_RESPONSE is malformed or truncated, salvage the intended meaning.\n"
+        "If RAW_RESPONSE is useless, use INPUT_EVIDENCE conservatively.\n\n"
+        "## RAW_RESPONSE\n"
+        f"{(raw_text or '')[:3000]}\n\n"
+        "## INPUT_EVIDENCE\n"
+        f"{(evidence_json or '')[:3000]}\n"
+    )
+
+    r = client.complete_text(prompt=repair_prompt, temperature=0.0, max_tokens=260, seed=7)
+    text = r.get("text") or ""
+    cleaned = _sanitize_jsonish_text(text)
+    cleaned_json = _extract_first_json_object(cleaned)
+    obj = _validate_obj(json.loads(cleaned_json))
+
+    return {
+        "obj": obj,
+        "llm": r,
+        "prompt": repair_prompt,
+        "cleaned_json": cleaned_json,
+        "text": text,
+    }
+
+
+def _gather_phase2_findings_for_summary(*, latest_dir: Path) -> Dict[str, Any]:
     domains: Dict[str, Any] = {}
     if not latest_dir.exists():
         return {"ok": False, "error": "latest_root_missing", "domains": domains}
@@ -285,7 +326,6 @@ def _gather_phase2_findings_for_summary(*, latest_dir: Path) -> Dict[str, Any]:
             continue
 
         p_find = dom_dir / "phase2" / "findings.json"
-
         entry: Dict[str, Any] = {"ok": False}
 
         if not p_find.exists():
@@ -305,7 +345,6 @@ def _gather_phase2_findings_for_summary(*, latest_dir: Path) -> Dict[str, Any]:
             domains[dom] = entry
             continue
 
-        # Keep only the contract keys, always as strings.
         reduced: Dict[str, str] = {}
         for k in REQ_KEYS:
             v = fo.get(k)
@@ -316,16 +355,11 @@ def _gather_phase2_findings_for_summary(*, latest_dir: Path) -> Dict[str, Any]:
             else:
                 reduced[k] = str(v)
 
-        # ok means we have at least something non-empty, but do not overthink it.
         entry["ok"] = bool(reduced.get("important") or reduced.get("newest") or reduced.get("details"))
         entry["findings"] = reduced
         domains[dom] = entry
 
-    return {
-        "ok": True,
-        "generated_utc": _now_iso(),
-        "domains": domains,
-    }
+    return {"ok": True, "generated_utc": _now_iso(), "domains": domains}
 
 
 def run_phase2(*, run_id: str) -> Dict[str, Any]:
@@ -333,27 +367,27 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
     t0 = time.time()
 
     infra_dir = Path(os.environ.get("TAKCTL_LLM2_INFRA_DIR", "/opt/tak/tools/takctl/llm-infra"))
-    llm_url = os.environ.get("TAKCTL_LLM_URL", "http://127.0.0.1:8090/v1/completions")
-    model = os.environ.get("TAKCTL_LLM_MODEL", "local-small")
 
-    timeout_s = int(os.environ.get("TAKCTL_LLM_TIMEOUT_S", "900"))
+    # LLM config comes from llm.env via LlmClient()
+    client = LlmClient()
+
     n_predict = int(os.environ.get("TAKCTL_LLM_N_PREDICT", "700"))
     temperature = float(os.environ.get("TAKCTL_LLM_TEMPERATURE", "0.2"))
 
-    # IMPORTANT: keep phase2 domain loop agnostic. _summary is a special reducer step AFTER the loop.
-    domains = ["chatter", "missions"]
+    domains = sorted([p.name for p in latest_root().iterdir() if p.is_dir() and p.name != "_summary"]) if latest_root().exists() else []
 
     out: Dict[str, Any] = {
         "ok": True,
         "run_id": run_id,
         "phase": "phase2",
         "started_at": started,
-        "llm_url": llm_url,
-        "llm_model": model,
-        "timeout_s": timeout_s,
+        "provider": getattr(client, "provider", None),
+        "model": (client.bedrock_model_id if getattr(client, "provider", "") == "bedrock" else client.model),
         "n_predict": n_predict,
         "temperature": temperature,
-        "stop": ["}\n"],
+        "domains": domains + ["_summary"],
+        "summary_enabled": True,
+        "env_path": getattr(client, "env_path", None),
     }
 
     any_fail = False
@@ -394,15 +428,15 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
             "run_id": run_id,
             "started_at": dom_started,
             "ok": False,
-            "llm_url": llm_url,
-            "llm_model": model,
-            "timeout_s": timeout_s,
-            "n_predict": n_predict,
+            "provider": getattr(client, "provider", None),
+            "model": (client.bedrock_model_id if getattr(client, "provider", "") == "bedrock" else client.model),
             "temperature": temperature,
+            "n_predict": n_predict,
             "phase1_gate": None,
             "error": None,
             "sent": {},
             "received": {},
+            "repair": {},
             "files": {
                 "request_path": str(req_path),
                 "prompt_path": str(prompt_path),
@@ -436,7 +470,7 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
             if evidence_override_json is not None:
                 evidence = evidence_override_json
             else:
-                evidence = _phase1_evidence_text(latest_dom_dir)
+                evidence = _phase1_evidence_text(latest_dom_dir, dom)
 
             if not evidence.strip():
                 print(f"\n===== PHASE2 SKIP [{dom}] reason=empty_evidence =====")
@@ -450,19 +484,16 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
             system_txt, user_txt = _load_prompt(infra_dir, dom)
             prompt = _build_prompt(system_txt, user_txt, evidence)
 
-            # Persist FULL prompt (required)
             prompt_path.write_text(prompt, encoding="utf-8")
 
-            payload: Dict[str, Any] = {
-                "model": model,
-                "seed": 7,
+            write_json(req_path, {
+                "provider": getattr(client, "provider", None),
+                "model": (client.bedrock_model_id if getattr(client, "provider", "") == "bedrock" else client.model),
                 "temperature": temperature,
-                "n_predict": n_predict,
-                "prompt": prompt,
-            }
-            write_json(req_path, {"url": llm_url, "payload": payload})
+                "max_tokens": n_predict,
+                "prompt_sha256": _sha256_text(prompt),
+            })
 
-            # ---- SENT: FULL PROMPT (stdout + trace) ----
             print(f"\n===== PHASE2 SENT [{dom}] =====")
             print(f"temperature={temperature}")
             print(f"prompt_bytes={len(prompt.encode('utf-8'))} sha256={_sha256_text(prompt)}")
@@ -475,63 +506,85 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
                 "prompt_full": prompt,
             }
 
-            # Call model
-            resp = _llama_post(llm_url, payload, timeout_s=timeout_s)
-            http_status = int(resp.get("status") or 0)
-            body_bytes = resp.get("body_bytes") or b""
+            r = client.complete_text(prompt=prompt, temperature=temperature, max_tokens=n_predict, seed=7)
+            text = r.get("text") or ""
+            resp_text_path.write_text(text, encoding="utf-8")
 
-            # Persist verbatim HTTP wrapper
-            resp_http_path.write_text(
-                json.dumps(
-                    {
-                        "status": http_status,
-                        "body_bytes_len": len(body_bytes),
-                        "body_utf8": body_bytes.decode("utf-8", errors="replace"),
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-
-            body_text = body_bytes.decode("utf-8", errors="replace")
-            try:
-                body_obj = json.loads(body_text or "{}")
-            except Exception:
-                body_obj = {"_raw": body_text}
-
-            write_json(resp_raw_path, body_obj)
-
-            text = _extract_text(body_obj)
-            resp_text_path.write_text(text or "", encoding="utf-8")
-
-            # ---- RECEIVED: SALVAGED JSON ONLY (stdout + trace) ----
-            cleaned = _sanitize_jsonish_text(text or "")
-            cleaned_json = _extract_first_json_object(cleaned)
-            cleaned_path.write_text(cleaned_json or "", encoding="utf-8")
+            write_json(resp_http_path, {
+                "provider": r.get("provider"),
+                "url": r.get("url"),
+                "model": r.get("model"),
+                "http_status": r.get("http_status"),
+                "body_bytes": r.get("body_bytes"),
+                "error": r.get("error"),
+            })
+            write_json(resp_raw_path, {"text": text})
 
             print(f"\n===== PHASE2 RECEIVED [{dom}] =====")
-            print(f"http_status={http_status} http_bytes={len(body_bytes)} http_sha256={_sha256_bytes(body_bytes)}")
-            print(f"text_bytes={len((text or '').encode('utf-8'))} text_sha256={_sha256_text(text or '')}")
+            print(f"http_status={r.get('http_status')} bytes={r.get('body_bytes')}")
+            print(f"text_bytes={len(text.encode('utf-8'))} text_sha256={_sha256_text(text)}")
             print("--- response_text_raw ---")
-            print(text or "")
-            print("--- response_text_cleaned ---")
-            print(cleaned_json or "")
+            print(text)
 
             trace["received"] = {
-                "http_status": http_status,
-                "http_bytes": len(body_bytes),
-                "http_sha256": _sha256_bytes(body_bytes),
-                "text_bytes": len((text or "").encode("utf-8")),
-                "text_sha256": _sha256_text(text or ""),
-                "response_text_raw": text or "",
-                "response_text_cleaned": cleaned_json or "",
+                "http_status": r.get("http_status"),
+                "body_bytes": r.get("body_bytes"),
+                "text_bytes": len(text.encode("utf-8")),
+                "text_sha256": _sha256_text(text),
+                "response_text_raw": text,
+                "provider": r.get("provider"),
+                "url": r.get("url"),
+                "model": r.get("model"),
+                "error": r.get("error"),
             }
 
-            if not (text or "").strip():
+            if not text.strip():
                 raise RuntimeError("no_text_in_response")
 
-            obj = _validate_obj(json.loads(cleaned_json))
+            obj: Dict[str, str] | None = None
+            cleaned_json = ""
+
+            try:
+                cleaned = _sanitize_jsonish_text(text)
+                cleaned_json = _extract_first_json_object(cleaned)
+                cleaned_path.write_text(cleaned_json, encoding="utf-8")
+                print("--- response_text_cleaned ---")
+                print(cleaned_json)
+                trace["received"]["response_text_cleaned"] = cleaned_json
+                obj = _validate_obj(json.loads(cleaned_json))
+            except Exception as parse_err:
+                trace["repair"]["initial_parse_error"] = f"{type(parse_err).__name__}: {parse_err}"
+
+                try:
+                    repaired = _repair_response_with_llm(
+                        client=client,
+                        raw_text=text,
+                        evidence_json=evidence,
+                    )
+                    obj = repaired["obj"]
+                    cleaned_json = repaired["cleaned_json"]
+                    cleaned_path.write_text(cleaned_json, encoding="utf-8")
+                    trace["repair"]["used_llm_repair"] = True
+                    trace["repair"]["repair_llm"] = {
+                        "provider": repaired["llm"].get("provider"),
+                        "url": repaired["llm"].get("url"),
+                        "model": repaired["llm"].get("model"),
+                        "http_status": repaired["llm"].get("http_status"),
+                        "error": repaired["llm"].get("error"),
+                    }
+                    trace["repair"]["repair_prompt"] = repaired["prompt"]
+                    trace["repair"]["repair_text"] = repaired["text"]
+                    trace["repair"]["repair_cleaned_json"] = repaired["cleaned_json"]
+                except Exception as repair_err:
+                    trace["repair"]["used_llm_repair"] = False
+                    trace["repair"]["repair_error"] = f"{type(repair_err).__name__}: {repair_err}"
+                    obj = _deterministic_fallback_from_text(text, dom)
+                    cleaned_json = json.dumps(obj, ensure_ascii=False, indent=2)
+                    cleaned_path.write_text(cleaned_json, encoding="utf-8")
+                    trace["repair"]["used_deterministic_fallback"] = True
+                    trace["repair"]["fallback_json"] = cleaned_json
+
+            obj = _validate_obj(obj)
             write_json(findings_path, obj)
             write_json(latest_findings_path, obj)
 
@@ -552,29 +605,14 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
             print(f"\n===== PHASE2 TRACE [{dom}] =====")
             print(json.dumps(trace, ensure_ascii=False, indent=2))
 
-    # 1) Normal domains (unchanged behavior)
+    # 1) normal domains
     for dom in domains:
         _run_one_domain(dom)
 
-    # 2) _summary reducer domain: reads OTHER domains' phase2 findings as evidence
-    try:
-        summary_evidence_obj = _gather_phase2_findings_for_summary(latest_dir=latest_root())
-        summary_evidence_json = json.dumps(summary_evidence_obj, ensure_ascii=False, indent=2, sort_keys=True)
-    except Exception as e:
-        # If evidence aggregation fails, still run _summary with a minimal evidence payload
-        summary_evidence_json = json.dumps(
-            {"ok": False, "error": f"summary_aggregate_failed:{type(e).__name__}: {e}", "domains": {}},
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        )
-
-    # phase1 gate is not applicable for _summary, but keep a non-error-ish signal
-    _run_one_domain(
-        "_summary",
-        evidence_override_json=summary_evidence_json,
-        phase1_gate_override=(True, "n/a_summary_reducer"),
-    )
+    # 2) summary domain: evidence is synthesized from other phase2 findings (first-class)
+    summary_payload = _gather_phase2_findings_for_summary(latest_dir=latest_root())
+    summary_evidence = json.dumps(summary_payload, ensure_ascii=False, indent=2, sort_keys=True)
+    _run_one_domain("_summary", evidence_override_json=summary_evidence, phase1_gate_override=(True, "ok"))
 
     out["ok"] = not any_fail
     out["ended_at"] = _now_iso()

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from urllib.parse import splitport
+
 from fastapi import HTTPException, Request
 
 
 def forwarded_host_only(req: Request) -> str:
-    host = (req.headers.get("x-forwarded-host") or req.headers.get("host") or "localhost").split(",")[0].strip()
-    host = host.split("/")[0]
-    return host
+    raw = (req.headers.get("x-forwarded-host") or req.headers.get("host") or "localhost").split(",")[0].strip()
+    raw = raw.split("/")[0].strip()
+
+    host, _port = splitport(raw)
+    return (host or raw).strip()
 
 
 def external_base(req: Request) -> str:

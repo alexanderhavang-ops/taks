@@ -560,6 +560,13 @@ def render_soldier_card_page(
     atak_import_txt = f"{base}/api/onboarding/cards/{token}/packages/atak/qr.txt?b={bump}"
     atak_pkg = f"{base}/api/onboarding/cards/{token}/packages/atak/package.zip"
 
+    itak_qr = f"{base}/api/onboarding/cards/{token}/packages/itak/qr.png?b={bump}"
+    itak_txt = f"{base}/api/onboarding/cards/{token}/packages/itak/qr.txt?b={bump}"
+    itak_pkg = f"{base}/api/onboarding/cards/{token}/packages/itak/package.zip"
+
+    browser_card_qr = f"{base}/api/onboarding/cards/{token}/card-url/qr.png?b={bump}"
+    browser_card_txt = f"{base}/api/onboarding/cards/{token}/card-url/qr.txt?b={bump}"
+
     creds_html = _pw_block(lang=l, username=username, ident=ident, reveal_password=reveal_password)
     profile_html = _profile_block(lang=l, username=username, groups=groups, sel=sel, ident=ident)
     lifecycle_html = _lifecycle_card_block(l, lifecycle)
@@ -729,6 +736,13 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monos
 
 .row { margin-top: 6px; }
 .row b { color: rgba(255,255,255,0.78); font-weight: 800; }
+.grid > .card { min-width: 0; }
+.card .meta, .card .note, .card .row { overflow-wrap: anywhere; word-break: break-word; }
+.card .meta a, .card .meta code, .card code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
 </style>"""
 
     return f"""<!doctype html>
@@ -769,6 +783,30 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monos
         {_h(_t(l, "soldier.qr_payload"))}: <a href="{atak_import_txt}">qr.txt</a><br/>
         {_h(_t(l, "soldier.package"))}: <a href="{atak_pkg}">{_h(_safe(atak_pkg))}</a><br/>
         {_h(_t(l, "soldier.after_import"))}: <code>ATAK → Settings → TAK Server → (server) → Username/Password</code>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>iTAK</h3>
+      <div class="note">
+        Scan this with iTAK QR scanner, or use the same server package manually in iTAK if QR does not work.
+      </div>
+      <div class="qr"><img alt="iTAK QR" src="{itak_qr}" /></div>
+      <div class="meta" style="margin-top:10px;">
+        {_h(_t(l, "soldier.qr_payload"))}: <a href="{itak_txt}">qr.txt</a><br/>
+        {_h(_t(l, "soldier.package"))}: <a href="{itak_pkg}">{_h(_safe(itak_pkg))}</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>iPhone Browser</h3>
+      <div class="note">
+        Scan with iPhone camera to open this soldier card in Safari, then copy username/password from the page.
+      </div>
+      <div class="qr"><img alt="Soldier Card URL QR" src="{browser_card_qr}" /></div>
+      <div class="meta" style="margin-top:10px;">
+        {_h(_t(l, "soldier.qr_payload"))}: <a href="{browser_card_txt}">qr.txt</a><br/>
+        {_h(_t(l, "soldier.token_url"))}: <code>{_h(_safe(token_url))}</code>
       </div>
     </div>
 

@@ -11,15 +11,17 @@ from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse, HTM
 from takctl.onboarding.service_builder import build_service as _build_service
 from takctl.onboarding.qrencode import write_qr_png
 
-from takctl.onboarding.http import external_base, forwarded_host_only
+from takctl.onboarding.http import external_base, forwarded_host_only, bool_q
 from takctl.onboarding.selection import artifact_root, load_selection, save_selection
 from takctl.onboarding.atak import (
     atak_enroll_payload,
     atak_enroll_creds_payload,
     atak_package_creds_url,
     atak_package_url,
+    itak_package_url,
     qr_payload,
     write_atak_package_zip,
+    write_itak_package_zip,
     now_utc_iso,
 )
 from takctl.onboarding.pages import render_generate_page, render_card_page
@@ -186,14 +188,37 @@ def token_qr_payload_txt(req: Request, token: str, client: str):
     if c not in ("atak", "itak", "wintak"):
         raise HTTPException(status_code=400, detail=f"unknown client: {client}")
 
-    base = external_base(req)
+    base = _resolve_public_base(req, username)
     package_url = f"{base}/api/onboarding/cards/{token}/packages/{c}/package.zip"
     package_url = _url_with_qs(package_url, via="qr")
 
-    host = forwarded_host_only(req)
-    payload = qr_payload(c, package_url, host)
+    host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
+    payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
     return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+
+
+@router.get("/onboarding/cards/{token}/card-url/qr.txt")
+def token_card_url_qr_txt(req: Request, token: str):
+    _, _, username, _ = _require_token(token)
+    base = external_base(req)
+    payload = f"{base}/api/onboarding/cards/{token}"
+    return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+
+
+@router.get("/onboarding/cards/{token}/card-url/qr.png")
+def token_card_url_qr_png(req: Request, token: str):
+    _, _, username, _ = _require_token(token)
+    base = external_base(req)
+    payload = f"{base}/api/onboarding/cards/{token}"
+    out = artifact_root(username) / f"{username}.card-url.qr.png"
+    write_qr_png(payload, out, size=8)
+    return FileResponse(
+        str(out),
+        media_type="image/png",
+        filename=f"{username}.card-url.qr.png",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
 
 
 @router.get("/onboarding/cards/{token}/packages/{client}/qr.png")
@@ -205,12 +230,12 @@ def token_qr_png(req: Request, token: str, client: str):
     if c not in ("atak", "itak", "wintak"):
         raise HTTPException(status_code=400, detail=f"unknown client: {client}")
 
-    base = external_base(req)
+    base = _resolve_public_base(req, username)
     package_url = f"{base}/api/onboarding/cards/{token}/packages/{c}/package.zip"
     package_url = _url_with_qs(package_url, via="qr")
 
-    host = forwarded_host_only(req)
-    payload = qr_payload(c, package_url, host)
+    host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
+    payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
     out = artifact_root(username) / f"{username}.{c}.token.qr.png"
     write_qr_png(payload, out, size=8)
@@ -246,6 +271,106 @@ def token_atak_package_zip(req: Request, token: str):
     )
 
 
+def _resolve_public_base(req: Request, username: str) -> str:
+    sel = load_selection(username) or {}
+    ep = dict((sel.get("endpoints") or {})) if isinstance(sel, dict) else {}
+
+    scheme = (
+        (req.query_params.get("public_scheme") or "").strip()
+        or "https"
+    )
+
+    host = (
+        (req.query_params.get("public_host") or "").strip()
+        or str(ep.get("stream_host") or "").strip()
+        or forwarded_host_only(req)
+    )
+
+    return f"{scheme}://{host}"
+
+
+def _resolve_qr_endpoint(req: Request, username: str, client: str) -> tuple[str, int | None, bool | None]:
+    c = (client or "").strip().lower()
+    if c != "itak":
+        return forwarded_host_only(req), None, None
+
+    sel = load_selection(username) or {}
+    ep = dict((sel.get("endpoints") or {})) if isinstance(sel, dict) else {}
+
+    host = (
+        (req.query_params.get("host") or "").strip()
+        or str(ep.get("enroll_host") or "").strip()
+        or str(ep.get("stream_host") or "").strip()
+        or forwarded_host_only(req)
+    )
+
+    raw_port = (req.query_params.get("port") or "").strip()
+    if raw_port:
+        try:
+            port = int(raw_port)
+        except Exception:
+            port = 8446
+    else:
+        try:
+            port = int(str(ep.get("enroll_port") or "").strip() or "8446")
+        except Exception:
+            port = 8446
+
+    ssl_raw = req.query_params.get("ssl")
+    if ssl_raw is not None and str(ssl_raw).strip():
+        use_ssl = bool_q(req, "ssl", True)
+    else:
+        use_ssl = str(ep.get("enroll_ssl") or "true").strip().lower() in ("1", "true", "yes", "y", "on")
+
+    return host, port, use_ssl
+
+
+@router.get("/onboarding/cards/{token}/packages/itak/package.zip")
+def token_itak_package_zip(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+
+    out = artifact_root(username) / "itak" / "package.zip"
+    regen = (req.query_params.get("regen") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+
+    base = _resolve_public_base(req, username)
+    if regen or (not out.exists()):
+        write_itak_package_zip(out, username, req, base=base)
+        _mark_package_generated(svc, username, package_type="itak", sel=(load_selection(username) or {}))
+
+    via = (req.query_params.get("via") or "").strip()
+    _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
+
+    return FileResponse(
+        str(out),
+        media_type="application/zip",
+        filename=f"{username}.itak.package.zip",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/users/{username}/packages/itak/package.zip")
+def itak_package_zip(req: Request, username: str):
+    svc, _, username = _require_user(username)
+
+    out = artifact_root(username) / "itak" / "package.zip"
+    regen = (req.query_params.get("regen") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+
+    base = _resolve_public_base(req, username)
+    if regen or (not out.exists()):
+        write_itak_package_zip(out, username, req, base=base)
+        _mark_package_generated(svc, username, package_type="itak", sel=(load_selection(username) or {}))
+
+    via = (req.query_params.get("via") or "").strip()
+    _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
+
+    return FileResponse(
+        str(out),
+        media_type="application/zip",
+        filename=f"{username}.itak.package.zip",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
 # -----------------------------------------------------------------------------
 # Generic QR endpoints (atak/itak/wintak)
 # -----------------------------------------------------------------------------
@@ -258,10 +383,10 @@ def qr_payload_txt(req: Request, username: str, client: str):
     if c not in ("atak", "itak", "wintak"):
         raise HTTPException(status_code=400, detail=f"unknown client: {client}")
 
-    base = external_base(req)
-    package_url = _url_with_qs(atak_package_url(base, username), via="qr")
-    host = forwarded_host_only(req)
-    payload = qr_payload(c, package_url, host)
+    base = _resolve_public_base(req, username)
+    package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), via="qr")
+    host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
+    payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
     return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 
@@ -274,13 +399,13 @@ def qr_payload_json(req: Request, username: str, client: str):
     if c not in ("atak", "itak", "wintak"):
         raise HTTPException(status_code=400, detail=f"unknown client: {client}")
 
-    base = external_base(req)
-    package_url = _url_with_qs(atak_package_url(base, username), via="qr")
-    host = forwarded_host_only(req)
-    payload = qr_payload(c, package_url, host)
+    base = _resolve_public_base(req, username)
+    package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), via="qr")
+    host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
+    payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
     return JSONResponse(
-        {"client": c, "host": host, "package_url": package_url, "qr_payload": payload},
+        {"client": c, "host": host, "port": port, "ssl": use_ssl, "package_url": package_url, "qr_payload": payload},
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
 
@@ -293,10 +418,10 @@ def qr_png(req: Request, username: str, client: str):
     if c not in ("atak", "itak", "wintak"):
         raise HTTPException(status_code=400, detail=f"unknown client: {client}")
 
-    base = external_base(req)
-    package_url = _url_with_qs(atak_package_url(base, username), via="qr")
-    host = forwarded_host_only(req)
-    payload = qr_payload(c, package_url, host)
+    base = _resolve_public_base(req, username)
+    package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), via="qr")
+    host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
+    payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
     out = artifact_root(username) / f"{username}.{c}.qr.png"
     write_qr_png(payload, out, size=8)

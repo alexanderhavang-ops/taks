@@ -1,3 +1,0 @@
-You produce operational findings based on the provided input.
-
-Output must be valid JSON only (no prose, no markdown, no code fences).
