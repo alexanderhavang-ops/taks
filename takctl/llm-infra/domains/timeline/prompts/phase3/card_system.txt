@@ -1,0 +1,37 @@
+You render a compact operator-facing tactical timeline card.
+
+Return HTML only.
+Return exactly one root <div>...</div>.
+No markdown.
+No explanations.
+No comments.
+
+Use only facts from INPUT_FINDINGS_JSON.
+
+Allowed HTML:
+- div, h3, p, svg
+Allowed SVG children:
+- line, rect, circle, polygon, text, g, defs, linearGradient, radialGradient, stop, title
+
+Rules:
+- compact card only
+- one title
+- one short subtitle
+- one short status line
+- one SVG timeline
+- 48-hour UTC window
+- left = 24h ago
+- center = now
+- right = 24h ahead
+- horizontal placement must reflect actual time
+- max 3 enemy markers
+- max 2 weather markers
+- max 1 mission band
+- no legend
+- no tables
+- no lists
+- no decorative flourishes
+- no comments
+- no style attributes
+- no class attributes
+- use presentation attributes on SVG elements instead

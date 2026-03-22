@@ -9,6 +9,7 @@ from takctl.web.core.debug_routes import mount_debug_routes, install_exception_h
 from takctl.web.api.onboarding_import import router as onboarding_import_router
 from takctl.web.api.llm2_debug import router as llm2_debug_router
 from takctl.web.api.llm_config import router as llm_config_router
+from takctl.web.api.martine import router as martine_router
 
 from takctl.api.health import router as health_router
 from takctl.api.meta import router as meta_router
@@ -50,5 +51,6 @@ def create_app() -> FastAPI:
     app.include_router(onboarding_import_router)
     app.include_router(llm2_debug_router)
     app.include_router(llm_config_router)
+    app.include_router(martine_router)
 
     return app

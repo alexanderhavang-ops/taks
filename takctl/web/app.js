@@ -11,12 +11,14 @@ function App() {
   const brand =
     (meta && meta.ok && meta.data && (meta.data.brand || meta.data)) || {};
 
-  const ALLOWED_TABS = { onboarding: true, llm: true };
+  const ALLOWED_TABS = { onboarding: true, llm: true, martine: true, config: true };
   const tab = ALLOWED_TABS[String(tabRaw || "")] ? tabRaw : "onboarding";
 
   return h(Layout, { tab, setTab, health, brand },
     tab === "onboarding" && h(OnboardingView),
-    tab === "llm" && h(LLMView)
+    tab === "llm" && h(LLMView),
+    tab === "martine" && h(MartineView),
+    tab === "config" && h(ConfigView)
   );
 }
 

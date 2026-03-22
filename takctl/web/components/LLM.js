@@ -51,6 +51,9 @@
     if (name === "chatter") return "Friendly Activity";
     if (name === "missions") return "Mission Status";
     if (name === "presence") return "Presence";
+    if (name === "weather") return "Weather";
+    if (name === "timeline") return "Timeline";
+    if (name === "enemy") return "Enemy";
     return String(name || "");
   }
 
@@ -58,6 +61,10 @@
     if (name === "_summary") return "Latest assessment";
     if (name === "chatter") return "Communications";
     if (name === "missions") return "Operations";
+    if (name === "presence") return "Presence";
+    if (name === "weather") return "Weather";
+    if (name === "timeline") return "Timeline";
+    if (name === "enemy") return "Enemy";
     return "Situation";
   }
 
@@ -309,11 +316,6 @@
     t = t.replace(/\sstyle\s*=\s*(".*?"|'.*?'|[^\s>]+)/gi, "");
     t = t.replace(/\s(href|src)\s*=\s*("|\')\s*javascript:[\s\S]*?\2/gi, "");
     return t.trim();
-  }
-
-  function hasUsefulHtml(html){
-    const text = stripHtmlTags(html || "");
-    return text && text.length >= 40;
   }
 
   function buildFallbackDetailHtml(title, model, meta){
@@ -589,12 +591,6 @@
     const [showDebug, setShowDebug] = React.useState(false);
     const [detailName, setDetailName] = React.useState(getDetailFromLocation());
 
-    const [showConfig, setShowConfig] = React.useState(false);
-    const [cfg, setCfg] = React.useState(null);
-    const [cfgErr, setCfgErr] = React.useState(null);
-    const [cfgSaving, setCfgSaving] = React.useState(false);
-    const [bedrockKeyInput, setBedrockKeyInput] = React.useState("");
-
     async function load(){
       try{
         const bump = Date.now();
@@ -617,51 +613,6 @@
       };
     },[]);
 
-    async function loadConfig(){
-      try{
-        const providerHint = cfg && cfg.provider ? ("?provider=" + encodeURIComponent(cfg.provider)) : "";
-        const c = await fetchJson("/api/config/llm" + providerHint);
-        setCfg(c);
-        setCfgErr(null);
-      }catch(ex){
-        setCfgErr(ex && (ex.message || String(ex)));
-      }
-    }
-
-    async function saveConfig(){
-      if (!cfg) return;
-      setCfgSaving(true);
-      setCfgErr(null);
-      try{
-        const body = {
-          provider: cfg.provider || "local",
-          model_id: cfg.provider === "bedrock" ? (cfg.bedrock_model_id || cfg.model_id || "") : (cfg.local_model || cfg.model_id || ""),
-          local_url: cfg.local_url || "",
-          bedrock_region: cfg.bedrock_region || "",
-          phase3_mode: cfg.phase3_mode || "fallback"
-        };
-        if (cfg.provider === "bedrock" && bedrockKeyInput.trim()) {
-          body.bedrock_api_key = bedrockKeyInput.trim();
-        }
-
-        const r = await fetch("/api/config/llm", {
-          method: "POST",
-          credentials: "same-origin",
-          headers: {"Content-Type":"application/json"},
-          body: JSON.stringify(body)
-        });
-        const t = await r.text();
-        if (!r.ok) throw new Error("HTTP " + r.status + " saving /api/config/llm: " + t.slice(0, 400));
-
-        setBedrockKeyInput("");
-        await loadConfig();
-      }catch(ex){
-        setCfgErr(ex && (ex.message || String(ex)));
-      }finally{
-        setCfgSaving(false);
-      }
-    }
-
     function openDetailPage(name){
       setDetailInLocation(name);
       setDetailName(name);
@@ -677,12 +628,7 @@
       e("div",{style:{marginLeft:"auto",display:"flex",gap:10,alignItems:"center"}},[
         detailName ? e("button",{onClick:closeDetailPage}, "Back to overview") : null,
         e("button",{onClick:load}, "Reload"),
-        e("button",{onClick:()=>setShowDebug(!showDebug)}, showDebug ? "Operative view" : "Debug view"),
-        e("button",{onClick:async ()=>{
-          const next = !showConfig;
-          setShowConfig(next);
-          if (next && !cfg) await loadConfig();
-        }}, showConfig ? "Hide config" : "LLM Config")
+        e("button",{onClick:()=>setShowDebug(!showDebug)}, showDebug ? "Operative view" : "Debug view")
       ])
     ]);
 
@@ -717,14 +663,18 @@
       if (model.timestamp) metaBits.push(model.timestamp);
 
       if (detailName === "_summary") {
-        const useOwnSummaryDetail = s.p3detail && s.p3detail.html && hasUsefulHtml(s.p3detail.html) && !isBadSummaryText(model.headline);
+        const useOwnSummaryDetail =
+          s.p3detail &&
+          typeof s.p3detail.html === "string" &&
+          String(s.p3detail.html).trim() &&
+          !isBadSummaryText(model.headline);
         title = "Summary";
         eyebrow = "Latest assessment";
         html = useOwnSummaryDetail
           ? String(s.p3detail.html)
           : buildSummaryAggregateDetailHtml(otherNames, doms);
       } else {
-        html = (s.p3detail && s.p3detail.html && hasUsefulHtml(s.p3detail.html))
+        html = (s.p3detail && typeof s.p3detail.html === "string" && String(s.p3detail.html).trim())
           ? String(s.p3detail.html)
           : buildFallbackDetailHtml(title, model, {
               runId: s.runId || "",
@@ -783,107 +733,6 @@
       return CardShell(niceDomainName(name), body, {minHeight: showDebug ? "auto" : 150}, onClick);
     }));
 
-    const configPanel = showConfig ? CardShell(
-      "LLM Config",
-      e("div", {style:{display:"grid", gap:12}}, [
-        cfgErr ? e("div",{style:{color:"#ff8f8f", fontSize:13, whiteSpace:"pre-wrap"}}, String(cfgErr)) : null,
-        !cfg ? e("div",{style:{opacity:.8}}, "Loading config...") : e("div",{style:{display:"grid", gap:12}},[
-          e("label",{style:{display:"grid", gap:6}},[
-            e("div",{style:{fontSize:13, opacity:.8}}, "Provider"),
-            e("select",{
-              value: cfg.provider || "local",
-              onChange: async (ev)=>{
-                const provider = String(ev.target.value || "local");
-                const c2 = Object.assign({}, cfg, {provider});
-                setCfg(c2);
-                try{
-                  const fresh = await fetchJson("/api/config/llm?provider=" + encodeURIComponent(provider));
-                  fresh.provider = provider;
-                  setCfg(fresh);
-                }catch(ex){
-                  setCfgErr(ex && (ex.message || String(ex)));
-                }
-              }
-            },[
-              e("option",{value:"local"},"local"),
-              e("option",{value:"bedrock"},"bedrock")
-            ])
-          ]),
-          cfg.provider === "local"
-            ? e("label",{style:{display:"grid", gap:6}},[
-                e("div",{style:{fontSize:13, opacity:.8}}, "Local URL"),
-                e("input",{
-                  value: cfg.local_url || "",
-                  onChange:(ev)=>setCfg(Object.assign({}, cfg, {local_url:String(ev.target.value || "")}))
-                })
-              ])
-            : null,
-          cfg.provider === "local"
-            ? e("label",{style:{display:"grid", gap:6}},[
-                e("div",{style:{fontSize:13, opacity:.8}}, "Local model"),
-                e("select",{
-                  value: cfg.local_model || cfg.model_id || "",
-                  onChange:(ev)=>setCfg(Object.assign({}, cfg, {
-                    local_model:String(ev.target.value || ""),
-                    model_id:String(ev.target.value || "")
-                  }))
-                }, (cfg.available_models || []).map(function(m, i){
-                  return e("option",{key:i, value:m.id}, m.label || m.id);
-                }))
-              ])
-            : null,
-          cfg.provider === "bedrock"
-            ? e("label",{style:{display:"grid", gap:6}},[
-                e("div",{style:{fontSize:13, opacity:.8}}, "Bedrock region"),
-                e("input",{
-                  value: cfg.bedrock_region || "",
-                  onChange:(ev)=>setCfg(Object.assign({}, cfg, {bedrock_region:String(ev.target.value || "")}))
-                })
-              ])
-            : null,
-          cfg.provider === "bedrock"
-            ? e("label",{style:{display:"grid", gap:6}},[
-                e("div",{style:{fontSize:13, opacity:.8}}, "Bedrock model"),
-                e("input",{
-                  value: cfg.bedrock_model_id || cfg.model_id || "",
-                  onChange:(ev)=>setCfg(Object.assign({}, cfg, {
-                    bedrock_model_id:String(ev.target.value || ""),
-                    model_id:String(ev.target.value || "")
-                  }))
-                })
-              ])
-            : null,
-          cfg.provider === "bedrock"
-            ? e("label",{style:{display:"grid", gap:6}},[
-                e("div",{style:{fontSize:13, opacity:.8}}, "Bedrock API key"),
-                e("input",{
-                  type:"password",
-                  placeholder: cfg.bedrock_key_set ? "Stored; enter to replace" : "Paste API key",
-                  value: bedrockKeyInput,
-                  onChange:(ev)=>setBedrockKeyInput(String(ev.target.value || ""))
-                })
-              ])
-            : null,
-          e("label",{style:{display:"grid", gap:6}},[
-            e("div",{style:{fontSize:13, opacity:.8}}, "Phase3 mode"),
-            e("select",{
-              value: cfg.phase3_mode || "fallback",
-              onChange:(ev)=>setCfg(Object.assign({}, cfg, {phase3_mode:String(ev.target.value || "fallback")}))
-            },[
-              e("option",{value:"fallback"},"fallback"),
-              e("option",{value:"llm"},"llm")
-            ])
-          ]),
-          e("div",{style:{display:"flex", gap:10, alignItems:"center"}},[
-            e("button",{onClick:saveConfig, disabled:cfgSaving}, cfgSaving ? "Saving..." : "Save config"),
-            e("button",{onClick:loadConfig, disabled:cfgSaving}, "Reload config"),
-            e("div",{style:{opacity:.7, fontSize:12}}, cfg && cfg.env_path ? cfg.env_path : "")
-          ])
-        ])
-      ]),
-      {marginBottom:12}
-    ) : null;
-
     const debugFooter = showDebug ? CardShell(
       "Debug",
       e("div",null,[
@@ -894,7 +743,6 @@
 
     return e("div",{className:"llm-page", style:{overflowX:"hidden"}},[
       header,
-      configPanel,
       summaryCard,
       othersGrid,
       debugFooter

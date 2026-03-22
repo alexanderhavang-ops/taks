@@ -9,6 +9,7 @@ from tak_installer.util import log
 
 SECRETS_DIR = Path("/opt/tak/tools/takctl/secrets")
 DB_ENV = SECRETS_DIR / "db.env"
+SECRETS_CONF = Path("/opt/tak/tools/takctl/secrets.conf")
 
 DEFAULTS = {
     "TAKCTL_DB_HOST": "127.0.0.1",
@@ -137,6 +138,34 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {user};
     log.info("takctl-db-env: postgres role synced for %s on db=%s", user, db)
 
 
+def _write_secrets_conf(cfg: dict[str, str]) -> None:
+    """
+    Transitional installer-owned bridge:
+      - db.env remains current DB password source
+      - secrets.conf gets db_password for new hard-fail config loader
+    """
+    db_pw = (cfg.get("TAKCTL_DB_PASSWORD") or "").strip()
+
+    existing: dict[str, str] = {}
+    if SECRETS_CONF.exists():
+        existing = _parse_env(SECRETS_CONF.read_text(encoding="utf-8"))
+
+    existing["db_password"] = db_pw
+    existing.setdefault("ca_signing_p12_pass", "")
+    existing.setdefault("bedrock_api_key", "")
+
+    content = (
+        "[takctl-secrets]\n"
+        f"db_password = {existing.get('db_password', '')}\n"
+        f"ca_signing_p12_pass = {existing.get('ca_signing_p12_pass', '')}\n"
+        f"bedrock_api_key = {existing.get('bedrock_api_key', '')}\n"
+    )
+
+    _write_atomic(SECRETS_CONF, content, 0o640)
+    _run(["chown", "tak:tak", str(SECRETS_CONF)], check=False)
+    log.info("takctl-db-env: ensured %s", SECRETS_CONF)
+
+
 def _verify_login(cfg: dict[str, str]) -> None:
     """
     Best-effort login verification as 'tak' using db.env values.
@@ -161,6 +190,7 @@ def _verify_login(cfg: dict[str, str]) -> None:
 
 def apply(ctx) -> None:
     cfg = _ensure_db_env()
+    _write_secrets_conf(cfg)
     _sync_postgres_role(cfg)
     _verify_login(cfg)
 

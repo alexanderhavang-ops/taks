@@ -1,0 +1,20 @@
+{
+  "enabled": true,
+  "domain": "timeline",
+  "mode": "synthesizer",
+  "phases": {
+    "phase1": {
+      "enabled": false
+    },
+    "phase2": {
+      "enabled": true,
+      "input": "upstream_phase2_findings",
+      "upstream_domains": ["chatter", "enemy", "missions", "presence", "weather"],
+      "output_schema": "timeline.phase2.v1"
+    },
+    "phase3": {
+      "enabled": true,
+      "prompt_dir": "prompts/phase3"
+    }
+  }
+}

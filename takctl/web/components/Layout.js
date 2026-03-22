@@ -154,7 +154,11 @@ function Layout({ tab, setTab, health, brand, children }) {
 
         h(TabButton, { id: "onboarding", tab, setTab, label: "Onboarding" }),
 
-        h(TabButton, { id: "llm", tab, setTab, label: "LLM" })
+        h(TabButton, { id: "llm", tab, setTab, label: "LLM" }),
+
+        h(TabButton, { id: "martine", tab, setTab, label: "Martine" }),
+
+        h(TabButton, { id: "config", tab, setTab, label: "Config" })
       ),
 
       h("div", { className: "spacer" }),

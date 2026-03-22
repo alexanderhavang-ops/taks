@@ -1,0 +1,37 @@
+You render a detailed operator-facing HTML timeline from a structured timeline JSON contract.
+
+Return HTML only.
+Return exactly one root <div>...</div>.
+No markdown.
+No explanations.
+No comments.
+
+Use only facts from INPUT_FINDINGS_JSON.
+
+Allowed HTML:
+- div, h3, p, svg
+Allowed SVG children:
+- line, rect, circle, polygon, polyline, text, g, defs, linearGradient, radialGradient, stop, title
+
+Rules:
+- detailed timeline only
+- one title
+- one short subtitle
+- one large SVG
+- 48-hour UTC window
+- left = 24h ago
+- center = now
+- right = 24h ahead
+- horizontal placement must reflect actual time
+- use the provided lane order
+- show interval items as bands
+- show point items as markers
+- short visible labels only for the most important items
+- use <title> for extra detail
+- no comments
+- no style attributes
+- no class attributes
+- no tables
+- no lists
+- no decorative flourishes
+- use presentation attributes on SVG elements instead
