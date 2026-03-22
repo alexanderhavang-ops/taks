@@ -8,6 +8,7 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import JSONResponse
 
 from takctl.api.onboarding_identity import build_service
+from takctl.config import load_config
 from takctl.onboarding.import_jobs import (
     create_job_from_upload,
     list_jobs,
@@ -21,7 +22,9 @@ from takctl.onboarding.import_users_validate import validate_rows_static
 
 router = APIRouter(prefix="/api/onboarding/import")
 
-_TMP_DIR = Path(os.environ.get("TAKS_IMPORT_TMP", "/tmp"))
+
+def _tmp_dir() -> Path:
+    return Path(load_config().onboarding_import_tmp)
 
 
 def _save_upload(upload: UploadFile) -> Path:
@@ -30,8 +33,9 @@ def _save_upload(upload: UploadFile) -> Path:
     if ext not in (".xlsx", ".csv"):
         raise HTTPException(status_code=400, detail=f"unsupported file type: {ext} (expected .xlsx or .csv)")
 
-    _TMP_DIR.mkdir(parents=True, exist_ok=True)
-    p = _TMP_DIR / f"taks-import-{int(time.time())}-{os.getpid()}{ext}"
+    tmp_dir = _tmp_dir()
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    p = tmp_dir / f"taks-import-{int(time.time())}-{os.getpid()}{ext}"
 
     with p.open("wb") as f:
         while True:
@@ -59,9 +63,6 @@ def import_validate(req: Request, file: UploadFile = File(...)):
     return JSONResponse(out, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 
 
-# ---------------------------------------------------------------------
-# Phase 1 legacy synchronous apply (keep for now, small imports only)
-# ---------------------------------------------------------------------
 @router.post("/apply")
 def import_apply(
     req: Request,
@@ -81,9 +82,6 @@ def import_apply(
     return JSONResponse(res, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 
 
-# ---------------------------------------------------------------------
-# Phase 2 async import jobs
-# ---------------------------------------------------------------------
 @router.post("/jobs")
 def create_import_job(
     req: Request,

@@ -14,6 +14,7 @@ from takctl.onboarding.policy import Policy
 from takctl.onboarding.selection import save_selection
 from takctl.services.usermgr import UserMgrService, UserMgrError
 from takctl.api.onboarding_identity import _issue_card_link_base
+from takctl.config import load_config
 
 
 # ------------------------------------------------------------
@@ -303,7 +304,7 @@ def _apply_row(
                 base,
                 service,
                 username=username,
-                ttl_sec=3600,
+                ttl_sec=load_config().onboarding_import_card_ttl_sec,
                 reveal_password=True,
             )
             card_url = card_info.get("card_url")

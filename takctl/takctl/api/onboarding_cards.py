@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from takctl.onboarding.http import external_base
 from takctl.onboarding.onboarding_db import maybe_db
 from takctl.onboarding.service_builder import build_service
+from takctl.config import load_config
 
 router = APIRouter(tags=["onboarding"])
 
@@ -504,7 +505,7 @@ async def onboarding_print_pack(req: Request, payload: str = Form(...)):
             base,
             svc,
             username=username,
-            ttl_sec=86400,
+            ttl_sec=load_config().onboarding_print_card_ttl_sec,
             reveal_password=False,
         )
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import threading
 import uuid
@@ -9,6 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from takctl.config import load_config
 from takctl.onboarding.service_builder import build_service
 from takctl.onboarding.import_users import load_file, run_import
 
@@ -50,23 +50,10 @@ def _events_path(job_id: str) -> Path:
     return _job_dir(job_id) / "events.jsonl"
 
 
-def _external_base_from_env() -> str | None:
-    """
-    Background-job public base URL for soldier card links.
-
-    Preferred:
-      TAKS_EXTERNAL_BASE=https://46hvbat.tak-hv-sandbox.se
-
-    Optional legacy alias:
-      TAKCTL_EXTERNAL_BASE=...
-
-    Returns None if unset.
-    """
-    for k in ("TAKS_EXTERNAL_BASE", "TAKCTL_EXTERNAL_BASE"):
-        v = (os.environ.get(k) or "").strip()
-        if v:
-            return v.rstrip("/")
-    return None
+def _external_base_from_config() -> str | None:
+    cfg = load_config()
+    v = (cfg.onboarding_external_base or "").strip()
+    return v.rstrip("/") if v else None
 
 
 def _write_json(path: Path, obj: Dict[str, Any]) -> None:
@@ -107,7 +94,7 @@ def create_job_from_upload(
     except Exception:
         total_rows = 0
 
-    external_base = _external_base_from_env()
+    external_base = _external_base_from_config()
 
     job = {
         "job_id": job_id,
@@ -258,16 +245,20 @@ def run_job(job_id: str) -> None:
     except Exception as e:
         job["state"] = "failed"
         job["finished_at"] = _iso(_now_utc())
-        job["last_error"] = str(e)
+        job["last_error"] = f"{type(e).__name__}: {e}"
         save_job(job)
         _append_event(job_id, {
             "ts": _iso(_now_utc()),
             "type": "job_failed",
             "job_id": job_id,
-            "error": str(e),
+            "error": job["last_error"],
         })
 
 
+def _run_job_thread(job_id: str) -> None:
+    run_job(job_id)
+
+
 def start_job_thread(job_id: str) -> None:
-    t = threading.Thread(target=run_job, args=(job_id,), daemon=True, name=f"onboarding-import-{job_id}")
+    t = threading.Thread(target=_run_job_thread, args=(job_id,), daemon=True)
     t.start()

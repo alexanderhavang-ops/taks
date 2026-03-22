@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from takctl.onboarding.identity_grammar import derive_grammar
-from takctl.onboarding.fal import derive_fal_ctx
-
-import os
 import re
 import configparser
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Dict, Any
+
+from takctl.config import load_config
+from takctl.onboarding.identity_grammar import derive_grammar
+from takctl.onboarding.fal import derive_fal_ctx
 
 
 @dataclass(frozen=True)
@@ -17,7 +17,7 @@ class Identity:
     team: str
     atak_role_type: Optional[str] = None
 
-    # NEW: read-only debug/preview fields for UI
+    # read-only debug/preview fields for UI
     callsign_variants: Optional[Dict[str, str]] = None
     callsign_policy_effective: Optional[str] = None
 
@@ -27,9 +27,6 @@ class PolicyError(RuntimeError):
 
 
 class _SafeFormatDict(dict):
-    """
-    For str.format_map: missing keys become "" instead of raising KeyError.
-    """
     def __missing__(self, key: str) -> str:
         return ""
 
@@ -37,23 +34,27 @@ class _SafeFormatDict(dict):
 class Policy:
     """
     Loads a policy pack from:
-      1) TAKS_POLICY_DIR (if set)
-      2) /opt/tak/policies/<id>/policy.conf   (runtime)
-      3) /opt/taks/policies/<id>/policy.conf  (source/dev)
+      1) policy_dir from takctl.conf (if set)
+      2) /opt/tak/policies/<id>/policy.conf
+      3) /opt/taks/policies/<id>/policy.conf
 
     Policy id default:
-      env TAKS_POLICY_ID or 'hemvarnet'
+      default_policy_id from takctl.conf
     """
 
     def __init__(self, policy_id: Optional[str] = None) -> None:
-        self.policy_id = policy_id or os.environ.get("TAKS_POLICY_ID", "hemvarnet")
+        cfg0 = load_config()
+        self.policy_id = (policy_id or cfg0.default_policy_id).strip()
+        if not self.policy_id:
+            raise PolicyError("default_policy_id is empty in takctl.conf")
         self.path = self._resolve_path(self.policy_id)
         self.cfg = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=(";", "#"))
         self.cfg.read(self.path, encoding="utf-8")
 
     @staticmethod
     def _resolve_path(policy_id: str) -> str:
-        base = os.environ.get("TAKS_POLICY_DIR", "").strip()
+        cfg0 = load_config()
+        base = (cfg0.policy_dir or "").strip()
         candidates = []
         if base:
             candidates.append(Path(base) / policy_id / "policy.conf")
@@ -85,32 +86,16 @@ class Policy:
         d.setdefault("id", self.policy_id)
         return d
 
-    # -------------------------
-    # Normalization helpers
-    # -------------------------
     def _normalize_callsign(self, s: str) -> str:
         sec = self.cfg["callsign"] if "callsign" in self.cfg else {}
         if sec.get("strip_spaces", "false").lower() in ("1", "true", "yes", "on"):
             s = s.replace(" ", "")
         if sec.get("normalize_upper", "false").lower() in ("1", "true", "yes", "on"):
             s = s.upper()
-        # conservative: keep A-Z0-9_- only
         s = re.sub(r"[^A-Z0-9_\-]", "", s)
         return s
 
-    # -------------------------
-    # Team resolution
-    # -------------------------
     def resolve_team(self, ctx: Dict[str, Any]) -> str:
-        """
-        ctx keys (optional):
-          battalion_role: "staff"|"command"
-          company: int/str
-          platoon: int/str
-
-        priority:
-          battalion role -> company -> platoon -> defaults.team
-        """
         batt_role = (ctx.get("battalion_role") or "").strip().lower()
         if batt_role and "team.battalion" in self.cfg:
             sec = self.cfg["team.battalion"]
@@ -136,18 +121,7 @@ class Policy:
 
         return "Blue"
 
-    # -------------------------
-    # Callsign resolution (legacy/template path)
-    # -------------------------
     def resolve_callsign(self, ctx: Dict[str, Any]) -> str:
-        """
-        ctx keys (optional):
-          unit: str   (e.g. "46HV")
-          n: int/str  (e.g. 1,2,3)
-          role: str   ("leader"|"member"|"staff"|...)
-        PLUS: may reference *derived ctx keys* in policy.conf template:
-          e.g. {company_fal}, {battalion_fal}, etc.
-        """
         sec = self.cfg["callsign"] if "callsign" in self.cfg else {}
         unit = (ctx.get("unit") or "").strip()
         n = ctx.get("n")
@@ -160,9 +134,6 @@ class Policy:
 
         n_str = "" if n is None else str(n).strip()
 
-        # IMPORTANT:
-        # - allow policy templates to use ANY {key} that exists in ctx
-        # - missing keys -> "" (no KeyError)
         fmt = dict(ctx or {})
         fmt.setdefault("unit", unit)
         fmt.setdefault("n", n_str)
@@ -175,7 +146,6 @@ class Policy:
     def resolve_identity(self, ctx: Dict[str, Any]) -> Identity:
         ctx = dict(ctx or {})
 
-        # Inject derived FAL fields FIRST (non-destructive)
         try:
             derived = derive_fal_ctx(self.cfg, ctx)
             for k, v in derived.items():
@@ -184,7 +154,6 @@ class Policy:
         except Exception:
             pass
 
-        # Grammar is authoritative for callsign/team/role_type (+ variants)
         g = derive_grammar(self.policy_id, ctx)
         if not isinstance(g, dict) or not g.get("callsign"):
             raise RuntimeError("Grammar did not produce callsign")
@@ -195,7 +164,6 @@ class Policy:
             except Exception:
                 return False
 
-        # Only fill ctx from grammar if user didn't explicitly set a value
         if not _nonempty(ctx.get("callsign")) and _nonempty(g.get("callsign")):
             ctx["callsign"] = g.get("callsign")
         if not _nonempty(ctx.get("team")) and _nonempty(g.get("team")):
@@ -218,7 +186,6 @@ class Policy:
         if ctx.get("atak_role_type"):
             atak_role_type = str(ctx.get("atak_role_type")).strip() or atak_role_type
 
-        # NEW: variants + effective policy for UI (read-only)
         variants = g.get("callsign_variants") if isinstance(g.get("callsign_variants"), dict) else None
         eff = g.get("callsign_policy_effective")
         eff = str(eff).strip() if eff else None

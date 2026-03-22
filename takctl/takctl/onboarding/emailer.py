@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import os
 import re
 import subprocess
 from email.message import EmailMessage
+
+from takctl.config import load_config
 
 
 def _sendmail_path() -> str:
@@ -12,8 +13,12 @@ def _sendmail_path() -> str:
         "/usr/lib/sendmail",
         "/usr/bin/sendmail",
     ):
-        if os.path.exists(p):
-            return p
+        try:
+            from pathlib import Path
+            if Path(p).exists():
+                return p
+        except Exception:
+            pass
     raise RuntimeError("sendmail not found (/usr/sbin/sendmail, /usr/lib/sendmail, /usr/bin/sendmail)")
 
 
@@ -27,11 +32,11 @@ def is_valid_email(addr: str) -> bool:
 
 
 def _from_addr() -> str:
-    return (
-        (os.environ.get("TAKS_ONBOARDING_FROM") or "").strip()
-        or (os.environ.get("TAKS_EMAIL_FROM") or "").strip()
-        or "taks-onboarding@localhost"
-    )
+    cfg = load_config()
+    v = (cfg.onboarding_from_addr or "").strip()
+    if not v:
+        raise RuntimeError("onboarding_from_addr is empty in takctl.conf")
+    return v
 
 
 def _subject(username: str) -> str:
@@ -50,19 +55,6 @@ def _text_body(*, username: str, card_url: str) -> str:
 
 
 def send_onboarding_email(*, to_addr: str, username: str, card_url: str) -> dict:
-    """
-    Send a simple onboarding email via local sendmail.
-
-    Returns:
-      {
-        "ok": bool,
-        "to": str,
-        "subject": str,
-        "delivery": "sendmail",
-      }
-
-    Raises RuntimeError on failure.
-    """
     to_addr = (to_addr or "").strip()
     username = (username or "").strip()
     card_url = (card_url or "").strip()

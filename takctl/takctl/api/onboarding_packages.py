@@ -25,6 +25,7 @@ from takctl.onboarding.atak import (
     now_utc_iso,
 )
 from takctl.onboarding.pages import render_generate_page, render_card_page
+from takctl.config import load_config
 
 
 router = APIRouter(tags=["onboarding"])
@@ -718,7 +719,7 @@ def onboarding_card(req: Request, username: str):
     svc, u, username = _require_user(username)
 
     # Default TTL: 10 minutes. (Admin can re-open 'Card' to re-issue.)
-    ttl_sec = 600
+    ttl_sec = load_config().onboarding_card_ttl_sec
 
     # Safe default: request reveal_password=True, but soldier page will only show
     # a password if TAKS actually knows it (origin=taks + password_known).
