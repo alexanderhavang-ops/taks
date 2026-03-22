@@ -16,19 +16,23 @@ from tak_installer.engine import Context
 
 UNIT_NAME = "takctl-web.service"
 UNIT_DST = Path("/etc/systemd/system/takctl-web.service")
-DROPIN_SRC_DIR = Path("/opt/taks/infra/systemd/takctl-web.service.d")
 DROPIN_DST_DIR = Path("/etc/systemd/system/takctl-web.service.d")
 STATE_APPLY_JSON = Path("/opt/tak/takctl-state/apply.json")
 
 HEALTH_URL = "http://127.0.0.1:8080/api/health"
 
-# Conservative waits: restart + uvicorn import time + startup flaps.
 WAIT_LISTEN_SEC = 10.0
 WAIT_HEALTH_SEC = 25.0
-
-# Readiness stability requirement: must pass health N times in a row.
 HEALTH_STABLE_SUCCESSES = 3
 HEALTH_POLL_SEC = 0.25
+
+
+def _unit_src(ctx: Context) -> Path:
+    return Path(ctx.repo_root) / "infra" / "systemd" / "takctl-web.service"
+
+
+def _dropin_src_dir(ctx: Context) -> Path:
+    return Path(ctx.repo_root) / "infra" / "systemd" / "takctl-web.service.d"
 
 
 def _run(cmd: list[str]) -> tuple[int, str]:
@@ -81,7 +85,6 @@ def _http_get_json(url: str, timeout_sec: float = 1.5) -> tuple[int, Any, str | 
 
 
 def _wait_listen_8080(deadline_sec: float) -> bool:
-    # Avoid races after restart. Query only :8080 to avoid false positives.
     end = time.time() + float(deadline_sec)
     while time.time() < end:
         rc, out = _run(["ss", "-H", "-ltnp", "sport = :8080"])
@@ -98,15 +101,6 @@ def _wait_health_stable(
     stable_successes: int = HEALTH_STABLE_SUCCESSES,
     poll_sec: float = HEALTH_POLL_SEC,
 ) -> tuple[bool, dict[str, Any] | None, dict[str, Any] | None]:
-    """
-    Wait for /api/health to be stable:
-      - must return 200 + JSON dict
-      - if expected_apply_ts is present, must match apply_ts_utc
-      - must succeed N times consecutively (to avoid transient flaps)
-    Returns: (ok, last_good_health, last_dict_body)
-      - last_good_health: dict from the most recent streak success
-      - last_dict_body: best-effort last dict-shaped body (for diagnostics)
-    """
     end = time.time() + float(deadline_sec)
     streak = 0
     last_good: dict[str, Any] | None = None
@@ -125,7 +119,7 @@ def _wait_health_stable(
 
         if ok:
             streak += 1
-            last_good = body  # type: ignore[assignment]
+            last_good = body
             if streak >= int(stable_successes):
                 return True, last_good, last_dict
         else:
@@ -136,51 +130,33 @@ def _wait_health_stable(
     return False, last_good, last_dict
 
 
+def _sync_dropins(ctx: Context) -> None:
+    src_dir = _dropin_src_dir(ctx)
 
-def _sync_dropins() -> None:
-    """
-    Install/refresh systemd drop-ins for takctl-web from the repo.
-    This is installer-owned and deterministic.
-    """
-    if not DROPIN_SRC_DIR.is_dir():
-        return
-
-    # Ensure dst dir exists
     rc, out = _run(["sudo", "mkdir", "-p", str(DROPIN_DST_DIR)])
     if rc != 0:
         raise RuntimeError(out or "mkdir drop-in dir failed")
 
-    # Copy *.conf files
-    for src in sorted(DROPIN_SRC_DIR.glob("*.conf")):
-        dst = DROPIN_DST_DIR / src.name
-        rc, out = _run(["sudo", "install", "-m", "0644", str(src), str(dst)])
-        if rc != 0:
-            raise RuntimeError(out or f"install drop-in failed: {src.name}")
+    rc, out = _run(["sudo", "bash", "-lc", f'rm -f "{DROPIN_DST_DIR}"/*.conf'])
+    if rc != 0:
+        raise RuntimeError(out or "remove old drop-ins failed")
+
+    if src_dir.is_dir():
+        for src in sorted(src_dir.glob("*.conf")):
+            dst = DROPIN_DST_DIR / src.name
+            rc, out = _run(["sudo", "install", "-m", "0644", str(src), str(dst)])
+            if rc != 0:
+                raise RuntimeError(out or f"install drop-in failed: {src.name}")
 
     rc, out = _run(["sudo", "systemctl", "daemon-reload"])
     if rc != 0:
         raise RuntimeError(out or "systemctl daemon-reload failed")
 
 
-
-    # Ensure dst dir exists
-    _run(["sudo", "mkdir", "-p", str(DROPIN_DST_DIR)])
-
-    # Copy *.conf files
-    for src in sorted(DROPIN_SRC_DIR.glob("*.conf")):
-        dst = DROPIN_DST_DIR / src.name
-        # sudo install preserves mode deterministically
-        _run(["sudo", "install", "-m", "0644", str(src), str(dst)])
-
-    _run(["sudo", "systemctl", "daemon-reload"])
-
-
 def _short_fail_dump() -> None:
     print("!! takctl-web not ready (or wrong apply token). Showing status + last logs:")
     rc, out = _run(["systemctl", "--no-pager", "--full", "status", UNIT_NAME])
     if out:
-        print(out.splitlines()[0] if out else "")
-        # keep it short
         print("\n".join(out.splitlines()[:60]))
     else:
         print(f"(systemctl status failed rc={rc})")
@@ -197,7 +173,7 @@ class _Action:
     def inspect(self, ctx: Context) -> int:
         unit = SystemdUnit(
             name=UNIT_NAME,
-            src=ctx.repo_root / "infra" / "systemd" / "takctl-web.service",
+            src=_unit_src(ctx),
             dst=UNIT_DST,
         )
 
@@ -210,6 +186,10 @@ class _Action:
         print(f"  src: {info['src']}")
         print(f"  dst: {info['dst']}")
         print(f"  src sha256: {info['src_sha256']}")
+
+        dropins = _dropin_src_dir(ctx)
+        print(f"  dropin src dir: {dropins}")
+        print(f"  dropin src exists: {str(dropins.is_dir()).lower()}")
 
         if info["status"] == "not-installed":
             print("  status: not installed")
@@ -226,7 +206,7 @@ class _Action:
     def apply(self, ctx: Context) -> int:
         unit = SystemdUnit(
             name=UNIT_NAME,
-            src=ctx.repo_root / "infra" / "systemd" / "takctl-web.service",
+            src=_unit_src(ctx),
             dst=UNIT_DST,
         )
 
@@ -237,7 +217,6 @@ class _Action:
 
         expected_apply_ts = _read_apply_ts_from_state()
 
-        # DEBUG: allow deterministic mismatch testing (must opt-in)
         if os.environ.get("TAKS_DEBUG", "") == "1":
             dbg = float(os.environ.get("TAKS_DEBUG_SLEEP_BEFORE_HEALTH", "0") or "0")
             if dbg > 0:
@@ -247,39 +226,29 @@ class _Action:
         print(f"Applying systemd unit: {UNIT_NAME}")
         try:
             unit.apply()
+            _sync_dropins(ctx)
         except PermissionError as e:
             print(f"ERROR: {e}")
             return 2
+        except Exception as e:
+            print(f"ERROR: action raised exception: {self.ID}: {e}")
+            return 3
 
-        _sync_dropins()
-
-        # Always restart to pick up new runtime code / venv state deterministically.
         rc, out = _run(["systemctl", "restart", UNIT_NAME])
         if rc != 0:
             print("ERROR: systemctl restart failed")
             print(out)
-            return 3
-
-        # Wait for LISTEN (avoid immediate curl race)
-        if not _wait_listen_8080(WAIT_LISTEN_SEC):
-            _short_fail_dump()
             return 4
 
-        # Wait for /api/health to be STABLE (avoid transient up/down or apply_ts lag)
-        ok, last_good, last_dict = _wait_health_stable(
+        if not _wait_listen_8080(WAIT_LISTEN_SEC):
+            _short_fail_dump()
+            return 5
+
+        ok, _last_good, _last_dict = _wait_health_stable(
             deadline_sec=WAIT_HEALTH_SEC,
             expected_apply_ts=expected_apply_ts,
-            stable_successes=HEALTH_STABLE_SUCCESSES,
-            poll_sec=HEALTH_POLL_SEC,
         )
-        if not ok or not isinstance(last_good, dict):
-            # If we have a dict-ish response, print the key reason plainly.
-            if expected_apply_ts and isinstance(last_dict, dict):
-                got_apply_ts = last_dict.get("apply_ts_utc")
-                if got_apply_ts and got_apply_ts != expected_apply_ts:
-                    print("ERROR: takctl-web served a different apply token than installer state.")
-                    print(f"  expected apply_ts_utc: {expected_apply_ts}")
-                    print(f"  got apply_ts_utc:      {got_apply_ts}")
+        if not ok:
             _short_fail_dump()
             return 5
 
@@ -287,7 +256,7 @@ class _Action:
         if expected_apply_ts:
             print(f"takctl-web ready (apply_ts_utc={expected_apply_ts})")
         else:
-            print("takctl-web ready (no apply_ts_utc in state yet)")
+            print("takctl-web ready")
         return 0
 
 

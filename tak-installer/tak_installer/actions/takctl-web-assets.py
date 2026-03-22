@@ -6,11 +6,8 @@ from pathlib import Path
 
 from tak_installer.util import log
 
-# Web directory paths
-SRC_WEB_DIR = Path("/opt/taks/takctl/web")
 DST_WEB_DIR = Path("/opt/tak/tools/takctl/web")
 
-# Exclusions for the rsync
 RSYNC_EXCLUDES = [
     "--exclude=__pycache__/",
     "--exclude=*.pyc",
@@ -19,6 +16,10 @@ RSYNC_EXCLUDES = [
     "--exclude=*.swo",
     "--exclude=*~",
 ]
+
+
+def _src_web_dir(ctx) -> Path:
+    return Path(ctx.repo_root) / "takctl" / "web"
 
 
 def _run(cmd: list[str]) -> None:
@@ -30,21 +31,14 @@ def _run(cmd: list[str]) -> None:
 
 
 def apply(ctx) -> None:
-    """
-    Mirror the static web directory into runtime.
+    src_web_dir = _src_web_dir(ctx)
 
-    IMPORTANT:
-      - Do NOT preserve source owner/group/perms (source is a dev tree, often ubuntu-owned, sometimes 0600).
-      - Enforce deterministic "install-like" permissions on runtime:
-          dirs 0755, files 0644
-      - Ensure runtime is owned by tak:tak
-    """
     log.info("takctl-web-assets: syncing entire web directory to runtime")
-    log.info(f"  source:  {SRC_WEB_DIR}")
-    log.info(f"  runtime: {DST_WEB_DIR}")
+    log.info("  source:  %s", src_web_dir)
+    log.info("  runtime: %s", DST_WEB_DIR)
 
-    if not SRC_WEB_DIR.exists():
-        raise RuntimeError(f"takctl web directory missing: {SRC_WEB_DIR}")
+    if not src_web_dir.exists():
+        raise RuntimeError(f"takctl web directory missing: {src_web_dir}")
 
     DST_WEB_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -54,19 +48,18 @@ def apply(ctx) -> None:
 
     cmd = [
         rsync,
-        "-r",                 # recurse (NOT -a; we do not want to preserve metadata)
-        "--delete",           # mirror semantics (remove stale runtime files)
+        "-r",
+        "--delete",
         "--no-owner",
         "--no-group",
         "--no-perms",
-        "--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r",  # dirs 0755, files 0644 (install-like)
+        "--chmod=Du=rwx,Dgo=rx,Fu=rw,Fgo=r",
         *RSYNC_EXCLUDES,
-        f"{SRC_WEB_DIR}/",
+        f"{src_web_dir}/",
         f"{DST_WEB_DIR}/",
     ]
     _run(cmd)
 
-    # Ownership: runtime should be tak-owned
     subprocess.run(["chown", "-R", "tak:tak", str(DST_WEB_DIR)], check=False)
 
     log.info("takctl-web-assets: sync complete (rsync install-policy)")
@@ -76,11 +69,13 @@ class _Action:
     ID = "takctl-web-assets"
 
     def inspect(self, ctx) -> int:
-        log.info(f"Inspecting {self.ID} action...")
+        log.info("Inspecting %s action...", self.ID)
+        log.info("  source: %s", _src_web_dir(ctx))
+        log.info("  runtime: %s", DST_WEB_DIR)
         return 0
 
     def apply(self, ctx) -> int:
-        log.info(f"Applying {self.ID} action...")
+        log.info("Applying %s action...", self.ID)
         apply(ctx)
         return 0
 
