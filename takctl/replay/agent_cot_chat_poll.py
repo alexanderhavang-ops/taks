@@ -50,7 +50,6 @@ def parse_uid(uid: str) -> Optional[Dict[str, Any]]:
     if parts[0] != "replay" or parts[1] != "chat":
         return None
 
-    # replay:chat:<from>:<kind>:<to>:<sim_time_s>:<hash>
     sender = parts[2]
     kind = parts[3]
     recipient = parts[4]
@@ -76,7 +75,7 @@ def fetch_recent_chat_rows(callsign: str, lookback_minutes: int) -> List[Dict[st
     FROM cot_router
     WHERE uid LIKE 'replay:chat:%'
       AND servertime >= NOW() - INTERVAL '{int(lookback_minutes)} minutes'
-      AND detail::text LIKE '%to="{callsign}"%'
+      AND split_part(uid, ':', 5) = '{callsign}'
     ORDER BY servertime ASC, uid ASC;
     """
 
@@ -106,30 +105,30 @@ def fetch_recent_chat_rows(callsign: str, lookback_minutes: int) -> List[Dict[st
     return rows
 
 
-def extract_taks_chat_json(detail_xml: str) -> Dict[str, Any]:
-    start_tag = "<taks_chat"
-    end_tag = "</taks_chat>"
+def extract_remarks_text(detail_xml: str) -> str:
+    start_tag = "<remarks>"
+    end_tag = "</remarks>"
 
     start = detail_xml.find(start_tag)
     if start < 0:
-        return {}
+        return ""
 
-    gt = detail_xml.find(">", start)
-    if gt < 0:
-        return {}
-
-    end = detail_xml.find(end_tag, gt)
+    end = detail_xml.find(end_tag, start)
     if end < 0:
-        return {}
+        return ""
 
-    payload = detail_xml[gt + 1:end].strip()
+    payload = detail_xml[start + len(start_tag):end].strip()
     if not payload:
-        return {}
+        return ""
 
-    try:
-        return json.loads(payload)
-    except Exception:
-        return {}
+    return (
+        payload
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&apos;", "'")
+        .replace("&amp;", "&")
+    )
 
 
 def main() -> None:
@@ -163,14 +162,16 @@ def main() -> None:
         if not uid_info:
             continue
 
-        payload = extract_taks_chat_json(str(row.get("detail_xml") or ""))
+        detail_xml = str(row.get("detail_xml") or "")
+        message = extract_remarks_text(detail_xml)
+
         msg = {
             "kind": uid_info["kind"],
             "from": uid_info["from"],
             "to": uid_info["to"],
             "sim_time_s": uid_info["sim_time_s"],
-            "message": "",  # NL-text ligger i remarks i CoT, inte i taks_chat-json
-            "meta": payload if isinstance(payload, dict) else {},
+            "message": message,
+            "meta": {},
             "uid": uid,
         }
 

@@ -57,12 +57,8 @@ def make_uid(msg: Dict[str, Any]) -> str:
 def build_chat_cot(msg: Dict[str, Any], now_dt: datetime) -> str:
     uid = str(msg.get("uid") or make_uid(msg))
     frm = str(msg.get("from") or "")
-    to = str(msg.get("to") or "")
-    kind = str(msg.get("kind") or "message")
     message = str(msg.get("message") or "")
-    meta = dict(msg.get("meta") or {})
 
-    meta_json = escape(json.dumps(meta, ensure_ascii=False))
     remarks = escape(message)
 
     time_s = iso_z(now_dt)
@@ -76,7 +72,6 @@ def build_chat_cot(msg: Dict[str, Any], now_dt: datetime) -> str:
         f'<contact callsign="{escape(frm)}-CHAT" endpoint="*:-1:stcp"/>'
         f'<__group name="Cyan" role="Team Member"/>'
         f'<remarks>{remarks}</remarks>'
-        f'<taks_chat from="{escape(frm)}" to="{escape(to)}" kind="{escape(kind)}">{meta_json}</taks_chat>'
         f'</detail>'
         f'</event>'
     )
