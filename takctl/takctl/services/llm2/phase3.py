@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 import hashlib
-import html
 import json
 import os
 import re
 import time
 import traceback
 from pathlib import Path
+from takctl.config import load_config
 from typing import Any, Dict, List, Tuple
 
+from takctl.services.llm2.domain_config import (
+    discover_enabled_domains,
+    load_domain_config,
+    phase_enabled,
+)
 from takctl.services.llm2.llm_client import LlmClient
 from takctl.services.llm2.paths import latest_root, runs_root
 from takctl.services.llm2.store import write_json
@@ -34,16 +39,20 @@ def _sha256_text(s: str) -> str:
 def _phase2_gate(latest_dom_dir: Path) -> Tuple[bool, str]:
     p_findings = latest_dom_dir / "phase2" / "findings.json"
     p_trace = latest_dom_dir / "phase2" / "trace.json"
+
     if not p_findings.exists():
         return False, "phase2_findings_missing"
     if not p_trace.exists():
         return False, "phase2_trace_missing"
+
     try:
         trace = _read_json(p_trace)
     except Exception:
         return False, "phase2_trace_invalid_json"
+
     if not trace.get("ok", False):
         return False, f"phase2_failed:{trace.get('error')}"
+
     return True, "ok"
 
 
@@ -63,211 +72,6 @@ def _phase2_findings_text(latest_dom_dir: Path) -> str:
     return json.dumps(o, ensure_ascii=False, indent=2, sort_keys=True) if o else ""
 
 
-def _findings_values(findings: Dict[str, Any]) -> List[str]:
-    vals: List[str] = []
-    for k in ("important", "newest", "details"):
-        v = findings.get(k)
-        if v is None:
-            continue
-        s = str(v).strip()
-        if s:
-            vals.append(s)
-    out: List[str] = []
-    seen = set()
-    for s in vals:
-        if s in seen:
-            continue
-        seen.add(s)
-        out.append(s)
-    return out
-
-
-def _fallback_card(dom: str, findings: Dict[str, Any]) -> str:
-    title = dom
-    important = (str(findings.get("important") or "")).strip()
-    newest = (str(findings.get("newest") or "")).strip()
-    details = (str(findings.get("details") or "")).strip()
-
-    if important:
-        title = important
-    elif newest:
-        title = newest
-    elif details:
-        title = details
-
-    summary = ""
-    for s in (newest, details):
-        s = (s or "").strip()
-        if not s or s == title:
-            continue
-        summary = s
-        break
-
-    esc_title = html.escape(title)
-    if summary:
-        return f"<div><h3>{esc_title}</h3><p>{html.escape(summary)}</p></div>"
-    return f"<div><h3>{esc_title}</h3></div>"
-
-
-def _fallback_detail(dom: str, findings: Dict[str, Any]) -> str:
-    important = (str(findings.get("important") or "")).strip()
-    newest = (str(findings.get("newest") or "")).strip()
-    details = (str(findings.get("details") or "")).strip()
-
-    esc_dom = html.escape(dom)
-    parts: List[str] = [f"<div><h3>{esc_dom}</h3>"]
-    if important:
-        parts.append(f"<p><strong>Important:</strong> {html.escape(important)}</p>")
-    if newest:
-        parts.append(f"<p><strong>Newest:</strong> {html.escape(newest)}</p>")
-    if details:
-        parts.append(f"<p><strong>Details:</strong> {html.escape(details)}</p>")
-    parts.append("</div>")
-    return "".join(parts)
-
-
-# ---- sanitize/extract ----
-
-_ALLOWED_TAGS = {
-    "div", "h3", "p", "ul", "li", "strong", "em", "br",
-    "table", "thead", "tbody", "tr", "th", "td",
-}
-_BAD_TAG_BLOCK_RE = re.compile(r"(?is)<\s*(script|style|iframe|object|embed)\b[^>]*>.*?<\s*/\s*\1\s*>")
-_BAD_SINGLE_TAG_RE = re.compile(r"(?is)<\s*(script|style|iframe|object|embed|link|meta)\b[^>]*?/?>")
-_ONATTR_RE = re.compile(r'(?is)\s+on[a-zA-Z]+\s*=\s*(".*?"|\'.*?\'|[^\s>]+)')
-_JSURL_RE = re.compile(r'(?is)\s+(href|src)\s*=\s*("|\')\s*javascript:.*?\2')
-_STYLE_ATTR_RE = re.compile(r'(?is)\s+style\s*=\s*(".*?"|\'.*?\'|[^\s>]+)')
-_JUNK_TAGS_RE = re.compile(r"(?is)</?\s*(commit_msg|commit_after)\b[^>]*>")
-_DIV_RE = re.compile(r"(?is)<div\b[^>]*>.*?</div>")
-_PLACEHOLDER_RE = re.compile(r"(?is)\.\.\.|<h3>\s*\.\.\s*</h3>|<p>\s*\.\.\s*</p>|<li>\s*\.\.\s*</li>")
-
-
-def _strip_disallowed_tags_keep_text(s: str) -> str:
-    def repl(m: re.Match) -> str:
-        tag = (m.group(1) or "").lower()
-        return m.group(0) if tag in _ALLOWED_TAGS else ""
-    return re.sub(r"(?is)</?\s*([a-zA-Z0-9:_-]+)\b[^>]*>", repl, s)
-
-
-def _strip_all_attrs_except_data(s: str) -> str:
-    def repl(m: re.Match) -> str:
-        full = m.group(0)
-        tag = (m.group(1) or "")
-        if full.startswith("</"):
-            return f"</{tag}>"
-        attrs = m.group(2) or ""
-        keep = []
-        for am in re.finditer(r'(?is)\s+([a-zA-Z0-9:_-]+)\s*=\s*(".*?"|\'.*?\'|[^\s>]+)', attrs):
-            name = (am.group(1) or "").lower()
-            val = am.group(2) or ""
-            if name.startswith("data-"):
-                keep.append(f' {name}={val}')
-        return f"<{tag}{''.join(keep)}>"
-    return re.sub(r"(?is)<\s*([a-zA-Z0-9:_-]+)\b([^>]*)>", repl, s)
-
-
-def _sanitize_html_fragment(frag: str) -> str:
-    frag = (frag or "").strip()
-    frag = _BAD_TAG_BLOCK_RE.sub("", frag)
-    frag = _BAD_SINGLE_TAG_RE.sub("", frag)
-    frag = _JUNK_TAGS_RE.sub("", frag)
-    frag = _ONATTR_RE.sub("", frag)
-    frag = _JSURL_RE.sub("", frag)
-    frag = _STYLE_ATTR_RE.sub("", frag)
-    frag = _strip_disallowed_tags_keep_text(frag)
-    frag = _strip_all_attrs_except_data(frag)
-    frag = re.sub(r"\n{4,}", "\n\n", frag).strip()
-    return frag
-
-
-def _looks_like_dump_html(html_card: str, *, max_len: int) -> bool:
-    t = (html_card or "").strip()
-    if not t:
-        return True
-    if len(t) > max_len:
-        return True
-    if t.count("&quot;") >= 8:
-        return True
-    if "&quot;:" in t:
-        return True
-    if '{"' in t or '":' in t:
-        return True
-    return False
-
-
-def _extract_best_div_or_fallback(raw: str, dom: str, findings: Dict[str, Any], *, kind: str) -> str:
-    t = (raw or "").strip()
-    vals = _findings_values(findings)
-
-    m = re.search(r"(?is)```html\s*(.*?)\s*```", t)
-    if m and (m.group(1) or "").strip():
-        t = (m.group(1) or "").strip()
-
-    divs = _DIV_RE.findall(t)
-
-    def score(div: str) -> int:
-        d = div or ""
-        if _PLACEHOLDER_RE.search(d):
-            return -9999
-        s = 0
-        for v in vals:
-            if not v:
-                continue
-            if v in d:
-                s += 1000
-            else:
-                piece = v[:40]
-                if piece and piece in d:
-                    s += 100
-        if "OUTPUT RULES" in d or "Start immediately" in d or "Output exactly" in d:
-            s -= 800
-        return s
-
-    best = None
-    best_score = -10**9
-    for d in divs:
-        sc = score(d)
-        if sc > best_score:
-            best = d
-            best_score = sc
-
-    cleaned = ""
-    if best:
-        cleaned = _sanitize_html_fragment(best).strip()
-
-    if cleaned and not cleaned.lower().startswith("<div"):
-        cleaned = "<div>" + cleaned + "</div>"
-    if cleaned and not cleaned.lower().endswith("</div>"):
-        cleaned = cleaned + "</div>"
-
-    if cleaned:
-        if _PLACEHOLDER_RE.search(cleaned):
-            cleaned = ""
-        else:
-            if kind == "card":
-                if _looks_like_dump_html(cleaned, max_len=1600):
-                    cleaned = ""
-            else:
-                if _looks_like_dump_html(cleaned, max_len=20000):
-                    cleaned = ""
-
-    if cleaned:
-        return cleaned
-
-    return _fallback_card(dom, findings) if kind == "card" else _fallback_detail(dom, findings)
-
-
-def _discover_domains() -> List[str]:
-    root = latest_root()
-    if not root.exists():
-        return []
-    doms = [p.name for p in root.iterdir() if p.is_dir()]
-    doms = [d for d in doms if d]
-    if "_summary" in doms:
-        doms = ["_summary"] + [d for d in doms if d != "_summary"]
-    return sorted([d for d in doms if d != "_summary"]) and (["_summary"] + sorted([d for d in doms if d != "_summary"])) or doms
-
-
 def _load_prompt_pair(infra_dir: Path, dom: str, kind: str) -> Tuple[str, str]:
     base = infra_dir / "domains" / dom / "prompts" / "phase3"
     sys_p = base / f"{kind}_system.txt"
@@ -277,78 +81,130 @@ def _load_prompt_pair(infra_dir: Path, dom: str, kind: str) -> Tuple[str, str]:
     user_txt = _read_text(usr_p).strip()
 
     if not system_txt:
-        system_txt = (
-            "You generate operator-facing HTML for a tactical dashboard.\n"
-            "OUTPUT MUST BE HTML ONLY.\n"
-            "- No JSON.\n"
-            "- No markdown fences.\n\n"
-            "Safety:\n"
-            "- Do NOT use <script>, <style>, <iframe>, <object>, <embed>, <link>, <meta>.\n"
-            "- Do NOT use inline event handlers.\n"
-            "- Do NOT use javascript: URLs.\n"
-            "- Do NOT use style= attributes.\n\n"
-            "Factuality:\n"
-            "- Do not invent facts.\n"
-        )
-
+        raise RuntimeError(f"missing prompt file: {sys_p}")
     if not user_txt:
-        if kind == "card":
-            user_txt = (
-                f'Create a compact operator-facing HTML card for domain "{dom}".\n'
-                "Make it scannable: 1 headline + up to 3 bullets.\n"
-                "No long paragraphs.\n"
-            )
-        else:
-            user_txt = (
-                f'Create a detailed operator-facing HTML view for domain "{dom}".\n'
-                "Use sections and structure. If helpful, include a small table.\n"
-                "Prefer structure over verbosity.\n"
-            )
+        raise RuntimeError(f"missing prompt file: {usr_p}")
 
     return system_txt, user_txt
 
 
-def _build_prompt(system_txt: str, user_txt: str, findings_json: str, *, kind: str) -> str:
-    parts: List[str] = []
-    parts.append(system_txt.strip())
-    parts.append("")
-    parts.append(user_txt.strip())
-    parts.append("")
-    parts.append("Input is Phase2 findings JSON (evidence).")
-    parts.append("")
-    parts.append("OUTPUT RULES (STRICT):")
-    parts.append("- Start immediately with '<div>' (first non-whitespace characters).")
-    parts.append("- Output exactly ONE HTML block: a single <div> ... </div>.")
-    if kind == "card":
-        parts.append("- Keep it very compact (dashboard card).")
-        parts.append("- Prefer: one <h3> and optionally ONE short <p>.")
-        parts.append("- Use a <ul> only if truly necessary, with max 2 <li>.")
-        parts.append("- Each <li> must be short and scannable.")
-        parts.append("- Do NOT write long paragraphs.")
-        parts.append("- The card should fit a compact overview grid.")
-    else:
-        parts.append("- This is a detail view (may be longer than the card).")
-        parts.append("- Prefer structure and sections; you may use a table.")
-    parts.append("- Allowed tags: div, h3, p, ul, li, strong, em, br, table, thead, tbody, tr, th, td.")
-    parts.append("- Do NOT include any prose outside the single <div>.")
-    parts.append("- Do NOT output placeholders like '..' or '...'.")
-    parts.append("- Do not invent facts.")
-    parts.append("- Do NOT use style= attributes.")
-    parts.append("")
-    parts.append("## INPUT_FINDINGS_JSON")
-    parts.append(findings_json.strip())
-    parts.append("")
-    return "\n".join(parts).strip() + "\n"
+def _build_prompt(system_txt: str, user_txt: str, findings_json: str) -> str:
+    return (
+        system_txt.strip()
+        + "\n\n"
+        + user_txt.strip()
+        + "\n\n## INPUT_FINDINGS_JSON\n"
+        + findings_json.strip()
+        + "\n"
+    )
 
 
-def run_phase3(*, run_id: str) -> Dict[str, Any]:
+_BAD_TAG_BLOCK_RE = re.compile(
+    r"(?is)<\s*(script|style|iframe|object|embed|foreignObject)\b[^>]*>.*?<\s*/\s*\1\s*>"
+)
+_BAD_SINGLE_TAG_RE = re.compile(
+    r"(?is)<\s*(script|style|iframe|object|embed|link|meta)\b[^>]*?/?>"
+)
+_ONATTR_RE = re.compile(r'(?is)\s+on[a-zA-Z:_-]+\s*=\s*(".*?"|\'.*?\'|[^\s>]+)')
+_JSURL_DQ_RE = re.compile(r'(?is)\s+(href|src|xlink:href)\s*=\s*"[^"]*javascript:[^"]*"')
+_JSURL_SQ_RE = re.compile(r"(?is)\s+(href|src|xlink:href)\s*=\s*'[^']*javascript:[^']*'")
+_JSURL_BARE_RE = re.compile(r"(?is)\s+(href|src|xlink:href)\s*=\s*javascript:[^\s>]+")
+_JUNK_TAGS_RE = re.compile(r"(?is)</?\s*(commit_msg|commit_after)\b[^>]*>")
+_PLACEHOLDER_RE = re.compile(
+    r"(?is)\.\.\.|<h3>\s*\.\.\s*</h3>|<p>\s*\.\.\s*</p>|<li>\s*\.\.\s*</li>"
+)
+
+
+def _basic_safe_cleanup(frag: str) -> str:
+    frag = (frag or "").strip()
+    frag = _BAD_TAG_BLOCK_RE.sub("", frag)
+    frag = _BAD_SINGLE_TAG_RE.sub("", frag)
+    frag = _JUNK_TAGS_RE.sub("", frag)
+    frag = _ONATTR_RE.sub("", frag)
+    frag = _JSURL_DQ_RE.sub("", frag)
+    frag = _JSURL_SQ_RE.sub("", frag)
+    frag = _JSURL_BARE_RE.sub("", frag)
+    frag = re.sub(r"\n{4,}", "\n\n", frag).strip()
+    return frag
+
+
+def _extract_outer_div_block(text: str) -> str:
+    s = text or ""
+
+    m = re.search(r"(?is)<div\b[^>]*>", s)
+    if not m:
+        return ""
+
+    start = m.start()
+    pos = m.end()
+    depth = 1
+    tag_re = re.compile(r"(?is)</?div\b[^>]*>")
+
+    while True:
+        tm = tag_re.search(s, pos)
+        if not tm:
+            return s[start:]
+        token = tm.group(0).lower()
+        if token.startswith("</div"):
+            depth -= 1
+            if depth == 0:
+                return s[start:tm.end()]
+        else:
+            depth += 1
+        pos = tm.end()
+
+
+def _extract_best_div(raw: str) -> str:
+    t = (raw or "").strip()
+
+    m = re.search(r"(?is)```html\s*(.*?)\s*```", t)
+    if m and (m.group(1) or "").strip():
+        t = (m.group(1) or "").strip()
+
+    best = _extract_outer_div_block(t) or t
+    cleaned = _basic_safe_cleanup(best).strip()
+
+    if cleaned and not re.match(r"(?is)^<div\b", cleaned):
+        cleaned = f"<div>{cleaned}</div>"
+    if cleaned and not re.search(r"(?is)</div>\s*$", cleaned):
+        cleaned = cleaned + "</div>"
+
+    if cleaned and not _PLACEHOLDER_RE.search(cleaned):
+        return cleaned
+
+    raise RuntimeError("no_valid_html_div_found")
+
+
+def _selected_domains(infra_dir: Path, domain: str | None = None) -> List[str]:
+    requested = (domain or "").strip()
+    all_domains = discover_enabled_domains(infra_dir)
+
+    if not requested or requested.lower() == "all":
+        return all_domains
+
+    if requested not in all_domains:
+        cfg_path = infra_dir / "domains" / requested / "config.json"
+        if not cfg_path.exists():
+            raise RuntimeError(f"unknown_or_disabled_domain:{requested}")
+        cfg = load_domain_config(infra_dir, requested)
+        if cfg.get("enabled", True) is False:
+            raise RuntimeError(f"domain_disabled:{requested}")
+        return [requested]
+
+    return [requested]
+
+
+def run_phase3(*, run_id: str, domain: str | None = None) -> Dict[str, Any]:
     started = _now_iso()
     t0 = time.time()
 
-    infra_dir = Path(os.environ.get("TAKCTL_LLM2_INFRA_DIR", "/opt/tak/tools/takctl/llm-infra"))
-    phase3_mode = (os.environ.get("TAKCTL_LLM2_PHASE3_MODE", "fallback") or "fallback").strip().lower()
+    cfg0 = load_config()
+    infra_dir = Path(cfg0.llm_infra_dir)
+    phase3_mode = (cfg0.llm_phase3_mode or "llm").strip().lower()
+    temperature = float(cfg0.llm_temperature)
+    n_predict = int(cfg0.llm_n_predict)
 
-    domains = _discover_domains()
+    domains = _selected_domains(infra_dir, domain=domain)
 
     out: Dict[str, Any] = {
         "ok": True,
@@ -357,6 +213,8 @@ def run_phase3(*, run_id: str) -> Dict[str, Any]:
         "started_at": started,
         "domains": domains,
         "phase3_mode": phase3_mode,
+        "n_predict": n_predict,
+        "domain": domains[0] if len(domains) == 1 else "all",
     }
 
     any_fail = False
@@ -367,6 +225,12 @@ def run_phase3(*, run_id: str) -> Dict[str, Any]:
     client = LlmClient()
 
     for dom in domains:
+        cfg = load_domain_config(infra_dir, dom)
+
+        if not phase_enabled(cfg, "phase3"):
+            print(f"\n===== PHASE3 SKIP [{dom}] reason=phase3_disabled_in_config =====")
+            continue
+
         dom_t0 = time.time()
         dom_started = _now_iso()
 
@@ -377,7 +241,6 @@ def run_phase3(*, run_id: str) -> Dict[str, Any]:
         latest_phase3_dir = latest_dom_dir / "phase3"
         latest_phase3_dir.mkdir(parents=True, exist_ok=True)
 
-        # artifacts
         card_path = run_dom_dir / "card.json"
         detail_path = run_dom_dir / "detail.json"
         latest_card_path = latest_phase3_dir / "card.json"
@@ -401,10 +264,17 @@ def run_phase3(*, run_id: str) -> Dict[str, Any]:
             "ok": False,
             "phase2_gate": None,
             "phase3_mode": phase3_mode,
+            "domain_mode": str(cfg.get("mode") or ""),
+            "phase3_enabled": phase_enabled(cfg, "phase3"),
             "llm": {
                 "provider": getattr(client, "provider", None),
-                "model": (client.bedrock_model_id if getattr(client, "provider", "") == "bedrock" else client.model),
+                "model": (
+                    client.bedrock_model_id
+                    if getattr(client, "provider", "") == "bedrock"
+                    else client.model
+                ),
                 "env_path": getattr(client, "env_path", None),
+                "n_predict": n_predict,
             },
             "card": {"ok": False, "error": None},
             "detail": {"ok": False, "error": None},
@@ -427,82 +297,118 @@ def run_phase3(*, run_id: str) -> Dict[str, Any]:
         try:
             ok_gate, reason = _phase2_gate(latest_dom_dir)
             trace["phase2_gate"] = {"ok": ok_gate, "reason": reason}
-            findings_obj = _phase2_findings_obj(latest_dom_dir)
+
             findings_txt = _phase2_findings_text(latest_dom_dir)
 
             if not ok_gate:
-                card_html = f"<div><h3>{html.escape(dom)}</h3><p><em>No phase2 findings ({html.escape(reason)}).</em></p></div>"
-                detail_html = card_html
-                write_json(card_path, {"html": card_html})
-                write_json(detail_path, {"html": detail_html})
-                write_json(latest_card_path, {"html": card_html})
-                write_json(latest_detail_path, {"html": detail_html})
-                write_json(latest_path, {"ok": True, "domain": dom, "run_id": run_id, "generated_utc": _now_iso()})
-                trace["card"]["ok"] = True
-                trace["detail"]["ok"] = True
-                trace["ok"] = True
-                continue
-
+                raise RuntimeError(f"phase2_not_ready:{reason}")
             if not findings_txt.strip():
-                card_html = _fallback_card(dom, findings_obj)
-                detail_html = _fallback_detail(dom, findings_obj)
-                write_json(card_path, {"html": card_html})
-                write_json(detail_path, {"html": detail_html})
-                write_json(latest_card_path, {"html": card_html})
-                write_json(latest_detail_path, {"html": detail_html})
-                write_json(latest_path, {"ok": True, "domain": dom, "run_id": run_id, "generated_utc": _now_iso()})
-                trace["card"]["ok"] = True
-                trace["detail"]["ok"] = True
-                trace["ok"] = True
-                continue
-
+                raise RuntimeError("phase2_findings_empty")
             if phase3_mode != "llm":
-                card_html = _fallback_card(dom, findings_obj)
-                detail_html = _fallback_detail(dom, findings_obj)
-                write_json(card_path, {"html": card_html})
-                write_json(detail_path, {"html": detail_html})
-                write_json(latest_card_path, {"html": card_html})
-                write_json(latest_detail_path, {"html": detail_html})
-                write_json(latest_path, {"ok": True, "domain": dom, "run_id": run_id, "generated_utc": _now_iso()})
-                trace["card"]["ok"] = True
-                trace["detail"]["ok"] = True
-                trace["ok"] = True
-                continue
-
-            # LLM mode: two calls (card + detail)
-            temp = float(os.environ.get("TAKCTL_LLM_TEMPERATURE", "0.2"))
+                raise RuntimeError(f"unsupported_phase3_mode:{phase3_mode}")
 
             sys_card, usr_card = _load_prompt_pair(infra_dir, dom, "card")
-            prompt_card = _build_prompt(sys_card, usr_card, findings_txt, kind="card")
+            prompt_card = _build_prompt(sys_card, usr_card, findings_txt)
             prompt_card_path.write_text(prompt_card, encoding="utf-8")
             trace["card"]["prompt_sha256"] = _sha256_text(prompt_card)
             trace["card"]["prompt_bytes"] = len(prompt_card.encode("utf-8"))
+            trace["card"]["prompt_full"] = prompt_card
 
-            r1 = client.complete_text(prompt=prompt_card, temperature=temp, max_tokens=300, seed=7)
-            resp_card_path.write_text(r1.get("text") or "", encoding="utf-8")
+            print(f"\n===== PHASE3 SENT [{dom}:card] =====")
+            print(f"temperature={temperature}")
+            print(f"n_predict={n_predict}")
+            print(f"prompt_bytes={len(prompt_card.encode('utf-8'))} sha256={_sha256_text(prompt_card)}")
+            print("--- prompt_full ---")
+            print(prompt_card)
+
+            r1 = client.complete_text(
+                prompt=prompt_card,
+                temperature=temperature,
+                max_tokens=n_predict,
+                seed=7,
+            )
+            card_raw = r1.get("text") or ""
+            resp_card_path.write_text(card_raw, encoding="utf-8")
+
+            print(f"\n===== PHASE3 RECEIVED [{dom}:card] =====")
+            print(f"http_status={r1.get('http_status')} bytes={r1.get('body_bytes')}")
+            print(f"text_bytes={len(card_raw.encode('utf-8'))} text_sha256={_sha256_text(card_raw)}")
+            print("--- response_text_raw ---")
+            print(card_raw)
+
+            trace["card"]["received"] = {
+                "http_status": r1.get("http_status"),
+                "body_bytes": r1.get("body_bytes"),
+                "text_bytes": len(card_raw.encode("utf-8")),
+                "text_sha256": _sha256_text(card_raw),
+                "response_text_raw": card_raw,
+                "provider": r1.get("provider"),
+                "url": r1.get("url"),
+                "model": r1.get("model"),
+                "error": r1.get("error"),
+            }
+
             if not r1.get("ok"):
                 raise RuntimeError(f"phase3_card_llm_failed:{r1.get('error')}")
-            card_clean = _extract_best_div_or_fallback(r1.get("text") or "", dom, findings_obj, kind="card")
+
+            card_clean = _extract_best_div(card_raw)
             cleaned_card_path.write_text(card_clean, encoding="utf-8")
 
             sys_det, usr_det = _load_prompt_pair(infra_dir, dom, "detail")
-            prompt_det = _build_prompt(sys_det, usr_det, findings_txt, kind="detail")
+            prompt_det = _build_prompt(sys_det, usr_det, findings_txt)
             prompt_detail_path.write_text(prompt_det, encoding="utf-8")
             trace["detail"]["prompt_sha256"] = _sha256_text(prompt_det)
             trace["detail"]["prompt_bytes"] = len(prompt_det.encode("utf-8"))
+            trace["detail"]["prompt_full"] = prompt_det
 
-            r2 = client.complete_text(prompt=prompt_det, temperature=temp, max_tokens=1800, seed=7)
-            resp_detail_path.write_text(r2.get("text") or "", encoding="utf-8")
+            print(f"\n===== PHASE3 SENT [{dom}:detail] =====")
+            print(f"temperature={temperature}")
+            print(f"n_predict={n_predict}")
+            print(f"prompt_bytes={len(prompt_det.encode('utf-8'))} sha256={_sha256_text(prompt_det)}")
+            print("--- prompt_full ---")
+            print(prompt_det)
+
+            r2 = client.complete_text(
+                prompt=prompt_det,
+                temperature=temperature,
+                max_tokens=n_predict,
+                seed=7,
+            )
+            det_raw = r2.get("text") or ""
+            resp_detail_path.write_text(det_raw, encoding="utf-8")
+
+            print(f"\n===== PHASE3 RECEIVED [{dom}:detail] =====")
+            print(f"http_status={r2.get('http_status')} bytes={r2.get('body_bytes')}")
+            print(f"text_bytes={len(det_raw.encode('utf-8'))} text_sha256={_sha256_text(det_raw)}")
+            print("--- response_text_raw ---")
+            print(det_raw)
+
+            trace["detail"]["received"] = {
+                "http_status": r2.get("http_status"),
+                "body_bytes": r2.get("body_bytes"),
+                "text_bytes": len(det_raw.encode("utf-8")),
+                "text_sha256": _sha256_text(det_raw),
+                "response_text_raw": det_raw,
+                "provider": r2.get("provider"),
+                "url": r2.get("url"),
+                "model": r2.get("model"),
+                "error": r2.get("error"),
+            }
+
             if not r2.get("ok"):
                 raise RuntimeError(f"phase3_detail_llm_failed:{r2.get('error')}")
-            det_clean = _extract_best_div_or_fallback(r2.get("text") or "", dom, findings_obj, kind="detail")
+
+            det_clean = _extract_best_div(det_raw)
             cleaned_detail_path.write_text(det_clean, encoding="utf-8")
 
             write_json(card_path, {"html": card_clean})
             write_json(detail_path, {"html": det_clean})
             write_json(latest_card_path, {"html": card_clean})
             write_json(latest_detail_path, {"html": det_clean})
-            write_json(latest_path, {"ok": True, "domain": dom, "run_id": run_id, "generated_utc": _now_iso()})
+            write_json(
+                latest_path,
+                {"ok": True, "domain": dom, "run_id": run_id, "generated_utc": _now_iso()},
+            )
 
             trace["card"]["ok"] = True
             trace["detail"]["ok"] = True
@@ -513,20 +419,25 @@ def run_phase3(*, run_id: str) -> Dict[str, Any]:
             trace["ok"] = False
             trace["error"] = f"{type(e).__name__}: {e}"
             trace["traceback"] = traceback.format_exc()
-            trace["card"]["error"] = trace["error"]
-            trace["detail"]["error"] = trace["error"]
+            write_json(
+                latest_path,
+                {"ok": False, "domain": dom, "run_id": run_id, "generated_utc": _now_iso()},
+            )
 
         finally:
             trace["ended_at"] = _now_iso()
             trace["elapsed_ms"] = int((time.time() - dom_t0) * 1000)
             write_json(trace_run_path, trace)
             write_json(trace_latest_path, trace)
+
             print(f"\n===== PHASE3 TRACE [{dom}] =====")
             print(json.dumps(trace, ensure_ascii=False, indent=2))
 
     out["ok"] = not any_fail
     out["ended_at"] = _now_iso()
     out["elapsed_ms"] = int((time.time() - t0) * 1000)
+
     print("\n===== PHASE3 SUMMARY =====")
     print(json.dumps(out, ensure_ascii=False, indent=2))
     return out
+

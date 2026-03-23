@@ -132,6 +132,35 @@ def _issue_card_link(req: Request, svc, *, username: str, ttl_sec: int, reveal_p
     )
 
 
+def _normalize_artifacts_requested(
+    artifacts_requested: Optional[Dict[str, Any]],
+    paths: Optional[Dict[str, Any]],
+) -> Dict[str, bool]:
+    out: Dict[str, bool] = {}
+
+    raw = dict(artifacts_requested or {})
+    for k, v in raw.items():
+        ks = str(k or "").strip()
+        if not ks:
+            continue
+        out[ks] = bool(v)
+
+    if out:
+        return out
+
+    p = dict(paths or {})
+
+    # Legacy fallback:
+    # - B was the previous "manual package" path
+    # - itak/wintak were client toggles
+    if bool(p.get("B")) and bool(p.get("itak")):
+        out["itak_soft_cert_no_password"] = True
+    if bool(p.get("B")) and bool(p.get("wintak")):
+        out["atak_soft_cert_no_password"] = True
+
+    return out
+
+
 class IdentityUpsertIn(BaseModel):
     origin: str = Field(default="marti", description="taks|marti")
     password: Optional[str] = Field(default=None, description="Only stored when origin=taks")
@@ -157,6 +186,7 @@ class UserCreateIn(BaseModel):
     groups_out: List[str] = Field(default_factory=list)
     ctx: Dict[str, Any] = Field(default_factory=dict)
     paths: Dict[str, bool] = Field(default_factory=lambda: {"B": True, "itak": True, "wintak": True})
+    artifacts_requested: Dict[str, bool] = Field(default_factory=dict)
     endpoints: Dict[str, Any] = Field(default_factory=dict)
     ttl_sec: int = Field(default=600, ge=60, le=7 * 24 * 3600)
     reveal_password: bool = Field(default=True)
@@ -313,9 +343,15 @@ def create_user(req: Request, username: str, body: UserCreateIn):
         password=pw_for_store,
     )
 
+    artifacts_requested = _normalize_artifacts_requested(
+        body.artifacts_requested,
+        body.paths,
+    )
+
     sel = {
         "ctx": ctx,
         "paths": dict(body.paths or {"B": True, "itak": True, "wintak": True}),
+        "artifacts_requested": artifacts_requested,
         "endpoints": dict(body.endpoints or {}),
     }
     save_selection(u, sel)

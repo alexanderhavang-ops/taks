@@ -1,0 +1,100 @@
+{
+  "blue": {
+    "top_unit": "VQ",
+    "language_profile": "sv-se-military",
+    "doctrine_profile": "swedish-home-guard",
+    "units": [
+      {
+        "callsign": "VQ",
+        "role": "battalion",
+        "parent": null,
+        "position": {"lat": 55.4290, "lon": 13.8200},
+        "strength": 120,
+        "readiness": "höjd stridsberedskap",
+        "combat_value": "god",
+        "mobility": {"type": "mixed", "speed_kph": 35}
+      },
+      {
+        "callsign": "TQVQ",
+        "role": "company",
+        "parent": "VQ",
+        "position": {"lat": 55.4220, "lon": 13.9180},
+        "strength": 38,
+        "readiness": "höjd stridsberedskap",
+        "combat_value": "god",
+        "mobility": {"type": "vehicle_light", "speed_kph": 45}
+      },
+      {
+        "callsign": "ATTQ",
+        "role": "platoon",
+        "parent": "TQVQ",
+        "position": {"lat": 55.4220, "lon": 13.9180},
+        "strength": 24,
+        "readiness": "höjd stridsberedskap",
+        "combat_value": "god",
+        "mobility": {"type": "foot", "speed_kph": 4}
+      },
+      {
+        "callsign": "EATQ",
+        "role": "group",
+        "parent": "ATTQ",
+        "position": {"lat": 55.4220, "lon": 13.9180},
+        "strength": 8,
+        "readiness": "höjd stridsberedskap",
+        "combat_value": "god",
+        "mobility": {"type": "foot", "speed_kph": 4}
+      },
+      {
+        "callsign": "FATQ",
+        "role": "group",
+        "parent": "ATTQ",
+        "position": {"lat": 55.4210, "lon": 13.9160},
+        "strength": 8,
+        "readiness": "höjd stridsberedskap",
+        "combat_value": "god",
+        "mobility": {"type": "foot", "speed_kph": 4}
+      },
+      {
+        "callsign": "GATQ",
+        "role": "group",
+        "parent": "ATTQ",
+        "position": {"lat": 55.4200, "lon": 13.9140},
+        "strength": 8,
+        "readiness": "höjd stridsberedskap",
+        "combat_value": "god",
+        "mobility": {"type": "foot", "speed_kph": 4}
+      }
+    ]
+  },
+  "red": {
+    "top_unit": "RU-BALTIC-TF",
+    "language_profile": "ru-military",
+    "doctrine_profile": "russian-amphibious",
+    "units": [
+      {
+        "callsign": "RU-BALTIC-TF",
+        "role": "task_force",
+        "parent": null,
+        "position": {"lat": 55.3900, "lon": 14.0400},
+        "strength": 200,
+        "mobility": {"type": "naval", "speed_kph": 22}
+      },
+      {
+        "callsign": "RU-LDG-1",
+        "role": "landing_ship",
+        "parent": "RU-BALTIC-TF",
+        "position": {"lat": 55.4050, "lon": 13.9900},
+        "strength": 60,
+        "mobility": {"type": "naval", "speed_kph": 18}
+      },
+      {
+        "callsign": "RU-ESC-1",
+        "role": "escort_ship",
+        "parent": "RU-BALTIC-TF",
+        "position": {"lat": 55.4080, "lon": 14.0000},
+        "strength": 30,
+        "mobility": {"type": "naval", "speed_kph": 20}
+      }
+    ]
+  }
+}

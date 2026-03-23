@@ -1,0 +1,13 @@
+{
+  "initial_orders": [
+    {
+      "from": "MR S",
+      "to": "VQ",
+      "sim_time_s": 0,
+      "issued_tnr": "T0+0",
+      "language": "sv",
+      "intent": "försvara_ystads_hamn",
+      "message": "5-punktsorder. 1. Orientering: Rysk landstigningsstyrka bedöms inom de närmaste 12–18 timmarna kunna genomföra ett begränsat anfall mot sydkusten med tyngdpunkt Ystadområdet. Fienden bedöms uppträda med spanings- och sabotageförband, drönarspaning, sjöburen landstigningsstyrka och försök att snabbt ta eller slå ut Ystads hamn för fortsatt framträngande in i inlandet. 2. Uppdrag: VQ försvarar Ystads hamn från och med omedelbart för att hindra rysk landstigningsstyrka att ta hamnen i bruk och för att fördröja eller stoppa fiendens fortsatta framträngande in i inlandet. Uppgiften ska vara påbörjad senast TNR T0+6600. Hamnområdet ska vara organiserat för försvar med huvudställningar, reserv, samband och rapportvägar senast TNR T0+7800. 3. Genomförande: Intag höjd stridsberedskap omedelbart. Ge varningsorder omedelbart till underlydande. Påbörja gruppering, rekognosering, sambandstjänst och förberedelser för försvar i djup. Fienden ska hindras från att etablera fungerande kontroll över hamnen eller bryta ut från hamnområdet. Underlydande chefer ska omedelbart påbörja egna förberedelser, ge varningsorder till underställda och rapportera beredskapsläge. 4. Logistik: Logistiken inriktas på uthållighet i minst 24 timmar med fokus på ammunition, sjukvård, drivmedel och enkel underhållstjänst. 5. Ledning: Första beredskapsrapport upp till MR S senast TNR T0+3600. Rapport när försvar är påbörjat senast TNR T0+6600. Rapport när försvarsgruppering i huvudsak klar senast TNR T0+7800. Verkan med skarp eld medges."
+    }
+  ]
+}

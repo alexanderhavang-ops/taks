@@ -5,12 +5,22 @@ import json
 import os
 import re
 import time
+from datetime import datetime, timedelta, timezone
 import traceback
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from takctl.config import load_config
+from typing import Any, Dict, List, Tuple
 
+from takctl.services.llm2.domain_config import (
+    discover_enabled_domains,
+    load_domain_config,
+    phase_enabled,
+    phase_input,
+    phase_output_schema,
+    upstream_domains,
+)
 from takctl.services.llm2.llm_client import LlmClient
-from takctl.services.llm2.paths import runs_root, latest_root
+from takctl.services.llm2.paths import latest_root, runs_root
 from takctl.services.llm2.store import write_json
 
 REQ_KEYS = ("important", "newest", "details")
@@ -94,7 +104,6 @@ def _sanitize_jsonish_text(raw: str) -> str:
     if not t:
         return t
 
-    # strip common fences
     for _ in range(10):
         u = t.lstrip()
         if u.startswith("```"):
@@ -152,7 +161,8 @@ def _phase1_gate(latest_dom_dir: Path) -> Tuple[bool, str]:
 
 
 def _phase2_evidence_profile() -> str:
-    return (os.environ.get("TAKCTL_LLM2_PHASE2_EVIDENCE_PROFILE", "compact") or "compact").strip().lower()
+    cfg = load_config()
+    return (cfg.llm_phase2_evidence_profile or "compact").strip().lower()
 
 
 def _select_profile_payload_from_phase1(obj: Any) -> tuple[str | None, Any]:
@@ -181,56 +191,322 @@ def _select_profile_payload_from_phase1(obj: Any) -> tuple[str | None, Any]:
     return None, None
 
 
-def _phase1_evidence_text(latest_dom_dir: Path, dom: str) -> str:
+def _phase1_evidence_obj(latest_dom_dir: Path) -> Dict[str, Any]:
     p_latest = latest_dom_dir / "phase1" / "latest.json"
     if not p_latest.exists():
-        return ""
+        return {}
 
     try:
         obj = _read_json(p_latest)
     except Exception:
-        return _read_text(p_latest)
+        raw = _read_text(p_latest).strip()
+        return {"raw_phase1_evidence": raw} if raw else {}
 
     chosen_profile, chosen_payload = _select_profile_payload_from_phase1(obj)
     if chosen_payload is not None:
-        return json.dumps(chosen_payload, ensure_ascii=False, indent=2, sort_keys=True)
+        if isinstance(chosen_payload, dict):
+            return chosen_payload
+        return {"profile": chosen_profile or "", "payload": chosen_payload}
 
-    return json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True)
+    if isinstance(obj, dict):
+        return obj
+    return {"raw_phase1_evidence": str(obj)}
 
 
 def _load_prompt(infra_dir: Path, dom: str) -> Tuple[str, str]:
     sys_p = infra_dir / "domains" / dom / "prompts" / "phase2" / "system.txt"
     usr_p = infra_dir / "domains" / dom / "prompts" / "phase2" / "user.txt"
+
     system_txt = _read_text(sys_p).strip()
     user_txt = _read_text(usr_p).strip()
+
     if not system_txt:
-        system_txt = "You produce operational findings based on the provided input."
+        raise RuntimeError(f"missing prompt file: {sys_p}")
+    if not user_txt:
+        raise RuntimeError(f"missing prompt file: {usr_p}")
+
     return system_txt, user_txt
 
 
 def _build_prompt(system_txt: str, user_txt: str, evidence_json: str) -> str:
-    parts = []
-    if system_txt.strip():
-        parts.append(system_txt.strip())
-        parts.append("")
-    if user_txt.strip():
-        parts.append(user_txt.strip())
-        parts.append("")
-    parts.append("## INPUT")
-    parts.append(evidence_json.strip())
-    parts.append("")
+    parts: List[str] = [
+        system_txt.strip(),
+        "",
+        user_txt.strip(),
+        "",
+        "## INPUT",
+        evidence_json.strip(),
+        "",
+    ]
     return "\n".join(parts).strip() + "\n"
 
 
-def _validate_obj(obj: Any) -> Dict[str, Any]:
+def _validate_standard_summary_obj(obj: Any) -> Dict[str, Any]:
     if not isinstance(obj, dict):
         raise RuntimeError("not_a_json_object")
+
     for k in REQ_KEYS:
         if k not in obj:
             raise RuntimeError(f"missing_key:{k}")
+
     for k in REQ_KEYS:
         if not isinstance(obj.get(k), str):
             obj[k] = "" if obj.get(k) is None else str(obj.get(k))
+
+    return obj
+
+
+def _validate_timeline_phase2_v1_obj(obj: Any) -> Dict[str, Any]:
+    if not isinstance(obj, dict):
+        raise RuntimeError("not_a_json_object")
+
+    if str(obj.get("schema") or "").strip() != "timeline.phase2.v1":
+        raise RuntimeError("missing_or_invalid_schema")
+    if str(obj.get("domain") or "").strip() != "timeline":
+        raise RuntimeError("missing_or_invalid_domain")
+
+    if not isinstance(obj.get("generated_utc"), str):
+        obj["generated_utc"] = "" if obj.get("generated_utc") is None else str(obj.get("generated_utc"))
+
+    window = obj.get("window")
+    if not isinstance(window, dict):
+        raise RuntimeError("missing_or_invalid_window")
+    for k in ("now_utc", "left_utc", "right_utc", "timezone"):
+        if not isinstance(window.get(k), str):
+            window[k] = "" if window.get(k) is None else str(window.get(k))
+    for k in ("past_hours", "future_hours"):
+        if not isinstance(window.get(k), int):
+            raise RuntimeError(f"invalid_window_key:{k}")
+
+    headline = obj.get("headline")
+    if not isinstance(headline, dict):
+        raise RuntimeError("missing_or_invalid_headline")
+    for k in ("important", "newest", "next"):
+        if k not in headline:
+            raise RuntimeError(f"missing_headline_key:{k}")
+        if not isinstance(headline.get(k), str):
+            headline[k] = "" if headline.get(k) is None else str(headline.get(k))
+
+    lanes = obj.get("lanes")
+    if not isinstance(lanes, list):
+        raise RuntimeError("missing_or_invalid_lanes")
+
+    for lane in lanes:
+        if not isinstance(lane, dict):
+            raise RuntimeError("invalid_lane_object")
+        if not isinstance(lane.get("id"), str):
+            raise RuntimeError("invalid_lane_id")
+        if not isinstance(lane.get("title"), str):
+            lane["title"] = "" if lane.get("title") is None else str(lane.get("title"))
+
+        items = lane.get("items")
+        if not isinstance(items, list):
+            raise RuntimeError(f"invalid_lane_items:{lane.get('id')}")
+
+        for item in items:
+            if not isinstance(item, dict):
+                raise RuntimeError(f"invalid_lane_item:{lane.get('id')}")
+
+            kind = str(item.get("kind") or "").strip()
+            if kind not in ("point", "interval"):
+                raise RuntimeError(f"invalid_item_kind:{kind or 'missing'}")
+
+            if not isinstance(item.get("id"), str):
+                raise RuntimeError("invalid_item_id")
+
+            for k in ("status", "label", "summary", "priority", "source_domain"):
+                if not isinstance(item.get(k), str):
+                    item[k] = "" if item.get(k) is None else str(item.get(k))
+
+            if kind == "point":
+                for k in ("time_utc", "unit", "marker"):
+                    if not isinstance(item.get(k), str):
+                        item[k] = "" if item.get(k) is None else str(item.get(k))
+
+            if kind == "interval":
+                for k in ("start_utc", "end_utc", "band_style"):
+                    if not isinstance(item.get(k), str):
+                        item[k] = "" if item.get(k) is None else str(item.get(k))
+
+            source_refs = item.get("source_refs")
+            if source_refs is None:
+                item["source_refs"] = []
+            elif not isinstance(source_refs, list):
+                raise RuntimeError("invalid_source_refs")
+            else:
+                for ref in source_refs:
+                    if not isinstance(ref, dict):
+                        raise RuntimeError("invalid_source_ref_object")
+                    if not isinstance(ref.get("domain"), str):
+                        ref["domain"] = "" if ref.get("domain") is None else str(ref.get("domain"))
+                    if not isinstance(ref.get("item_id"), str):
+                        ref["item_id"] = "" if ref.get("item_id") is None else str(ref.get("item_id"))
+
+    render_hints = obj.get("render_hints")
+    if render_hints is None:
+        obj["render_hints"] = {"dense_clusters": []}
+    elif not isinstance(render_hints, dict):
+        raise RuntimeError("invalid_render_hints")
+    else:
+        dense = render_hints.get("dense_clusters")
+        if dense is None:
+            render_hints["dense_clusters"] = []
+        elif not isinstance(dense, list):
+            raise RuntimeError("invalid_dense_clusters")
+
+    return obj
+
+
+def _validate_obj_for_schema(obj: Any, schema_name: str) -> Dict[str, Any]:
+    schema_name = str(schema_name or "").strip()
+    if schema_name == "standard.summary.v1":
+        return _validate_standard_summary_obj(obj)
+    if schema_name == "timeline.phase2.v1":
+        return _validate_timeline_phase2_v1_obj(obj)
+    raise RuntimeError(f"unsupported_output_schema:{schema_name}")
+
+
+def _parse_utc_ts(value: Any) -> datetime | None:
+    s = str(value or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc)
+    except Exception:
+        return None
+
+
+def _fmt_utc_ts(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _timeline_window_bounds(obj: Dict[str, Any]) -> tuple[datetime | None, datetime | None, datetime | None]:
+    window = obj.get("window")
+    if not isinstance(window, dict):
+        return None, None, None
+
+    now_dt = _parse_utc_ts(window.get("now_utc"))
+    if now_dt is None:
+        return None, None, None
+
+    try:
+        past_hours = int(window.get("past_hours", 24))
+    except Exception:
+        past_hours = 24
+
+    try:
+        future_hours = int(window.get("future_hours", 24))
+    except Exception:
+        future_hours = 24
+
+    left_dt = _parse_utc_ts(window.get("left_utc")) or (now_dt - timedelta(hours=past_hours))
+    right_dt = _parse_utc_ts(window.get("right_utc")) or (now_dt + timedelta(hours=future_hours))
+
+    if left_dt > right_dt:
+        left_dt, right_dt = right_dt, left_dt
+
+    window["now_utc"] = _fmt_utc_ts(now_dt)
+    window["left_utc"] = _fmt_utc_ts(left_dt)
+    window["right_utc"] = _fmt_utc_ts(right_dt)
+    window["past_hours"] = past_hours
+    window["future_hours"] = future_hours
+    window["timezone"] = "UTC"
+
+    return now_dt, left_dt, right_dt
+
+
+def _prune_timeline_phase2_obj(obj: Dict[str, Any]) -> Dict[str, Any]:
+    _now_dt, left_dt, right_dt = _timeline_window_bounds(obj)
+    if left_dt is None or right_dt is None:
+        return obj
+
+    lanes = obj.get("lanes")
+    if isinstance(lanes, list):
+        for lane in lanes:
+            if not isinstance(lane, dict):
+                continue
+            items = lane.get("items")
+            if not isinstance(items, list):
+                lane["items"] = []
+                continue
+
+            kept = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+
+                kind = str(item.get("kind") or "").strip()
+                if kind == "point":
+                    t = _parse_utc_ts(item.get("time_utc"))
+                    if t is None:
+                        kept.append(item)
+                        continue
+                    if left_dt <= t <= right_dt:
+                        item["time_utc"] = _fmt_utc_ts(t)
+                        kept.append(item)
+                    continue
+
+                if kind == "interval":
+                    start_dt = _parse_utc_ts(item.get("start_utc"))
+                    end_dt = _parse_utc_ts(item.get("end_utc"))
+
+                    eff_start = start_dt or left_dt
+                    eff_end = end_dt or right_dt
+
+                    if eff_end < left_dt or eff_start > right_dt:
+                        continue
+
+                    clamped_start = max(eff_start, left_dt)
+                    clamped_end = min(eff_end, right_dt)
+
+                    item["start_utc"] = _fmt_utc_ts(clamped_start)
+                    item["end_utc"] = _fmt_utc_ts(clamped_end)
+                    kept.append(item)
+                    continue
+
+                kept.append(item)
+
+            lane["items"] = kept
+
+    render_hints = obj.get("render_hints")
+    if isinstance(render_hints, dict):
+        dense = render_hints.get("dense_clusters")
+        if isinstance(dense, list):
+            kept_dense = []
+            for cluster in dense:
+                if not isinstance(cluster, dict):
+                    continue
+                start_dt = _parse_utc_ts(cluster.get("start_utc"))
+                end_dt = _parse_utc_ts(cluster.get("end_utc"))
+                eff_start = start_dt or left_dt
+                eff_end = end_dt or right_dt
+                if eff_end < left_dt or eff_start > right_dt:
+                    continue
+                cluster["start_utc"] = _fmt_utc_ts(max(eff_start, left_dt))
+                cluster["end_utc"] = _fmt_utc_ts(min(eff_end, right_dt))
+                kept_dense.append(cluster)
+            render_hints["dense_clusters"] = kept_dense
+        else:
+            render_hints["dense_clusters"] = []
+
+    total_items = 0
+    if isinstance(lanes, list):
+        for lane in lanes:
+            if isinstance(lane, dict) and isinstance(lane.get("items"), list):
+                total_items += len(lane["items"])
+
+    if total_items == 0:
+        obj["headline"] = {
+            "important": "No timeline findings within the 24-hour past/future window.",
+            "newest": "",
+            "next": "",
+        }
+
     return obj
 
 
@@ -261,13 +537,46 @@ def _strip_json_noise(text: str) -> str:
     return s
 
 
-def _deterministic_fallback_from_text(raw_text: str, dom: str) -> Dict[str, str]:
-    s = _strip_json_noise(raw_text)
-    sentences = _pick_sentences(s, 6)
+def _empty_obj_for_schema(schema_name: str, *, dom: str, message: str) -> Dict[str, Any]:
+    if schema_name == "timeline.phase2.v1":
+        return {
+            "schema": "timeline.phase2.v1",
+            "domain": "timeline",
+            "generated_utc": "",
+            "window": {
+                "now_utc": "",
+                "past_hours": 24,
+                "future_hours": 24,
+                "left_utc": "",
+                "right_utc": "",
+                "timezone": "UTC",
+            },
+            "headline": {
+                "important": message,
+                "newest": "",
+                "next": "",
+            },
+            "lanes": [
+                {"id": "enemy", "title": "Enemy", "items": []},
+                {"id": "friendly", "title": "Friendly / Presence", "items": []},
+                {"id": "orders", "title": "Orders / Chatter", "items": []},
+                {"id": "missions", "title": "Missions", "items": []},
+                {"id": "weather", "title": "Weather", "items": []},
+            ],
+            "render_hints": {"dense_clusters": []},
+        }
 
+    return {
+        "important": message,
+        "newest": "",
+        "details": "",
+    }
+
+
+def _summary_fallback_from_sentences(sentences: list[str], raw_text: str, dom: str) -> Dict[str, Any]:
     important = sentences[0] if sentences else f"{dom} findings unavailable."
     newest = sentences[1] if len(sentences) > 1 else ""
-    details = " ".join(sentences[2:6]) if len(sentences) > 2 else s[:600]
+    details = " ".join(sentences[2:6]) if len(sentences) > 2 else raw_text[:600]
 
     if not details:
         details = important
@@ -279,52 +588,63 @@ def _deterministic_fallback_from_text(raw_text: str, dom: str) -> Dict[str, str]
     }
 
 
-def _repair_response_with_llm(
-    *,
-    client: LlmClient,
-    raw_text: str,
-    evidence_json: str,
-) -> Dict[str, Any]:
-    repair_prompt = (
-        "Return JSON only.\n"
-        "First character must be { and last character must be }.\n"
-        "Return exactly these keys: important, newest, details.\n"
-        "All three values must be strings.\n"
-        "Do not include any other keys.\n"
-        "Do not repeat INPUT.\n"
-        "If RAW_RESPONSE is malformed or truncated, salvage the intended meaning.\n"
-        "If RAW_RESPONSE is useless, use INPUT_EVIDENCE conservatively.\n\n"
-        "## RAW_RESPONSE\n"
-        f"{(raw_text or '')[:3000]}\n\n"
-        "## INPUT_EVIDENCE\n"
-        f"{(evidence_json or '')[:3000]}\n"
-    )
-
-    r = client.complete_text(prompt=repair_prompt, temperature=0.0, max_tokens=260, seed=7)
-    text = r.get("text") or ""
-    cleaned = _sanitize_jsonish_text(text)
-    cleaned_json = _extract_first_json_object(cleaned)
-    obj = _validate_obj(json.loads(cleaned_json))
+def _timeline_fallback_from_sentences(sentences: list[str]) -> Dict[str, Any]:
+    headline_important = sentences[0] if sentences else "Timeline findings unavailable."
+    headline_newest = sentences[1] if len(sentences) > 1 else ""
+    headline_next = sentences[2] if len(sentences) > 2 else ""
 
     return {
-        "obj": obj,
-        "llm": r,
-        "prompt": repair_prompt,
-        "cleaned_json": cleaned_json,
-        "text": text,
+        "schema": "timeline.phase2.v1",
+        "domain": "timeline",
+        "generated_utc": "",
+        "window": {
+            "now_utc": "",
+            "past_hours": 24,
+            "future_hours": 24,
+            "left_utc": "",
+            "right_utc": "",
+            "timezone": "UTC",
+        },
+        "headline": {
+            "important": headline_important[:400].strip(),
+            "newest": headline_newest[:400].strip(),
+            "next": headline_next[:400].strip(),
+        },
+        "lanes": [
+            {"id": "enemy", "title": "Enemy", "items": []},
+            {"id": "friendly", "title": "Friendly / Presence", "items": []},
+            {"id": "orders", "title": "Orders / Chatter", "items": []},
+            {"id": "missions", "title": "Missions", "items": []},
+            {"id": "weather", "title": "Weather", "items": []},
+        ],
+        "render_hints": {"dense_clusters": []},
     }
 
 
-def _gather_phase2_findings_for_summary(*, latest_dir: Path) -> Dict[str, Any]:
+def _deterministic_fallback_from_text(raw_text: str, dom: str, schema_name: str) -> Dict[str, Any]:
+    s = _strip_json_noise(raw_text)
+    sentences = _pick_sentences(s, 8)
+
+    if schema_name == "standard.summary.v1":
+        return _summary_fallback_from_sentences(sentences, s, dom)
+
+    if schema_name == "timeline.phase2.v1":
+        return _empty_obj_for_schema(
+            schema_name,
+            dom=dom,
+            message="Timeline parse failed. See phase2 trace raw/cleaned response.",
+        )
+
+    raise RuntimeError(f"unsupported_output_schema:{schema_name}")
+
+
+def _gather_upstream_phase2_findings(*, latest_dir: Path, upstream: list[str]) -> Dict[str, Any]:
     domains: Dict[str, Any] = {}
     if not latest_dir.exists():
         return {"ok": False, "error": "latest_root_missing", "domains": domains}
 
-    for dom_dir in sorted([p for p in latest_dir.iterdir() if p.is_dir()]):
-        dom = dom_dir.name
-        if dom == "_summary":
-            continue
-
+    for dom in upstream:
+        dom_dir = latest_dir / dom
         p_find = dom_dir / "phase2" / "findings.json"
         entry: Dict[str, Any] = {"ok": False}
 
@@ -345,36 +665,60 @@ def _gather_phase2_findings_for_summary(*, latest_dir: Path) -> Dict[str, Any]:
             domains[dom] = entry
             continue
 
-        reduced: Dict[str, str] = {}
-        for k in REQ_KEYS:
-            v = fo.get(k)
-            if v is None:
-                reduced[k] = ""
-            elif isinstance(v, str):
-                reduced[k] = v
-            else:
-                reduced[k] = str(v)
-
-        entry["ok"] = bool(reduced.get("important") or reduced.get("newest") or reduced.get("details"))
-        entry["findings"] = reduced
+        entry["ok"] = True
+        entry["findings"] = fo
         domains[dom] = entry
 
-    return {"ok": True, "generated_utc": _now_iso(), "domains": domains}
+    return {"ok": True, "domains": domains}
 
 
-def run_phase2(*, run_id: str) -> Dict[str, Any]:
+def _phase2_input_payload(*, infra_dir: Path, latest_dir: Path, dom: str) -> Dict[str, Any]:
+    cfg = load_domain_config(infra_dir, dom)
+    p2_input = phase_input(cfg, "phase2")
+
+    if p2_input == "phase1_evidence":
+        latest_dom_dir = latest_dir / dom
+        return _phase1_evidence_obj(latest_dom_dir)
+
+    if p2_input == "upstream_phase2_findings":
+        upstream = upstream_domains(cfg)
+        return _gather_upstream_phase2_findings(latest_dir=latest_dir, upstream=upstream)
+
+    raise RuntimeError(f"unsupported phase2 input for {dom}: {p2_input!r}")
+
+
+def _phase2_domains_in_order(infra_dir: Path) -> List[str]:
+    domains = discover_enabled_domains(infra_dir)
+
+    leaves: List[str] = []
+    synthesizers: List[str] = []
+
+    for dom in domains:
+        cfg = load_domain_config(infra_dir, dom)
+        p2_input = phase_input(cfg, "phase2")
+        if p2_input == "upstream_phase2_findings":
+            synthesizers.append(dom)
+        else:
+            leaves.append(dom)
+
+    return leaves + synthesizers
+
+
+def run_phase2(*, run_id: str, domain: str | None = None) -> Dict[str, Any]:
     started = _now_iso()
     t0 = time.time()
 
-    infra_dir = Path(os.environ.get("TAKCTL_LLM2_INFRA_DIR", "/opt/tak/tools/takctl/llm-infra"))
-
-    # LLM config comes from llm.env via LlmClient()
+    cfg0 = load_config()
+    infra_dir = Path(cfg0.llm_infra_dir)
     client = LlmClient()
 
-    n_predict = int(os.environ.get("TAKCTL_LLM_N_PREDICT", "700"))
-    temperature = float(os.environ.get("TAKCTL_LLM_TEMPERATURE", "0.2"))
+    n_predict = int(cfg0.llm_n_predict)
+    temperature = float(cfg0.llm_temperature)
 
-    domains = sorted([p.name for p in latest_root().iterdir() if p.is_dir() and p.name != "_summary"]) if latest_root().exists() else []
+    domains = _phase2_domains_in_order(infra_dir)
+    dom = (domain or "").strip()
+    if dom and dom.lower() != "all":
+        domains = [d for d in domains if d == dom]
 
     out: Dict[str, Any] = {
         "ok": True,
@@ -385,8 +729,7 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
         "model": (client.bedrock_model_id if getattr(client, "provider", "") == "bedrock" else client.model),
         "n_predict": n_predict,
         "temperature": temperature,
-        "domains": domains + ["_summary"],
-        "summary_enabled": True,
+        "domains": domains,
         "env_path": getattr(client, "env_path", None),
     }
 
@@ -395,9 +738,7 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
     (runs_root() / run_id).mkdir(parents=True, exist_ok=True)
     latest_root().mkdir(parents=True, exist_ok=True)
 
-    def _run_one_domain(
-        dom: str, *, evidence_override_json: str | None = None, phase1_gate_override: Tuple[bool, str] | None = None
-    ) -> None:
+    def _run_one_domain(dom: str) -> None:
         nonlocal any_fail
 
         dom_t0 = time.time()
@@ -433,6 +774,10 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
             "temperature": temperature,
             "n_predict": n_predict,
             "phase1_gate": None,
+            "phase2_input": "",
+            "phase2_output_schema": "",
+            "domain_mode": "",
+            "phase2_enabled": False,
             "error": None,
             "sent": {},
             "received": {},
@@ -452,29 +797,41 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
         }
 
         try:
-            if phase1_gate_override is not None:
-                ok, reason = phase1_gate_override
-            else:
+            cfg = load_domain_config(infra_dir, dom)
+            p2_input_kind = phase_input(cfg, "phase2")
+            schema_name = phase_output_schema(cfg, "phase2")
+
+            trace["domain_mode"] = str(cfg.get("mode") or "")
+            trace["phase2_enabled"] = phase_enabled(cfg, "phase2")
+            trace["phase2_input"] = p2_input_kind
+            trace["phase2_output_schema"] = schema_name
+
+            if p2_input_kind == "phase1_evidence":
                 ok, reason = _phase1_gate(latest_dom_dir)
+            else:
+                ok, reason = True, f"phase2_input:{p2_input_kind}"
+
             trace["phase1_gate"] = {"ok": ok, "reason": reason}
 
-            if not ok and evidence_override_json is None:
+            if not ok:
                 print(f"\n===== PHASE2 SKIP [{dom}] reason={reason} =====")
-                obj = {"important": f"No evidence ({reason}).", "newest": "", "details": ""}
+                obj = _empty_obj_for_schema(schema_name, dom=dom, message=f"No evidence ({reason}).")
                 write_json(findings_path, obj)
                 write_json(latest_findings_path, obj)
                 trace["ok"] = True
-                trace["note"] = "phase2_short_circuit_no_phase1_evidence"
+                trace["note"] = "phase2_short_circuit_no_input_evidence"
                 return
 
-            if evidence_override_json is not None:
-                evidence = evidence_override_json
-            else:
-                evidence = _phase1_evidence_text(latest_dom_dir, dom)
+            evidence_obj = _phase2_input_payload(
+                infra_dir=infra_dir,
+                latest_dir=latest_root(),
+                dom=dom,
+            )
+            evidence = json.dumps(evidence_obj, ensure_ascii=False, indent=2, sort_keys=True)
 
-            if not evidence.strip():
+            if not evidence.strip() or evidence.strip() == "{}":
                 print(f"\n===== PHASE2 SKIP [{dom}] reason=empty_evidence =====")
-                obj = {"important": "No evidence.", "newest": "", "details": ""}
+                obj = _empty_obj_for_schema(schema_name, dom=dom, message="No evidence.")
                 write_json(findings_path, obj)
                 write_json(latest_findings_path, obj)
                 trace["ok"] = True
@@ -541,9 +898,6 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
             if not text.strip():
                 raise RuntimeError("no_text_in_response")
 
-            obj: Dict[str, str] | None = None
-            cleaned_json = ""
-
             try:
                 cleaned = _sanitize_jsonish_text(text)
                 cleaned_json = _extract_first_json_object(cleaned)
@@ -551,40 +905,18 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
                 print("--- response_text_cleaned ---")
                 print(cleaned_json)
                 trace["received"]["response_text_cleaned"] = cleaned_json
-                obj = _validate_obj(json.loads(cleaned_json))
+                obj = _validate_obj_for_schema(json.loads(cleaned_json), schema_name)
+                if schema_name == "timeline.phase2.v1":
+                    obj = _prune_timeline_phase2_obj(obj)
             except Exception as parse_err:
                 trace["repair"]["initial_parse_error"] = f"{type(parse_err).__name__}: {parse_err}"
+                obj = _deterministic_fallback_from_text(text, dom, schema_name)
+                cleaned_json = json.dumps(obj, ensure_ascii=False, indent=2)
+                cleaned_path.write_text(cleaned_json, encoding="utf-8")
+                trace["repair"]["used_deterministic_fallback"] = True
+                trace["repair"]["fallback_json"] = cleaned_json
 
-                try:
-                    repaired = _repair_response_with_llm(
-                        client=client,
-                        raw_text=text,
-                        evidence_json=evidence,
-                    )
-                    obj = repaired["obj"]
-                    cleaned_json = repaired["cleaned_json"]
-                    cleaned_path.write_text(cleaned_json, encoding="utf-8")
-                    trace["repair"]["used_llm_repair"] = True
-                    trace["repair"]["repair_llm"] = {
-                        "provider": repaired["llm"].get("provider"),
-                        "url": repaired["llm"].get("url"),
-                        "model": repaired["llm"].get("model"),
-                        "http_status": repaired["llm"].get("http_status"),
-                        "error": repaired["llm"].get("error"),
-                    }
-                    trace["repair"]["repair_prompt"] = repaired["prompt"]
-                    trace["repair"]["repair_text"] = repaired["text"]
-                    trace["repair"]["repair_cleaned_json"] = repaired["cleaned_json"]
-                except Exception as repair_err:
-                    trace["repair"]["used_llm_repair"] = False
-                    trace["repair"]["repair_error"] = f"{type(repair_err).__name__}: {repair_err}"
-                    obj = _deterministic_fallback_from_text(text, dom)
-                    cleaned_json = json.dumps(obj, ensure_ascii=False, indent=2)
-                    cleaned_path.write_text(cleaned_json, encoding="utf-8")
-                    trace["repair"]["used_deterministic_fallback"] = True
-                    trace["repair"]["fallback_json"] = cleaned_json
-
-            obj = _validate_obj(obj)
+            obj = _validate_obj_for_schema(obj, schema_name)
             write_json(findings_path, obj)
             write_json(latest_findings_path, obj)
 
@@ -605,14 +937,12 @@ def run_phase2(*, run_id: str) -> Dict[str, Any]:
             print(f"\n===== PHASE2 TRACE [{dom}] =====")
             print(json.dumps(trace, ensure_ascii=False, indent=2))
 
-    # 1) normal domains
     for dom in domains:
+        cfg = load_domain_config(infra_dir, dom)
+        if not phase_enabled(cfg, "phase2"):
+            print(f"\n===== PHASE2 SKIP [{dom}] reason=phase2_disabled_in_config =====")
+            continue
         _run_one_domain(dom)
-
-    # 2) summary domain: evidence is synthesized from other phase2 findings (first-class)
-    summary_payload = _gather_phase2_findings_for_summary(latest_dir=latest_root())
-    summary_evidence = json.dumps(summary_payload, ensure_ascii=False, indent=2, sort_keys=True)
-    _run_one_domain("_summary", evidence_override_json=summary_evidence, phase1_gate_override=(True, "ok"))
 
     out["ok"] = not any_fail
     out["ended_at"] = _now_iso()

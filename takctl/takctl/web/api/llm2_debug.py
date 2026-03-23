@@ -12,7 +12,7 @@ STATE_ROOT = Path("/opt/tak/tools/takctl/state/llm2")
 LATEST_ROOT = STATE_ROOT / "latest"
 RUNS_ROOT = STATE_ROOT / "runs"
 
-MAX_TEXT_CHARS = 20000  # keep UI payload sane
+MAX_TEXT_CHARS = 40000
 
 
 def _read_json(p: Path) -> Dict[str, Any]:
@@ -40,8 +40,7 @@ def _latest_phase(domain: str, phase: str) -> Dict[str, Any]:
         out["error"] = "missing"
         return out
 
-    # Keep this conservative; UI renders these directly.
-    json_names = ["latest.json", "trace.json", "findings.json", "card.json"]
+    json_names = ["latest.json", "trace.json", "findings.json", "card.json", "detail.json"]
     for name in json_names:
         p = d / name
         if p.exists():
@@ -51,11 +50,6 @@ def _latest_phase(domain: str, phase: str) -> Dict[str, Any]:
 
 
 def _run_phase_files(run_id: str, domain: str, phase: str) -> Dict[str, Any]:
-    """
-    Read per-run artifacts for deep debugging:
-      runs/<rid>/<domain>/<phase>/{prompt.txt,response_text.txt,cleaned_text.txt,request.json,response.http.json}
-    Returned shape is UI-friendly and size-capped for text.
-    """
     d = RUNS_ROOT / run_id / domain / phase
     out: Dict[str, Any] = {"ok": True, "dir": str(d)}
     if not d.exists():
@@ -63,14 +57,24 @@ def _run_phase_files(run_id: str, domain: str, phase: str) -> Dict[str, Any]:
         out["error"] = "missing"
         return out
 
-    # Text
-    for name in ("prompt.txt", "response_text.txt", "cleaned_text.txt"):
+    text_names = [
+        "prompt.txt",
+        "response_text.txt",
+        "cleaned_text.txt",
+        "prompt.card.txt",
+        "prompt.detail.txt",
+        "response.card.txt",
+        "response.detail.txt",
+        "cleaned.card.html",
+        "cleaned.detail.html",
+    ]
+    for name in text_names:
         p = d / name
         if p.exists():
             out[name.replace(".", "_")] = _read_text_limited(p)
 
-    # JSON
-    for name in ("request.json", "response.http.json"):
+    json_names = ["request.json", "response.http.json", "trace.json", "card.json", "detail.json"]
+    for name in json_names:
         p = d / name
         if p.exists():
             out[name.replace(".", "_")] = _read_json(p)
@@ -88,12 +92,6 @@ def _get_run_id(run_obj: Any) -> Optional[str]:
 
 @router.get("/latest")
 def latest() -> Dict[str, Any]:
-    """
-    UI-friendly snapshot of llm2 state under:
-      /opt/tak/tools/takctl/state/llm2/latest
-    plus optional deep debug excerpts from:
-      /opt/tak/tools/takctl/state/llm2/runs/<run_id>/...
-    """
     resp: Dict[str, Any] = {
         "ok": True,
         "state_root": str(STATE_ROOT),
@@ -104,7 +102,11 @@ def latest() -> Dict[str, Any]:
     }
 
     run_ptr = LATEST_ROOT / "run.latest.json"
-    resp["run"] = _read_json(run_ptr) if run_ptr.exists() else {"ok": False, "error": "missing", "path": str(run_ptr)}
+    resp["run"] = _read_json(run_ptr) if run_ptr.exists() else {
+        "ok": False,
+        "error": "missing",
+        "path": str(run_ptr),
+    }
     run_id = _get_run_id(resp["run"])
 
     if not LATEST_ROOT.exists():
@@ -120,7 +122,6 @@ def latest() -> Dict[str, Any]:
             "phase3": _latest_phase(dom, "phase3"),
         }
 
-        # Deep debug: pull run artifacts for this domain if we know the run_id.
         if run_id:
             dom_obj["run_files"] = {
                 "phase1": _run_phase_files(run_id, dom, "phase1"),

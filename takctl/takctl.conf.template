@@ -14,7 +14,7 @@ db_mode = psycopg2
 db_name = cot
 db_host = 127.0.0.1
 db_port = 5432
-db_user = takctl_crl_ro
+db_user = takctl_ro
 sudo_user = postgres
 
 # TAK / cert / CRL paths
@@ -70,3 +70,8 @@ martine_state_dir = /opt/tak/tools/martine/state
 martine_log_level = INFO
 martine_mcp_bind_host = 127.0.0.1
 martine_mcp_bind_port = 8765
+martine_cot_udp_host = 127.0.0.1
+martine_cot_udp_port = 6969
+martine_cot_listen_host = 0.0.0.0
+martine_cot_listen_port = 6970
+martine_callsign = Martine

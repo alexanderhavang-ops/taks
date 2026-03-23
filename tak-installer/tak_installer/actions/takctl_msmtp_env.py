@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 import os
-import shlex
 import subprocess
 from pathlib import Path
 
 from tak_installer.util import log
 
 ETC_TAK = Path("/opt/tak/etc")
-SYSTEMD_DROPIN_DIR = Path("/etc/systemd/system/takctl-web.service.d")
-SYSTEMD_DROPIN = SYSTEMD_DROPIN_DIR / "40-onboarding-email.conf"
+OLD_SYSTEMD_DROPIN = Path("/etc/systemd/system/takctl-web.service.d/40-onboarding-email.conf")
 MSMTPRC = Path("/etc/msmtprc")
 MSMTP_PASS = ETC_TAK / "msmtp.password"
 
@@ -19,10 +17,6 @@ def _truthy(v: str | None, default: bool = False) -> bool:
     if not s:
         return default
     return s in ("1", "true", "yes", "y", "on")
-
-
-def _shell_quote_env_value(v: str) -> str:
-    return shlex.quote(str(v))
 
 
 def _cfg(ctx) -> dict[str, str]:
@@ -97,15 +91,6 @@ def _render_msmtprc(cfg: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def _render_dropin(cfg: dict[str, str]) -> str:
-    lines = [
-        "[Service]",
-    ]
-    if cfg["from_addr"]:
-        lines.append(f"Environment=TAKS_ONBOARDING_FROM={_shell_quote_env_value(cfg['from_addr'])}")
-    return "\n".join(lines) + "\n"
-
-
 def _clear_if_exists(path: Path) -> None:
     try:
         if path.exists():
@@ -117,9 +102,11 @@ def _clear_if_exists(path: Path) -> None:
 def apply(ctx) -> None:
     cfg = _cfg(ctx)
 
+    # old env-driven takctl-web dropin must die
+    _clear_if_exists(OLD_SYSTEMD_DROPIN)
+
     if not cfg["host"]:
         log.info("takctl-msmtp-env: TAKS_SMTP_HOST not set; skipping msmtp config")
-        _clear_if_exists(SYSTEMD_DROPIN)
         return
 
     ETC_TAK.mkdir(parents=True, exist_ok=True)
@@ -134,15 +121,9 @@ def apply(ctx) -> None:
     else:
         _clear_if_exists(MSMTP_PASS)
 
-    SYSTEMD_DROPIN_DIR.mkdir(parents=True, exist_ok=True)
-    _write(SYSTEMD_DROPIN, _render_dropin(cfg), 0o644)
-
-    subprocess.run(["systemctl", "daemon-reload"], check=False)
-
     log.info(
-        "takctl-msmtp-env: wrote %s and %s (host=%s port=%s auth=%s from=%s)",
+        "takctl-msmtp-env: wrote %s (host=%s port=%s auth=%s from=%s)",
         MSMTPRC,
-        SYSTEMD_DROPIN,
         cfg["host"],
         cfg["port"],
         cfg["auth"],
@@ -162,7 +143,7 @@ class _Action:
         log.info("  from: %s", cfg["from_addr"] or "(unset)")
         log.info("  msmtprc: %s", MSMTPRC)
         log.info("  password file: %s", MSMTP_PASS)
-        log.info("  systemd drop-in: %s", SYSTEMD_DROPIN)
+        log.info("  old takctl-web dropin removed: %s", OLD_SYSTEMD_DROPIN)
         return 0
 
     def apply(self, ctx) -> int:

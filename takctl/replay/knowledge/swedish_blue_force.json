@@ -1,0 +1,128 @@
+{
+  "profile_id": "sv-se-military-blue",
+  "language": "sv",
+  "force_style": "swedish-home-guard",
+  "naming": {
+    "fal_system": true,
+    "notes": [
+      "Svenska blå förband använder FAL/FALFAL-liknande logik för anropssignaler.",
+      "Bataljon, kompani, pluton och grupp uttrycks i svensk struktur.",
+      "Naturligt språk i order och rapporter ska vara svenska."
+    ]
+  },
+  "readiness_terms": {
+    "stridsberedskap": {
+      "description": "Förbandets beredskap att omedelbart eller inom viss tid kunna lösa stridsuppgift.",
+      "default_report_usage": "Ange nivå eller tillstånd i klartext, exempelvis 'höjd stridsberedskap'."
+    },
+    "marschberedskap": {
+      "description": "Beredskap att påbörja förflyttning/marsch enligt given tid och ordning.",
+      "default_report_usage": "Ange i klartext tills bättre källa kodats in."
+    },
+    "stridsvärde": {
+      "description": "Samlad förmåga hos rapporterande förband.",
+      "default_report_usage": "Rapporteras i klartext, t.ex. 'stridsvärde gott', 'stridsvärde nedsatt'."
+    }
+  },
+  "mnemonics": {
+    "PEDARS": {
+      "P": "Personal – anges i % av RU",
+      "E": "Ersättning av andra förnödenheter – av mtrl och övrigt",
+      "D": "Drivmedel – anges i % av RU",
+      "A": "Ammunition – anges i % av RU",
+      "R": "Reparation – rapport av vad behovet är",
+      "S": "Stridsvärde – samlad förmåga hos rapporterande förband"
+    },
+    "FORS": {
+      "F": "Förbandets pos",
+      "O": "Orientering om FI",
+      "R": [
+        "Vi har gjort",
+        "Nu gör vi",
+        "Detta ska vi göra"
+      ],
+      "S": "Slutsatser"
+    },
+    "7S": [
+      "Stund",
+      "Ställe",
+      "Styrka",
+      "Slag",
+      "Sysselsättning",
+      "Symbol",
+      "Sagesman"
+    ],
+    "8S": [
+      "Stund",
+      "Ställe",
+      "Styrka",
+      "Slag",
+      "Sysselsättning",
+      "Symbol",
+      "Sagesman",
+      "Sedan"
+    ],
+    "8S_notes": [
+      "Sedan används för vad som hände efter observationen.",
+      "Exempel: 'Sedan – avvek in i skogen'."
+    ]
+  },
+  "task_terms": {
+    "avskära": "Hindra motståndaren att utnyttja viss förbindelse eller område under viss tid eller för viss verksamhet.",
+    "avvärja": "Hindra motståndaren att på marken tränga fram över viss linje, att landstiga eller att luftlandsätta.",
+    "bekämpa": "Begränsa motståndarens stridsförmåga så långt det är möjligt beroende på lokala förutsättningar. Kan även användas i rapportering som 'har öppnat eld mot med okänd verkan'.",
+    "binda": "Begränsa motståndarens handlingsfrihet i viss terräng.",
+    "fördröja": "Vinna tid och tillfoga förluster under angiven tid eller innan motståndaren har trängt över angiven linje.",
+    "försvara": "Hindra motståndaren att ta och utnyttja angiven terräng eller anläggning."
+  },
+  "command_style": {
+    "principle": "Chef-till-chef ska normalt använda naturligt språk i svensk militär ton, med uppdragstaktik där så är lämpligt.",
+    "order_vs_command": {
+      "order": "Används chef till chef för uppgift, syfte, resurser och handlingsregler.",
+      "kommando": "Används när något ska verkställas omedelbart och med litet handlingsutrymme."
+    },
+    "preferred_tone": [
+      "kort",
+      "tydlig",
+      "naturlig",
+      "militär",
+      "utan onödig engelska"
+    ]
+  },
+  "report_templates": {
+    "status_report": [
+      "Till {superior} från {callsign}. Lägesrapport. Vi löser fortsatt uppgift {task}. Stridsvärde {combat_value}. Beredskap {readiness}.",
+      "Till {superior} från {callsign}. FORS. Förbandets pos {position}. Orientering om fienden: {enemy}. Nu gör vi {current_action}. Slutsats: {conclusion}."
+    ],
+    "contact_report": [
+      "Till {superior} från {callsign}. 8S följer. Stund {stund}. Ställe {stalle}. Styrka {styrka}. Slag {slag}. Sysselsättning {sysselsattning}. Symbol {symbol}. Sagesman {sagesman}. Sedan {sedan}.",
+      "Till {superior} från {callsign}. Fiende observerad {location}. Bedömd styrka {enemy_strength}. Sedan {follow_on}."
+    ],
+    "logistics_report": [
+      "Till {superior} från {callsign}. PEDARS följer. Personal {personal}. Ersättning {ersattning}. Drivmedel {drivmedel}. Ammunition {ammunition}. Reparation {reparation}. Stridsvärde {stridsvarde}."
+    ]
+  },
+  "order_templates": {
+    "general": [
+      "Order. {subordinate} ska {task}. Syfte: {purpose}. Rapportera när uppgiften påbörjats och vid förändrat läge.",
+      "{subordinate}, lös uppgift {task} i område {area}. Var beredd att {follow_on}. Rapportera fortlöpande."
+    ],
+    "group_level": [
+      "{subordinate}, observera i tilldelat område och rapportera all fienderörelse omedelbart.",
+      "{subordinate}, fördröj fienden längs tilldelad linje. Bryt strid på min order eller när läget kräver."
+    ]
+  },
+  "llm_guidance": {
+    "blue_agents_should": [
+      "använda svenska i order och rapporter",
+      "föredra svenska uppgiftsbegrepp när lämpligt",
+      "rapportera uppåt i naturligt språk",
+      "använda PEDARS, FORS, 7S eller 8S när situationen passar"
+    ],
+    "blue_agents_should_not": [
+      "blanda in onödig engelska",
+      "skriva JSON-liknande språk i CoT-chat",
+      "använda samma text uppåt och nedåt utan att anpassa mottagaren"
+    ]
+  }
+}

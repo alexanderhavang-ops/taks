@@ -213,6 +213,12 @@
     const [revealPassword, setRevealPassword] = useState(true);
     const [ttlSec, setTtlSec] = useState(600);
 
+    const [artifactAtakAutoEnroll, setArtifactAtakAutoEnroll] = useState(false);
+    const [artifactAtakSoftCertNoPassword, setArtifactAtakSoftCertNoPassword] = useState(false);
+    const [artifactAtakSoftCertWithPassword, setArtifactAtakSoftCertWithPassword] = useState(false);
+    const [artifactItakSoftCertNoPassword, setArtifactItakSoftCertNoPassword] = useState(true);
+    const [artifactItakSoftCertWithPassword, setArtifactItakSoftCertWithPassword] = useState(false);
+
     const [callsignPolicyDefault, setCallsignPolicyDefault] = useState("FAL_TAK");
     const [callsignPolicyOverride, setCallsignPolicyOverride] = useState("");
 
@@ -271,6 +277,16 @@
 
           const cp = (ctx && ctx.callsign_policy) ? _normalizePolicyId(ctx.callsign_policy) : "";
           setCallsignPolicyOverride(cp || "");
+
+          const sel = (j && j.selection) ? j.selection : {};
+          const ar = (sel && sel.artifacts_requested) ? sel.artifacts_requested : {};
+          if (ar && typeof ar === "object" && Object.keys(ar).length) {
+            setArtifactAtakAutoEnroll(!!ar.atak_auto_enroll);
+            setArtifactAtakSoftCertNoPassword(!!ar.atak_soft_cert_no_password);
+            setArtifactAtakSoftCertWithPassword(!!ar.atak_soft_cert_with_password);
+            setArtifactItakSoftCertNoPassword(!!ar.itak_soft_cert_no_password);
+            setArtifactItakSoftCertWithPassword(!!ar.itak_soft_cert_with_password);
+          }
 
           setIdent(prev => Object.assign({}, prev, ctx || {}));
 
@@ -598,6 +614,14 @@
       if (_norm(callsignEdit)) ctx.callsign = String(callsignEdit);
       if (_norm(emailAddr)) ctx.email = String(emailAddr);
 
+      const artifacts_requested = {
+        atak_auto_enroll: !!artifactAtakAutoEnroll,
+        atak_soft_cert_no_password: !!artifactAtakSoftCertNoPassword,
+        atak_soft_cert_with_password: !!artifactAtakSoftCertWithPassword,
+        itak_soft_cert_no_password: !!artifactItakSoftCertNoPassword,
+        itak_soft_cert_with_password: !!artifactItakSoftCertWithPassword,
+      };
+
       const body = {
         password: _norm(password) || null,
         admin: !!admin,
@@ -605,7 +629,23 @@
         groups_in: _splitCsv(groups.groups_in),
         groups_out: _splitCsv(groups.groups_out),
         ctx,
-        paths: { B: true, itak: true, wintak: true },
+        artifacts_requested,
+        paths: {
+          B: !!(
+            artifactAtakSoftCertNoPassword ||
+            artifactAtakSoftCertWithPassword ||
+            artifactItakSoftCertNoPassword ||
+            artifactItakSoftCertWithPassword
+          ),
+          itak: !!(
+            artifactItakSoftCertNoPassword ||
+            artifactItakSoftCertWithPassword
+          ),
+          wintak: !!(
+            artifactAtakSoftCertNoPassword ||
+            artifactAtakSoftCertWithPassword
+          ),
+        },
         endpoints: {},
         ttl_sec: Number(ttlSec || 600),
         reveal_password: !!revealPassword,
@@ -811,6 +851,70 @@
 
             h(Field, { label: "TTL (sec)" },
               h("input", Object.assign({}, LP, { type: "number", value: ttlSec, onChange: e => setTtlSec(e.target.value) }))
+            ),
+
+            h(Field, { label: "Generated onboarding artifacts" },
+              h("div", { style: { display: "grid", gap: "8px" } },
+                h("label", null,
+                  h("input", Object.assign({}, LP, {
+                    type: "checkbox",
+                    checked: artifactAtakAutoEnroll,
+                    onChange: e => setArtifactAtakAutoEnroll(e.target.checked)
+                  })),
+                  " ATAK auto-enroll"
+                ),
+                h("label", null,
+                  h("input", Object.assign({}, LP, {
+                    type: "checkbox",
+                    checked: artifactAtakSoftCertNoPassword,
+                    onChange: e => {
+                      const checked = !!e.target.checked;
+                      setArtifactAtakSoftCertNoPassword(checked);
+                      if (checked) setArtifactAtakSoftCertWithPassword(false);
+                    }
+                  })),
+                  " ATAK soft-cert zip (no password)"
+                ),
+                h("label", null,
+                  h("input", Object.assign({}, LP, {
+                    type: "checkbox",
+                    checked: artifactAtakSoftCertWithPassword,
+                    onChange: e => {
+                      const checked = !!e.target.checked;
+                      setArtifactAtakSoftCertWithPassword(checked);
+                      if (checked) setArtifactAtakSoftCertNoPassword(false);
+                    }
+                  })),
+                  " ATAK soft-cert zip (with password)"
+                ),
+                h("label", null,
+                  h("input", Object.assign({}, LP, {
+                    type: "checkbox",
+                    checked: artifactItakSoftCertNoPassword,
+                    onChange: e => {
+                      const checked = !!e.target.checked;
+                      setArtifactItakSoftCertNoPassword(checked);
+                      if (checked) setArtifactItakSoftCertWithPassword(false);
+                    }
+                  })),
+                  " iTAK zip (no password)"
+                ),
+                h("label", null,
+                  h("input", Object.assign({}, LP, {
+                    type: "checkbox",
+                    checked: artifactItakSoftCertWithPassword,
+                    onChange: e => {
+                      const checked = !!e.target.checked;
+                      setArtifactItakSoftCertWithPassword(checked);
+                      if (checked) setArtifactItakSoftCertNoPassword(false);
+                    }
+                  })),
+                  " iTAK zip (with password)"
+                ),
+                h("div", { className: "muted", style: { fontSize: "12px" } },
+                  "ATAK/iTAK no-password vs with-password are mutually exclusive per client."
+                )
+              )
             ),
 
             ((policy && policy.config_fields) || []).map(f =>

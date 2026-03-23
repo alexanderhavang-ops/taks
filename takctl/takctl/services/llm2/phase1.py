@@ -44,29 +44,48 @@ def _load_enrich_hook(domain_dir: Path, rel_path: str) -> Optional[Callable[...,
     return enrich
 
 
-def run_phase1(*, run_id: str) -> dict[str, Any]:
+def run_phase1(*, run_id: str, domain: str | None = None) -> dict[str, Any]:
     dom_root = domains_root()
-    out: dict[str, Any] = {"ok": True, "run_id": run_id, "phase": "phase1", "domains": []}
+    requested_domain = (domain or "").strip()
 
-    for ddir in sorted([p for p in dom_root.iterdir() if p.is_dir()]):
+    out: dict[str, Any] = {
+        "ok": True,
+        "run_id": run_id,
+        "phase": "phase1",
+        "domain": requested_domain or "all",
+        "domains": [],
+    }
+
+    domain_dirs = sorted([p for p in dom_root.iterdir() if p.is_dir()])
+    if requested_domain:
+        domain_dirs = [p for p in domain_dirs if p.name == requested_domain]
+        if not domain_dirs:
+            return {
+                "ok": False,
+                "run_id": run_id,
+                "phase": "phase1",
+                "domain": requested_domain,
+                "error": f"unknown_domain: {requested_domain}",
+                "domains": [],
+            }
+
+    infra_dir = dom_root.parent
+
+    for ddir in domain_dirs:
         t_dom0 = time.time()
         dom_name = ddir.name
         dom_entry: dict[str, Any] = {"domain": dom_name, "ok": True, "queries": [], "errors": []}
 
         try:
-            cfg = load_domain_config(ddir)
-            if not cfg.enabled:
+            cfg = load_domain_config(infra_dir, dom_name)
+            if not bool(cfg.get("enabled", True)):
                 dom_entry["skipped"] = True
                 out["domains"].append(dom_entry)
                 continue
 
-            sql_rel = cfg.phase1.sql_dir or "sql/phase1"
-            sql_dir = ddir / sql_rel
-            if not sql_dir.exists():
-                dom_entry["ok"] = False
-                dom_entry["errors"].append(f"missing_sql_dir: {sql_dir}")
-                out["domains"].append(dom_entry)
-                continue
+            phase1_cfg = (cfg.get("phases") or {}).get("phase1") or {}
+            sql_rel = _phase_cfg_value(phase1_cfg, "sql_dir", "sql/phase1") or "sql/phase1"
+            sql_dir = ddir / str(sql_rel)
 
             evidence: dict[str, Any] = {
                 "domain": dom_name,
@@ -77,44 +96,49 @@ def run_phase1(*, run_id: str) -> dict[str, Any]:
             }
             trace: dict[str, Any] = {"ok": True, "domain": dom_name, "phase": "phase1", "items": []}
 
-            for sp in sorted(sql_dir.glob("*.sql")):
-                name = sp.stem
-                trace_item: dict[str, Any] = {"name": name, "path": str(sp)}
+            if sql_dir.exists():
+                for sp in sorted(sql_dir.glob("*.sql")):
+                    name = sp.stem
+                    trace_item: dict[str, Any] = {"name": name, "path": str(sp)}
 
-                try:
-                    sql = sp.read_text(encoding="utf-8")
-                except Exception as e:
-                    msg = f"read_failed: {type(e).__name__}: {e}"
-                    trace_item.update({"ok": False, "error": msg})
+                    try:
+                        sql = sp.read_text(encoding="utf-8")
+                    except Exception as e:
+                        msg = f"read_failed: {type(e).__name__}: {e}"
+                        trace_item.update({"ok": False, "error": msg})
+                        trace["items"].append(trace_item)
+                        dom_entry["queries"].append({"name": name, "ok": False, "error": msg})
+                        evidence["ok"] = False
+                        evidence["queries"].append({"name": name, "columns": None, "rows": None, "error": msg})
+                        continue
+
+                    r = run_sql(sql)
+                    trace_item.update(
+                        {
+                            "ok": bool(r.ok),
+                            "elapsed_ms": r.elapsed_ms,
+                            "rowcount": r.rowcount,
+                            "columns": r.columns,
+                            "rows": r.rows,
+                            "error": r.error,
+                        }
+                    )
                     trace["items"].append(trace_item)
-                    dom_entry["queries"].append({"name": name, "ok": False, "error": msg})
-                    evidence["ok"] = False
-                    evidence["queries"].append({"name": name, "columns": None, "rows": None, "error": msg})
-                    continue
+                    dom_entry["queries"].append(
+                        {"name": name, "ok": bool(r.ok), "elapsed_ms": r.elapsed_ms, "rowcount": r.rowcount, "error": r.error}
+                    )
 
-                r = run_sql(sql)
-                trace_item.update(
-                    {
-                        "ok": bool(r.ok),
-                        "elapsed_ms": r.elapsed_ms,
-                        "rowcount": r.rowcount,
-                        "columns": r.columns,
-                        "rows": r.rows,
-                        "error": r.error,
-                    }
-                )
-                trace["items"].append(trace_item)
-                dom_entry["queries"].append(
-                    {"name": name, "ok": bool(r.ok), "elapsed_ms": r.elapsed_ms, "rowcount": r.rowcount, "error": r.error}
-                )
+                    ev_item: dict[str, Any] = {"name": name, "columns": r.columns, "rows": r.rows}
+                    if not r.ok:
+                        evidence["ok"] = False
+                        ev_item["error"] = r.error
+                    evidence["queries"].append(ev_item)
+            else:
+                trace["sql_dir"] = str(sql_dir)
+                trace["sql_dir_exists"] = False
+                evidence["queries"] = []
 
-                ev_item: dict[str, Any] = {"name": name, "columns": r.columns, "rows": r.rows}
-                if not r.ok:
-                    evidence["ok"] = False
-                    ev_item["error"] = r.error
-                evidence["queries"].append(ev_item)
-
-            phase1_enrich_rel = _phase_cfg_value(getattr(cfg, "phase1", None), "enrich", None)
+            phase1_enrich_rel = _phase_cfg_value(phase1_cfg, "enrich", None)
             if phase1_enrich_rel:
                 try:
                     enrich = _load_enrich_hook(ddir, str(phase1_enrich_rel))
@@ -123,7 +147,11 @@ def run_phase1(*, run_id: str) -> dict[str, Any]:
                 except Exception as e:
                     evidence["ok"] = False
                     trace["ok"] = False
-                    trace["enrich"] = {"ok": False, "error": f"{type(e).__name__}: {e}", "path": str(ddir / str(phase1_enrich_rel))}
+                    trace["enrich"] = {
+                        "ok": False,
+                        "error": f"{type(e).__name__}: {e}",
+                        "path": str(ddir / str(phase1_enrich_rel)),
+                    }
                     dom_entry["ok"] = False
                     dom_entry["errors"].append(f"phase1_enrich_failed: {type(e).__name__}: {e}")
 
@@ -141,5 +169,8 @@ def run_phase1(*, run_id: str) -> dict[str, Any]:
 
         dom_entry["elapsed_ms"] = int((time.time() - t_dom0) * 1000)
         out["domains"].append(dom_entry)
+
+    if any(not bool(d.get("ok", False)) for d in out["domains"]):
+        out["ok"] = False
 
     return out

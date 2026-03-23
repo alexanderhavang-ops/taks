@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
+
+from takctl.config import load_config
 
 
 def runtime_root() -> Path:
@@ -9,7 +10,6 @@ def runtime_root() -> Path:
 
 
 def infra_root() -> Path:
-    # installer-owned deployment target
     return runtime_root() / "llm-infra"
 
 
@@ -18,8 +18,8 @@ def domains_root() -> Path:
 
 
 def state_root() -> Path:
-    base = (os.environ.get("TAKCTL_STATE_DIR") or "").strip() or "/opt/tak/tools/takctl/state"
-    return Path(base) / "llm2"
+    cfg = load_config()
+    return Path(cfg.llm_state_dir) / "llm2"
 
 
 def runs_root() -> Path:

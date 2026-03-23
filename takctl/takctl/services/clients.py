@@ -1,23 +1,20 @@
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
+from takctl.config import load_config
 from takctl.services.llm_http import http_post_json
 
 
 def _http_timeout_sec() -> float:
     """
-    Default LLM HTTP timeout.
+    Default LLM HTTP timeout from takctl.conf.
     Generation on CPU can exceed 90s easily.
-    Override with TAKS_LLM_HTTP_TIMEOUT_SEC.
     """
-    v = (os.environ.get("TAKS_LLM_HTTP_TIMEOUT_SEC") or "").strip()
-    if not v:
-        return 600.0
+    cfg = load_config()
     try:
-        return float(v)
+        return float(cfg.llm_timeout_s)
     except Exception:
         return 600.0
 
@@ -61,7 +58,6 @@ class LLMClient:
         )
 
         if code != 200 or not isinstance(body, dict):
-            # Keep body/err for debugging
             raise RuntimeError(f"LLM HTTP error: code={code} err={err} body_type={type(body).__name__}")
 
         try:
@@ -90,9 +86,10 @@ class LLMClient:
 
 def build_llm_client_from_env() -> LLMClient:
     """
-    Backwards-compatible helper for TAKS local LLM HTTP access.
-    Keep it tiny and deterministic.
+    Backwards-compatible helper name.
+    Actual source of truth is takctl.conf.
     """
-    llm_url = (os.environ.get("TAKS_LLM_URL") or "http://127.0.0.1:8090").strip()
-    model = (os.environ.get("TAKS_LLM_MODEL") or "local-small").strip()
+    cfg = load_config()
+    llm_url = (cfg.llm_url or "http://127.0.0.1:8090").strip()
+    model = (cfg.llm_model or "local-small").strip()
     return LLMClient(llm_url=llm_url, model=model)

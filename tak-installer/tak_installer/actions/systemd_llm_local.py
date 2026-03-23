@@ -7,6 +7,10 @@ from tak_installer.engine import Context
 from tak_installer.actions.systemd_unit import SystemdUnit
 
 
+def _unit_src(ctx: Context) -> Path:
+    return ctx.repo_root / "takctl" / "llm-infra" / "systemd" / "llm-local.service"
+
+
 @dataclass(frozen=True)
 class _Action:
     ID: str = "systemd.llm-local"
@@ -14,14 +18,15 @@ class _Action:
     def inspect(self, ctx: Context) -> int:
         unit = SystemdUnit(
             name="llm-local.service",
-            src=ctx.repo_root / "llm-infra" / "systemd" / "llm-local.service",
+            src=_unit_src(ctx),
             dst=Path("/etc/systemd/system/llm-local.service"),
         )
 
         info = unit.inspect()
         if info.get("status") == "missing-src":
-            print(f"ERROR: source unit not found: {info.get('src')}")
-            return 1
+            print(f"SKIP: source unit not found yet: {info.get('src')}")
+            print("  expected after llm-infra migration to takctl/llm-infra/systemd/")
+            return 0
 
         print("Systemd unit: llm-local.service")
         print(f"  src: {info['src']}")
@@ -46,31 +51,24 @@ class _Action:
     def apply(self, ctx: Context) -> int:
         unit = SystemdUnit(
             name="llm-local.service",
-            src=ctx.repo_root / "llm-infra" / "systemd" / "llm-local.service",
+            src=_unit_src(ctx),
             dst=Path("/etc/systemd/system/llm-local.service"),
         )
 
         info = unit.inspect()
         if info.get("status") == "missing-src":
-            print(f"ERROR: source unit not found: {info.get('src')}")
-            return 1
+            print(f"SKIP: source unit not found yet: {info.get('src')}")
+            print("  llm-local.service migration not restored yet; skipping without failing apply.")
+            return 0
 
         print("Applying systemd unit: llm-local.service")
         try:
-            # Install unit + daemon-reload (+ conditional restart) performed by SystemdUnit.apply()
-            # We want to avoid restart loops on nodes without /opt/llm, so we only restart when payload exists.
             payload_present = Path("/opt/llm").exists()
             if payload_present:
                 unit.apply()
                 print("Applied (payload present → restarted if changed).")
             else:
-                # Temporarily neutralize restart-on-change behavior by pointing to a dummy name? No.
-                # Instead: do a no-restart apply path by copying content via SystemdUnit, then daemon-reload, but skip restart.
-                # We implement that by calling unit.apply() only when payload exists.
-                #
-                # When payload is missing, we still want the unit file to be installed/updated.
-                # So we reproduce SystemdUnit.apply() without the restart step:
-                from tak_installer.actions.systemd_unit import _run, _sudo_install  # type: ignore
+                from tak_installer.actions.systemd_unit import _run  # type: ignore
                 import os
                 import tempfile
 
@@ -79,10 +77,8 @@ class _Action:
 
                 src_text = unit.src.read_text(encoding="utf-8")
 
-                # Ensure parent exists (privileged path)
                 _run(["sudo", "mkdir", "-p", str(unit.dst.parent)], check=True)
 
-                # Write temp file in /tmp then sudo install into /etc
                 with tempfile.NamedTemporaryFile("w", delete=False, suffix=".tmp") as tf:
                     tf.write(src_text)
                     tmp = tf.name
@@ -106,4 +102,3 @@ class _Action:
 
 
 ACTION = _Action()
-

@@ -143,6 +143,11 @@ class Config:
     martine_log_level: str
     martine_mcp_bind_host: str
     martine_mcp_bind_port: int
+    martine_cot_udp_host: str
+    martine_cot_udp_port: int
+    martine_cot_listen_host: str
+    martine_cot_listen_port: int
+    martine_callsign: str
 
     # Internal/debug
     _loaded_from: str
@@ -304,6 +309,11 @@ def load_config(path: Optional[str] = None, *, secrets_path: Optional[str] = Non
         martine_log_level=opt("martine_log_level", "INFO"),
         martine_mcp_bind_host=opt("martine_mcp_bind_host", "127.0.0.1"),
         martine_mcp_bind_port=_to_int("martine_mcp_bind_port", opt("martine_mcp_bind_port", "8765")),
+        martine_cot_udp_host=opt("martine_cot_udp_host", "127.0.0.1"),
+        martine_cot_udp_port=_to_int("martine_cot_udp_port", opt("martine_cot_udp_port", "6969")),
+        martine_cot_listen_host=opt("martine_cot_listen_host", "0.0.0.0"),
+        martine_cot_listen_port=_to_int("martine_cot_listen_port", opt("martine_cot_listen_port", "6970")),
+        martine_callsign=opt("martine_callsign", "Martine"),
 
         _loaded_from=conf_path,
         _secrets_loaded_from=sec_path,
@@ -371,6 +381,11 @@ def render_config(cfg: Config) -> str:
         f"martine_log_level = {cfg.martine_log_level}",
         f"martine_mcp_bind_host = {cfg.martine_mcp_bind_host}",
         f"martine_mcp_bind_port = {cfg.martine_mcp_bind_port}",
+        f"martine_cot_udp_host = {cfg.martine_cot_udp_host}",
+        f"martine_cot_udp_port = {cfg.martine_cot_udp_port}",
+        f"martine_cot_listen_host = {cfg.martine_cot_listen_host}",
+        f"martine_cot_listen_port = {cfg.martine_cot_listen_port}",
+        f"martine_callsign = {cfg.martine_callsign}",
         "",
     ]
     return "\n".join(lines)

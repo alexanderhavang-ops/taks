@@ -10,7 +10,11 @@ from tak_installer.log import get_logger
 
 log = get_logger(__name__)
 
-SRC = Path("/opt/taks/llm-infra")
+
+def _src(ctx: Context) -> Path:
+    return ctx.repo_root / "takctl" / "llm-infra"
+
+
 DST = Path("/opt/tak/tools/takctl/llm-infra")
 
 
@@ -30,15 +34,19 @@ def _sync_tree(src: Path, dst: Path) -> None:
 @dataclass
 class TakctlLlm2InfraAction:
     def inspect(self, ctx: Context) -> int:
+        src = _src(ctx)
         log.info("Inspecting takctl.llm2-infra action...")
-        log.info("  src: %s", SRC)
+        log.info("  src: %s", src)
         log.info("  dst: %s", DST)
         return 0
 
     def apply(self, ctx: Context) -> int:
+        src = _src(ctx)
         log.info("Applying takctl.llm2-infra action...")
+        log.info("  src: %s", src)
+        log.info("  dst: %s", DST)
 
-        _sync_tree(SRC, DST)
+        _sync_tree(src, DST)
         subprocess.run(["chown", "-R", "tak:tak", str(DST)], check=False)
 
         log.info("takctl.llm2-infra: ready")

@@ -9,7 +9,7 @@ from tak_installer.log import get_logger
 
 log = get_logger(__name__)
 
-SRC = Path("/opt/taks/takctl/scripts")
+SRC = None  # resolved from ctx.repo_root
 DST = Path("/opt/tak/tools/takctl/scripts")
 
 
@@ -33,13 +33,13 @@ class _Action:
 
     def inspect(self, ctx: Context) -> int:
         log.info("Inspecting %s action...", self.ID)
-        log.info("  src: %s", SRC)
+        log.info("  src: %s", Path(ctx.repo_root) / "takctl" / "scripts")
         log.info("  dst: %s", DST)
         return 0
 
     def apply(self, ctx: Context) -> int:
         log.info("Applying %s action...", self.ID)
-        _sync_tree(SRC, DST)
+        _sync_tree(Path(ctx.repo_root) / "takctl" / "scripts", DST)
         log.info("%s: ready", self.ID)
         return 0
 

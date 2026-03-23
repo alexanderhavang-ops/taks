@@ -10,8 +10,8 @@ from tak_installer.util import log
 # Configuration
 # --------------------------------------------------------------------
 
-SRC_PKG_ROOT = Path("/opt/taks/takctl/takctl")
-SRC_BIN_ROOT = Path("/opt/taks/takctl/bin")
+SRC_PKG_ROOT = None  # resolved from ctx.repo_root
+SRC_BIN_ROOT = None  # resolved from ctx.repo_root
 
 DST_ROOT = Path("/opt/tak/tools/takctl")
 DST_WEB_DIR = DST_ROOT / "web"
@@ -20,6 +20,7 @@ DST_PKG_ROOT = DST_ROOT / "takctl"
 DST_BIN_ROOT = DST_ROOT / "bin"
 
 TAKCTL_STATE_ROOT = Path("/opt/tak/takctl-state")
+REPLAY_RUNTIME_ROOT = Path("/opt/tak/replay")
 
 RSYNC_EXCLUDES = [
     "--exclude=__pycache__/",
@@ -117,7 +118,6 @@ def _fix_runtime_perms() -> None:
             check=False,
         )
 
-
     # Web UI assets must be world-readable (static files served by takctl-web).
     # Keep this OUTSIDE the generic 0640/2750 clamp above.
     if DST_WEB_DIR.exists():
@@ -145,7 +145,7 @@ def _ensure_venv() -> None:
     # takctl-web deps + postgres driver
     subprocess.run(
         ["sudo", "-u", "tak", str(venv_py), "-m", "pip", "install", "-q",
-         "fastapi", "uvicorn", "python-multipart", "psycopg2-binary", "requests"],
+         "fastapi", "uvicorn", "python-multipart", "psycopg2-binary", "requests", "mcp"],
         check=True,
     )
 
@@ -158,6 +158,18 @@ def _fix_state_perms() -> None:
     subprocess.run(["bash", "-lc", f'find "{TAKCTL_STATE_ROOT}" -type f -exec chmod 0660 {{}} \\;'], check=False)
 
 
+def _ensure_replay_runtime_dirs() -> None:
+    (REPLAY_RUNTIME_ROOT / "state" / "agents").mkdir(parents=True, exist_ok=True)
+    (REPLAY_RUNTIME_ROOT / "logs").mkdir(parents=True, exist_ok=True)
+
+
+def _fix_replay_runtime_perms() -> None:
+    REPLAY_RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["chown", "-R", "tak:tak", str(REPLAY_RUNTIME_ROOT)], check=False)
+    subprocess.run(["bash", "-lc", f'find "{REPLAY_RUNTIME_ROOT}" -type d -exec chmod 2770 {{}} \\;'], check=False)
+    subprocess.run(["bash", "-lc", f'find "{REPLAY_RUNTIME_ROOT}" -type f -exec chmod 0660 {{}} \\; 2>/dev/null || true'], check=False)
+
+
 # --------------------------------------------------------------------
 # Apply
 # --------------------------------------------------------------------
@@ -166,19 +178,25 @@ def apply(ctx) -> None:
     log.info("takctl-runtime: ensuring user/group")
     _ensure_user_group()
 
-    if not SRC_PKG_ROOT.exists():
-        raise RuntimeError(f"source tree missing: {SRC_PKG_ROOT}")
+    src_pkg_root = Path(ctx.repo_root) / "takctl" / "takctl"
+    src_bin_root = Path(ctx.repo_root) / "takctl" / "bin"
+
+    if not src_pkg_root.exists():
+        raise RuntimeError(f"source tree missing: {src_pkg_root}")
 
     log.info("takctl-runtime: syncing runtime")
-    _rsync_dir(SRC_PKG_ROOT, DST_PKG_ROOT)
+    _rsync_dir(src_pkg_root, DST_PKG_ROOT)
 
-    if SRC_BIN_ROOT.exists():
-        _rsync_dir(SRC_BIN_ROOT, DST_BIN_ROOT)
+    if src_bin_root.exists():
+        _rsync_dir(src_bin_root, DST_BIN_ROOT)
 
     _ensure_runtime_dirs()
     _fix_runtime_perms()
     _ensure_venv()
     _fix_state_perms()
+
+    _ensure_replay_runtime_dirs()
+    _fix_replay_runtime_perms()
 
     log.info("takctl-runtime: ready")
 

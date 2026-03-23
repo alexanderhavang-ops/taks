@@ -1,0 +1,6 @@
+Avgör vad som faktiskt hände denna tick för enheten nedan.
+
+Returnera endast JSON.
+
+INPUT:
+{{INPUT_JSON}}

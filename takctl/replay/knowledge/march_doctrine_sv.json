@@ -1,0 +1,97 @@
+{
+  "profile_id": "march_doctrine_sv",
+  "language": "sv",
+  "topic": "marsch_och_fordonsmarsch",
+  "use_when": [
+    "enheten ska förflytta sig",
+    "order eller läge innebär marsch",
+    "enheten behöver resonera om marschordning, tempo, skydd eller vägval"
+  ],
+  "principles": [
+    "Marsch ska genomföras disciplinerat och med uppgiften i fokus.",
+    "Marschordning, tempo och skydd ska anpassas efter hot, terräng, framkomlighet och tid.",
+    "En chef ska väga samman marschberedskap, avstånd, fordonsprofil och hotbild innan marschorder ges.",
+    "Om hotbilden är låg kan kolonn och högre vägmarschtempo användas.",
+    "Om hotbilden är högre ska tempo, avstånd och marschsätt anpassas för skydd och handlingsfrihet.",
+    "Vid risk för kontakt ska enheten kunna stanna, observera, omgruppera eller övergå till strid utan oordning.",
+    "Alla förband behöver inte nödvändigtvis marschera samtidigt; chef kan hålla delar i reserv eller QRF om uppgiften kräver det."
+  ],
+  "vehicle_march": {
+    "low_threat": [
+      "Kolonn är normal marschform vid låg hotbild.",
+      "Högre marschhastighet kan användas på väg om sammanhållning och säkerhet kan bibehållas.",
+      "Rapportering ska ske vid start, viktiga delmål, avvikelser och ankomst."
+    ],
+    "elevated_threat": [
+      "Vid förhöjd hotbild ska marschen genomföras med större försiktighet.",
+      "Växelvis framryckning och observation kan användas.",
+      "Avstånd mellan delar ska anpassas för att minska sårbarhet och bevara understödsmöjlighet.",
+      "Enheter ska vara beredda att ta skydd, bryta marsch eller omgruppera."
+    ],
+    "observation_from_vehicle": [
+      "Observation från fordon görs bäst från stillastående läge.",
+      "Stanna fordonet när läget kräver bättre observation.",
+      "Stäng av motor om situationen tillåter för att kunna lyssna och observera bättre.",
+      "Observera med optik och med fri sektor.",
+      "Två eller flera fordon kan utnyttjas för växelvis framryckning och observation."
+    ]
+  },
+  "threat_considerations": {
+    "drones": [
+      "Stor drönarhotbild talar för försiktigare marsch, spridning och minskad signatur.",
+      "Långvarig gruppering på öppen plats bör undvikas om fiendens drönarspaning bedöms vara aktiv."
+    ],
+    "ambush": [
+      "Vid risk för eldöverfall ska marschväg, tempo och skydd anpassas.",
+      "Chef bör överväga förtrupp, flankskydd eller reserv beroende på läge."
+    ],
+    "air_threat": [
+      "Vid flyghot ska spridning, skydd och kort exponeringstid eftersträvas."
+    ]
+  },
+  "mobility_profiles": {
+    "bandvagn": {
+      "summary": "God terrängframkomlighet, lägre marschhastighet.",
+      "implications": [
+        "Kan utnyttjas där vägberoende hjulfordon får sämre framkomlighet.",
+        "Kan vara lämplig för tidigare framträdande i svår terräng, men inte nödvändigtvis först på väg om tidsfaktor dominerar."
+      ]
+    },
+    "pb8_sprinter_trailer": {
+      "summary": "Högre vägmarschhastighet, sämre terrängframkomlighet.",
+      "implications": [
+        "Gynnas av väg och fast underlag.",
+        "Mer känslig för terräng, flaskhalsar och behov av snabb avsittning."
+      ]
+    },
+    "30_bil": {
+      "summary": "Stab- och trossfordon med god bärförmåga men inte avsedda för stridsnära framträdande.",
+      "implications": [
+        "Bör normalt skyddas och inte i onödan föras längst fram i hotad riktning."
+      ]
+    }
+  },
+  "llm_guidance": [
+    "Använd detta som beslutsunderlag, inte som tvång.",
+    "Chefen avgör själv om hela förbandet ska marschera direkt eller om delar ska avdelas först.",
+    "Chefen avgör själv om QRF ska avdelas, om förtrupp behövs och vilken marschordning som är lämplig.",
+    "Om tillräckliga data finns kan chefen ange tider, exempelvis marschstart eller beräknad framkomst, gärna med TNR eller klar tidsangivelse.",
+    "Om data inte räcker ska chefen inte hitta på exakt tid utan uttrycka osäkerhet naturligt."
+  ],
+  "preferred_language": {
+    "orders": [
+      "Intag marschberedskap och gör er klara för marsch.",
+      "Utgå som förtrupp mot målområdet.",
+      "Följ i kolonn och rapportera när marsch påbörjats.",
+      "Håll er beredda att övergå till strid.",
+      "Avdela pluton som QRF och invänta fortsatt order."
+    ],
+    "reports": [
+      "Marsch påbörjad.",
+      "Framme vid delmål.",
+      "Försenade på grund av terräng eller trafik.",
+      "Kontakt ej tagen, fortsatt framryckning.",
+      "Drönarobservation bedöms möjlig, anpassar marsch."
+    ]
+  }
+}
