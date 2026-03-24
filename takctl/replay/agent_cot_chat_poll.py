@@ -144,7 +144,6 @@ def main() -> None:
             "kind": "order",
             "from": sender_callsign,
             "to": args.callsign,
-            "sim_time_s": 0,
             "message": message,
             "meta": {},
             "uid": uid,
