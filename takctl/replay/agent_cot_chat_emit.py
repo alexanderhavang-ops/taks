@@ -4,6 +4,7 @@ import argparse
 import json
 import socket
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -43,35 +44,59 @@ def iso_z(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def make_uid(msg: Dict[str, Any]) -> str:
-    return (
-        f"replay:chat:"
-        f"{msg.get('from','unknown')}:"
-        f"{msg.get('kind','message')}:"
-        f"{msg.get('to','unknown')}:"
-        f"{int(msg.get('sim_time_s') or 0)}:"
-        f"{abs(hash(json.dumps(msg, ensure_ascii=False, sort_keys=True))) % 10_000_000}"
+def iso_ms_z(dt: datetime) -> str:
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def stable_msg_id(msg: Dict[str, Any]) -> str:
+    base = json.dumps(
+        {
+            "from": msg.get("from"),
+            "to": msg.get("to"),
+            "kind": msg.get("kind"),
+            "sim_time_s": msg.get("sim_time_s"),
+            "message": msg.get("message"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
     )
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, "replay-chat:" + base))
+
+
+def make_uid(msg: Dict[str, Any]) -> str:
+    frm = str(msg.get("from") or "UNKNOWN")
+    to = str(msg.get("to") or "UNKNOWN")
+    msg_id = stable_msg_id(msg)
+    return f"GeoChat.REPLAY-{frm}.{to}.{msg_id}"
 
 
 def build_chat_cot(msg: Dict[str, Any], now_dt: datetime) -> str:
     uid = str(msg.get("uid") or make_uid(msg))
     frm = str(msg.get("from") or "")
+    to = str(msg.get("to") or "")
     message = str(msg.get("message") or "")
-
-    remarks = escape(message)
+    msg_id = stable_msg_id(msg)
 
     time_s = iso_z(now_dt)
+    time_ms = iso_ms_z(now_dt)
     stale_s = iso_z(now_dt + timedelta(minutes=15))
 
+    sender_uid = f"REPLAY-{frm}"
+    remarks = escape(message)
+
     return (
-        f'<event version="2.0" uid="{escape(uid)}" type="b-m-p-s-p-op" how="m-g" '
+        f'<event version="2.0" uid="{escape(uid)}" type="b-t-f" how="h-g-i-g-o" '
         f'time="{time_s}" start="{time_s}" stale="{stale_s}">'
         f'<point lat="55.422000" lon="13.918000" hae="0.0" ce="9999999.0" le="9999999.0"/>'
         f'<detail>'
-        f'<contact callsign="{escape(frm)}-CHAT" endpoint="*:-1:stcp"/>'
-        f'<__group name="Cyan" role="Team Member"/>'
-        f'<remarks>{remarks}</remarks>'
+        f'<__chat parent="RootContactGroup" groupOwner="false" '
+        f'messageId="{escape(msg_id)}" chatroom="{escape(to)}" id="{escape(to)}" '
+        f'senderCallsign="{escape(frm)}">'
+        f'<chatgrp uid0="{escape(sender_uid)}" uid1="{escape(to)}" id="{escape(to)}"/>'
+        f'</__chat>'
+        f'<link uid="{escape(sender_uid)}" type="a-f-G-U-C" relation="p-p"/>'
+        f'<__serverdestination destinations="127.0.0.1:4242:tcp:{escape(sender_uid)}"/>'
+        f'<remarks source="{escape(sender_uid)}" to="{escape(to)}" time="{time_ms}">{remarks}</remarks>'
         f'</detail>'
         f'</event>'
     )

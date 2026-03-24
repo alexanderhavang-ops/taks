@@ -25,18 +25,6 @@ def write_json(path: Path, obj: Any) -> None:
     path.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    if not path.exists():
-        return []
-    out: List[Dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        out.append(json.loads(line))
-    return out
-
-
 def append_jsonl(path: Path, obj: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
@@ -44,26 +32,22 @@ def append_jsonl(path: Path, obj: Dict[str, Any]) -> None:
 
 
 def parse_uid(uid: str) -> Optional[Dict[str, Any]]:
-    parts = str(uid or "").split(":")
-    if len(parts) < 6:
-        return None
-    if parts[0] != "replay" or parts[1] != "chat":
+    s = str(uid or "")
+    if not s.startswith("GeoChat.REPLAY-"):
         return None
 
-    sender = parts[2]
-    kind = parts[3]
-    recipient = parts[4]
-
-    try:
-        sim_time_s = int(parts[5])
-    except Exception:
+    # GeoChat.REPLAY-<from>.<to>.<uuid>
+    rest = s[len("GeoChat.REPLAY-"):]
+    parts = rest.split(".")
+    if len(parts) < 3:
         return None
+
+    sender = parts[0]
+    recipient = parts[1]
 
     return {
         "from": sender,
-        "kind": kind,
         "to": recipient,
-        "sim_time_s": sim_time_s,
     }
 
 
@@ -71,12 +55,21 @@ def fetch_recent_chat_rows(callsign: str, lookback_minutes: int) -> List[Dict[st
     sql = f"""
     SELECT
       uid,
+      cot_type,
+      sender_callsign,
+      dest_callsign,
+      dest_uid,
+      chat_room,
+      chat_content,
       detail::text AS detail_xml
-    FROM cot_router
-    WHERE uid LIKE 'replay:chat:%'
-      AND servertime >= NOW() - INTERVAL '{int(lookback_minutes)} minutes'
-      AND split_part(uid, ':', 5) = '{callsign}'
-    ORDER BY servertime ASC, uid ASC;
+    FROM cot_router_chat
+    WHERE servertime >= NOW() - INTERVAL '{int(lookback_minutes)} minutes'
+      AND (
+        dest_callsign = '{callsign}'
+        OR dest_uid = '{callsign}'
+        OR chat_room = '{callsign}'
+      )
+    ORDER BY servertime ASC, id ASC;
     """
 
     cmd = [
@@ -94,41 +87,23 @@ def fetch_recent_chat_rows(callsign: str, lookback_minutes: int) -> List[Dict[st
         line = line.strip()
         if not line:
             continue
-        parts = line.split("\t", 1)
-        if len(parts) != 2:
+
+        parts = line.split("\t", 7)
+        if len(parts) != 8:
             continue
-        uid, detail_xml = parts
+
+        uid, cot_type, sender_callsign, dest_callsign, dest_uid, chat_room, chat_content, detail_xml = parts
         rows.append({
             "uid": uid,
+            "cot_type": cot_type,
+            "sender_callsign": sender_callsign,
+            "dest_callsign": dest_callsign,
+            "dest_uid": dest_uid,
+            "chat_room": chat_room,
+            "chat_content": chat_content,
             "detail_xml": detail_xml,
         })
     return rows
-
-
-def extract_remarks_text(detail_xml: str) -> str:
-    start_tag = "<remarks>"
-    end_tag = "</remarks>"
-
-    start = detail_xml.find(start_tag)
-    if start < 0:
-        return ""
-
-    end = detail_xml.find(end_tag, start)
-    if end < 0:
-        return ""
-
-    payload = detail_xml[start + len(start_tag):end].strip()
-    if not payload:
-        return ""
-
-    return (
-        payload
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", '"')
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
-    )
 
 
 def main() -> None:
@@ -162,14 +137,14 @@ def main() -> None:
         if not uid_info:
             continue
 
-        detail_xml = str(row.get("detail_xml") or "")
-        message = extract_remarks_text(detail_xml)
+        sender_callsign = str(row.get("sender_callsign") or uid_info["from"] or "")
+        message = str(row.get("chat_content") or "")
 
         msg = {
-            "kind": uid_info["kind"],
-            "from": uid_info["from"],
-            "to": uid_info["to"],
-            "sim_time_s": uid_info["sim_time_s"],
+            "kind": "order",
+            "from": sender_callsign,
+            "to": args.callsign,
+            "sim_time_s": 0,
             "message": message,
             "meta": {},
             "uid": uid,
