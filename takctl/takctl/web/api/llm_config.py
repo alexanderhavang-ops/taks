@@ -4,13 +4,13 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException, Request
 
-from takctl.config import apply_config_updates, config_public_state
+from takctl.config_store import apply_runtime_updates, runtime_public_state
 
 router = APIRouter(prefix="/api/config", tags=["config"])
 
 
 def _state() -> Dict[str, Any]:
-    return config_public_state()
+    return runtime_public_state()
 
 
 @router.get("")
@@ -42,7 +42,7 @@ async def set_config(req: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="secret_updates must be an object")
 
     try:
-        apply_config_updates(
+        apply_runtime_updates(
             config_updates=config_updates,
             secret_updates=secret_updates,
         )

@@ -1,0 +1,23 @@
+{
+  "component": "marti",
+  "fields": {
+    "marti_api_base": {
+      "type": "string",
+      "default": "https://127.0.0.1:8446",
+      "doc": "Base URL for Marti API",
+      "secret": false
+    },
+    "marti_api_username": {
+      "type": "string",
+      "default": "taks-api",
+      "doc": "TAKS service user for Marti OAuth login",
+      "secret": true
+    },
+    "marti_api_password": {
+      "type": "string",
+      "default": "",
+      "doc": "TAKS service user password for Marti OAuth login",
+      "secret": true
+    }
+  }
+}

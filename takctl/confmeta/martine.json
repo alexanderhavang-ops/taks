@@ -1,0 +1,59 @@
+{
+  "component": "martine",
+  "fields": {
+    "martine_username": {
+      "type": "string",
+      "default": "martine",
+      "doc": "Installer-owned TAK username for Martine service principal",
+      "secret": false
+    },
+    "martine_groups_rw": {
+      "type": "string",
+      "default": "__ANON__",
+      "doc": "Comma-separated TAK groups with read/write access for Martine",
+      "secret": false
+    },
+    "martine_groups_in": {
+      "type": "string",
+      "default": "",
+      "doc": "Comma-separated TAK groups with inbound/write-only access for Martine",
+      "secret": false
+    },
+    "martine_groups_out": {
+      "type": "string",
+      "default": "",
+      "doc": "Comma-separated TAK groups with outbound/read-only access for Martine",
+      "secret": false
+    },
+    "martine_client_p12_path": {
+      "type": "string",
+      "default": "/opt/tak/tools/martine/runtime/identity/client.p12",
+      "doc": "Runtime path to Martine client PKCS#12",
+      "secret": false
+    },
+    "martine_truststore_p12_path": {
+      "type": "string",
+      "default": "/opt/tak/tools/martine/runtime/identity/truststore-root.p12",
+      "doc": "Runtime path to Martine truststore PKCS#12",
+      "secret": false
+    },
+    "martine_user_password": {
+      "type": "string",
+      "default": "",
+      "doc": "Installer-owned TAK password for Martine user",
+      "secret": true
+    },
+    "martine_client_p12_pass": {
+      "type": "string",
+      "default": "",
+      "doc": "Password for Martine client PKCS#12",
+      "secret": true
+    },
+    "martine_truststore_p12_pass": {
+      "type": "string",
+      "default": "",
+      "doc": "Password for Martine truststore PKCS#12",
+      "secret": true
+    }
+  }
+}

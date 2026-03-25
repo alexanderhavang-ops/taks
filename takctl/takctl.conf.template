@@ -75,3 +75,15 @@ martine_cot_udp_port = 6969
 martine_cot_listen_host = 0.0.0.0
 martine_cot_listen_port = 6970
 martine_callsign = Martine
+martine_presence_interval_sec = 30
+martine_chat_uid = ANDROID-MARTINE
+marti_api_base = https://127.0.0.1:8446
+
+# Martine identity / mTLS
+martine_username = martine
+martine_groups_rw = __ANON__
+martine_groups_in =
+martine_groups_out =
+martine_client_p12_path = /opt/tak/tools/martine/runtime/identity/client.p12
+martine_truststore_p12_path = /opt/tak/tools/martine/runtime/identity/truststore-root.p12
+

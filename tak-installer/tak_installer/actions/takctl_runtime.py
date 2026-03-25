@@ -93,33 +93,56 @@ def _fix_runtime_perms() -> None:
     """
     Make runtime predictable WITHOUT breaking the venv.
 
-    Key rule:
-      - NEVER chmod the venv tree (especially bin/python symlinks → would chmod /usr/bin/python3.*)
+    IMPORTANT:
+      - Do NOT recurse over the whole DST_ROOT; state/ uploads grow over time.
+      - Only normalize installer-owned code/config trees.
+      - NEVER chmod the venv tree.
     """
-    # Ownership for the whole runtime tree
-    subprocess.run(["chown", "-R", "tak:tak", str(DST_ROOT)], check=False)
+    managed_dirs = [
+        DST_PKG_ROOT,
+        DST_BIN_ROOT,
+        DST_WEB_DIR,
+        DST_ROOT / "conf.d",
+        DST_ROOT / "secrets.d",
+        DST_ROOT / "confmeta",
+        DST_ROOT / "secrets",
+        DST_ROOT / "scripts",
+        DST_ROOT / "assets",
+        DST_ROOT / "ignite",
+        DST_ROOT / "llm",
+        DST_ROOT / "llm-infra",
+    ]
 
-    # Directories: 2750 (setgid), but prune .venv
-    subprocess.run(
-        ["bash", "-lc", f'find "{DST_ROOT}" -path "{DST_ROOT}/.venv" -prune -o -type d -exec chmod 2750 {{}} \\;'],
-        check=False,
-    )
+    managed_files = [
+        DST_ROOT / "takctl.conf",
+        DST_ROOT / "secrets.conf",
+    ]
 
-    # Files: 0640, but prune .venv
-    subprocess.run(
-        ["bash", "-lc", f'find "{DST_ROOT}" -path "{DST_ROOT}/.venv" -prune -o -type f -exec chmod 0640 {{}} \\;'],
-        check=False,
-    )
+    for d in managed_dirs:
+        if not d.exists():
+            continue
+        subprocess.run(["chown", "-R", "tak:tak", str(d)], check=False)
+        subprocess.run(
+            ["bash", "-lc", f'find "{d}" -type d -exec chmod 2750 {{}} \\; 2>/dev/null || true'],
+            check=False,
+        )
+        subprocess.run(
+            ["bash", "-lc", f'find "{d}" -type f -exec chmod 0640 {{}} \\; 2>/dev/null || true'],
+            check=False,
+        )
 
-    # Runtime helper scripts should be executable (regular files only)
+    for f in managed_files:
+        if not f.exists():
+            continue
+        subprocess.run(["chown", "tak:tak", str(f)], check=False)
+        subprocess.run(["chmod", "0640", str(f)], check=False)
+
     if DST_BIN_ROOT.exists():
         subprocess.run(
             ["bash", "-lc", f'find "{DST_BIN_ROOT}" -maxdepth 1 -type f -exec chmod 0750 {{}} \\; 2>/dev/null || true'],
             check=False,
         )
 
-    # Web UI assets must be world-readable (static files served by takctl-web).
-    # Keep this OUTSIDE the generic 0640/2750 clamp above.
     if DST_WEB_DIR.exists():
         subprocess.run(["bash", "-lc", f'find "{DST_WEB_DIR}" -type d -exec chmod 0755 {{}} \\; 2>/dev/null || true'], check=False)
         subprocess.run(["bash", "-lc", f'find "{DST_WEB_DIR}" -type f -exec chmod 0644 {{}} \\; 2>/dev/null || true'], check=False)
@@ -164,10 +187,18 @@ def _ensure_replay_runtime_dirs() -> None:
 
 
 def _fix_replay_runtime_perms() -> None:
-    REPLAY_RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["chown", "-R", "tak:tak", str(REPLAY_RUNTIME_ROOT)], check=False)
-    subprocess.run(["bash", "-lc", f'find "{REPLAY_RUNTIME_ROOT}" -type d -exec chmod 2770 {{}} \\;'], check=False)
-    subprocess.run(["bash", "-lc", f'find "{REPLAY_RUNTIME_ROOT}" -type f -exec chmod 0660 {{}} \\; 2>/dev/null || true'], check=False)
+    managed_dirs = [
+        REPLAY_RUNTIME_ROOT,
+        REPLAY_RUNTIME_ROOT / "state",
+        REPLAY_RUNTIME_ROOT / "state" / "agents",
+        REPLAY_RUNTIME_ROOT / "logs",
+    ]
+
+    for d in managed_dirs:
+        if not d.exists():
+            continue
+        subprocess.run(["chown", "tak:tak", str(d)], check=False)
+        subprocess.run(["chmod", "2770", str(d)], check=False)
 
 
 # --------------------------------------------------------------------

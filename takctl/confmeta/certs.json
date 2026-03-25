@@ -1,0 +1,47 @@
+{
+  "component": "certs",
+  "fields": {
+    "cert_country": {
+      "type": "string",
+      "default": "SE",
+      "doc": "Certificate subject country",
+      "secret": false
+    },
+    "cert_state": {
+      "type": "string",
+      "default": "Skane",
+      "doc": "Certificate subject state/region",
+      "secret": false
+    },
+    "cert_city": {
+      "type": "string",
+      "default": "Malmo",
+      "doc": "Certificate subject city/locality",
+      "secret": false
+    },
+    "cert_organization": {
+      "type": "string",
+      "default": "HV Training Sandbox",
+      "doc": "Certificate subject organization",
+      "secret": false
+    },
+    "cert_organizational_unit": {
+      "type": "string",
+      "default": "46.HVBAT",
+      "doc": "Certificate subject organizational unit",
+      "secret": false
+    },
+    "cert_capass": {
+      "type": "string",
+      "default": "",
+      "doc": "CA / truststore password for legacy cert scripts",
+      "secret": true
+    },
+    "cert_pass": {
+      "type": "string",
+      "default": "",
+      "doc": "Client/server PKCS12 password for legacy cert scripts",
+      "secret": true
+    }
+  }
+}

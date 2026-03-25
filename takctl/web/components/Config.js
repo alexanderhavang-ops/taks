@@ -72,13 +72,40 @@
     };
   }
 
-  function groupNameForItemName(name){
-    const n = String(name || "").toLowerCase();
+  function helpTextStyle(){
+    return {
+      opacity: .72,
+      fontSize: 12,
+      marginTop: 6,
+      lineHeight: "17px"
+    };
+  }
 
+  function prettyComponentName(name){
+    const n = String(name || "").trim();
+    if (!n) return "Other";
+    if (n === "core") return "Core";
+    if (n === "llm") return "LLM";
+    if (n === "marti") return "Marti";
+    if (n === "martine") return "Martine";
+    if (n === "onboarding") return "Onboarding";
+    if (n === "replay") return "Replay";
+    if (n === "weather") return "Weather";
+    if (n === "certs") return "Certs";
+    if (n === "legacy") return "Legacy";
+    return n.charAt(0).toUpperCase() + n.slice(1);
+  }
+
+  function groupNameForItem(item){
+    if (item && item.component) return prettyComponentName(item.component);
+
+    const n = String((item && item.name) || "").toLowerCase();
     if (n.startsWith("llm_") || n.startsWith("bedrock_") || n.startsWith("aws_")) return "LLM";
     if (n.startsWith("replay_")) return "Replay";
     if (n.startsWith("martine_")) return "Martine";
+    if (n.startsWith("marti_")) return "Marti";
     if (n.startsWith("onboarding_")) return "Onboarding";
+    if (n.startsWith("cert_")) return "Certs";
     if (
       n.startsWith("db_") ||
       n.startsWith("coreconfig_") ||
@@ -89,7 +116,7 @@
       n === "hostname" ||
       n === "fqdn" ||
       n === "battalion"
-    ) return "Core / TAK";
+    ) return "Core";
     if (n.startsWith("default_policy_") || n.startsWith("policy_")) return "Policy";
     if (n.startsWith("audit_")) return "Logging";
     return "Other";
@@ -104,12 +131,12 @@
   function groupItems(items){
     const groups = {};
     sortItems(items).forEach(function(item){
-      const g = groupNameForItemName(item && item.name);
+      const g = groupNameForItem(item);
       if (!groups[g]) groups[g] = [];
       groups[g].push(item);
     });
 
-    const preferredOrder = ["LLM", "Replay", "Martine", "Core / TAK", "Onboarding", "Policy", "Logging", "Other"];
+    const preferredOrder = ["Core", "Certs", "Marti", "Martine", "Onboarding", "LLM", "Weather", "Replay", "Policy", "Logging", "Legacy", "Other"];
     const present = Object.keys(groups);
 
     return preferredOrder
@@ -163,6 +190,17 @@
     return (items || []).some(function(item){ return isChanged(item, edits); });
   }
 
+  function metaLine(item){
+    const meta = (item && item.meta) || {};
+    const bits = [];
+    if (meta.type) bits.push("type: " + meta.type);
+    if (!item.secret && Object.prototype.hasOwnProperty.call(meta, "default")) {
+      bits.push("default: " + String(meta.default || ""));
+    }
+    if (item.component) bits.push("component: " + String(item.component));
+    return bits.join(" · ");
+  }
+
   function ItemRow(props){
     const item = props.item;
     const edits = props.edits;
@@ -171,6 +209,8 @@
 
     const changed = isChanged(item, edits);
     const val = currentUiValue(item, edits);
+    const meta = item.meta || {};
+    const metaInfo = metaLine(item);
 
     return e("div", {
       style: {
@@ -182,14 +222,17 @@
         borderTop: "1px solid rgba(255,255,255,.05)"
       }
     }, [
-      e("div", {
-        style: {
-          fontSize: 13,
-          fontWeight: 700,
-          opacity: 0.96,
-          paddingTop: 8
-        }
-      }, String(item.name || "")),
+      e("div", null, [
+        e("div", {
+          style: {
+            fontSize: 13,
+            fontWeight: 700,
+            opacity: 0.96,
+            paddingTop: 8
+          }
+        }, String(item.name || "")),
+        metaInfo ? e("div", { style: helpTextStyle() }, metaInfo) : null
+      ]),
 
       e("div", null, [
         item.secret
@@ -225,13 +268,12 @@
                 });
               }
             }),
+        meta.doc
+          ? e("div", { style: helpTextStyle() }, String(meta.doc))
+          : null,
         item.secret
           ? e("div", {
-              style: {
-                opacity: .72,
-                fontSize: 12,
-                marginTop: 6
-              }
+              style: helpTextStyle()
             }, item.is_set ? "Secret exists in runtime; leave blank to keep current value." : "Secret is currently empty.")
           : null
       ]),
@@ -332,119 +374,70 @@
       load();
     }, []);
 
-    const items = (data && Array.isArray(data.items)) ? data.items : [];
-    const groups = groupItems(items);
-    const dirty = hasAnyChanges(items, edits);
-
-    const header = e("div", {
-      style: { marginBottom: 18 }
-    }, [
-      e("div", {
-        style: {
-          fontSize: 12,
-          letterSpacing: ".08em",
-          textTransform: "uppercase",
-          opacity: .62,
-          fontWeight: 700,
-          marginBottom: 8
-        }
-      }, "System configuration"),
-      e("div", {
-        style: {
-          fontSize: 32,
-          lineHeight: "38px",
-          fontWeight: 800,
-          marginBottom: 10
-        }
-      }, "Config"),
-      e("div", {
-        style: {
-          opacity: .9,
-          maxWidth: 980,
-          lineHeight: "24px"
-        }
-      }, "Runtime configuration editor. Grouping is done in the frontend from variable names. Secrets are never shown after save, only whether they are set.")
-    ]);
-
-    const metaCard = e("div", { style: cardStyle({ marginBottom: 16 }) }, [
-      e("div", {
-        style: {
-          fontSize: 18,
-          fontWeight: 800,
-          marginBottom: 10
-        }
-      }, "Runtime sources"),
-      e("div", {
-        style: {
-          display: "grid",
-          gap: 10
-        }
-      }, [
-        e("div", null, [
-          e("div", { style: { fontSize: 13, opacity: .75, marginBottom: 4 } }, "Config path"),
-          e("div", { style: { fontFamily:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace', fontSize:13, overflowWrap:"anywhere" } }, String((data && data.config_path) || ""))
-        ]),
-        e("div", null, [
-          e("div", { style: { fontSize: 13, opacity: .75, marginBottom: 4 } }, "Secrets path"),
-          e("div", { style: { fontFamily:'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace', fontSize:13, overflowWrap:"anywhere" } }, String((data && data.secrets_path) || ""))
-        ]),
-        e("div", {
-          style: {
-            display: "flex",
-            gap: 10,
-            alignItems: "center",
-            flexWrap: "wrap",
-            marginTop: 4
-          }
-        }, [
-          e("button", { onClick: save, type: "button", disabled: saving || !dirty }, saving ? "Saving..." : "Save"),
-          e("button", { onClick: load, type: "button", disabled: saving || loading }, loading ? "Reloading..." : "Reload"),
-          e("button", {
-            onClick: function(){ setEdits({}); setSaveMsg(""); },
-            type: "button",
-            disabled: saving || !dirty
-          }, "Reset unsaved"),
-          dirty ? e("span", { style: pillStyle("warn") }, "unsaved changes") : e("span", { style: pillStyle("ok") }, "saved state"),
-          saveMsg ? e("span", { style: { opacity: .75, fontSize: 12 } }, saveMsg) : null
-        ])
-      ])
-    ]);
+    if (loading) {
+      return e("div", { style: cardStyle() }, "Loading config…");
+    }
 
     if (err) {
-      return e("div", { className: "config-page" }, [
-        header,
-        metaCard,
-        e("div", { style: cardStyle() }, [
-          e("div", {
-            style: {
-              fontSize: 18,
-              fontWeight: 800,
-              marginBottom: 10
-            }
-          }, "Error"),
-          e("pre", {
-            style: {
-              margin: 0,
-              opacity: .92,
-              whiteSpace: "pre-wrap",
-              overflowWrap: "anywhere"
-            }
-          }, String(err))
-        ])
+      return e("div", { style: cardStyle({ border: "1px solid rgba(248,81,73,.35)" }) }, [
+        e("div", { style: { fontSize: 18, fontWeight: 800, marginBottom: 8 } }, "Config"),
+        e("div", { style: { whiteSpace: "pre-wrap", color: "#ffb4b4" } }, String(err || "Unknown error"))
       ]);
     }
 
-    return e("div", { className: "config-page" }, [
-      header,
-      metaCard
-    ].concat(groups.map(function(group, idx){
-      return e(GroupCard, {
-        key: idx,
-        group: group,
-        edits: edits,
-        setEdits: setEdits,
-        saving: saving
-      });
-    })));
+    const items = (data && Array.isArray(data.items)) ? data.items : [];
+    const groups = groupItems(items);
+    const changed = hasAnyChanges(items, edits);
+
+    return e("div", null, [
+      e("div", { style: cardStyle({ marginBottom: 16 }) }, [
+        e("div", { style: { fontSize: 22, fontWeight: 800, marginBottom: 8 } }, "Configuration"),
+        e("div", { style: { opacity: .76, fontSize: 13, lineHeight: "18px", marginBottom: 10 } },
+          "All values are string-backed in runtime. Metadata is optional and used only for documentation and UI hints."
+        ),
+        e("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" } }, [
+          e("span", { style: pillStyle("ok") }, String(items.length) + " items"),
+          data && data.config_source_kind ? e("span", { style: pillStyle("ok") }, "config: " + data.config_source_kind) : null,
+          data && data.secrets_source_kind ? e("span", { style: pillStyle("ok") }, "secrets: " + data.secrets_source_kind) : null,
+          changed ? e("span", { style: pillStyle("warn") }, "unsaved changes") : null
+        ]),
+        e("div", { style: { marginTop: 14, display: "flex", gap: 10 } }, [
+          e("button", {
+            onClick: save,
+            disabled: saving,
+            style: {
+              border: "1px solid rgba(255,255,255,.12)",
+              background: saving ? "rgba(255,255,255,.05)" : "rgba(46,160,67,.25)",
+              color: "inherit",
+              borderRadius: 10,
+              padding: "8px 14px",
+              cursor: saving ? "default" : "pointer"
+            }
+          }, saving ? "Saving…" : "Save"),
+          e("button", {
+            onClick: load,
+            disabled: saving,
+            style: {
+              border: "1px solid rgba(255,255,255,.12)",
+              background: "rgba(255,255,255,.04)",
+              color: "inherit",
+              borderRadius: 10,
+              padding: "8px 14px",
+              cursor: saving ? "default" : "pointer"
+            }
+          }, "Reload"),
+          saveMsg ? e("div", { style: { alignSelf: "center", opacity: .8, fontSize: 13 } }, saveMsg) : null
+        ])
+      ]),
+      groups.map(function(group, idx){
+        return e(GroupCard, {
+          key: idx,
+          group: group,
+          edits: edits,
+          setEdits: setEdits,
+          saving: saving
+        });
+      })
+    ]);
   };
 })();
