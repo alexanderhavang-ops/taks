@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "martine"
+version = "0.1.0"
+description = "Martine CoT chat agent with MCP-backed tools"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.setuptools]
+packages = ["martine"]

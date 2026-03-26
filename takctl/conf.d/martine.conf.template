@@ -1,5 +1,5 @@
 martine_username = martine
-martine_groups_rw = __ANON__
+martine_groups_rw = 46hvbat
 martine_groups_in =
 martine_groups_out =
 martine_client_p12_path = /opt/tak/tools/martine/runtime/identity/client.p12

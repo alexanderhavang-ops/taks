@@ -21,6 +21,7 @@ ALLOWED=(
   "groupadd"
   "groupdel"
   "groupmod"
+  "certmod"
 )
 
 subcmd="${1:-}"

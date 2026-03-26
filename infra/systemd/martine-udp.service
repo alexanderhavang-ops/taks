@@ -1,0 +1,18 @@
+[Unit]
+Description=Martine TLS CoT client
+After=network-online.target takctl-web.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tak
+Group=tak
+WorkingDirectory=/opt/tak/tools/martine
+Environment=PYTHONPATH=/opt/tak/tools/martine:/opt/tak/tools/takctl
+ExecStart=/opt/tak/tools/martine/.venv/bin/python -m martine.chat.cot_tls_client
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

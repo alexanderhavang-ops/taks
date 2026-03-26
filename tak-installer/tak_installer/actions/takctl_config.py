@@ -87,7 +87,19 @@ def _copy_tree_text(src_dir: Path, dst_dir: Path, *, mode: int) -> int:
     for src in sorted(src_dir.iterdir()):
         if not src.is_file():
             continue
-        dst = dst_dir / src.name
+
+        name = src.name
+
+        # Source-of-truth in git should be *.conf.template, materialized in runtime as *.conf.
+        if name.endswith(".conf.template"):
+            dst_name = name[:-len(".template")]
+        elif name.endswith(".conf"):
+            # Back-compat during migration; still render as-is if any old source files remain.
+            dst_name = name
+        else:
+            continue
+
+        dst = dst_dir / dst_name
         _write_atomic(dst, src.read_text(encoding="utf-8"), mode)
         n += 1
     return n

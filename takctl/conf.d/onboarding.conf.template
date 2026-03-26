@@ -1,0 +1,15 @@
+# onboarding identity + package policy
+
+# If true, creating a TAK user through onboarding also creates a client cert
+# with the same username/CN and binds it to the user via fingerprint.
+create_cert_with_user = true
+
+# If true, cert-based packages may include the client cert password.
+include_client_password_in_package = false
+
+# If true, cert-based packages may include the truststore password.
+include_truststore_password_in_package = false
+
+# Default for showing the TAK user password on the soldier card.
+# Actual rendering still depends on TAKS knowing the password.
+reveal_password_default = true

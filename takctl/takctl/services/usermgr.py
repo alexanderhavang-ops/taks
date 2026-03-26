@@ -54,8 +54,16 @@ class UserMgrService:
         except FileNotFoundError as e:
             raise UserMgrError("sudo not found") from e
 
-        combined = (p.stdout or "") + (p.stderr or "")
-        if "password" in combined.lower():
+        combined = ((p.stdout or "") + (p.stderr or "")).lower()
+
+        # Only treat this as a sudo password problem when sudo itself says so.
+        sudo_password_markers = [
+            "sudo:",
+            "a password is required",
+            "password is required",
+            "sorry, try again",
+        ]
+        if p.returncode != 0 and any(m in combined for m in sudo_password_markers):
             raise UserMgrError(
                 "sudo requires a password for takctl-usermgr.\n"
                 "Fix: add NOPASSWD sudoers rule for %tak on the helper."

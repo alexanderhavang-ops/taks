@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+for p in [
+    "/opt/tak/tools/takctl",
+    "/opt/tak/tools/martine",
+]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
+
+from martine.chat.udp_client import main
+
+if __name__ == "__main__":
+    main()
