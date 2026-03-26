@@ -8,32 +8,60 @@ ENV_DIR = Path("/opt/tak/etc")
 ENV_FILE = ENV_DIR / "taks.env"
 
 
+def _pick(ctx, *keys: str) -> str:
+    for k in keys:
+        v = (ctx.env.get(k) or "").strip()
+        if v:
+            return v
+    return ""
+
+
 def apply(ctx) -> None:
     """
-    Ensure runtime env/state file exists and optionally persist FQDN.
+    Ensure runtime env/state file exists and persist selected canonical node vars.
 
-    If FQDN/TAKS_FQDN is provided via env during apply, we persist it into:
-      /opt/tak/etc/taks.env
+    We currently persist:
+      - TAKS_FQDN
+      - TAKS_NODE_CERT_MODEL
+      - LE_EMAIL
 
-    If not provided, we do NOT overwrite existing file.
+    Canonical env priority:
+      - FQDN or TAKS_FQDN -> persisted as TAKS_FQDN
+      - TAKS_NODE_CERT_MODEL
+      - LE_EMAIL
+
+    If none of these are provided, we do NOT overwrite an existing file.
     """
     ENV_DIR.mkdir(parents=True, exist_ok=True)
 
-    fqdn = (ctx.env.get("FQDN") or ctx.env.get("TAKS_FQDN") or "").strip()
+    fqdn = _pick(ctx, "FQDN", "TAKS_FQDN")
+    cert_model = _pick(ctx, "TAKS_NODE_CERT_MODEL")
+    le_email = _pick(ctx, "LE_EMAIL")
+
+    rows: list[str] = ["# Managed by tak-installer"]
 
     if fqdn:
-        content = (
-            "# Managed by tak-installer\n"
-            f"TAKS_FQDN={fqdn}\n"
-        )
+        rows.append(f"TAKS_FQDN={fqdn}")
+    if cert_model:
+        rows.append(f"TAKS_NODE_CERT_MODEL={cert_model}")
+    if le_email:
+        rows.append(f"LE_EMAIL={le_email}")
+
+    if len(rows) > 1:
+        content = "\n".join(rows) + "\n"
         ENV_FILE.write_text(content, encoding="utf-8")
         ENV_FILE.chmod(0o644)
-        log.info(f"taks-env: wrote {ENV_FILE} (TAKS_FQDN={fqdn})")
+        log.info(
+            f"taks-env: wrote {ENV_FILE} "
+            f"(TAKS_FQDN={fqdn or '-'} "
+            f"TAKS_NODE_CERT_MODEL={cert_model or '-'} "
+            f"LE_EMAIL={'set' if le_email else '-'})"
+        )
     else:
         if ENV_FILE.exists():
             log.info(f"taks-env: {ENV_FILE} already exists (no env override)")
         else:
-            log.info(f"taks-env: {ENV_FILE} not present and no FQDN provided (will require it later)")
+            log.info(f"taks-env: {ENV_FILE} not present and no relevant env provided")
 
 
 class _Action:
@@ -50,4 +78,3 @@ class _Action:
 
 
 ACTION = _Action()
-

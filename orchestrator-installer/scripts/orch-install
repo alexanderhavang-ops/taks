@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-# repo root (used by lib/*.sh)
 export REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 set -euo pipefail
@@ -10,22 +9,16 @@ BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB_DIR="$SELF_DIR/../lib"
 
-# shellcheck disable=SC1091
 source "$LIB_DIR/00_core.sh"
-# shellcheck disable=SC1091
 source "$LIB_DIR/10_packages.sh"
-# shellcheck disable=SC1091
 source "$LIB_DIR/15_swap.sh"
-
-# shellcheck disable=SC1091
 source "$LIB_DIR/20_orch_app.sh"
-# shellcheck disable=SC1091
 source "$LIB_DIR/30_nginx_le.sh"
 
 plan(){
   require_root
   load_env
-  log "Plan for ${FQDN}: install pkgs, canonical nginx vhost, obtain LE cert, safe reload."
+  log "Plan for ${FQDN}: install pkgs, canonical nginx vhost, obtain LE cert, sync wildcard cert artifacts, safe reload."
 }
 
 apply(){
@@ -40,28 +33,30 @@ apply(){
   nginx_quarantine_conflicts
   write_nginx_canonical
   le_cert_obtain
+  sync_le_cert_to_artifacts
   nginx_reload_safe
-  log "DONE: nginx + LE ready for ${FQDN}"
+  log "DONE: nginx + LE + artifact sync ready for ${FQDN}"
 }
 
 verify(){
   require_root
   load_env
 
-  # nginx must be active and config-valid
   systemctl is-active --quiet nginx || die "nginx not active"
   nginx -t >/dev/null 2>&1 || die "nginx config test failed"
 
-  # cert must exist for the public FQDN
-  [[ -f "/etc/letsencrypt/live/${FQDN}/fullchain.pem" ]] || die "LE cert missing for ${FQDN}"
+  [[ -f "$(le_cert_path_domain)" ]] || die "LE cert missing for $(le_domain)"
 
-  # backend must be up (systemd + local healthz)
   orch_app_verify
 
-  # prove TLS vhost routes to backend (OpenAPI must exist)
   curl -skf "https://${FQDN}/openapi.json" >/dev/null || die "openapi.json not reachable via nginx"
 
-  log "OK: ${FQDN} nginx+LE+backend verified"
+  if [[ -f "$(le_cert_path_domain)" && -f "$(le_key_path_domain)" ]]; then
+    [[ -f "$(artifact_tls_dir)/fullchain.pem" ]] || die "artifact fullchain missing in $(artifact_tls_dir)"
+    [[ -f "$(artifact_tls_dir)/privkey.pem" ]] || die "artifact privkey missing in $(artifact_tls_dir)"
+  fi
+
+  log "OK: ${FQDN} nginx+LE+artifact sync+backend verified"
 }
 
 case "${1:-}" in

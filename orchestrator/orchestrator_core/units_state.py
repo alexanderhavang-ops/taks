@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
+from orchestrator_core.config import load_orch_config
 from typing import Any, Dict, List
 
 # NOTE: Keep consistent with other state modules
 def _state_dir() -> Path:
-    return Path(os.environ.get("TAKS_STATE_DIR") or "/opt/tak-orch/state")
+    cfg = load_orch_config()
+    return Path(cfg.paths.state_dir)
 
 
 def _units_dir() -> Path:

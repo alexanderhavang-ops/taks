@@ -36,7 +36,7 @@
     if(unitEl && !unitEl.value.trim()) unitEl.value = unit;
 
     if(fqdnEl && !fqdnEl.value.trim()){
-      fqdnEl.value = unit + '.tak-hv-sandbox.se';
+      fqdnEl.value = unit;
     }
 
     if(hostEl && !hostEl.value.trim()){

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import argparse
 import base64
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
 
 import boto3
 import yaml
+from orchestrator_core.config import load_orch_config
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 
@@ -17,8 +17,8 @@ _TEMPLATES = _REPO_ROOT / "orchestrator" / "templates"
 
 
 def _region() -> str:
-    # Prefer env; fallback to IMDS/SDK default resolution.
-    return os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "eu-north-1"
+    cfg = load_orch_config()
+    return cfg.aws.region
 
 
 def _jinja() -> Environment:

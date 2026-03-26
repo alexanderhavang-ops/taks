@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
+from orchestrator_core.config import load_orch_config
 import time
 from pathlib import Path
 from typing import Any, Dict, List
@@ -14,16 +14,8 @@ from fastapi.responses import JSONResponse
 router = APIRouter(prefix="/api/v2/units")
 
 
-# ---- Validation --------------------------------------------------------------
-
 def _validate_unit_id(s: str, *, field: str) -> str:
-    """
-    Unit identifiers are *single tokens* (no '/'), because they map to:
-      /state/units/<unit_id>/unit.json
-
-    The hierarchy is expressed via parent_path (HC) pointing to another unit_id.
-    """
-    s = str(s or "").strip()
+    s = str(s or "").strip().lower()
     if not s:
         raise HTTPException(status_code=400, detail=f"{field} is required")
     if "/" in s:
@@ -34,17 +26,15 @@ def _validate_unit_id(s: str, *, field: str) -> str:
 
 
 def _validate_parent_id(s: str) -> str:
-    s = str(s or "").strip()
+    s = str(s or "").strip().lower()
     if not s:
         return ""
     return _validate_unit_id(s, field="parent_path")
 
 
-# ---- State paths -------------------------------------------------------------
-
 def _state_dir() -> Path:
-    p = os.environ.get("TAKS_STATE_DIR", "/opt/tak-orch/state")
-    return Path(p)
+    cfg = load_orch_config()
+    return Path(cfg.paths.state_dir)
 
 
 def _units_root() -> Path:
@@ -67,8 +57,6 @@ def _now() -> int:
     return int(time.time())
 
 
-# ---- Helpers -----------------------------------------------------------------
-
 def _read_json(p: Path) -> Dict[str, Any]:
     try:
         return json.loads(p.read_text(encoding="utf-8"))
@@ -87,9 +75,9 @@ def _write_json(p: Path, obj: Dict[str, Any]) -> None:
 
 def _normalize_unit_record(unit_id: str, j: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        "unit_path": j.get("unit_path", unit_id),
+        "unit_path": str(j.get("unit_path", unit_id) or unit_id).strip().lower(),
         "title": j.get("title", unit_id),
-        "parent_path": j.get("parent_path", "") or "",
+        "parent_path": str(j.get("parent_path", "") or "").strip().lower(),
         "created_ts": int(j.get("created_ts") or 0),
         "updated_ts": int(j.get("updated_ts") or 0),
         "meta": j.get("meta") or {},
@@ -105,14 +93,11 @@ def _list_units() -> List[Dict[str, Any]]:
     for d in sorted([x for x in root.iterdir() if x.is_dir()]):
         uj = d / "unit.json"
         if not uj.exists():
-            # ignore junk dirs
             continue
         j = _read_json(uj)
-        out.append(_normalize_unit_record(d.name, j))
+        out.append(_normalize_unit_record(d.name.lower(), j))
     return out
 
-
-# ---- Routes ------------------------------------------------------------------
 
 @router.get("")
 def list_units() -> JSONResponse:
@@ -165,7 +150,7 @@ async def update_unit(unit_path: str, req: Request) -> JSONResponse:
     if "meta" in body:
         j["meta"] = body.get("meta") or {}
 
-    j["unit_path"] = j.get("unit_path", unit_id)
+    j["unit_path"] = unit_id
     j["updated_ts"] = _now()
 
     _write_json(uj, j)
@@ -174,9 +159,6 @@ async def update_unit(unit_path: str, req: Request) -> JSONResponse:
 
 @router.delete("/{unit_path}")
 def delete_unit(unit_path: str) -> JSONResponse:
-    """
-    Safe delete: move unit dir to quarantine with timestamp prefix.
-    """
     unit_id = _validate_unit_id(unit_path, field="unit_path")
     d = _unit_dir(unit_id)
     if not d.exists():

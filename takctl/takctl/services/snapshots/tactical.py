@@ -29,7 +29,7 @@ def _safe_int(x: Any) -> int | None:
 class TacticalSnapshotBuilder:
     def collect(self) -> dict[str, Any]:
         cfg = load_config()
-        # Force the WebUI-safe path; db.env provides password.
+        # Force psycopg2 mode for snapshot collection.
         cfg.db_mode = "psycopg2"
 
         db = DB(cfg)
@@ -118,29 +118,34 @@ ORDER BY ordinal_position
 LIMIT 200;
 """
         for t in tables[:MAX_SCHEMA_TABLES]:
-            sch = t["schema"]
-            tab = t["table"]
-            entry: dict[str, Any] = {"table": t["fq"], "columns": []}
             try:
-                cols = db.fetchall(cols_sql, (sch, tab))
-                for col_name, data_type, udt_name, is_nullable in cols:
-                    entry["columns"].append(
-                        {
-                            "name": str(col_name),
-                            "type": str(data_type),
-                            "udt": str(udt_name),
-                            "nullable": (str(is_nullable).lower() == "yes"),
-                        }
-                    )
-                schema_tables.append(entry)
+                rows = db.fetchall(cols_sql, (t["schema"], t["table"]))
+                cols = [
+                    {
+                        "column_name": str(col_name),
+                        "data_type": str(data_type),
+                        "udt_name": str(udt_name),
+                        "is_nullable": str(is_nullable),
+                    }
+                    for col_name, data_type, udt_name, is_nullable in rows
+                ]
+                schema_tables.append(
+                    {
+                        "schema": t["schema"],
+                        "table": t["table"],
+                        "fq": t["fq"],
+                        "columns": cols,
+                    }
+                )
             except Exception as e:
-                entry["error"] = f"{type(e).__name__}: {e}"
-                schema_tables.append(entry)
+                schema_tables.append(
+                    {
+                        "schema": t["schema"],
+                        "table": t["table"],
+                        "fq": t["fq"],
+                        "error": f"{type(e).__name__}: {e}",
+                    }
+                )
 
         out["postgres"]["schema"] = {"ok": True, "tables": schema_tables}
         return out
-
-
-def build_tactical_snapshot() -> dict[str, Any]:
-    return TacticalSnapshotBuilder().collect()
-

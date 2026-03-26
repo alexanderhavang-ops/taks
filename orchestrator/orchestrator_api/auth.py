@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import base64
 import hmac
-import os
 import time
 from hashlib import sha256
 from typing import Optional, Tuple
+
+from orchestrator_core.config import load_secrets_config
 
 
 def _b64u(data: bytes) -> str:
@@ -18,13 +19,6 @@ def _b64u_dec(s: str) -> bytes:
 
 
 def make_token(user: str, secret: str, ttl_seconds: int = 12 * 3600) -> str:
-    """
-    Simple signed token for cookie auth:
-
-      payload: user|exp
-      token:   base64url(payload_bytes).base64url(HMAC-SHA256(payload, secret))
-
-    """
     exp = int(time.time()) + int(ttl_seconds)
     payload = f"{user}|{exp}".encode("utf-8")
     sig = hmac.new(secret.encode("utf-8"), payload, sha256).digest()
@@ -69,24 +63,14 @@ def _parse_basic_auth(auth_header: Optional[str]) -> Optional[Tuple[str, str]]:
 
 
 def verify_basic_auth(auth_header: Optional[str]) -> bool:
-    """
-    Headless auth: Authorization: Basic base64(user:pass)
-
-    For now:
-      - user is fixed: TAKS_API_USER (default: "orchestrator")
-      - password uses TAKS_API_PASSWORD if set, else TAKS_UI_PASSWORD
-    """
     parsed = _parse_basic_auth(auth_header)
     if not parsed:
         return False
 
     user, pw = parsed
+    secrets = load_secrets_config()
 
-    want_user = (os.getenv("TAKS_API_USER") or "orchestrator").strip()
-    want_pw = os.getenv("TAKS_API_PASSWORD") or os.getenv("TAKS_UI_PASSWORD") or ""
-    if not want_pw:
-        return False
+    want_user = secrets.auth.node_api_user
+    want_pw = secrets.auth.node_api_password
 
-    # constant-time compare
     return hmac.compare_digest(user, want_user) and hmac.compare_digest(pw, want_pw)
-

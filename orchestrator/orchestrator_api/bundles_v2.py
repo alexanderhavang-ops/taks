@@ -47,4 +47,4 @@ def ensure_unit_bundle(unit_path: str, role: str) -> Path:
         role=role,
         bundle_name=bundle_name,
     )
-    return Path(built.tar_path)
+    return Path(str(built.get("tar_path") or ""))

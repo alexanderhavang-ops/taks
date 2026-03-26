@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
+from orchestrator_core.config import load_orch_config, load_secrets_config
 from typing import Dict, Any, List
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
@@ -15,11 +15,12 @@ ALLOWED_SUBTREES = ("packages", "branding", "users", "plugins", "maps", "mission
 
 
 def _state_dir() -> Path:
-    return Path(os.environ.get("TAKS_STATE_DIR") or "/opt/tak-orch/state")
+    cfg = load_orch_config()
+    return Path(cfg.paths.state_dir)
 
 
 def _is_authed(req: Request) -> bool:
-    secret = (os.environ.get("TAKS_UI_SECRET") or "").strip()
+    secret = load_secrets_config().auth.session_secret.strip()
     if not secret:
         return False
     tok = req.cookies.get("taks_auth") or ""

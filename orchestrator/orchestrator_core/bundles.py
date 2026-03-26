@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tarfile
+from orchestrator_core.config import load_orch_config, load_secrets_config
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,19 +12,45 @@ from typing import Any, Dict, List, Optional
 
 SUBTREES = ("packages", "branding", "users", "plugins", "maps", "missions", "misc")
 
+REPO_EXCLUDE_NAMES = {
+    ".git",
+    ".github",
+    ".venv",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "node_modules",
+    "state",
+    "bundles",
+    "rendered",
+    "artifacts",
+}
+REPO_EXCLUDE_SUFFIXES = {
+    ".pyc",
+    ".pyo",
+    ".swp",
+    ".tmp",
+    ".tar.gz",
+    ".zip",
+}
+
 
 def _state_dir() -> Path:
-    return Path(os.environ.get("TAKS_STATE_DIR") or "/opt/tak-orch/state")
+    cfg = load_orch_config()
+    return Path(cfg.paths.state_dir)
 
 
 def bundles_dir() -> Path:
-    d = Path(os.environ.get("TAKS_BUNDLE_DIR") or str(_state_dir() / "bundles"))
+    cfg = load_orch_config()
+    d = Path(cfg.paths.rendered_bundles_dir).parent
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def rendered_bundles_dir() -> Path:
-    d = bundles_dir() / "rendered"
+    cfg = load_orch_config()
+    d = Path(cfg.paths.rendered_bundles_dir)
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -42,6 +69,23 @@ def roles_dir() -> Path:
 
 def default_bundle_dir() -> Path:
     return Path(__file__).resolve().parent / "default_bundle"
+
+
+def _looks_like_taks_repo(p: Path) -> bool:
+    return (
+        p.is_dir()
+        and (p / "orchestrator").is_dir()
+        and (p / "tak-installer").is_dir()
+        and (p / "takctl").is_dir()
+    )
+
+
+def repo_root_dir() -> Path:
+    cfg = load_orch_config()
+    root = Path(cfg.bundles.source_repo_root)
+    if not _looks_like_taks_repo(root):
+        raise RuntimeError(f"configured TAKS repo root is invalid: {root}")
+    return root
 
 
 def _safe_unit_fs(unit_path: str) -> str:
@@ -74,102 +118,84 @@ def unit_files_root(unit_path: str) -> Path:
     return _unit_dir(unit_path) / "files"
 
 
-def _read_json(p: Path) -> Dict[str, Any]:
-    return json.loads(p.read_text(encoding="utf-8"))
+def _meta_get(meta: Dict[str, Any], *keys: str) -> str:
+    for k in keys:
+        v = meta.get(k)
+        if v is None:
+            continue
+        s = str(v).strip()
+        if s:
+            return s
+    return ""
+
+
+def _read_unit_json(unit_path: str) -> Dict[str, Any]:
+    p = _unit_json_path(unit_path)
+    if not p.is_file():
+        return {}
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        return raw if isinstance(raw, dict) else {}
+    except Exception:
+        return {}
 
 
 def _read_unit_meta(unit_path: str) -> Dict[str, Any]:
-    p = _unit_json_path(unit_path)
-    if not p.exists():
-        return {}
-    try:
-        j = _read_json(p)
-    except Exception:
-        return {}
-    return j if isinstance(j, dict) else {}
+    raw = _read_unit_json(unit_path)
+    meta = raw.get("meta")
+    return meta if isinstance(meta, dict) else {}
 
 
-def _unit_parent(unit_path: str) -> str:
-    j = _read_unit_meta(unit_path)
-    return str(j.get("parent_path") or "").strip()
-
-
-def _unit_chain_root_to_leaf(unit_path: str) -> List[str]:
-    """
-    Follow parent_path until root and return [root, ..., leaf].
-    """
-    leaf = _safe_unit_fs(unit_path)
+def _read_unit_chain(unit_path: str) -> List[str]:
+    chain: List[str] = []
+    cur = unit_path
     seen = set()
-    chain_rev: List[str] = []
-    cur = leaf
-
-    while cur:
-        if cur in seen:
-            raise ValueError(f"cycle in unit parent chain at {cur}")
+    while cur and cur not in seen:
         seen.add(cur)
-        chain_rev.append(cur)
-        cur = _unit_parent(cur)
-
-    chain_rev.reverse()
-    return chain_rev
-
-
-def _copy_tree(src: Path, dst: Path) -> Dict[str, Any]:
-    out: Dict[str, Any] = {"src": str(src), "files": 0, "bytes": 0, "exists": src.exists()}
-    if not src.exists():
-        return out
-    if not src.is_dir():
-        raise ValueError(f"overlay is not a directory: {src}")
-
-    for p in sorted(src.rglob("*")):
-        rel = p.relative_to(src)
-        target = dst / rel
-        if p.is_dir():
-            target.mkdir(parents=True, exist_ok=True)
-            continue
-        if not p.is_file():
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        data = p.read_bytes()
-        target.write_bytes(data)
-        try:
-            os.chmod(target, p.stat().st_mode & 0o777)
-        except Exception:
-            pass
-        out["files"] += 1
-        out["bytes"] += len(data)
-    return out
+        chain.append(cur)
+        raw = _read_unit_json(cur)
+        parent = str(raw.get("parent_path") or "").strip()
+        if not parent:
+            break
+        cur = parent
+    chain.reverse()
+    return chain
 
 
-def _copy_unit_subtree(src: Path, dst: Path) -> Dict[str, Any]:
-    out: Dict[str, Any] = {"src": str(src), "files": 0, "bytes": 0, "exists": src.exists()}
-    if not src.exists():
-        return out
-    if not src.is_dir():
-        raise ValueError(f"unit subtree is not a directory: {src}")
-
-    for p in sorted(src.rglob("*")):
-        rel = p.relative_to(src)
-        target = dst / rel
-        if p.is_dir():
-            target.mkdir(parents=True, exist_ok=True)
-            continue
-        if not p.is_file():
-            continue
-        target.parent.mkdir(parents=True, exist_ok=True)
-        data = p.read_bytes()
-        target.write_bytes(data)
-        try:
-            os.chmod(target, p.stat().st_mode & 0o777)
-        except Exception:
-            pass
-        out["files"] += 1
-        out["bytes"] += len(data)
-    return out
+def _default_node_fqdn(unit_path: str, unit_meta: Dict[str, Any]) -> str:
+    meta = unit_meta if isinstance(unit_meta, dict) else {}
+    explicit = _meta_get(meta, "node_fqdn", "taks_node_fqdn", "fqdn")
+    if explicit:
+        return explicit
+    cfg = load_orch_config()
+    dns_suffix = str(cfg.nodes.default_node_domain).strip().strip(".")
+    safe = str(unit_path or "").strip().strip(".")
+    if "." in safe:
+        return safe
+    return f"{safe}.{dns_suffix}" if dns_suffix else safe
 
 
-def _write_unit_config(root: Path, *, unit_path: str, role: str, chain: List[str]) -> Path:
-    unit_meta = _read_unit_meta(unit_path)
+def _default_node_cert_model(unit_meta: Dict[str, Any]) -> str:
+    meta = unit_meta if isinstance(unit_meta, dict) else {}
+    explicit = _meta_get(meta, "node_cert_model", "taks_node_cert_model", "cert_model")
+    if explicit:
+        return explicit
+    cfg = load_orch_config()
+    return str(cfg.nodes.default_cert_model).strip()
+
+
+def _default_le_email(unit_meta: Dict[str, Any]) -> str:
+    meta = unit_meta if isinstance(unit_meta, dict) else {}
+    explicit = _meta_get(meta, "le_email", "letsencrypt_email")
+    if explicit:
+        return explicit
+    return os.environ.get("LE_EMAIL", "").strip()
+
+
+def _write_unit_config(root: Path, *, unit_path: str, role: str) -> Path:
+    unit_meta = _read_unit_json(unit_path)
+    chain = _read_unit_chain(unit_path)
+
     config_dir = root / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
 
@@ -181,6 +207,7 @@ def _write_unit_config(root: Path, *, unit_path: str, role: str, chain: List[str
         "symbol": str(unit_meta.get("symbol") or ""),
         "slogan": str(unit_meta.get("slogan") or ""),
         "logo": str(unit_meta.get("logo") or ""),
+        "meta": unit_meta.get("meta") or {},
     }
 
     out = config_dir / "unit.json"
@@ -188,94 +215,189 @@ def _write_unit_config(root: Path, *, unit_path: str, role: str, chain: List[str
     return out
 
 
-@dataclass
-class BuildResult:
-    bundle_name: str
-    tar_path: Path
-    manifest_path: Path
-    overlays: List[Dict[str, Any]]
+def _write_node_env(root: Path, *, unit_path: str) -> Path:
+    unit_meta = _read_unit_meta(unit_path)
+    fqdn = _default_node_fqdn(unit_path, unit_meta)
+    cert_model = _default_node_cert_model(unit_meta)
+    le_email = _default_le_email(unit_meta)
 
+    cfg = load_orch_config()
+    secrets = load_secrets_config()
 
-def build_bundle_from_state(
-    *,
-    unit_path: str,
-    role: str,
-    bundle_name: Optional[str] = None,
-) -> BuildResult:
-    """
-    Build bundle tarball from:
+    install_dir = root / "install"
+    install_dir.mkdir(parents=True, exist_ok=True)
 
-      1) default_bundle/
-      2) roles/<role>/bundle/
-      3) units/<unit>/bundle/
-      4) inherited unit file subtrees root->leaf:
-         packages, branding, users, plugins, maps, missions, misc
-
-    KISS:
-      - always rebuild
-      - overwrite tarball
-      - no fingerprint
-      - no external manifest file
-    """
-
-    up = _safe_unit_fs(unit_path)
-    r = (role or "").strip()
-    if not r:
-        raise ValueError("role must be non-empty")
-
-    base = (bundle_name or f"{up}-{r}-bundle").strip()
-    if base.endswith(".tar.gz"):
-        tar_name = base
-        bundle_root = base[:-len(".tar.gz")]
+    orch_base = str(cfg.identity.public_base_url).strip().rstrip("/")
+    if orch_base:
+        orch_api_url = orch_base
     else:
-        tar_name = base + ".tar.gz"
-        bundle_root = base
+        orch_api_url = ""
 
-    out_tar = rendered_bundles_dir() / tar_name
+    rows = [
+        "# Generated by TAKS orchestrator bundle builder",
+        f"TAKS_NODE_FQDN={fqdn}",
+        f"TAKS_NODE_CERT_MODEL={cert_model}",
+    ]
+
+    if le_email:
+        rows.append(f"LE_EMAIL={le_email}")
+
+    if orch_api_url:
+        rows.append(f"ORCH_API_URL={orch_api_url}")
+
+    rows.append(f"TAKS_NODE_USER={secrets.auth.node_api_user}")
+    rows.append(f"TAKS_NODE_PASSWORD={secrets.auth.node_api_password}")
+
+    out = install_dir / "node.env"
+    out.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    return out
+
+
+def _copy_wildcard_tls_material(root: Path) -> Dict[str, Any]:
+    cfg = load_orch_config()
+    cert_domain = str(cfg.letsencrypt.wildcard_zone).strip().strip(".")
+    if not cert_domain:
+        raise ValueError("letsencrypt.wildcard_zone is required for WILDCARD_DNS_01 bundle mode")
+
+    src_dir = Path(cfg.letsencrypt.artifact_cert_dir)
+    src_cert = src_dir / "fullchain.pem"
+    src_key = src_dir / "privkey.pem"
+
+    if not src_cert.is_file():
+        raise ValueError(f"wildcard artifact cert missing: {src_cert}")
+    if not src_key.is_file():
+        raise ValueError(f"wildcard artifact key missing: {src_key}")
+
+    dst_dir = root / "install" / "letsencrypt"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+
+    dst_cert = dst_dir / "fullchain.pem"
+    dst_key = dst_dir / "privkey.pem"
+
+    dst_cert.write_bytes(src_cert.read_bytes())
+    dst_key.write_bytes(src_key.read_bytes())
+
+    return {
+        "kind": "wildcard_tls_material",
+        "src_cert": str(src_cert),
+        "src_key": str(src_key),
+        "dst_cert": "install/letsencrypt/fullchain.pem",
+        "dst_key": "install/letsencrypt/privkey.pem",
+        "files": 2,
+        "bytes": dst_cert.stat().st_size + dst_key.stat().st_size,
+    }
+
+
+def _copy_tree(src: Path, dst: Path) -> Dict[str, Any]:
+    files = 0
+    bytes_total = 0
+    exists = src.exists()
+
+    if not exists:
+        return {"src": str(src), "files": 0, "bytes": 0, "exists": False}
+
+    for p in sorted(src.rglob("*")):
+        rel = p.relative_to(src)
+        out = dst / rel
+        if p.is_dir():
+            out.mkdir(parents=True, exist_ok=True)
+            continue
+        if p.is_file():
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(p.read_bytes())
+            files += 1
+            bytes_total += p.stat().st_size
+
+    return {"src": str(src), "files": files, "bytes": bytes_total, "exists": True}
+
+
+def _copy_repo_snapshot(dst_root: Path) -> Dict[str, Any]:
+    src = repo_root_dir()
+    dst = dst_root / "taks-source"
+    dst.mkdir(parents=True, exist_ok=True)
+
+    files = 0
+    bytes_total = 0
+
+    for p in sorted(src.rglob("*")):
+        rel = p.relative_to(src)
+
+        if any(part in REPO_EXCLUDE_NAMES for part in rel.parts):
+            continue
+        if p.suffix in REPO_EXCLUDE_SUFFIXES:
+            continue
+
+        out = dst / rel
+        if p.is_dir():
+            out.mkdir(parents=True, exist_ok=True)
+            continue
+        if p.is_file():
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(p.read_bytes())
+            files += 1
+            bytes_total += p.stat().st_size
+
+    return {
+        "src": str(src),
+        "kind": "repo_snapshot",
+        "dst": "taks-source",
+        "files": files,
+        "bytes": bytes_total,
+        "exists": True,
+    }
+
+
+def build_bundle_from_state(unit_path: str, role: str, bundle_name: Optional[str] = None) -> Dict[str, Any]:
+    up = _safe_unit_fs(unit_path)
+    role = str(role or "").strip() or "tak-node"
+    bundle_name = str(bundle_name or f"{up}.tar.gz").strip()
+
+    rendered_dir = rendered_bundles_dir()
+    tar_path = rendered_dir / bundle_name
 
     overlays: List[Dict[str, Any]] = []
 
-    default_src = default_bundle_dir()
-    role_src = role_bundle_overlay_dir(r)
-    unit_src = unit_bundle_overlay_dir(up)
-
-    chain = _unit_chain_root_to_leaf(up)
-
     with tempfile.TemporaryDirectory(prefix="taks-bundle-") as td:
-        td_path = Path(td)
-        root = td_path / bundle_root
+        root = Path(td) / up
         root.mkdir(parents=True, exist_ok=True)
 
+        default_src = default_bundle_dir()
         overlays.append(_copy_tree(default_src, root))
+
+        overlays.append(_copy_repo_snapshot(root))
+
+        role_src = role_bundle_overlay_dir(role)
         overlays.append(_copy_tree(role_src, root))
-        overlays.append(_copy_tree(unit_src, root))
 
+        unit_overlay = unit_bundle_overlay_dir(up)
+        overlays.append(_copy_tree(unit_overlay, root))
+
+        files_root = unit_files_root(up)
         for subtree in SUBTREES:
-            dst_root = root / subtree
-            dst_root.mkdir(parents=True, exist_ok=True)
+            src = files_root / subtree
+            dst = root / subtree
+            item = _copy_tree(src, dst)
+            item["unit"] = up
+            item["subtree"] = subtree
+            overlays.append(item)
 
-            for unit_id in chain:
-                src_root = unit_files_root(unit_id) / subtree
-                stat = _copy_unit_subtree(src_root, dst_root)
-                stat["unit"] = unit_id
-                stat["subtree"] = subtree
-                overlays.append(stat)
+        _write_unit_config(root, unit_path=up, role=role)
+        overlays.append({"generated": "config/unit.json", "kind": "unit_config"})
 
-        unit_cfg = _write_unit_config(root, unit_path=up, role=r, chain=chain)
-        overlays.append({
-            "generated": str(unit_cfg.relative_to(root)),
-            "kind": "unit_config",
-        })
+        _write_node_env(root, unit_path=up)
+        overlays.append({"generated": "install/node.env", "kind": "node_env"})
 
-        tmp_tar = out_tar.parent / (out_tar.name + ".tmp")
-        with tarfile.open(tmp_tar, "w:gz") as tf:
-            tf.add(str(root), arcname=bundle_root)
+        unit_meta = _read_unit_meta(up)
+        cert_model = _default_node_cert_model(unit_meta)
+        if cert_model == "WILDCARD_DNS_01":
+            overlays.append(_copy_wildcard_tls_material(root))
 
-        os.replace(tmp_tar, out_tar)
+        with tarfile.open(tar_path, "w:gz") as tf:
+            tf.add(root, arcname=up)
 
-    return BuildResult(
-        bundle_name=tar_name,
-        tar_path=out_tar,
-        manifest_path=out_tar,
-        overlays=overlays,
-    )
+    return {
+        "bundle_name": bundle_name,
+        "tar_path": str(tar_path),
+        "manifest_path": str(tar_path),
+        "overlays": overlays,
+    }

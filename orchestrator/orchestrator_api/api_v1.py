@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,8 +13,10 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from .authz import require_auth
+from orchestrator_core.config import load_orch_config, load_secrets_config
 from orchestrator_core.nodes_state import upsert_node, touch_heartbeat, list_nodes
-from orchestrator_core.bundles import rendered_bundles_dir
+from orchestrator_core.bundles import rendered_bundles_dir, build_bundle_from_state
+from orchestrator_core.core import aws_list_nodes
 
 router = APIRouter(prefix="/api/v1")
 
@@ -40,13 +41,11 @@ def _ts_iso(ts: float) -> str:
 
 
 def _bundle_secret() -> str:
-    s = (os.environ.get("TAKS_BUNDLE_SECRET") or "").strip()
+    secrets = load_secrets_config()
+    s = str(secrets.auth.session_secret).strip()
     if s:
         return s
-    s2 = (os.environ.get("TAKS_UI_SECRET") or "").strip()
-    if s2:
-        return s2
-    raise RuntimeError("Missing TAKS_BUNDLE_SECRET (or fallback TAKS_UI_SECRET)")
+    raise RuntimeError("Missing auth.session_secret in /etc/taks/secrets.conf")
 
 
 def _resolve_bundle_path(bundle_name: str) -> Path:
@@ -111,14 +110,14 @@ def _normalize_node_req(req: Dict[str, Any]) -> Dict[str, Any]:
         d["name"] = str(d.get("hostname") or "tak-node")
     # fqdn: best-effort default if caller didn't provide one
     if "fqdn" not in d or not str(d.get("fqdn") or "").strip():
-        base = os.environ.get("TAKS_DEFAULT_NODE_DOMAIN") or "tak-hv-sandbox.se"
-        # If unit_path already looks like a hostname, keep it; else use <unit_path>.<base>
+        cfg = load_orch_config()
+        dns_suffix = str(cfg.nodes.default_node_domain).strip().strip(".")
         if unit_path and "." in unit_path:
             d["fqdn"] = unit_path
         elif unit_path:
-            d["fqdn"] = f"{unit_path}.{base}"
+            d["fqdn"] = f"{unit_path}.{dns_suffix}"
         else:
-            d["fqdn"] = f"{d['hostname']}.{base}"
+            d["fqdn"] = f"{d['hostname']}.{dns_suffix}"
 
     return d
 
@@ -132,22 +131,23 @@ def api_status() -> Dict[str, Any]:
     if not isinstance(out, dict):
         return {"provider": "aws", "error": "unexpected aws_list_nodes() response"}
 
-    launch_enabled = (os.environ.get("TAKS_LAUNCH_ENABLED") == "1")
-    out["launch_enabled"] = launch_enabled
+    cfg = load_orch_config()
+    secrets = load_secrets_config()
 
+    out["launch_enabled"] = cfg.aws.launch_enabled
     out["requirements"] = {
-        "aws_key_name": bool(os.environ.get("TAKS_AWS_KEY_NAME")),
-        "sg_id": bool(os.environ.get("TAKS_AWS_SG_ID")),
-        "subnet_id": bool(os.environ.get("TAKS_SUBNET_ID")),
-        "image_id": bool(os.environ.get("TAKS_IMAGE_ID")),
-        "bundle_secret": bool((os.environ.get("TAKS_BUNDLE_SECRET") or os.environ.get("TAKS_UI_SECRET") or "").strip()),
+        "aws_key_name": bool(str(cfg.aws.ssh_key_name).strip()),
+        "sg_id": bool(str(cfg.aws.default_security_group_id).strip()),
+        "subnet_id": bool(str(cfg.aws.default_subnet_id).strip()),
+        "image_id": bool(str(cfg.aws.default_ami).strip()),
+        "bundle_secret": bool(str(secrets.auth.session_secret).strip()),
     }
     out["hints"] = {
-        "aws_key_name": "Set env TAKS_AWS_KEY_NAME (EC2 keypair name) or pass aws_key_name in /nodes/launch request",
-        "sg_id": "Set env TAKS_AWS_SG_ID to a security group *ID* (sg-...) in the same VPC/subnet",
-        "subnet_id": "Optionally set env TAKS_SUBNET_ID (subnet-...)",
-        "image_id": "Optionally set env TAKS_IMAGE_ID (ami-...)",
-        "bundle_secret": "Set env TAKS_BUNDLE_SECRET (preferred) or fallback TAKS_UI_SECRET to enable signed bundle URLs",
+        "aws_key_name": "Set aws.ssh_key_name in /etc/taks/tak_orch.conf",
+        "sg_id": "Set aws.default_security_group_id in /etc/taks/tak_orch.conf",
+        "subnet_id": "Set aws.default_subnet_id in /etc/taks/tak_orch.conf",
+        "image_id": "Set aws.default_ami in /etc/taks/tak_orch.conf",
+        "bundle_secret": "Set auth.session_secret in /etc/taks/secrets.conf",
     }
     return out
 
@@ -177,10 +177,10 @@ def bundles_build(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(e))
 
     return {
-        "bundle_name": r.bundle_name,
-        "tar_path": str(r.tar_path),
-        "manifest_path": str(r.manifest_path),
-        "overlays": r.overlays,
+        "bundle_name": r.get("bundle_name"),
+        "tar_path": str(r.get("tar_path") or ""),
+        "manifest_path": str(r.get("manifest_path") or ""),
+        "overlays": r.get("overlays") or [],
     }
 
 

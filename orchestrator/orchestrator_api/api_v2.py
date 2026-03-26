@@ -2,16 +2,16 @@
 from __future__ import annotations
 
 import base64
-import os
 import time
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
+from orchestrator_core.config import load_orch_config, load_secrets_config
 from orchestrator_core.core import NodeRequest, aws_dry_run, aws_launch, aws_list_nodes, aws_terminate, plan_node
-from orchestrator_core.nodes_state import get_node, list_nodes, touch_heartbeat, upsert_node
+from orchestrator_core.nodes_state import delete_node, get_node, list_nodes, touch_heartbeat, upsert_node
 from orchestrator_core.units_state import list_units, create_unit
 
-from .auth import verify_token
+from .auth import verify_token, verify_basic_auth
 from .bundles_v2 import bundle_name_for_unit, bundle_dir, ensure_unit_bundle
 
 router = APIRouter(prefix="/api/v2")
@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/v2")
 # Auth: allow either UI session cookie OR BASIC (for nodes)
 # ----------------------------
 def _cookie_auth_ok(request: Request) -> bool:
-    secret = (os.environ.get("TAKS_UI_SECRET") or "").strip()
+    secret = load_secrets_config().auth.session_secret.strip()
     if not secret:
         return False
     tok = request.cookies.get("taks_auth") or ""
@@ -29,8 +29,9 @@ def _cookie_auth_ok(request: Request) -> bool:
 
 
 def _basic_auth_ok(request: Request) -> bool:
-    want_user = (os.environ.get("TAKS_UI_USER") or "orchestrator").strip()
-    want_pass = (os.environ.get("TAKS_UI_PASSWORD") or "changeme").strip()
+    secrets = load_secrets_config()
+    want_user = secrets.auth.operator_user.strip()
+    want_pass = secrets.auth.operator_password.strip()
 
     h = request.headers.get("authorization") or ""
     if not h.lower().startswith("basic "):
@@ -86,11 +87,12 @@ def _normalize_node_req(req: Dict[str, Any]) -> Dict[str, Any]:
         d["name"] = str(d.get("hostname") or "tak-node")
 
     if not str(d.get("fqdn") or "").strip():
-        base = os.environ.get("TAKS_DEFAULT_NODE_DOMAIN") or "tak-hv-sandbox.se"
+        cfg = load_orch_config()
+        dns_suffix = str(cfg.nodes.default_node_domain).strip().strip(".")
         if unit_path and "." in unit_path:
             d["fqdn"] = unit_path
         else:
-            d["fqdn"] = f"{unit_path}.{base}"
+            d["fqdn"] = f"{unit_path}.{dns_suffix}"
 
     if not str(d.get("bundle_name") or "").strip():
         d["bundle_name"] = bundle_name_for_unit(unit_path)
@@ -115,7 +117,7 @@ def api_status() -> Dict[str, Any]:
     if not isinstance(out, dict):
         out = {"provider": "aws", "error": "unexpected aws_list_nodes() response"}
 
-    out["launch_enabled"] = (os.environ.get("TAKS_LAUNCH_ENABLED") == "1")
+    out["launch_enabled"] = load_orch_config().aws.launch_enabled
     out["bundle_dir"] = str(bundle_dir())
     return out
 
@@ -146,8 +148,8 @@ def nodes_dry_run(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 @router.post("/nodes/launch")
 def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     require_operator(request)
-    if os.environ.get("TAKS_LAUNCH_ENABLED") != "1":
-        raise HTTPException(status_code=400, detail="Launch disabled (set TAKS_LAUNCH_ENABLED=1)")
+    if not load_orch_config().aws.launch_enabled:
+        raise HTTPException(status_code=400, detail="Launch disabled by config (aws.launch_enabled=false)")
     nr = _node_req(req)
     ensure_unit_bundle(nr.unit_path, nr.role)
 
@@ -211,118 +213,144 @@ def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
     return {"ok": True, "terminate": term, "node": updated}
 
 
+
+@router.delete("/nodes/{node_id}")
+def nodes_delete(node_id: str, request: Request) -> Dict[str, Any]:
+    require_operator(request)
+    ok = delete_node(node_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"node not found: {node_id}")
+    return {"ok": True, "node_id": node_id}
+
+
 @router.get("/nodes")
 def nodes_list(request: Request) -> Dict[str, Any]:
     require_operator(request)
 
-    items = list_nodes()
+    state_items = list_nodes()
     aws = aws_list_nodes()
     aws_instances = list(aws.get("instances") or [])
 
-    aws_by_id = {i.get("instance_id"): i for i in aws_instances if i.get("instance_id")}
-    aws_by_pub = {i.get("public_ip"): i for i in aws_instances if i.get("public_ip")}
-    aws_by_priv = {i.get("private_ip"): i for i in aws_instances if i.get("private_ip")}
-
     now = int(time.time())
-    out = []
 
-    for n in items:
+    active = []
+    orphaned = []
+    untracked = []
+
+    aws_by_id = {}
+    aws_by_pub = {}
+    aws_by_priv = {}
+
+    for inst in aws_instances:
+        iid = str(inst.get("instance_id") or "").strip()
+        pub = str(inst.get("public_ip") or "").strip()
+        priv = str(inst.get("private_ip") or "").strip()
+
+        if iid:
+            aws_by_id[iid] = inst
+        if pub:
+            aws_by_pub[pub] = inst
+        if priv:
+            aws_by_priv[priv] = inst
+
+    matched_aws_ids = set()
+
+    for n in state_items:
         row = dict(n)
 
-        inst_id = (row.get("instance_id") or "").strip()
-        node_id = (row.get("node_id") or "").strip()
-
-        if not inst_id and node_id.startswith("i-"):
-            inst_id = node_id
-            row["instance_id"] = inst_id
-
-        if node_id == "tak-orchestrator" and not inst_id:
-            row["aws_state"] = "local"
-            row["heartbeat_age_sec"] = (now - int(row.get("last_seen_ts") or 0)) if row.get("last_seen_ts") else None
-            row["derived_status"] = "local"
-            out.append(row)
-            continue
-
+        node_id = str(row.get("node_id") or "").strip()
+        inst_id = str(row.get("instance_id") or "").strip()
+        pub = str(row.get("public_ip") or "").strip()
+        priv = str(row.get("private_ip") or "").strip()
         last_seen = int(row.get("last_seen_ts") or 0)
         heartbeat_age = (now - last_seen) if last_seen else None
 
+
         aws_rec = None
         if inst_id and inst_id in aws_by_id:
-            aws_rec = aws_by_id.get(inst_id)
-        else:
-            pub = (row.get("public_ip") or "").strip()
-            priv = (row.get("private_ip") or "").strip()
-            aws_rec = aws_by_pub.get(pub) or aws_by_priv.get(priv)
+            aws_rec = aws_by_id[inst_id]
+        elif pub and pub in aws_by_pub:
+            aws_rec = aws_by_pub[pub]
+        elif priv and priv in aws_by_priv:
+            aws_rec = aws_by_priv[priv]
 
         if aws_rec is None:
-            aws_state = "terminated" if inst_id else "unknown"
-        else:
-            aws_state = (aws_rec or {}).get("state") or "unknown"
+            row["aws_state"] = "missing"
+            row["heartbeat_age_sec"] = heartbeat_age
+            row["derived_status"] = "orphaned"
+            orphaned.append(row)
+            continue
 
-        if aws_state == "terminated":
-            derived = "terminated"
-        elif aws_state == "stopped":
-            derived = "stopped"
-        elif aws_state == "running":
-            if heartbeat_age is None:
-                if row.get("status") == "booting" or last_seen == 0:
-                    derived = "booting"
-                else:
-                    derived = "running"
-            elif heartbeat_age > 120:
-                derived = "stale"
-            else:
-                derived = "running"
-        else:
-            derived = "unknown"
+        aws_state = str(aws_rec.get("state") or "unknown").strip().lower()
+        aws_iid = str(aws_rec.get("instance_id") or "").strip()
+        if aws_iid:
+            matched_aws_ids.add(aws_iid)
 
         row["aws_state"] = aws_state
         row["heartbeat_age_sec"] = heartbeat_age
-        row["derived_status"] = derived
+        row["derived_status"] = "active"
 
-        if aws_rec:
-            row["aws_instance_id"] = aws_rec.get("instance_id")
-            row["aws_private_ip"] = aws_rec.get("private_ip")
-            row["aws_public_ip"] = aws_rec.get("public_ip")
+        row["aws_instance_id"] = aws_rec.get("instance_id")
+        row["aws_private_ip"] = aws_rec.get("private_ip")
+        row["aws_public_ip"] = aws_rec.get("public_ip")
 
-            if aws_rec.get("instance_id"):
-                row["instance_id"] = aws_rec.get("instance_id")
-            if aws_rec.get("public_ip"):
-                row["public_ip"] = aws_rec.get("public_ip")
-            if aws_rec.get("private_ip"):
-                row["private_ip"] = aws_rec.get("private_ip")
+        if aws_rec.get("instance_id"):
+            row["instance_id"] = aws_rec.get("instance_id")
+        if aws_rec.get("public_ip"):
+            row["public_ip"] = aws_rec.get("public_ip")
+        if aws_rec.get("private_ip"):
+            row["private_ip"] = aws_rec.get("private_ip")
+        if aws_rec.get("public_dns"):
+            row["public_dns"] = aws_rec.get("public_dns")
 
-        out.append(row)
+        active.append(row)
 
-    tracked_ids = {str((x.get("instance_id") or "")).strip() for x in out if str((x.get("instance_id") or "")).strip()}
+    cfg = load_orch_config()
+    fqdn_suffix = str(cfg.nodes.default_node_domain).strip().strip(".")
 
     for aws_rec in aws_instances:
         inst_id = str(aws_rec.get("instance_id") or "").strip()
-        if not inst_id or inst_id in tracked_ids:
+        if not inst_id or inst_id in matched_aws_ids:
             continue
+
+        unit_path = str(aws_rec.get("unit_path") or "").strip()
+        fqdn = ""
+        if unit_path and "." in unit_path:
+            fqdn = unit_path
+        elif unit_path and fqdn_suffix:
+            fqdn = f"{unit_path}.{fqdn_suffix}"
 
         row = {
             "node_id": inst_id,
             "instance_id": inst_id,
-            "unit_path": aws_rec.get("unit_path") or "",
+            "unit_path": unit_path,
             "role": aws_rec.get("role") or "",
-            "fqdn": "",
+            "fqdn": fqdn,
             "hostname": aws_rec.get("name") or "",
             "public_dns": aws_rec.get("public_dns") or "",
             "public_ip": aws_rec.get("public_ip") or "",
             "private_ip": aws_rec.get("private_ip") or "",
-            "aws_state": aws_rec.get("state") or "unknown",
+            "aws_state": str(aws_rec.get("state") or "unknown").strip().lower(),
             "derived_status": "untracked",
             "last_seen_ts": 0,
             "heartbeat_age_sec": None,
+            "aws_instance_id": aws_rec.get("instance_id") or "",
+            "aws_public_ip": aws_rec.get("public_ip") or "",
+            "aws_private_ip": aws_rec.get("private_ip") or "",
         }
-        out.append(row)
+        untracked.append(row)
 
-    order = {"running": 0, "stale": 1, "stopped": 2, "unknown": 3, "untracked": 4, "terminated": 5, "local": 6}
-    out.sort(key=lambda x: (order.get(x.get("derived_status") or "unknown", 99),
-                            -(int(x.get("last_seen_ts") or 0))))
+    active.sort(key=lambda x: -(int(x.get("last_seen_ts") or 0)))
+    untracked.sort(key=lambda x: str(x.get("instance_id") or ""))
+    orphaned.sort(key=lambda x: -(int(x.get("last_seen_ts") or 0)))
 
-    return {"count": len(out), "items": out, "aws": aws}
+    return {
+        "count": len(active),
+        "items": active,
+        "untracked_items": untracked,
+        "orphaned_items": orphaned,
+        "aws": aws,
+    }
 
 @router.post("/nodes/register")
 def nodes_register(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
@@ -353,7 +381,8 @@ def nodes_register(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 
 @router.post("/nodes/heartbeat")
 def nodes_heartbeat(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
-    require_operator(request)
+    if not verify_basic_auth(request.headers.get("authorization")):
+        raise HTTPException(status_code=401, detail="Unauthorized (node BASIC auth required)")
 
     node_id = (req.get("node_id") or req.get("fqdn") or req.get("instance_id") or "").strip()
     if not node_id:

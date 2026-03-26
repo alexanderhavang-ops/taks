@@ -8,7 +8,6 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/opt/tak-orch/orchestrator
 Environment=PYTHONPATH=/opt/tak-orch/orchestrator
-EnvironmentFile=-/opt/tak-orch/state/defaults.env
 ExecStart=/opt/tak-orch/.venv/bin/uvicorn --app-dir /opt/tak-orch/orchestrator orchestrator_api.app:app --host 127.0.0.1 --port 8090
 Restart=on-failure
 RestartSec=2

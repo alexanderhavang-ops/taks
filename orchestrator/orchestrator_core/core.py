@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
 import boto3
 import yaml
+from orchestrator_core.config import load_orch_config
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 
@@ -15,7 +17,8 @@ TEMPLATES = REPO_ROOT / "orchestrator" / "templates"
 
 
 def region() -> str:
-    return os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "eu-north-1"
+    cfg = load_orch_config()
+    return cfg.aws.region
 
 
 def jinja_env() -> Environment:
@@ -34,11 +37,8 @@ def render_cloud_init(*, unit_path: str, role: str, fqdn: str, hostname: str) ->
     Template-driven so WebUI / CLI / API stay consistent.
     Cloud-init is intentionally super-KISS: download rendered unit bundle and run startup.sh.
     """
-    orch_api_url = (
-        os.environ.get("TAKS_ORCH_API_URL")
-        or os.environ.get("ORCH_API_URL")
-        or "https://master.tak-hv-sandbox.se"
-    )
+    cfg = load_orch_config()
+    orch_api_url = cfg.identity.public_base_url
 
     tpl = jinja_env().get_template("tak-node.cloud-init.yml.j2")
     return tpl.render(
@@ -57,61 +57,13 @@ def validate_cloud_init(text: str) -> None:
 
 
 def resolve_ubuntu_2204_ami(*, region_name: str) -> str:
-    pinned = os.environ.get("TAKS_IMAGE_ID")
-    if pinned:
-        return pinned
-
-    ssm = boto3.client("ssm", region_name=region_name)
-    param = "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
-
-    try:
-        r = ssm.get_parameter(Name=param)
-        return r["Parameter"]["Value"]
-    except Exception as e:
-        msg = str(e)
-        if "AccessDenied" not in msg and "AccessDeniedException" not in msg:
-            raise
-
-    ec2 = boto3.client("ec2", region_name=region_name)
-
-    canonical_owner = "099720109477"
-    name_glob = "ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"
-
-    imgs = ec2.describe_images(
-        Owners=[canonical_owner],
-        Filters=[
-            {"Name": "name", "Values": [name_glob]},
-            {"Name": "state", "Values": ["available"]},
-            {"Name": "architecture", "Values": ["x86_64"]},
-            {"Name": "virtualization-type", "Values": ["hvm"]},
-        ],
-    )["Images"]
-
-    if not imgs:
-        raise RuntimeError("No Ubuntu 22.04 images found")
-
-    imgs.sort(key=lambda im: im.get("CreationDate", ""), reverse=True)
-    return imgs[0]["ImageId"]
+    cfg = load_orch_config()
+    return cfg.aws.default_ami
 
 
 def resolve_default_public_subnet(*, region_name: str) -> Dict[str, str]:
-    pinned_subnet = os.environ.get("TAKS_SUBNET_ID")
-    if pinned_subnet:
-        return {"vpc_id": "pinned", "subnet_id": pinned_subnet}
-
-    ec2 = boto3.client("ec2", region_name=region_name)
-    vpcs = ec2.describe_vpcs(Filters=[{"Name": "isDefault", "Values": ["true"]}])["Vpcs"]
-    if not vpcs:
-        raise RuntimeError("no default VPC found")
-
-    vpc_id = vpcs[0]["VpcId"]
-    subnets = ec2.describe_subnets(Filters=[{"Name": "vpc-id", "Values": [vpc_id]}])["Subnets"]
-    pub = [s for s in subnets if s.get("MapPublicIpOnLaunch")]
-    if not pub:
-        raise RuntimeError("no public subnet found")
-
-    subnet_id = sorted(pub, key=lambda s: s["SubnetId"])[0]["SubnetId"]
-    return {"vpc_id": vpc_id, "subnet_id": subnet_id}
+    cfg = load_orch_config()
+    return {"vpc_id": "configured", "subnet_id": cfg.aws.default_subnet_id}
 
 
 @dataclass
@@ -176,17 +128,88 @@ def aws_dry_run(req: NodeRequest) -> Dict[str, Any]:
     }
 
 
+def _route53_zone_id() -> str:
+    cfg = load_orch_config()
+    return str(cfg.aws.route53_zone_id).strip()
+
+
+def _wait_for_instance_network(ec2, instance_id: str, *, timeout_seconds: int = 300, sleep_seconds: int = 5) -> Dict[str, Any]:
+    deadline = time.time() + timeout_seconds
+    last: Dict[str, Any] = {}
+
+    while time.time() < deadline:
+        resp = ec2.describe_instances(InstanceIds=[instance_id])
+        reservations = list(resp.get("Reservations") or [])
+        inst = {}
+        if reservations and reservations[0].get("Instances"):
+            inst = dict(reservations[0]["Instances"][0] or {})
+            last = inst
+
+        public_ip = str(inst.get("PublicIpAddress") or "").strip()
+        private_ip = str(inst.get("PrivateIpAddress") or "").strip()
+        state = str(((inst.get("State") or {}).get("Name")) or "").strip()
+
+        if private_ip and public_ip:
+            return inst
+
+        if state in {"shutting-down", "terminated"}:
+            raise RuntimeError(f"instance {instance_id} entered state {state} before network became ready")
+
+        time.sleep(sleep_seconds)
+
+    raise RuntimeError(
+        f"timed out waiting for instance network info for {instance_id}; "
+        f"last_state={((last.get('State') or {}).get('Name') or '')} "
+        f"last_private_ip={last.get('PrivateIpAddress') or ''} "
+        f"last_public_ip={last.get('PublicIpAddress') or ''}"
+    )
+
+
+def _upsert_node_dns(*, zone_id: str, fqdn: str, public_ip: str, ttl: int = 60) -> Dict[str, Any]:
+    fqdn = str(fqdn or "").strip().rstrip(".")
+    public_ip = str(public_ip or "").strip()
+    if not zone_id:
+        raise RuntimeError("missing route53 zone id")
+    if not fqdn:
+        raise RuntimeError("missing fqdn for dns upsert")
+    if not public_ip:
+        raise RuntimeError("missing public_ip for dns upsert")
+
+    r53 = boto3.client("route53")
+    change_batch = {
+        "Comment": f"TAKS node DNS upsert for {fqdn}",
+        "Changes": [
+            {
+                "Action": "UPSERT",
+                "ResourceRecordSet": {
+                    "Name": fqdn,
+                    "Type": "A",
+                    "TTL": ttl,
+                    "ResourceRecords": [{"Value": public_ip}],
+                },
+            }
+        ],
+    }
+
+    resp = r53.change_resource_record_sets(
+        HostedZoneId=zone_id,
+        ChangeBatch=change_batch,
+    )
+    return dict(resp.get("ChangeInfo") or {})
+
+
 def aws_launch(req: NodeRequest) -> Dict[str, Any]:
     r = region()
     plan = plan_node(req)
 
-    sg_id = (req.aws_sg_id or os.environ.get("TAKS_AWS_SG_ID") or "").strip()
-    key_name = (req.aws_key_name or os.environ.get("TAKS_AWS_KEY_NAME") or "").strip()
+    cfg = load_orch_config()
+    sg_id = (req.aws_sg_id or cfg.aws.default_security_group_id or "").strip()
+    key_name = (req.aws_key_name or cfg.aws.ssh_key_name or "").strip()
 
     if not sg_id:
-        raise RuntimeError("Missing security group id (set TAKS_AWS_SG_ID or pass aws_sg_id)")
+        raise RuntimeError("Missing security group id (set aws.default_security_group_id or pass aws_sg_id)")
     if not key_name:
-        raise RuntimeError("Missing EC2 keypair name (set TAKS_AWS_KEY_NAME or pass aws_key_name)")
+        raise RuntimeError("Missing EC2 keypair name (set aws.ssh_key_name or pass aws_key_name)")
 
     ec2 = boto3.client("ec2", region_name=r)
 
@@ -205,6 +228,16 @@ def aws_launch(req: NodeRequest) -> Dict[str, Any]:
             }
         ],
         "UserData": plan["cloud_init"],
+        "BlockDeviceMappings": [
+            {
+                "DeviceName": "/dev/sda1",
+                "Ebs": {
+                    "VolumeSize": 64,
+                    "VolumeType": "gp3",
+                    "DeleteOnTermination": True,
+                },
+            }
+        ],
         "TagSpecifications": [
             {
                 "ResourceType": "instance",
@@ -215,13 +248,33 @@ def aws_launch(req: NodeRequest) -> Dict[str, Any]:
 
     resp = ec2.run_instances(**kwargs)
     inst = resp["Instances"][0]
+    instance_id = str(inst["InstanceId"])
+
+    inst_live = _wait_for_instance_network(ec2, instance_id)
+    public_ip = str(inst_live.get("PublicIpAddress") or "").strip()
+    private_ip = str(inst_live.get("PrivateIpAddress") or "").strip()
+    state = str(((inst_live.get("State") or {}).get("Name")) or inst["State"]["Name"]).strip()
+
+    zone_id = _route53_zone_id()
+    dns_change = None
+    if zone_id:
+        dns_change = _upsert_node_dns(
+            zone_id=zone_id,
+            fqdn=req.fqdn,
+            public_ip=public_ip,
+        )
 
     return {
-        "instance_id": inst["InstanceId"],
-        "state": inst["State"]["Name"],
+        "instance_id": instance_id,
+        "state": state,
         "region": r,
         "subnet_id": plan["subnet_id"],
         "sg_id": sg_id,
+        "private_ip": private_ip,
+        "public_ip": public_ip,
+        "fqdn": req.fqdn,
+        "route53_zone_id": zone_id or None,
+        "dns_change": dns_change,
     }
 
 
@@ -258,11 +311,15 @@ def aws_list_nodes() -> Dict[str, Any]:
     instances: List[Dict[str, Any]] = []
     for res in resp.get("Reservations", []):
         for i in res.get("Instances", []):
+            state = str((i.get("State") or {}).get("Name") or "").strip().lower()
+            if state in {"terminated", "shutting-down"}:
+                continue
+
             tags = {str(t.get("Key") or ""): str(t.get("Value") or "") for t in (i.get("Tags") or [])}
             instances.append(
                 {
                     "instance_id": i.get("InstanceId"),
-                    "state": (i.get("State") or {}).get("Name"),
+                    "state": state,
                     "private_ip": i.get("PrivateIpAddress"),
                     "public_ip": i.get("PublicIpAddress"),
                     "public_dns": i.get("PublicDnsName"),

@@ -35,6 +35,40 @@ install_base_files() {
   fi
 }
 
+install_bundled_tls_material() {
+  local node_env="/etc/taks/node.env"
+  local src_dir="$BUNDLE_ROOT/install/letsencrypt"
+  local src_cert="$src_dir/fullchain.pem"
+  local src_key="$src_dir/privkey.pem"
+
+  if [ ! -f "$node_env" ]; then
+    log "skip bundled TLS install (missing /etc/taks/node.env)"
+    return 0
+  fi
+
+  # shellcheck disable=SC1090
+  . "$node_env"
+
+  local fqdn="${TAKS_NODE_FQDN:-}"
+  if [ -z "$fqdn" ]; then
+    log "skip bundled TLS install (TAKS_NODE_FQDN missing)"
+    return 0
+  fi
+
+  if [ ! -f "$src_cert" ] || [ ! -f "$src_key" ]; then
+    log "skip bundled TLS install (missing bundled cert/key)"
+    return 0
+  fi
+
+  local dst_dir="/etc/letsencrypt/live/$fqdn"
+  mkdir -p "$dst_dir"
+
+  install -m 0644 "$src_cert" "$dst_dir/fullchain.pem"
+  install -m 0600 "$src_key" "$dst_dir/privkey.pem"
+
+  log "installed bundled TLS material into $dst_dir"
+}
+
 install_heartbeat() {
   mkdir -p /opt/taks/install
   install -m 0755 "$BUNDLE_ROOT/install/taks-heartbeat.sh" /opt/taks/install/taks-heartbeat.sh
@@ -53,6 +87,7 @@ install_heartbeat() {
 
 main() {
   install_base_files
+  install_bundled_tls_material
   install_heartbeat
 
   run_step "os-tuning" "$BUNDLE_ROOT/install/os-tuning.sh"

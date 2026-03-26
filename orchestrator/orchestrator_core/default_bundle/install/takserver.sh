@@ -35,7 +35,11 @@ find_deb() {
   done
 
   TAKSERVER_DEB="$(find "$BUNDLE_ROOT" -maxdepth 4 -type f -name 'takserver_*_all.deb' | head -n 1 || true)"
-  [ -n "${TAKSERVER_DEB:-}" ] || fail "takserver deb not found in bundle"
+  if [ -n "${TAKSERVER_DEB:-}" ]; then
+    return 0
+  fi
+
+  return 1
 }
 
 find_optional_sig_material() {
@@ -82,7 +86,7 @@ verify_deb_if_material_present() {
   apt-get install -y debsig-verify gnupg2
 
   local deb_policy_id
-  deb_policy_id="$(grep -o 'id="[^"]\+"' "$TAK_DEB_POLICY" | head -n 1 | sed 's/id="//; s/"$//')"
+  deb_policy_id="$(grep -o 'id=\"[^\"]\\+\"' "$TAK_DEB_POLICY" | head -n 1 | sed 's/id="//; s/"$//')"
   [ -n "$deb_policy_id" ] || fail "could not extract debsig policy id from $TAK_DEB_POLICY"
 
   rm -rf "/usr/share/debsig/keyrings/${deb_policy_id}"
@@ -193,7 +197,12 @@ postcheck() {
 
 main() {
   require_root
-  find_deb
+
+  if ! find_deb; then
+    log "no takserver deb in bundle; skipping takserver install phase"
+    exit 0
+  fi
+
   find_optional_sig_material
   ensure_pgdg_repo_if_needed
   verify_deb_if_material_present

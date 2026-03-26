@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Request, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse, JSONResponse
 from pydantic import BaseModel
 
+from orchestrator_core.config import load_orch_config, load_secrets_config
 from .auth import make_token, verify_token
 
 router = APIRouter()
@@ -22,7 +22,8 @@ _SHARED_ASSETS = _SHARED_ROOT / "assets"
 
 
 def _state_dir() -> Path:
-  return Path(os.environ.get("TAKS_STATE_DIR") or "/opt/tak-orch/state")
+  cfg = load_orch_config()
+  return Path(cfg.paths.state_dir)
 
 
 def _html(name: str) -> str:
@@ -30,7 +31,7 @@ def _html(name: str) -> str:
 
 
 def _is_authed(req: Request) -> bool:
-  secret = os.getenv("TAKS_UI_SECRET", "")
+  secret = load_secrets_config().auth.session_secret
   tok = req.cookies.get("taks_auth")
   return bool(secret and tok and verify_token(tok, secret))
 
@@ -169,8 +170,9 @@ def login_post(password: str = Form(...), role: str = Form(default=""), username
   """
   Legacy form login (kept deterministic).
   """
-  want = os.getenv("TAKS_UI_PASSWORD", "changeme")
-  secret = os.getenv("TAKS_UI_SECRET", "")
+  secrets = load_secrets_config()
+  want = secrets.auth.operator_password
+  secret = secrets.auth.session_secret
   if password != want or not secret:
     return HTMLResponse("login failed\n", status_code=401)
 
@@ -197,8 +199,9 @@ def api_login(req: LoginReq, request: Request):
     POST /api/login { username, password, role }
   Sets cookies and returns JSON {ok:true}.
   """
-  want = (os.getenv("TAKS_UI_PASSWORD") or "changeme").strip()
-  secret = (os.getenv("TAKS_UI_SECRET") or "").strip()
+  secrets = load_secrets_config()
+  want = secrets.auth.operator_password.strip()
+  secret = secrets.auth.session_secret.strip()
   if (req.password or "") != want or not secret:
     return JSONResponse({"ok": False, "error": "login failed"}, status_code=401)
 

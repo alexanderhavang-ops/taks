@@ -143,14 +143,9 @@
 
     try{
       const j = await CORE.api('GET','/api/v2/nodes');
-      const items = Array.isArray(j.items) ? j.items : [];
+      const active = Array.isArray(j.items) ? j.items : [];
+      const untracked = Array.isArray(j.untracked_items) ? j.untracked_items : [];
       const orphaned = Array.isArray(j.orphaned_items) ? j.orphaned_items : [];
-
-      const untracked = items.filter(n => String(n.derived_status || '') === 'untracked');
-      const active = items.filter(n => {
-        const st = String(n.derived_status || '').trim();
-        return st !== 'untracked' && st !== 'terminated';
-      });
 
       renderMainTable(activeBody, active);
       renderMainTable(untrackedBody, untracked);

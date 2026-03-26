@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
+from orchestrator_core.config import load_orch_config
 from typing import Any, Dict, List, Optional
 
 
 def _state_dir() -> Path:
-    return Path(os.environ.get("TAKS_STATE_DIR") or "/opt/tak-orch/state")
+    cfg = load_orch_config()
+    return Path(cfg.paths.state_dir)
 
 
 def nodes_dir() -> Path:
@@ -69,6 +70,14 @@ def touch_heartbeat(node_id: str, status: str = "online", extra: Optional[Dict[s
             if v is not None:
                 patch[k] = v
     return upsert_node(node_id, patch)
+
+
+def delete_node(node_id: str) -> bool:
+    p = node_path(node_id)
+    if not p.exists():
+        return False
+    p.unlink()
+    return True
 
 
 def list_nodes() -> List[Dict[str, Any]]:
