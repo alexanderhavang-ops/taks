@@ -7,6 +7,16 @@ from typing import Any, Dict, List
 from martine.config import load_config
 from martine.state.paths import ensure_state_dirs
 from martine.tools.taks_state import get_taks_state_summary
+from martine.tools.cot_sa import (
+    get_contact_status,
+    get_current_time,
+    get_distance_to_callsign,
+    get_enemy_contacts_near_me,
+    get_last_seen,
+    get_my_mgrs,
+    get_my_position,
+    get_nearest_friendly,
+)
 
 
 def list_tools() -> List[Dict[str, Any]]:
@@ -16,9 +26,7 @@ def list_tools() -> List[Dict[str, Any]]:
             "description": "Simple connectivity test.",
             "input_schema": {
                 "type": "object",
-                "properties": {
-                    "message": {"type": "string"}
-                },
+                "properties": {"message": {"type": "string"}},
                 "required": [],
                 "additionalProperties": False,
             },
@@ -47,6 +55,111 @@ def list_tools() -> List[Dict[str, Any]]:
             "input_schema": {
                 "type": "object",
                 "properties": {},
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "get_current_time",
+            "description": "Return current UTC and local time.",
+            "input_schema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "get_my_position",
+            "description": "Return latest known position for the sender.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "sender_uid": {"type": "string"},
+                    "sender_callsign": {"type": "string"},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "get_my_mgrs",
+            "description": "Return latest known MGRS-like position string for the sender.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "sender_uid": {"type": "string"},
+                    "sender_callsign": {"type": "string"},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "get_contact_status",
+            "description": "Return latest known status and position for a callsign or UID.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "callsign_or_uid": {"type": "string"},
+                    "sender_callsign": {"type": "string"},
+                },
+                "required": ["callsign_or_uid"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "get_last_seen",
+            "description": "Return when a callsign or UID was last seen.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "callsign_or_uid": {"type": "string"},
+                    "sender_callsign": {"type": "string"},
+                },
+                "required": ["callsign_or_uid"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "get_distance_to_callsign",
+            "description": "Return distance and bearing from the sender to a target callsign or UID.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "target_callsign_or_uid": {"type": "string"},
+                    "sender_uid": {"type": "string"},
+                    "sender_callsign": {"type": "string"},
+                },
+                "required": ["target_callsign_or_uid"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "get_nearest_friendly",
+            "description": "Return the nearest friendly unit to the sender.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "sender_uid": {"type": "string"},
+                    "sender_callsign": {"type": "string"},
+                    "limit": {"type": "integer"},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "get_enemy_contacts_near_me",
+            "description": "Return hostile contacts recently seen near the sender.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "sender_uid": {"type": "string"},
+                    "sender_callsign": {"type": "string"},
+                    "radius_m": {"type": "integer"},
+                    "minutes": {"type": "integer"},
+                    "limit": {"type": "integer"},
+                },
+                "required": [],
                 "additionalProperties": False,
             },
         },
@@ -96,5 +209,55 @@ def call_tool(name: str, arguments: Dict[str, Any] | None = None) -> Dict[str, A
             "tool": "get_taks_state_summary",
             "summary": get_taks_state_summary(),
         }
+
+    if name == "get_current_time":
+        return get_current_time()
+
+    if name == "get_my_position":
+        return get_my_position(
+            sender_uid=str(args.get("sender_uid", "")),
+            sender_callsign=str(args.get("sender_callsign", "")),
+        )
+
+    if name == "get_my_mgrs":
+        return get_my_mgrs(
+            sender_uid=str(args.get("sender_uid", "")),
+            sender_callsign=str(args.get("sender_callsign", "")),
+        )
+
+    if name == "get_contact_status":
+        return get_contact_status(
+            callsign_or_uid=str(args.get("callsign_or_uid", "")),
+            sender_callsign=str(args.get("sender_callsign", "")),
+        )
+
+    if name == "get_last_seen":
+        return get_last_seen(
+            callsign_or_uid=str(args.get("callsign_or_uid", "")),
+            sender_callsign=str(args.get("sender_callsign", "")),
+        )
+
+    if name == "get_distance_to_callsign":
+        return get_distance_to_callsign(
+            target_callsign_or_uid=str(args.get("target_callsign_or_uid", "")),
+            sender_uid=str(args.get("sender_uid", "")),
+            sender_callsign=str(args.get("sender_callsign", "")),
+        )
+
+    if name == "get_nearest_friendly":
+        return get_nearest_friendly(
+            sender_uid=str(args.get("sender_uid", "")),
+            sender_callsign=str(args.get("sender_callsign", "")),
+            limit=int(args.get("limit", 20)),
+        )
+
+    if name == "get_enemy_contacts_near_me":
+        return get_enemy_contacts_near_me(
+            sender_uid=str(args.get("sender_uid", "")),
+            sender_callsign=str(args.get("sender_callsign", "")),
+            radius_m=int(args.get("radius_m", 2000)),
+            minutes=int(args.get("minutes", 60)),
+            limit=int(args.get("limit", 20)),
+        )
 
     raise ValueError(f"unknown tool: {name}")

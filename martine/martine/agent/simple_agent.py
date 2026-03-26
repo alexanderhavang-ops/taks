@@ -8,7 +8,7 @@ from martine.mcp_server.client import call_tool_via_mcp, list_tools_via_mcp
 from martine.state.runlog import new_run_id, write_json, write_text
 
 
-def _build_tool_selection_prompt(user_question: str, tools: List[Dict[str, Any]]) -> str:
+def _build_tool_selection_prompt(user_question: str, tools: List[Dict[str, Any]], sender_uid: str = "", sender_callsign: str = "") -> str:
     tools_json = json.dumps(tools, ensure_ascii=False, indent=2)
     return f"""You are Martine, a TAKS operational assistant.
 
@@ -35,6 +35,12 @@ Rules:
 
 AVAILABLE_TOOLS:
 {tools_json}
+
+SENDER_CONTEXT:
+{{
+  "sender_uid": {json.dumps(sender_uid, ensure_ascii=False)},
+  "sender_callsign": {json.dumps(sender_callsign, ensure_ascii=False)}
+}}
 
 USER_QUESTION:
 {user_question}
@@ -64,13 +70,13 @@ TOOL_RESULT:
 """
 
 
-def run_once(user_question: str) -> Dict[str, Any]:
+def run_once(user_question: str, *, sender_uid: str = "", sender_callsign: str = "") -> Dict[str, Any]:
     run_id = new_run_id()
     llm = MartineLlm()
     tools = list_tools_via_mcp()
     tool_names = [str(t.get("name") or "") for t in tools]
 
-    select_prompt = _build_tool_selection_prompt(user_question, tools)
+    select_prompt = _build_tool_selection_prompt(user_question, tools, sender_uid=sender_uid, sender_callsign=sender_callsign)
     write_text(run_id, "01_tool_selection_prompt.txt", select_prompt)
 
     select_resp = llm.complete_text(
@@ -84,6 +90,8 @@ def run_once(user_question: str) -> Dict[str, Any]:
         "ok": False,
         "run_id": run_id,
         "question": user_question,
+        "sender_uid": sender_uid,
+        "sender_callsign": sender_callsign,
         "tool_selection_raw": select_resp,
         "tool_result": None,
         "final_answer_raw": None,
@@ -110,6 +118,24 @@ def run_once(user_question: str) -> Dict[str, Any]:
     tool_args = selection.get("tool_args") or {}
 
     tool_result: Dict[str, Any] | None = None
+
+    # Auto-inject sender context for soldier-centric tools.
+    if isinstance(tool_args, dict):
+        if tool_name in {
+            "get_my_position",
+            "get_my_mgrs",
+            "get_distance_to_callsign",
+            "get_nearest_friendly",
+            "get_enemy_contacts_near_me",
+        }:
+            tool_args.setdefault("sender_uid", sender_uid)
+            tool_args.setdefault("sender_callsign", sender_callsign)
+
+        if tool_name in {
+            "get_contact_status",
+            "get_last_seen",
+        }:
+            tool_args.setdefault("sender_callsign", sender_callsign)
 
     if use_tool:
         if tool_name not in tool_names:

@@ -1,0 +1,41 @@
+{
+  "component": "db",
+  "fields": {
+    "db_mode": {
+      "type": "string",
+      "default": "pgsql",
+      "doc": "Database mode",
+      "secret": false
+    },
+    "db_name": {
+      "type": "string",
+      "default": "cot",
+      "doc": "Database name",
+      "secret": false
+    },
+    "db_host": {
+      "type": "string",
+      "default": "127.0.0.1",
+      "doc": "Database host",
+      "secret": false
+    },
+    "db_port": {
+      "type": "string",
+      "default": "5432",
+      "doc": "Database port",
+      "secret": false
+    },
+    "db_user": {
+      "type": "string",
+      "default": "tak",
+      "doc": "Database username",
+      "secret": false
+    },
+    "db_password": {
+      "type": "string",
+      "default": "",
+      "doc": "Database password",
+      "secret": true
+    }
+  }
+}

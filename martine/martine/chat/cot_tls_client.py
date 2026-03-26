@@ -167,7 +167,11 @@ def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
     if not question:
         return
 
-    result = run_once(question)
+    result = run_once(
+        question,
+        sender_uid=str(msg.get("from_uid") or "").strip(),
+        sender_callsign=str(msg.get("from_callsign") or "").strip(),
+    )
     answer = str(result.get("answer") or "").strip()
     if not answer:
         answer = f"Jag kunde inte svara just nu. Fel: {result.get('error') or 'okänt fel'}"

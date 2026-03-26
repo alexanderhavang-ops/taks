@@ -15,6 +15,8 @@ DST_CONF_D = DST_ROOT / "conf.d"
 DST_SECRETS_D = DST_ROOT / "secrets.d"
 DST_CONFMETA = DST_ROOT / "confmeta"
 LEGACY_DB_ENV = DST_ROOT / "secrets" / "db.env"
+LEGACY_DB_SPLIT_ENV = DST_ROOT / "secrets" / "db.env"
+DST_DB_SECRET_SPLIT = DST_SECRETS_D / "db.conf"
 
 
 def _src_root(ctx) -> Path:
@@ -71,17 +73,18 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     return out
 
 
-def _copy_tree_text(src_dir: Path, dst_dir: Path, *, mode: int) -> int:
+def _copy_tree_text(src_dir: Path, dst_dir: Path, *, mode: int, preserve_existing: bool = False) -> int:
     if not src_dir.exists() or not src_dir.is_dir():
         return 0
 
     dst_dir.mkdir(parents=True, exist_ok=True)
 
-    for old in dst_dir.iterdir():
-        if old.is_file() or old.is_symlink():
-            old.unlink()
-        elif old.is_dir():
-            shutil.rmtree(old)
+    if not preserve_existing:
+        for old in dst_dir.iterdir():
+            if old.is_file() or old.is_symlink():
+                old.unlink()
+            elif old.is_dir():
+                shutil.rmtree(old)
 
     n = 0
     for src in sorted(src_dir.iterdir()):
@@ -100,6 +103,12 @@ def _copy_tree_text(src_dir: Path, dst_dir: Path, *, mode: int) -> int:
             continue
 
         dst = dst_dir / dst_name
+
+        # For secrets, keep existing runtime material if already present.
+        if preserve_existing and dst.exists():
+            n += 1
+            continue
+
         _write_atomic(dst, src.read_text(encoding="utf-8"), mode)
         n += 1
     return n
@@ -127,6 +136,22 @@ def _migrate_legacy_db_env_to_secrets() -> bool:
     _write_atomic(DST_SECRETS, content, 0o640)
     subprocess.run(["chown", "tak:tak", str(DST_SECRETS)], check=False)
     log.info("takctl-config: migrated legacy %s -> %s", LEGACY_DB_ENV, DST_SECRETS)
+    return True
+
+
+def _migrate_legacy_db_env_to_split_secret() -> bool:
+    if DST_DB_SECRET_SPLIT.exists():
+        return False
+    if not LEGACY_DB_SPLIT_ENV.exists():
+        return False
+
+    kv = _parse_env_file(LEGACY_DB_SPLIT_ENV)
+    db_password = (kv.get("TAKCTL_DB_PASSWORD") or "").strip()
+
+    content = f"db_password = {db_password}\n"
+    _write_atomic(DST_DB_SECRET_SPLIT, content, 0o640)
+    subprocess.run(["chown", "tak:tak", str(DST_DB_SECRET_SPLIT)], check=False)
+    log.info("takctl-config: migrated legacy %s -> %s", LEGACY_DB_SPLIT_ENV, DST_DB_SECRET_SPLIT)
     return True
 
 
@@ -158,11 +183,12 @@ def apply(ctx) -> None:
     else:
         log.info("takctl-config: no source secrets template and no legacy db.env; runtime secrets.conf not installed")
 
-    n_conf = _copy_tree_text(src_conf_d, DST_CONF_D, mode=0o640)
+    n_conf = _copy_tree_text(src_conf_d, DST_CONF_D, mode=0o640, preserve_existing=False)
     subprocess.run(["chown", "-R", "tak:tak", str(DST_CONF_D)], check=False)
     log.info("takctl-config: installed %s conf.d files into %s", n_conf, DST_CONF_D)
 
-    n_sec = _copy_tree_text(src_secrets_d, DST_SECRETS_D, mode=0o640)
+    _migrate_legacy_db_env_to_split_secret()
+    n_sec = _copy_tree_text(src_secrets_d, DST_SECRETS_D, mode=0o640, preserve_existing=True)
     subprocess.run(["chown", "-R", "tak:tak", str(DST_SECRETS_D)], check=False)
     log.info("takctl-config: installed %s secrets.d files into %s", n_sec, DST_SECRETS_D)
 

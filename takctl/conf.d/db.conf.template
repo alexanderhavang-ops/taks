@@ -1,0 +1,5 @@
+db_mode = psycopg2
+db_name = cot
+db_host = 127.0.0.1
+db_port = 5432
+db_user = takctl_ro
