@@ -7,18 +7,18 @@ from tak_installer.actions.systemd_unit import SystemdUnit
 from tak_installer.engine import Context
 
 
-UNIT_NAME = "martine-udp.service"
-UNIT_DST = Path("/etc/systemd/system/martine-udp.service")
+UNIT_NAME = "martine-cot.service"
+UNIT_DST = Path("/etc/systemd/system/martine-cot.service")
 
 
 @dataclass(frozen=True)
 class _Action:
-    ID: str = "systemd.martine-udp"
+    ID: str = "systemd.martine-cot"
 
     def inspect(self, ctx: Context) -> int:
         unit = SystemdUnit(
             name=UNIT_NAME,
-            src=ctx.repo_root / "infra" / "systemd" / "martine-udp.service",
+            src=ctx.repo_root / "infra" / "systemd" / "martine-cot.service",
             dst=UNIT_DST,
         )
         info = unit.inspect()
@@ -43,7 +43,7 @@ class _Action:
     def apply(self, ctx: Context) -> int:
         unit = SystemdUnit(
             name=UNIT_NAME,
-            src=ctx.repo_root / "infra" / "systemd" / "martine-udp.service",
+            src=ctx.repo_root / "infra" / "systemd" / "martine-cot.service",
             dst=UNIT_DST,
         )
 

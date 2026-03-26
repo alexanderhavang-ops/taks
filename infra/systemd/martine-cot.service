@@ -1,5 +1,5 @@
 [Unit]
-Description=Martine TLS CoT client
+Description=Martine CoT client
 After=network-online.target takctl-web.service
 Wants=network-online.target
 
