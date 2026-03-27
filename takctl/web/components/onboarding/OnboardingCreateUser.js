@@ -14,6 +14,15 @@
   const badge = (window.TaksOnboarding && window.TaksOnboarding.createUser && window.TaksOnboarding.createUser.badge) || null;
   function _needBadge(){ if (!badge) throw new Error("Missing create_user/badge.js"); return badge; }
 
+  const IdentityTab = window.OnboardingCreateUserIdentityTab || null;
+  function _needIdentityTab(){ if (!IdentityTab) throw new Error("Missing OnboardingCreateUserIdentityTab.js"); return IdentityTab; }
+
+  const AccountTab = window.OnboardingCreateUserAccountTab || null;
+  function _needAccountTab(){ if (!AccountTab) throw new Error("Missing OnboardingCreateUserAccountTab.js"); return AccountTab; }
+
+  const AdvancedTab = window.OnboardingCreateUserAdvancedTab || null;
+  function _needAdvancedTab(){ if (!AdvancedTab) throw new Error("Missing OnboardingCreateUserAdvancedTab.js"); return AdvancedTab; }
+
   const t = (window.t && typeof window.t === "function") ? window.t : (k) => String(k || "");
 
   const common = (window.TaksOnboarding && window.TaksOnboarding.createUser && window.TaksOnboarding.createUser.common) || null;
@@ -380,7 +389,7 @@
           labelForKey: _labelForKey,
           identityFieldsToRender: identityFieldsToRender,
           ident: ident,
-          setIdentField: _setIdent,
+          setIdent: _setIdent,
           callsignEdit: callsignEdit,
           setCallsignEdit: setCallsignEdit,
           callsignDirtyRef: callsignDirtyRef,
