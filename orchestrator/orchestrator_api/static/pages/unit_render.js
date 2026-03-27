@@ -159,9 +159,6 @@
     const awsKind = aws === 'running' ? 'ok' : (aws === 'terminated' ? 'err' : 'muted');
     const hbKind = hb === 'online' ? 'ok' : (hb === 'stale' ? 'warn' : (hb === 'lost' ? 'err' : 'muted'));
     const fqdn = String(node.fqdn || '').trim();
-    const taksUrl = fqdn ? ('https://' + fqdn + '/') : '';
-    const webtakUrl = fqdn ? ('https://' + fqdn + ':8446/webtak/') : '';
-    const martiUrl = fqdn ? ('https://' + fqdn + ':8446/Marti/') : '';
 
     const row1 = S.el('div', { className: 'grid grid--6' });
     row1.appendChild(S.field('Node', S.el('div', { style: 'font-weight:700;word-break:break-all', text: node.node_id || node.fqdn || node.instance_id || '—' }), 2));
@@ -183,36 +180,6 @@
     row2.appendChild(S.field('Public IP', S.el('div', null, S.el('code', { text: node.public_ip || node.aws_public_ip || '—' }))));
     wrap.appendChild(row2);
 
-    const actions = S.el('div', { className: 'card__actions' });
-    if(taksUrl){
-      actions.appendChild(S.el('a', {
-        className: 'btn',
-        href: taksUrl,
-        target: '_blank',
-        rel: 'noopener noreferrer',
-        text: 'TAKS'
-      }));
-    }
-    if(webtakUrl){
-      actions.appendChild(S.el('a', {
-        className: 'btn btn--secondary',
-        href: webtakUrl,
-        target: '_blank',
-        rel: 'noopener noreferrer',
-        text: 'WebTAK'
-      }));
-    }
-    if(martiUrl){
-      actions.appendChild(S.el('a', {
-        className: 'btn btn--secondary',
-        href: martiUrl,
-        target: '_blank',
-        rel: 'noopener noreferrer',
-        text: 'Marti'
-      }));
-    }
-    wrap.appendChild(actions);
-
     return wrap;
   }
 
@@ -221,13 +188,87 @@
 
     c.appendChild(renderNodeSummary(node));
 
-    const actions = S.el('div', { className: 'card__actions', style: 'margin-top:14px' });
+    const aws = String((node && node.aws_state) || '').trim().toLowerCase();
+    const hb = String(S.heartbeatState(node) || '').trim().toLowerCase();
+    const nodeId = String((node && (node.node_id || node.fqdn || node.instance_id)) || '').trim();
+    const fqdn = String((node && node.fqdn) || '').trim();
+
+    const looksRunning = !!node && (
+      aws === 'running' ||
+      aws === 'pending' ||
+      aws === 'stopping' ||
+      aws === 'shutting-down' ||
+      hb === 'online' ||
+      hb === 'stale'
+    );
+
+    if(fqdn){
+      const linksWrap = S.el('div', { style: 'margin-top:12px' });
+      linksWrap.appendChild(S.el('div', { className: 'label', text: 'Snabblänkar' }));
+
+      const links = S.el('div', { className: 'card__actions', style: 'margin-top:8px' });
+      links.appendChild(S.el('a', {
+        className: 'btn',
+        href: 'https://' + fqdn + '/',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        text: 'TAKS'
+      }));
+      links.appendChild(S.el('a', {
+        className: 'btn btn--secondary',
+        href: 'https://' + fqdn + ':8446/webtak/',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        text: 'WebTAK'
+      }));
+      links.appendChild(S.el('a', {
+        className: 'btn btn--secondary',
+        href: 'https://' + fqdn + ':8446/Marti/',
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        text: 'Marti'
+      }));
+      linksWrap.appendChild(links);
+      c.appendChild(linksWrap);
+    }
+
+    const actionsWrap = S.el('div', { style: 'margin-top:14px' });
+    actionsWrap.appendChild(S.el('div', { className: 'label', text: 'Åtgärder' }));
+
+    const actions = S.el('div', { className: 'card__actions', style: 'margin-top:8px' });
     actions.appendChild(S.el('button', {
-      id: 'node_launch_btn',
-      className: 'btn btn--danger',
-      text: 'Starta'
+      id: 'node_refresh_btn',
+      className: 'btn btn--secondary',
+      text: 'Uppdatera'
     }));
-    c.appendChild(actions);
+
+    if(looksRunning && nodeId){
+      actions.appendChild(S.el('button', {
+        id: 'node_terminate_btn',
+        className: 'btn btn--danger',
+        text: 'Terminera',
+        'data-node-id': nodeId
+      }));
+    }else{
+      actions.appendChild(S.el('button', {
+        id: 'node_launch_btn',
+        className: 'btn btn--danger',
+        text: 'Starta'
+      }));
+    }
+
+    actionsWrap.appendChild(actions);
+    actionsWrap.appendChild(S.el('div', {
+      id: 'node_action_status',
+      className: 'muted',
+      style: 'margin-top:8px'
+    }));
+    actionsWrap.appendChild(S.el('div', {
+      id: 'node_launch_info',
+      className: 'muted',
+      style: 'margin-top:6px;display:grid;gap:4px'
+    }));
+    c.appendChild(actionsWrap);
 
     const advanced = S.el('details', { style: 'margin-top:14px' });
     advanced.appendChild(S.el('summary', { text: 'Avancerat' }));
@@ -284,6 +325,90 @@
       misc: 'Misc'
     };
     return m[name] || name;
+  }
+
+  function setNodeActionStatus(text, cls){
+    const el = S.byId('node_action_status');
+    if(!el) return;
+    el.textContent = String(text || '');
+    el.className = cls || 'muted';
+  }
+
+  function setNodeLaunchInfo(info){
+    const el = S.byId('node_launch_info');
+    if(!el) return;
+    if(!info){
+      el.innerHTML = '';
+      return;
+    }
+
+    const bits = [];
+    if(info.instance_id) bits.push('instans: ' + String(info.instance_id));
+    if(info.private_ip) bits.push('privat IP: ' + String(info.private_ip));
+    if(info.public_ip) bits.push('publik IP: ' + String(info.public_ip));
+    if(info.fqdn) bits.push('FQDN: ' + String(info.fqdn));
+
+    el.innerHTML = '';
+    bits.forEach(function(x, idx){
+      const row = S.el('div', { className: 'muted', text: x });
+      el.appendChild(row);
+      if(idx === bits.length - 1 && info.dns_change && info.dns_change.Status){
+        el.appendChild(S.el('div', {
+          className: 'muted',
+          text: 'DNS: ' + String(info.dns_change.Status)
+        }));
+      }
+    });
+  }
+
+  async function startNodeProgressPoll(unitPath){
+    const started = Date.now();
+    const maxMs = 120000;
+
+    async function tick(){
+      try{
+        const nodesResp = await A.loadNodes();
+        const node = A.findNodeForUnit(nodesResp, unitPath);
+
+        if(!node){
+          if(Date.now() - started < maxMs){
+            setNodeActionStatus('Väntar på att noden ska dyka upp…', 'muted');
+            setTimeout(tick, 2500);
+          }
+          return;
+        }
+
+        const aws = String(node.aws_state || '').trim().toLowerCase();
+        const hb = String(S.heartbeatState(node) || '').trim().toLowerCase();
+
+        if(hb === 'online'){
+          setNodeActionStatus('Nod online.', 'ok');
+          render();
+          return;
+        }
+
+        if(aws === 'running'){
+          setNodeActionStatus('Instans igång. Väntar på första heartbeat…', 'muted');
+        }else if(aws === 'pending'){
+          setNodeActionStatus('Instans skapad. Väntar på att AWS ska starta den…', 'muted');
+        }else{
+          setNodeActionStatus('Start begärd. Väntar på status…', 'muted');
+        }
+
+        if(Date.now() - started < maxMs){
+          setTimeout(tick, 2500);
+        }else{
+          setNodeActionStatus('Fortfarande ingen färdig nodstatus. Prova Uppdatera.', 'warn');
+          render();
+        }
+      }catch(_e){
+        if(Date.now() - started < maxMs){
+          setTimeout(tick, 3000);
+        }
+      }
+    }
+
+    setTimeout(tick, 1200);
   }
 
   function renderFilesCard(filesResp){
@@ -479,10 +604,61 @@
     const previewBtn = S.byId('node_preview_btn');
     const dryrunBtn = S.byId('node_dryrun_btn');
     const launchBtn = S.byId('node_launch_btn');
+    const refreshBtn = S.byId('node_refresh_btn');
+    const terminateBtn = S.byId('node_terminate_btn');
+    const statusEl = S.byId('node_action_status');
 
     if(previewBtn) previewBtn.onclick = function(){ A.callNode('/api/v2/nodes/preview'); };
     if(dryrunBtn) dryrunBtn.onclick = function(){ A.callNode('/api/v2/nodes/dry-run'); };
-    if(launchBtn) launchBtn.onclick = function(){ A.callNode('/api/v2/nodes/launch'); };
+
+    if(refreshBtn){
+      refreshBtn.onclick = function(){
+        setNodeActionStatus('Uppdaterar…', 'muted');
+        render();
+      };
+    }
+
+    if(launchBtn){
+      launchBtn.onclick = async function(){
+        setNodeActionStatus('Startar… förbereder bundle och begär AWS-instans…', 'muted');
+        setNodeLaunchInfo(null);
+        try{
+          const j = await A.callNode('/api/v2/nodes/launch');
+          if(j && j.launch){
+            setNodeLaunchInfo(j.launch);
+            setNodeActionStatus('Start begärd. Väntar på bundle-hämtning och första heartbeat…', 'ok');
+          }else{
+            setNodeActionStatus('Start begärd. Väntar på första heartbeat…', 'ok');
+          }
+          startNodeProgressPoll(S.getRouteUnitPath());
+        }catch(e){
+          const msg = String(e && e.message ? e.message : e);
+          setNodeActionStatus(msg, 'err');
+          alert(msg);
+        }
+      };
+    }
+
+    if(terminateBtn){
+      terminateBtn.onclick = async function(){
+        const nodeId = String(terminateBtn.getAttribute('data-node-id') || '').trim();
+        if(!nodeId) return;
+        if(!confirm('Terminera AWS-instans för ' + nodeId + '?')) return;
+
+        setNodeActionStatus('Terminerar…', 'muted');
+
+        try{
+          await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/terminate', {});
+          setNodeActionStatus('Terminering begärd.', 'ok');
+          alert('Terminering begärd för ' + nodeId);
+          setTimeout(function(){ render(); }, 700);
+        }catch(e){
+          const msg = String(e && e.message ? e.message : e);
+          setNodeActionStatus(msg, 'err');
+          alert(msg);
+        }
+      };
+    }
   }
 
   function wireFileActions(unitPath){

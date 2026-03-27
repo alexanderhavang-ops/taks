@@ -197,7 +197,42 @@ def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
     if not rec:
         raise HTTPException(status_code=404, detail=f"node not found: {node_id}")
 
-    instance_id = str((rec.get("instance_id") or "")).strip()
+    aws = aws_list_nodes()
+    aws_instances = list((aws or {}).get("instances") or [])
+
+    want_node_id = str(rec.get("node_id") or node_id or "").strip()
+    want_fqdn = str(rec.get("fqdn") or "").strip()
+    want_priv = str(rec.get("private_ip") or rec.get("aws_private_ip") or "").strip()
+    want_pub = str(rec.get("public_ip") or rec.get("aws_public_ip") or "").strip()
+    want_iid = str(rec.get("aws_instance_id") or rec.get("instance_id") or "").strip()
+
+    matched = None
+
+    for inst in aws_instances:
+        iid = str(inst.get("instance_id") or "").strip()
+        fqdn = str(inst.get("fqdn") or "").strip()
+        priv = str(inst.get("private_ip") or "").strip()
+        pub = str(inst.get("public_ip") or "").strip()
+
+        if want_iid and iid and iid == want_iid:
+            matched = inst
+            break
+        if want_priv and priv and priv == want_priv:
+            matched = inst
+            break
+        if want_pub and pub and pub == want_pub:
+            matched = inst
+            break
+        if want_fqdn and fqdn and fqdn == want_fqdn:
+            matched = inst
+            break
+        if want_node_id and fqdn and fqdn == want_node_id:
+            matched = inst
+            break
+
+    instance_id = str(
+        ((matched or {}).get("instance_id") or want_iid or "")
+    ).strip()
     if not instance_id:
         raise HTTPException(status_code=400, detail=f"node has no instance_id: {node_id}")
 
@@ -206,6 +241,7 @@ def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
     patch = {
         "node_id": rec.get("node_id") or node_id,
         "instance_id": instance_id,
+        "aws_instance_id": instance_id,
         "status": "terminating",
         "aws_state": term.get("current_state") or "terminating",
     }

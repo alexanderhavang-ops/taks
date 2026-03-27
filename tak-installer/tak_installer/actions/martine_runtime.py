@@ -6,9 +6,9 @@ from pathlib import Path
 
 from tak_installer.util import log
 
-SRC_MARTINE_ROOT = Path("/opt/taks/martine")
-SRC_MARTINE_PKG_ROOT = SRC_MARTINE_ROOT / "martine"
-SRC_MARTINE_BIN_ROOT = SRC_MARTINE_ROOT / "bin"
+SRC_MARTINE_ROOT = None  # resolved from ctx.repo_root
+SRC_MARTINE_PKG_ROOT = None
+SRC_MARTINE_BIN_ROOT = None
 
 DST_MARTINE_ROOT = Path("/opt/tak/tools/martine")
 DST_MARTINE_PKG_ROOT = DST_MARTINE_ROOT / "martine"
@@ -107,14 +107,18 @@ def apply(ctx) -> None:
     log.info("martine-runtime: ensuring user/group")
     _ensure_user_group()
 
-    if not SRC_MARTINE_PKG_ROOT.exists():
-        raise RuntimeError(f"source tree missing: {SRC_MARTINE_PKG_ROOT}")
+    src_martine_root = Path(ctx.repo_root) / "martine"
+    src_martine_pkg_root = src_martine_root / "martine"
+    src_martine_bin_root = src_martine_root / "bin"
+
+    if not src_martine_pkg_root.exists():
+        raise RuntimeError(f"source tree missing: {src_martine_pkg_root}")
 
     log.info("martine-runtime: syncing runtime")
-    _rsync_dir(SRC_MARTINE_PKG_ROOT, DST_MARTINE_PKG_ROOT)
+    _rsync_dir(src_martine_pkg_root, DST_MARTINE_PKG_ROOT)
 
-    if SRC_MARTINE_BIN_ROOT.exists():
-        _rsync_dir(SRC_MARTINE_BIN_ROOT, DST_MARTINE_BIN_ROOT)
+    if src_martine_bin_root.exists():
+        _rsync_dir(src_martine_bin_root, DST_MARTINE_BIN_ROOT)
 
     _ensure_runtime_dirs()
     _fix_runtime_perms()

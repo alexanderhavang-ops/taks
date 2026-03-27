@@ -8,32 +8,39 @@ from tak_installer.log import get_logger
 
 log = get_logger(__name__)
 
-SRC_ROOT = Path("/opt/taks/takctl")
-SRC_WEB_DIR = SRC_ROOT / "web"
-LINT_SCRIPT = SRC_WEB_DIR / "lint-ui.sh"
+SRC_ROOT = None  # resolved from ctx.repo_root
+SRC_WEB_DIR = None
+LINT_SCRIPT = None
 
 
 class _Action:
     ID = "takctl-web-lint"
 
     def inspect(self, ctx: Context) -> int:
+        src_root = Path(ctx.repo_root) / "takctl"
+        src_web_dir = src_root / "web"
+        lint_script = src_web_dir / "lint-ui.sh"
         log.info("Inspecting %s action...", self.ID)
-        log.info("  src web dir: %s", SRC_WEB_DIR)
-        log.info("  lint script: %s", LINT_SCRIPT)
-        if not LINT_SCRIPT.is_file():
+        log.info("  src web dir: %s", src_web_dir)
+        log.info("  lint script: %s", lint_script)
+        if not lint_script.is_file():
             log.info("%s: lint script missing; will skip", self.ID)
         return 0
 
     def apply(self, ctx: Context) -> int:
         log.info("Applying %s action...", self.ID)
 
-        if not LINT_SCRIPT.is_file():
-            log.info("%s: lint script missing at %s; skipping", self.ID, LINT_SCRIPT)
+        src_root = Path(ctx.repo_root) / "takctl"
+        src_web_dir = src_root / "web"
+        lint_script = src_web_dir / "lint-ui.sh"
+
+        if not lint_script.is_file():
+            log.info("%s: lint script missing at %s; skipping", self.ID, lint_script)
             return 0
 
         p = subprocess.run(
-            ["bash", str(LINT_SCRIPT)],
-            cwd=str(SRC_WEB_DIR),
+            ["bash", str(lint_script)],
+            cwd=str(src_web_dir),
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

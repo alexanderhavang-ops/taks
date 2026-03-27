@@ -8,7 +8,13 @@ from pathlib import Path
 # Works for git checkout and for an extracted tarball.
 HERE = Path(__file__).resolve()
 PKG_ROOT = HERE.parent  # .../tak-installer
+REPO_ROOT = PKG_ROOT.parent
+
 sys.path.insert(0, str(PKG_ROOT))
+for extra in ("takctl", "martine", "orchestrator"):
+    cand = REPO_ROOT / extra
+    if cand.is_dir():
+        sys.path.insert(0, str(cand))
 
 from tak_installer.cli import main  # noqa: E402
 
