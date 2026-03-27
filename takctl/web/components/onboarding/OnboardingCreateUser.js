@@ -386,6 +386,7 @@
           Field: Field,
           RenderField: RenderField,
           t: t,
+          policy: policy,
           labelForKey: _labelForKey,
           identityFieldsToRender: identityFieldsToRender,
           ident: ident,
