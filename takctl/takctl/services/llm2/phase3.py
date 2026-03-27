@@ -17,6 +17,7 @@ from takctl.services.llm2.domain_config import (
 )
 from takctl.services.llm2.llm_client import LlmClient
 from takctl.services.llm2.paths import latest_root, runs_root
+from takctl.config_store import load_runtime_config_view
 from takctl.services.llm2.store import write_json
 
 
@@ -72,20 +73,32 @@ def _phase2_findings_text(latest_dom_dir: Path) -> str:
     return json.dumps(o, ensure_ascii=False, indent=2, sort_keys=True) if o else ""
 
 
+def _runtime_language() -> str:
+    try:
+        cfg = load_runtime_config_view()
+        lang = str(cfg.get("language", "sv")).strip().lower()
+        return lang or "sv"
+    except Exception:
+        return "sv"
+
+
 def _load_prompt_pair(infra_dir: Path, dom: str, kind: str) -> Tuple[str, str]:
     base = infra_dir / "domains" / dom / "prompts" / "phase3"
-    sys_p = base / f"{kind}_system.txt"
-    usr_p = base / f"{kind}_user.txt"
+    lang = _runtime_language()
 
-    system_txt = _read_text(sys_p).strip()
-    user_txt = _read_text(usr_p).strip()
+    candidates = [
+        (base / lang / f"{kind}_system.txt", base / lang / f"{kind}_user.txt"),
+        (base / "en" / f"{kind}_system.txt", base / "en" / f"{kind}_user.txt"),
+        (base / f"{kind}_system.txt", base / f"{kind}_user.txt"),
+    ]
 
-    if not system_txt:
-        raise RuntimeError(f"missing prompt file: {sys_p}")
-    if not user_txt:
-        raise RuntimeError(f"missing prompt file: {usr_p}")
+    for sys_p, usr_p in candidates:
+        system_txt = _read_text(sys_p).strip()
+        user_txt = _read_text(usr_p).strip()
+        if system_txt and user_txt:
+            return system_txt, user_txt
 
-    return system_txt, user_txt
+    raise RuntimeError(f"missing prompt files for domain={dom} kind={kind} lang={lang}: {candidates}")
 
 
 def _build_prompt(system_txt: str, user_txt: str, findings_json: str) -> str:
@@ -326,7 +339,9 @@ def run_phase3(*, run_id: str, domain: str | None = None) -> Dict[str, Any]:
                 temperature=temperature,
                 max_tokens=n_predict,
                 seed=7,
-            )
+            
+                        purpose=f"phase3:{dom}:card",
+                    )
             card_raw = r1.get("text") or ""
             resp_card_path.write_text(card_raw, encoding="utf-8")
 
@@ -373,7 +388,9 @@ def run_phase3(*, run_id: str, domain: str | None = None) -> Dict[str, Any]:
                 temperature=temperature,
                 max_tokens=n_predict,
                 seed=7,
-            )
+            
+                        purpose=f"phase3:{dom}:detail",
+                    )
             det_raw = r2.get("text") or ""
             resp_detail_path.write_text(det_raw, encoding="utf-8")
 

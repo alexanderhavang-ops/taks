@@ -80,48 +80,16 @@ function TakServerLinks() {
 }
 
 function LangAndSessionControls() {
-  const t = (window.t && typeof window.t === "function") ? window.t : (k) => String(k || "");
-  const current = String(window.currentLang || "sv");
+  const current = String(window.currentLang || window.TAKS_RUNTIME_LANGUAGE || "sv");
 
   function L(sv, en) { return (current === "en") ? String(en) : String(sv); }
 
-  function setLang(lang) {
-    try {
-      if (window.setTaksLang) window.setTaksLang(String(lang));
-    } catch (_) {}
-    // simplest deterministic refresh (no state plumbing required)
-    try { window.location.reload(); } catch (_) {}
-  }
-
   function logout() {
-    // For HTTP Basic Auth, "logout" is achieved by hitting an endpoint that returns 401.
-    // We navigate to /logout; nginx should be configured to always 401 there.
     const next = encodeURIComponent("/");
     window.location.href = "/logout?next=" + next;
   }
 
-  // Small pill button style (works even without new CSS)
-  function pill(active) {
-    return {
-      border: "1px solid rgba(255,255,255,0.12)",
-      background: active ? "rgba(255,255,255,0.08)" : "transparent",
-      color: "inherit",
-      padding: "6px 10px",
-      borderRadius: "10px",
-      fontSize: "12px",
-      cursor: "pointer"
-    };
-  }
-
   return h("div", { style: { display: "flex", gap: "10px", alignItems: "center" } },
-
-    // Language toggle
-    h("div", { style: { display: "flex", gap: "4px", alignItems: "center" }, title: L("Språk", "Language") },
-      h("button", { type: "button", style: pill(current === "sv"), onClick: () => setLang("sv") }, "SV"),
-      h("button", { type: "button", style: pill(current === "en"), onClick: () => setLang("en") }, "EN")
-    ),
-
-    // Logout
     h("button", {
       type: "button",
       className: "btn",
@@ -156,7 +124,11 @@ function Layout({ tab, setTab, health, brand, children }) {
 
         h(TabButton, { id: "llm", tab, setTab, label: "LLM" }),
 
+        h(TabButton, { id: "usage", tab, setTab, label: "Usage" }),
+
         h(TabButton, { id: "martine", tab, setTab, label: "Martine" }),
+
+        h(TabButton, { id: "replay", tab, setTab, label: "Replay" }),
 
         h(TabButton, { id: "config", tab, setTab, label: "Config" })
       ),

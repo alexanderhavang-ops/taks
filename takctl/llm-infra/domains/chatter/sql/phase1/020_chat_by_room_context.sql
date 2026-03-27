@@ -4,7 +4,11 @@
 WITH rooms AS (
   SELECT chat_room, MAX(servertime) AS last_seen
   FROM public.cot_router_chat
-  WHERE chat_content IS NOT NULL AND chat_content <> ''
+  WHERE chat_content IS NOT NULL
+  AND chat_content <> ''
+  AND servertime >= (now() - make_interval(days => {{CHATTER_HISTORY_DAYS}}))
+  AND COALESCE(sender_callsign, '') <> 'Martine'
+  AND COALESCE(chat_room, '') <> 'Martine'
   GROUP BY chat_room
 ),
 ranked AS (
@@ -22,7 +26,11 @@ ranked AS (
   FROM public.cot_router_chat c
   JOIN rooms r
     ON r.chat_room IS NOT DISTINCT FROM c.chat_room
-  WHERE c.chat_content IS NOT NULL AND c.chat_content <> ''
+  WHERE c.chat_content IS NOT NULL
+    AND c.chat_content <> ''
+    AND c.servertime >= (now() - make_interval(days => {{CHATTER_HISTORY_DAYS}}))
+    AND COALESCE(c.sender_callsign, '') <> 'Martine'
+    AND COALESCE(c.chat_room, '') <> 'Martine'
 )
 SELECT
   to_char(servertime AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS ts_utc,

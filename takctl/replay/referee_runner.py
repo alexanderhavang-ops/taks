@@ -40,6 +40,7 @@ def run_referee_llm(
         temperature=temperature,
         max_tokens=max_tokens,
         seed=seed,
+        purpose="replay:referee",
     )
 
     text = str(resp.get("text") or "")

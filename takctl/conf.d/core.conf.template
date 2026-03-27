@@ -1,2 +1,3 @@
 coreconfig_path = /opt/tak/CoreConfig.xml
 language = sv
+chatter_history_days = 7

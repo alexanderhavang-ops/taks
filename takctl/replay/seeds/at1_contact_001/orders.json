@@ -1,0 +1,13 @@
+{
+  "initial_orders": [
+    {
+      "from": "TQ",
+      "to": "AT1",
+      "sim_time_s": 0,
+      "issued_tnr": "T0+0",
+      "language": "sv",
+      "intent": "ta_och_forsvara_upk201",
+      "message": "Order. AT framrycker mot Ystad Saltsjöbad (UPK201) i syfte att ta terrängen och därefter försvara den mot främmande makts angripare från land och hav. Fienden bedöms bestå av en till två grupper med civila fordon samt gummibåtar och eventuellt drönare. Fienden bedöms vara specialförband utrustade med mörkermedel, automatvapen och sannolikt sprängmedel. Planera för att kvarstanna på platsen i minst 7 dygn. Anmäl er marschfärdiga till TQ senast T0+600 före fordonsmarsch. Verkställ."
+    }
+  ]
+}

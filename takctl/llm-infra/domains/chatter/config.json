@@ -2,8 +2,25 @@
   "enabled": true,
   "domain": "chatter",
   "phases": {
-    "phase1": { "sql_dir": "sql/phase1" },
-    "phase2": { "prompt_dir": "prompts/phase2" },
-    "phase3": { "prompt_dir": "prompts/phase3" }
+    "phase1": {
+      "enabled": true,
+      "sql_dir": "sql/phase1",
+      "sql_vars": {
+        "CHATTER_HISTORY_DAYS": {
+          "config_key": "chatter_history_days",
+          "default": 7
+        }
+      }
+    },
+    "phase2": {
+      "enabled": true,
+      "prompt_dir": "prompts/phase2",
+      "input": "phase1_evidence",
+      "output_schema": "standard.summary.v1"
+    },
+    "phase3": {
+      "enabled": true,
+      "prompt_dir": "prompts/phase3"
+    }
   }
 }

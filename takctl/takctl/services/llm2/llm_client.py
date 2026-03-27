@@ -4,9 +4,13 @@ import json
 import time
 import urllib.request
 import urllib.error
+from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from takctl.config import load_config, load_secrets
+
+
+USAGE_LOG_PATH = Path("/opt/tak/tools/takctl/state/llm_usage.jsonl")
 
 
 def _now_iso() -> str:
@@ -22,6 +26,54 @@ def _safe_int(v: Any, default: int) -> int:
 
 def _s(v: Any) -> str:
     return "" if v is None else str(v).strip()
+
+
+def _safe_json_dumps(obj: Any) -> str:
+    try:
+        return json.dumps(obj, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        return "{}"
+
+
+def _append_usage_log(rec: Dict[str, Any]) -> None:
+    try:
+        USAGE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with USAGE_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False, sort_keys=True) + "\n")
+    except Exception:
+        pass
+
+
+def _extract_usage_fields(provider: str, body_obj: Any) -> Dict[str, Any]:
+    out = {
+        "input_tokens": None,
+        "output_tokens": None,
+        "total_tokens": None,
+    }
+
+    try:
+        if not isinstance(body_obj, dict):
+            return out
+
+        # Bedrock Converse commonly returns usage.{inputTokens,outputTokens,totalTokens}
+        if provider == "bedrock":
+            usage = body_obj.get("usage") or {}
+            if isinstance(usage, dict):
+                out["input_tokens"] = usage.get("inputTokens")
+                out["output_tokens"] = usage.get("outputTokens")
+                out["total_tokens"] = usage.get("totalTokens")
+            return out
+
+        # OpenAI-like completions may return usage.{prompt_tokens,completion_tokens,total_tokens}
+        usage = body_obj.get("usage") or {}
+        if isinstance(usage, dict):
+            out["input_tokens"] = usage.get("prompt_tokens")
+            out["output_tokens"] = usage.get("completion_tokens")
+            out["total_tokens"] = usage.get("total_tokens")
+    except Exception:
+        pass
+
+    return out
 
 
 def _bedrock_geo_prefix(region: str) -> str:
@@ -134,6 +186,7 @@ class LlmClient:
         temperature: float,
         max_tokens: int,
         seed: Optional[int] = None,
+        purpose: str = "",
     ) -> Dict[str, Any]:
         started = _now_iso()
         t0 = time.time()
@@ -148,7 +201,16 @@ class LlmClient:
             "body_bytes": 0,
             "error": None,
             "started_at": started,
+            "purpose": _s(purpose),
+            "usage": {
+                "input_tokens": None,
+                "output_tokens": None,
+                "total_tokens": None,
+            },
         }
+
+        body_obj: Any = {}
+        req_payload: Dict[str, Any] = {}
 
         try:
             if self.provider == "bedrock":
@@ -169,6 +231,7 @@ class LlmClient:
                         "maxTokens": int(max_tokens),
                     },
                 }
+                req_payload = payload
                 headers = {"Authorization": f"Bearer {self.bedrock_api_key}"}
                 status, body = _http_post_json(url, payload, timeout_s=self.timeout_s, headers=headers)
 
@@ -201,6 +264,7 @@ class LlmClient:
                 if seed is not None:
                     payload2["seed"] = int(seed)
 
+                req_payload = payload2
                 status, body = _http_post_json(self.url, payload2, timeout_s=self.timeout_s)
 
                 out["model"] = self.model
@@ -229,4 +293,27 @@ class LlmClient:
             out["error"] = f"{type(e).__name__}: {e}"
 
         out["elapsed_ms"] = int((time.time() - t0) * 1000)
+        out["usage"] = _extract_usage_fields(self.provider, body_obj)
+
+        _append_usage_log({
+            "ts_utc": _now_iso(),
+            "started_at": started,
+            "provider": out.get("provider"),
+            "model": out.get("model"),
+            "purpose": out.get("purpose") or "",
+            "ok": bool(out.get("ok")),
+            "http_status": out.get("http_status"),
+            "elapsed_ms": out.get("elapsed_ms"),
+            "prompt_chars": len(str(prompt or "")),
+            "response_chars": len(str(out.get("text") or "")),
+            "max_tokens_requested": int(max_tokens),
+            "temperature": float(temperature),
+            "seed": seed,
+            "input_tokens": (out.get("usage") or {}).get("input_tokens"),
+            "output_tokens": (out.get("usage") or {}).get("output_tokens"),
+            "total_tokens": (out.get("usage") or {}).get("total_tokens"),
+            "url": out.get("url"),
+            "error": out.get("error"),
+        })
+
         return out

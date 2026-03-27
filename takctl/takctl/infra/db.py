@@ -4,12 +4,10 @@ import subprocess
 from dataclasses import dataclass
 from typing import Any
 
-from takctl.config import Config
-
 
 @dataclass
 class DB:
-    cfg: Config
+    cfg: Any
 
     def fetchall(self, sql: str, params: tuple = ()) -> list[tuple]:
         if self.cfg.db_mode == "psycopg2":
@@ -23,8 +21,6 @@ class DB:
         if not rows:
             return ""
         return str(rows[0][0])
-
-    # ---------- psycopg2 path (WebUI-safe) ----------
 
     def _fetchall_psycopg2(self, sql: str, params: tuple) -> list[tuple]:
         try:
@@ -48,8 +44,6 @@ class DB:
         finally:
             conn.close()
 
-    # ---------- legacy psql+sudo path (kept, but shouldn’t be default) ----------
-
     def _fetchall_psql_sudo(self, sql: str, params: tuple[Any, ...]) -> list[tuple]:
         final_sql = self._interpolate(sql, params)
         out = self._psql(final_sql).strip()
@@ -57,7 +51,7 @@ class DB:
             return []
         rows: list[tuple] = []
         for line in out.splitlines():
-            parts = line.split("\t")  # tab separated by psql -F
+            parts = line.split("\t")
             rows.append(tuple(parts))
         return rows
 
@@ -82,7 +76,6 @@ class DB:
         return subprocess.check_output(cmd, text=True, stderr=subprocess.STDOUT)
 
     def _interpolate(self, sql: str, params: tuple[Any, ...]) -> str:
-        # Used only for psql_sudo mode; psycopg2 uses proper parameterization.
         if not params:
             return sql
         out = sql
@@ -96,4 +89,3 @@ class DB:
                 v = f"'{s}'"
             out = out.replace("%s", v, 1)
         return out
-

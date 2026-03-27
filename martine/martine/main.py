@@ -109,7 +109,12 @@ def main(argv: list[str] | None = None) -> int:
     if cmd == "llm-smoke":
         prompt = argv[1] if len(argv) >= 2 else "Reply with exactly: MARTINE_OK"
         llm = MartineLlm()
-        result = llm.complete_text(prompt=prompt, temperature=0.0, max_tokens=80)
+        result = llm.complete_text(
+            prompt=prompt,
+            temperature=0.0,
+            max_tokens=80,
+            purpose="martine:smoke",
+        )
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 

@@ -1,0 +1,76 @@
+{
+  "blue": {
+    "top_unit": "AT1",
+    "language_profile": "sv-se-military",
+    "doctrine_profile": "swedish-home-guard",
+    "units": [
+      {
+        "callsign": "AT1",
+        "role": "platoon",
+        "parent": null,
+        "position": {"lat": 55.4220, "lon": 13.9180},
+        "strength": 32,
+        "readiness": "höjd stridsberedskap",
+        "combat_value": "god",
+        "mobility": {"type": "foot", "speed_kph": 4}
+      },
+      {
+        "callsign": "EAT1",
+        "role": "group",
+        "parent": "AT1",
+        "position": {"lat": 55.4217, "lon": 13.9177},
+        "strength": 8,
+        "readiness": "höjd stridsberedskap",
+        "combat_value": "god",
+        "mobility": {"type": "foot", "speed_kph": 4}
+      },
+      {
+        "callsign": "FAT1",
+        "role": "group",
+        "parent": "AT1",
+        "position": {"lat": 55.4219, "lon": 13.9179},
+        "strength": 8,
+        "readiness": "höjd stridsberedskap",
+        "combat_value": "god",
+        "mobility": {"type": "foot", "speed_kph": 4}
+      },
+      {
+        "callsign": "GAT1",
+        "role": "group",
+        "parent": "AT1",
+        "position": {"lat": 55.4221, "lon": 13.9181},
+        "strength": 8,
+        "readiness": "höjd stridsberedskap",
+        "combat_value": "god",
+        "mobility": {"type": "foot", "speed_kph": 4}
+      },
+      {
+        "callsign": "HAT1",
+        "role": "group",
+        "parent": "AT1",
+        "position": {"lat": 55.4223, "lon": 13.9183},
+        "strength": 8,
+        "readiness": "höjd stridsberedskap",
+        "combat_value": "god",
+        "mobility": {"type": "foot", "speed_kph": 4}
+      }
+    ]
+  },
+  "red": {
+    "top_unit": "RU-REC-1",
+    "language_profile": "ru-military",
+    "doctrine_profile": "russian-amphibious",
+    "units": [
+      {
+        "callsign": "RU-REC-1",
+        "role": "group",
+        "parent": null,
+        "position": {"lat": 55.4280, "lon": 13.9240},
+        "strength": 8,
+        "readiness": "combat_ready",
+        "combat_value": "god",
+        "mobility": {"type": "foot", "speed_kph": 4}
+      }
+    ]
+  }
+}

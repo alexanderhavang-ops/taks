@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +11,7 @@ from takctl.services.llm2.db import run_sql
 from takctl.services.llm2.domain_config import load_domain_config
 from takctl.services.llm2.paths import domains_root, runs_root, latest_root
 from takctl.services.llm2.store import write_json
+from takctl.config_store import load_runtime_config_view
 
 
 def _utc_iso() -> str:
@@ -42,6 +44,46 @@ def _load_enrich_hook(domain_dir: Path, rel_path: str) -> Optional[Callable[...,
         raise RuntimeError(f"enrich_hook_missing_callable_enrich: {p}")
 
     return enrich
+
+
+def _render_sql_vars(sql: str, *, phase_cfg: Any) -> str:
+    cfg = load_runtime_config_view()
+    sql_vars = _phase_cfg_value(phase_cfg, "sql_vars", {}) or {}
+    if not isinstance(sql_vars, dict):
+        return sql
+
+    out = str(sql)
+
+    for var_name, spec in sql_vars.items():
+        token = "{{" + str(var_name) + "}}"
+
+        default = None
+        config_key = None
+
+        if isinstance(spec, dict):
+            config_key = str(spec.get("config_key") or "").strip() or None
+            default = spec.get("default")
+        else:
+            default = spec
+
+        raw = None
+        if config_key:
+            raw = cfg.get(config_key, "")
+
+        if raw is None or str(raw).strip() == "":
+            raw = default
+
+        if raw is None:
+            raise RuntimeError(f"sql_var_unresolved:{var_name}")
+
+        val = str(raw).strip()
+
+        if not re.fullmatch(r"-?\d+", val):
+            raise RuntimeError(f"sql_var_not_int:{var_name}={val}")
+
+        out = out.replace(token, val)
+
+    return out
 
 
 def run_phase1(*, run_id: str, domain: str | None = None) -> dict[str, Any]:
@@ -103,6 +145,7 @@ def run_phase1(*, run_id: str, domain: str | None = None) -> dict[str, Any]:
 
                     try:
                         sql = sp.read_text(encoding="utf-8")
+                        sql = _render_sql_vars(sql, phase_cfg=phase1_cfg)
                     except Exception as e:
                         msg = f"read_failed: {type(e).__name__}: {e}"
                         trace_item.update({"ok": False, "error": msg})

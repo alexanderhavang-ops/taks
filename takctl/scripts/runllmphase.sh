@@ -69,10 +69,18 @@ run_as_tak() {
 
 cd "$RUNTIME_DIR"
 
+filter_runner_output() {
+  awk '
+    /^===== PHASE[23] TRACE /   { skip=1; next }
+    /^===== PHASE[23] SUMMARY / { skip=0; print; next }
+    skip != 1 { print }
+  '
+}
+
 run_one() {
   local ph="$1"
   echo "## RUN ${ph}"
-  run_as_tak "$PY" -m takctl.services.llm2.runner --phase "$ph" --domain "$domain" --once
+  run_as_tak "$PY" -m takctl.services.llm2.runner --phase "$ph" --domain "$domain" --once | filter_runner_output
   echo
 }
 

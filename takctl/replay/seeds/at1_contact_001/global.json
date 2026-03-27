@@ -1,0 +1,31 @@
+{
+  "seed_id": "ystad_001",
+  "mode": "single_node",
+  "sim_start_utc": "2026-03-14T12:00:00Z",
+  "decision_horizon_sec": 300,
+  "tick_sec": 30,
+  "weather": {
+    "mode": "static",
+    "summary_sv": "kallt, mulet, kustvind",
+    "wind_mps": 9,
+    "visibility_km": 8,
+    "precipitation": "ingen"
+  },
+  "roe": {
+    "blue": "defensiv",
+    "red": "offensiv",
+    "lethal_force_authorized": true
+  },
+  "referee": {
+    "mode": "local",
+    "friction": "medium"
+  },
+  "language_profiles": {
+    "blue": "sv-se-military",
+    "red": "ru-military"
+  },
+  "doctrine_profiles": {
+    "blue": "swedish-home-guard",
+    "red": "russian-amphibious"
+  }
+}

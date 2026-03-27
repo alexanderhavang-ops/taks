@@ -44,7 +44,7 @@ class Policy:
 
     def __init__(self, policy_id: Optional[str] = None) -> None:
         cfg0 = load_config()
-        self.policy_id = (policy_id or cfg0.default_policy_id).strip()
+        self.policy_id = str(policy_id or cfg0.get("default_policy_id", "") or "").strip()
         if not self.policy_id:
             raise PolicyError("default_policy_id is empty in takctl.conf")
         self.path = self._resolve_path(self.policy_id)
@@ -54,7 +54,7 @@ class Policy:
     @staticmethod
     def _resolve_path(policy_id: str) -> str:
         cfg0 = load_config()
-        base = (cfg0.policy_dir or "").strip()
+        base = str(cfg0.get("policy_dir", "") or "").strip()
         candidates = []
         if base:
             candidates.append(Path(base) / policy_id / "policy.conf")

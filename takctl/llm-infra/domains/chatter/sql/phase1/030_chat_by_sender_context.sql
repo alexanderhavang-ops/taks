@@ -4,7 +4,11 @@
 WITH senders AS (
   SELECT sender_callsign, MAX(servertime) AS last_seen
   FROM public.cot_router_chat
-  WHERE chat_content IS NOT NULL AND chat_content <> ''
+  WHERE chat_content IS NOT NULL
+  AND chat_content <> ''
+  AND servertime >= (now() - make_interval(days => {{CHATTER_HISTORY_DAYS}}))
+  AND COALESCE(sender_callsign, '') <> 'Martine'
+  AND COALESCE(chat_room, '') <> 'Martine'
   GROUP BY sender_callsign
 ),
 ranked AS (
@@ -22,7 +26,11 @@ ranked AS (
   FROM public.cot_router_chat c
   JOIN senders s
     ON s.sender_callsign IS NOT DISTINCT FROM c.sender_callsign
-  WHERE c.chat_content IS NOT NULL AND c.chat_content <> ''
+  WHERE c.chat_content IS NOT NULL
+    AND c.chat_content <> ''
+    AND c.servertime >= (now() - make_interval(days => {{CHATTER_HISTORY_DAYS}}))
+    AND COALESCE(c.sender_callsign, '') <> 'Martine'
+    AND COALESCE(c.chat_room, '') <> 'Martine'
 )
 SELECT
   to_char(servertime AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI') AS ts_utc,

@@ -4,7 +4,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 REPO_ROOT = Path("/opt/taks")
 if str(REPO_ROOT) not in sys.path:
@@ -20,15 +20,32 @@ def run_model(
     temperature: float,
     max_tokens: int,
     seed: int,
+    system_prompt_override: Optional[str] = None,
+    user_prompt_override: Optional[str] = None,
+    full_prompt_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     client = LlmClient()
-    prompts = render_prompts(packet)
+
+    if full_prompt_override is not None:
+        system_prompt = system_prompt_override or ""
+        user_prompt = user_prompt_override or ""
+        full_prompt = full_prompt_override
+    elif system_prompt_override is not None or user_prompt_override is not None:
+        system_prompt = system_prompt_override or ""
+        user_prompt = user_prompt_override or ""
+        full_prompt = system_prompt.rstrip() + "\n\n" + user_prompt.rstrip() + "\n"
+    else:
+        prompts = render_prompts(packet)
+        system_prompt = prompts["system_prompt"]
+        user_prompt = prompts["user_prompt"]
+        full_prompt = prompts["full_prompt"]
 
     resp = client.complete_text(
-        prompt=prompts["full_prompt"],
+        prompt=full_prompt,
         temperature=temperature,
         max_tokens=max_tokens,
         seed=seed,
+        purpose="replay:llm",
     )
 
     return {
@@ -40,9 +57,9 @@ def run_model(
         "http_status": resp.get("http_status"),
         "body_bytes": resp.get("body_bytes"),
         "error": resp.get("error"),
-        "system_prompt": prompts["system_prompt"],
-        "user_prompt": prompts["user_prompt"],
-        "full_prompt": prompts["full_prompt"],
+        "system_prompt": system_prompt,
+        "user_prompt": user_prompt,
+        "full_prompt": full_prompt,
         "raw": resp,
     }
 

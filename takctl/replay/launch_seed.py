@@ -77,7 +77,7 @@ def select_forces_path(seed_dir: Path) -> Path:
 
 def control_mode_for_role(role: str) -> str:
     role = str(role or "")
-    if role in {"battalion", "company", "platoon", "group", "staff_tross_platoon"}:
+    if role in {"platoon", "group"}:
         return "llm"
     return "simulated"
 
@@ -260,7 +260,8 @@ def render_tnr_tokens(value: Any) -> Any:
     return value
 
 
-def seed_blue_agent_states(seed_dir: Path) -> None:
+
+def seed_agent_states(seed_dir: Path) -> None:
     ensure_runtime_dirs()
 
     global_cfg = read_json(seed_dir / "global.json")
@@ -268,169 +269,149 @@ def seed_blue_agent_states(seed_dir: Path) -> None:
     forces = read_json(forces_path)
     orders_cfg = read_json(seed_dir / "orders.json")
 
-    blue = dict(forces.get("blue") or {})
-    blue_units = list(blue.get("units") or [])
     initial_orders = list(orders_cfg.get("initial_orders") or [])
-    children = build_children(blue_units)
-
     decision_horizon_sec = int(global_cfg.get("decision_horizon_sec") or 300)
-    roe_blue = str((global_cfg.get("roe") or {}).get("blue") or "defensiv")
     weather = dict(global_cfg.get("weather") or {})
-    language_profile_default = str(blue.get("language_profile") or "sv-se-military")
-    doctrine_profile_default = str(blue.get("doctrine_profile") or "swedish-home-guard")
 
-    battalion_n = 0
-    company_n = 0
-    platoon_n = 0
-    staff_tross_n = 0
-    group_n = 0
-    llm_n = 0
-    simulated_n = 0
+    total_units = 0
     total_strength = 0
+    total_llm = 0
 
-    for u in blue_units:
-        callsign = str(u["callsign"])
-        clear_agent_dir(callsign)
+    for side_name in ("blue", "red"):
+        side = dict(forces.get(side_name) or {})
+        side_units = list(side.get("units") or [])
+        children = build_children(side_units)
 
-        pos = dict(u.get("position") or {})
-        parent = u.get("parent")
-        role = str(u.get("role") or "unit")
-        strength = int(u.get("strength") or 0)
-        readiness = str(u.get("readiness") or "okänd")
-        combat_value = str(u.get("combat_value") or "okänt")
-        mobility = dict(u.get("mobility") or {})
-        language_profile = str(u.get("language_profile") or language_profile_default)
-        doctrine_profile = str(u.get("doctrine_profile") or doctrine_profile_default)
-        control_mode = control_mode_for_role(role)
-        decision_profile = decision_profile_for_role(role)
-
-        function_name = doctrinal_function_for_unit(callsign, role)
-        capabilities = capabilities_for_function(function_name)
-        command_profile = command_profile_for_unit(callsign, role, function_name)
-        mobility_profile = mobility_profile_for_unit(callsign, role, function_name, mobility)
-        quality = seeded_quality(callsign)
-
-        subs = []
-        for child_cs in children.get(callsign, []):
-            subs.append({
-                "callsign": child_cs,
-                "status": "ok",
-            })
-
-        state = {
-            "agent": {
-                "callsign": callsign,
-                "role": role,
-                "function": function_name,
-                "side": "blue",
-                "superior": parent,
-                "mission": build_mission(role, parent),
-                "language_profile": language_profile,
-                "doctrine_profile": doctrine_profile,
-                "control_mode": control_mode,
-                "capabilities": capabilities,
-                "command_profile": command_profile,
-            },
-            "own_state": {
-                "position": {
-                    "lat": pos.get("lat"),
-                    "lon": pos.get("lon"),
-                },
-                "strength": strength,
-                "ammo": "tillräcklig",
-                "morale": "stabil",
-                "posture": "utgångsgrupperad",
-                "readiness": readiness,
-                "combat_value": combat_value,
-                "mobility": mobility_profile,
-                "quality": quality,
-                "weather": weather,
-            },
-            "subordinates": subs,
-            "friendly_reports": [],
-            "observations": [],
-            "constraints": {
-                "roe": roe_blue,
-                "decision_horizon_sec": decision_horizon_sec,
-            },
-            "control": decision_profile,
-            "last_order": None,
-            "private_referee": {},
-            "memory": {
-                "received_orders": [],
-                "sent_orders": [],
-                "received_reports": [],
-                "sent_reports": [],
-                "open_issues": [],
-                "awaiting_response_from": [],
-                "current_intent": "",
-                "current_plan": "",
-            },
-            "work": [],
-            "completed_work": [],
-            "idle_since_sim_time_s": 0,
-            "seed": {
-                "seed_id": global_cfg.get("seed_id"),
-                "forces_path": str(forces_path),
-                "seed_start_sim_time_s": 0,
-            },
-        }
-
-        d = agent_dir(callsign)
-        write_json(d / "state.json", state)
-        write_jsonl(d / "inbox.jsonl", [])
-        write_jsonl(d / "outbox.jsonl", [])
-        write_jsonl(d / "decisions.jsonl", [])
-        write_jsonl(d / "tasks.jsonl", [])
-        write_json(d / "seen_chat_uids.json", [])
-
-        top_order = find_order_for(callsign, initial_orders)
-        if top_order is not None:
-            rendered_order = render_tnr_tokens(top_order)
-            inbox_msg = {
-                "kind": "order",
-                "from": str(rendered_order.get("from") or ""),
-                "to": callsign,
-                "sim_time_s": int(rendered_order.get("sim_time_s") or 0),
-                "message": str(rendered_order.get("message") or ""),
-                "meta": {
-                    "intent": rendered_order.get("intent"),
-                    "issued_tnr": rendered_order.get("issued_tnr"),
-                    "language": rendered_order.get("language"),
-                    "seed_order": True,
-                },
-            }
-            write_jsonl(d / "inbox.jsonl", [inbox_msg])
-
-        if role == "battalion":
-            battalion_n += 1
-        elif role == "company":
-            company_n += 1
-        elif role == "platoon":
-            platoon_n += 1
-        elif role == "staff_tross_platoon":
-            staff_tross_n += 1
-        elif role == "group":
-            group_n += 1
-
-        if control_mode == "llm":
-            llm_n += 1
+        if side_name == "blue":
+            default_lang = "sv-se-military"
+            default_doctrine = "swedish-home-guard"
+            roe_value = str((global_cfg.get("roe") or {}).get("blue") or "defensiv")
         else:
-            simulated_n += 1
+            default_lang = "ru-military"
+            default_doctrine = "russian-amphibious"
+            roe_value = str((global_cfg.get("roe") or {}).get("red") or "offensiv")
 
-        total_strength += strength
+        language_profile_default = str(side.get("language_profile") or default_lang)
+        doctrine_profile_default = str(side.get("doctrine_profile") or default_doctrine)
 
-    total = len(blue_units)
+        side_count = 0
+        side_strength = 0
+        side_llm = 0
+
+        for u in side_units:
+            callsign = str(u["callsign"])
+            clear_agent_dir(callsign)
+
+            pos = dict(u.get("position") or {})
+            parent = u.get("parent")
+            role = str(u.get("role") or "unit")
+            strength = int(u.get("strength") or 0)
+            readiness = str(u.get("readiness") or "okänd")
+            combat_value = str(u.get("combat_value") or "okänt")
+            mobility = dict(u.get("mobility") or {})
+            language_profile = str(u.get("language_profile") or language_profile_default)
+            doctrine_profile = str(u.get("doctrine_profile") or doctrine_profile_default)
+            control_mode = control_mode_for_role(role)
+
+            function_name = doctrinal_function_for_unit(callsign, role)
+            capabilities = capabilities_for_function(function_name)
+            command_profile = command_profile_for_unit(callsign, role, function_name)
+            mobility_profile = mobility_profile_for_unit(callsign, role, function_name, mobility)
+            quality = seeded_quality(callsign)
+
+            subs = []
+            for child_cs in children.get(callsign, []):
+                subs.append({
+                    "callsign": child_cs,
+                    "status": "ok",
+                })
+
+            state = {
+                "agent": {
+                    "callsign": callsign,
+                    "role": role,
+                    "function": function_name,
+                    "side": side_name,
+                    "superior": parent,
+                    "mission": build_mission(role, parent),
+                    "language_profile": language_profile,
+                    "doctrine_profile": doctrine_profile,
+                    "control_mode": control_mode,
+                    "capabilities": capabilities,
+                    "command_profile": command_profile,
+                },
+                "own_state": {
+                    "position": {
+                        "lat": pos.get("lat"),
+                        "lon": pos.get("lon"),
+                    },
+                    "strength": strength,
+                    "ammo": "tillräcklig",
+                    "morale": "stabil",
+                    "posture": "utgångsgrupperad",
+                    "readiness": readiness,
+                    "combat_value": combat_value,
+                    "mobility": mobility_profile,
+                    "quality": quality,
+                    "weather": weather,
+                },
+                "subordinates": subs,
+                "observations": [],
+                "constraints": {
+                    "roe": roe_value,
+                    "decision_horizon_sec": decision_horizon_sec,
+                },
+                "work": [],
+                "completed_work": [],
+            }
+
+            d = agent_dir(callsign)
+            write_json(d / "state.json", state)
+            write_jsonl(d / "inbox.jsonl", [])
+            write_jsonl(d / "outbox.jsonl", [])
+            write_jsonl(d / "decisions.jsonl", [])
+            write_jsonl(d / "tasks.jsonl", [])
+            write_json(d / "seen_chat_uids.json", [])
+
+            top_order = find_order_for(callsign, initial_orders)
+            if top_order is not None:
+                rendered_order = render_tnr_tokens(top_order)
+                inbox_msg = {
+                    "kind": "order",
+                    "from": str(rendered_order.get("from") or ""),
+                    "to": callsign,
+                    "sim_time_s": int(rendered_order.get("sim_time_s") or 0),
+                    "message": str(rendered_order.get("message") or ""),
+                    "meta": {
+                        "intent": rendered_order.get("intent"),
+                        "issued_tnr": rendered_order.get("issued_tnr"),
+                        "language": rendered_order.get("language"),
+                        "seed_order": True,
+                    },
+                }
+                write_jsonl(d / "inbox.jsonl", [inbox_msg])
+
+            side_count += 1
+            side_strength += strength
+            if control_mode == "llm":
+                side_llm += 1
+
+        total_units += side_count
+        total_strength += side_strength
+        total_llm += side_llm
+
+        print(
+            "SEEDED_SIDE "
+            f"side={side_name} "
+            f"units={side_count} "
+            f"llm={side_llm} "
+            f"total_strength={side_strength}"
+        )
+
     print(
-        "SEEDED_SUMMARY "
-        f"battalion={battalion_n} "
-        f"companies={company_n} "
-        f"platoons={platoon_n} "
-        f"staff_tross={staff_tross_n} "
-        f"groups={group_n} "
-        f"llm={llm_n} "
-        f"simulated={simulated_n} "
-        f"total={total} "
+        "SEEDED_TOTAL "
+        f"units={total_units} "
+        f"llm={total_llm} "
         f"total_strength={total_strength}"
     )
 
@@ -444,7 +425,7 @@ def main() -> None:
     if not seed_dir.is_absolute():
         seed_dir = SEED_ROOT / seed_dir
 
-    seed_blue_agent_states(seed_dir)
+    seed_agent_states(seed_dir)
 
 
 if __name__ == "__main__":

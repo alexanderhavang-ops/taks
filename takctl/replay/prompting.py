@@ -27,17 +27,6 @@ def _subordinate_names(packet: Dict[str, object]) -> str:
     return ", ".join(names) if names else "(inga)"
 
 
-def _last_order_text(packet: Dict[str, object]) -> str:
-    last_order = packet.get("last_order")
-    if not isinstance(last_order, dict):
-        return "(ingen)"
-    sender = str(last_order.get("from") or "okänd")
-    msg = str(last_order.get("message") or "").strip()
-    if msg:
-        return f"Från {sender}: {msg}"
-    return f"Från {sender}: (ingen meddelandetext)"
-
-
 def _safe_name(v: object, default: str) -> str:
     s = str(v or "").strip()
     if not s:
@@ -48,6 +37,7 @@ def _safe_name(v: object, default: str) -> str:
 def _profile_root(packet: Dict[str, object]) -> Path:
     agent = dict(packet.get("agent") or {})
     doctrine_profile = _safe_name(agent.get("doctrine_profile"), "swedish_home_guard")
+    doctrine_profile = doctrine_profile.replace("-", "_")
     return PROMPT_ROOT / doctrine_profile
 
 
@@ -120,7 +110,6 @@ def render_prompts(packet: Dict[str, object]) -> Dict[str, str]:
         "{{READINESS}}": str(own.get("readiness") or ""),
         "{{COMBAT_VALUE}}": str(own.get("combat_value") or ""),
         "{{DECISION_HORIZON_S}}": str(constraints.get("decision_horizon_sec") or ""),
-        "{{LAST_ORDER_TEXT}}": _last_order_text(packet),
         "{{SITUATION_JSON}}": json.dumps(packet, ensure_ascii=False, indent=2),
     }
 

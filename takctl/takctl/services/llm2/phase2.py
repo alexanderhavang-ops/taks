@@ -21,6 +21,7 @@ from takctl.services.llm2.domain_config import (
 )
 from takctl.services.llm2.llm_client import LlmClient
 from takctl.services.llm2.paths import latest_root, runs_root
+from takctl.config_store import load_runtime_config_view
 from takctl.services.llm2.store import write_json
 
 REQ_KEYS = ("important", "newest", "details")
@@ -213,19 +214,32 @@ def _phase1_evidence_obj(latest_dom_dir: Path) -> Dict[str, Any]:
     return {"raw_phase1_evidence": str(obj)}
 
 
+def _runtime_language() -> str:
+    try:
+        cfg = load_runtime_config_view()
+        lang = str(cfg.get("language", "sv")).strip().lower()
+        return lang or "sv"
+    except Exception:
+        return "sv"
+
+
 def _load_prompt(infra_dir: Path, dom: str) -> Tuple[str, str]:
-    sys_p = infra_dir / "domains" / dom / "prompts" / "phase2" / "system.txt"
-    usr_p = infra_dir / "domains" / dom / "prompts" / "phase2" / "user.txt"
+    base = infra_dir / "domains" / dom / "prompts" / "phase2"
+    lang = _runtime_language()
 
-    system_txt = _read_text(sys_p).strip()
-    user_txt = _read_text(usr_p).strip()
+    candidates = [
+        (base / lang / "system.txt", base / lang / "user.txt"),
+        (base / "en" / "system.txt", base / "en" / "user.txt"),
+        (base / "system.txt", base / "user.txt"),
+    ]
 
-    if not system_txt:
-        raise RuntimeError(f"missing prompt file: {sys_p}")
-    if not user_txt:
-        raise RuntimeError(f"missing prompt file: {usr_p}")
+    for sys_p, usr_p in candidates:
+        system_txt = _read_text(sys_p).strip()
+        user_txt = _read_text(usr_p).strip()
+        if system_txt and user_txt:
+            return system_txt, user_txt
 
-    return system_txt, user_txt
+    raise RuntimeError(f"missing prompt files for domain={dom} lang={lang}: {candidates}")
 
 
 def _build_prompt(system_txt: str, user_txt: str, evidence_json: str) -> str:
@@ -863,7 +877,13 @@ def run_phase2(*, run_id: str, domain: str | None = None) -> Dict[str, Any]:
                 "prompt_full": prompt,
             }
 
-            r = client.complete_text(prompt=prompt, temperature=temperature, max_tokens=n_predict, seed=7)
+            r = client.complete_text(
+                prompt=prompt,
+                temperature=temperature,
+                max_tokens=n_predict,
+                seed=7,
+                purpose=f"phase2:{dom}",
+            )
             text = r.get("text") or ""
             resp_text_path.write_text(text, encoding="utf-8")
 

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import subprocess
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import psycopg2
+import psycopg2.extras
+
 from replay_paths import agent_dir, ensure_runtime_dirs
+from takctl.config import load_config, load_secrets
 
 DEFAULT_LOOKBACK_MINUTES = 15
 
@@ -36,7 +39,6 @@ def parse_uid(uid: str) -> Optional[Dict[str, Any]]:
     if not s.startswith("GeoChat.REPLAY-"):
         return None
 
-    # GeoChat.REPLAY-<from>.<to>.<uuid>
     rest = s[len("GeoChat.REPLAY-"):]
     parts = rest.split(".")
     if len(parts) < 3:
@@ -51,8 +53,22 @@ def parse_uid(uid: str) -> Optional[Dict[str, Any]]:
     }
 
 
+def db_params() -> Dict[str, Any]:
+    cfg = load_config()
+    sec = load_secrets()
+    return {
+        "host": cfg.db_host,
+        "port": int(cfg.db_port),
+        "dbname": cfg.db_name,
+        "user": cfg.db_user,
+        "password": sec.db_password or None,
+        "connect_timeout": 3,
+        "application_name": "takctl-replay-chat-poll",
+    }
+
+
 def fetch_recent_chat_rows(callsign: str, lookback_minutes: int) -> List[Dict[str, Any]]:
-    sql = f"""
+    sql = """
     SELECT
       uid,
       cot_type,
@@ -63,47 +79,23 @@ def fetch_recent_chat_rows(callsign: str, lookback_minutes: int) -> List[Dict[st
       chat_content,
       detail::text AS detail_xml
     FROM cot_router_chat
-    WHERE servertime >= NOW() - INTERVAL '{int(lookback_minutes)} minutes'
+    WHERE servertime >= NOW() - (%s || ' minutes')::interval
       AND (
-        dest_callsign = '{callsign}'
-        OR dest_uid = '{callsign}'
-        OR chat_room = '{callsign}'
+        dest_callsign = %s
+        OR dest_uid = %s
+        OR chat_room = %s
       )
-    ORDER BY servertime ASC, id ASC;
+    ORDER BY servertime ASC, id ASC
     """
 
-    cmd = [
-        "sudo", "-u", "postgres",
-        "psql", "-d", "cot",
-        "-P", "pager=off",
-        "-A", "-F", "\t",
-        "-t",
-        "-c", sql,
-    ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    rows: List[Dict[str, Any]] = []
-
-    for line in proc.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-
-        parts = line.split("\t", 7)
-        if len(parts) != 8:
-            continue
-
-        uid, cot_type, sender_callsign, dest_callsign, dest_uid, chat_room, chat_content, detail_xml = parts
-        rows.append({
-            "uid": uid,
-            "cot_type": cot_type,
-            "sender_callsign": sender_callsign,
-            "dest_callsign": dest_callsign,
-            "dest_uid": dest_uid,
-            "chat_room": chat_room,
-            "chat_content": chat_content,
-            "detail_xml": detail_xml,
-        })
-    return rows
+    with psycopg2.connect(
+        cursor_factory=psycopg2.extras.RealDictCursor,
+        **db_params(),
+    ) as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql, (int(lookback_minutes), callsign, callsign, callsign))
+            rows = cur.fetchall() or []
+    return [dict(r) for r in rows]
 
 
 def main() -> None:

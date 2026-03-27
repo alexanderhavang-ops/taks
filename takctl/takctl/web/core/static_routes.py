@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
+from takctl.config_store import load_runtime_config_view
 
 WEB_DIR = Path("/opt/tak/tools/takctl/web")
 USER_UPLOADS_DIR = Path("/opt/tak/tools/takctl/user-uploads")
@@ -17,6 +18,23 @@ def _is_within(path: Path, root: Path) -> bool:
         return True
     except Exception:
         return False
+
+
+def _runtime_language() -> str:
+    try:
+        cfg = load_runtime_config_view()
+        lang = str(cfg.get("language", "sv")).strip().lower()
+        return lang or "sv"
+    except Exception:
+        return "sv"
+
+
+def _inject_runtime_language(html: str) -> str:
+    lang = _runtime_language()
+    snippet = f'<script>window.TAKS_RUNTIME_LANGUAGE = {lang!r};</script>'
+    if "</head>" in html:
+        return html.replace("</head>", f"  {snippet}\n</head>", 1)
+    return snippet + html
 
 
 def mount_static_routes(app: FastAPI) -> None:
@@ -46,7 +64,7 @@ def mount_static_routes(app: FastAPI) -> None:
 
     @app.get("/")
     async def index():
-        return HTMLResponse((WEB_DIR / "index.html").read_text(encoding="utf-8"))
+        return HTMLResponse(_inject_runtime_language((WEB_DIR / "index.html").read_text(encoding="utf-8")))
 
     @app.get("/styles.css")
     async def styles_css():
@@ -58,7 +76,7 @@ def mount_static_routes(app: FastAPI) -> None:
 
     @app.get("/splash.html")
     async def splash_html():
-        return HTMLResponse((WEB_DIR / "splash.html").read_text(encoding="utf-8"))
+        return HTMLResponse(_inject_runtime_language((WEB_DIR / "splash.html").read_text(encoding="utf-8")))
 
     @app.get("/splash.fragment.html")
     async def splash_fragment_html():
