@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 from tak_installer.util import log
 
 
-ENV_DIR = Path("/opt/tak/etc")
-ENV_FILE = ENV_DIR / "taks.env"
+BOOTSTRAP_ROOT = Path("/etc/taks-bootstrap.d")
+BOOTSTRAP_NODE_ENV = BOOTSTRAP_ROOT / "node.env"
+BOOTSTRAP_CONFIG_D = BOOTSTRAP_ROOT / "config"
+BOOTSTRAP_SECRETS_D = BOOTSTRAP_ROOT / "secrets"
 
 
 def _pick(ctx, *keys: str) -> str:
@@ -16,52 +19,147 @@ def _pick(ctx, *keys: str) -> str:
     return ""
 
 
+def _parse_env_file(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not path.exists():
+        return out
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        v = v.strip()
+        if k:
+            out[k] = v
+    return out
+
+
+def _parse_simple_kv(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not path.exists():
+        return out
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        v = v.strip()
+        if k:
+            out[k] = v
+    return out
+
+
+def _write_env_file(path: Path, data: dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = ["# Managed by tak-installer"]
+    for k in sorted(data.keys()):
+        rows.append(f"{k}={data[k]}")
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+
+def _write_simple_kv(path: Path, data: dict[str, str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = [f"{k} = {v}" for k, v in data.items()]
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    path.chmod(0o600)
+
+
+def _merge_env_file(path: Path, updates: dict[str, str]) -> bool:
+    cur = _parse_env_file(path)
+    changed = False
+    for k, v in updates.items():
+        v = str(v or "").strip()
+        if not v:
+            continue
+        if cur.get(k) != v:
+            cur[k] = v
+            changed = True
+    if changed:
+        _write_env_file(path, cur)
+    return changed
+
+
+def _merge_simple_kv(path: Path, updates: dict[str, str]) -> bool:
+    cur = _parse_simple_kv(path)
+    changed = False
+    for k, v in updates.items():
+        v = str(v or "").strip()
+        if not v:
+            continue
+        if cur.get(k) != v:
+            cur[k] = v
+            changed = True
+    if changed:
+        _write_simple_kv(path, cur)
+    return changed
+
+
 def apply(ctx) -> None:
     """
-    Ensure runtime env/state file exists and persist selected canonical node vars.
+    Persist orchestrator/bootstrap overrides into one canonical bootstrap area:
 
-    We currently persist:
-      - TAKS_FQDN
-      - TAKS_NODE_CERT_MODEL
-      - LE_EMAIL
+      /etc/taks-bootstrap.d/node.env
+      /etc/taks-bootstrap.d/config/*.conf
+      /etc/taks-bootstrap.d/secrets/*.conf
 
-    Canonical env priority:
-      - FQDN or TAKS_FQDN -> persisted as TAKS_FQDN
-      - TAKS_NODE_CERT_MODEL
-      - LE_EMAIL
-
-    If none of these are provided, we do NOT overwrite an existing file.
+    This area is later materialized into TAKS runtime config/secrets by
+    takctl-config. Files here are partial overlays; callers only need to set
+    the specific fields they want to override.
     """
-    ENV_DIR.mkdir(parents=True, exist_ok=True)
+    BOOTSTRAP_CONFIG_D.mkdir(parents=True, exist_ok=True)
+    BOOTSTRAP_SECRETS_D.mkdir(parents=True, exist_ok=True)
 
-    fqdn = _pick(ctx, "FQDN", "TAKS_FQDN")
-    cert_model = _pick(ctx, "TAKS_NODE_CERT_MODEL")
-    le_email = _pick(ctx, "LE_EMAIL")
-
-    rows: list[str] = ["# Managed by tak-installer"]
-
-    if fqdn:
-        rows.append(f"TAKS_FQDN={fqdn}")
-    if cert_model:
-        rows.append(f"TAKS_NODE_CERT_MODEL={cert_model}")
-    if le_email:
-        rows.append(f"LE_EMAIL={le_email}")
-
-    if len(rows) > 1:
-        content = "\n".join(rows) + "\n"
-        ENV_FILE.write_text(content, encoding="utf-8")
-        ENV_FILE.chmod(0o644)
-        log.info(
-            f"taks-env: wrote {ENV_FILE} "
-            f"(TAKS_FQDN={fqdn or '-'} "
-            f"TAKS_NODE_CERT_MODEL={cert_model or '-'} "
-            f"LE_EMAIL={'set' if le_email else '-'})"
-        )
+    node_updates = {
+        "TAKS_FQDN": _pick(ctx, "FQDN", "TAKS_FQDN"),
+        "TAKS_NODE_CERT_MODEL": _pick(ctx, "TAKS_NODE_CERT_MODEL"),
+        "LE_EMAIL": _pick(ctx, "LE_EMAIL"),
+    }
+    if _merge_env_file(BOOTSTRAP_NODE_ENV, node_updates):
+        log.info("taks-env: updated %s", BOOTSTRAP_NODE_ENV)
     else:
-        if ENV_FILE.exists():
-            log.info(f"taks-env: {ENV_FILE} already exists (no env override)")
-        else:
-            log.info(f"taks-env: {ENV_FILE} not present and no relevant env provided")
+        log.info("taks-env: no node bootstrap env changes")
+
+    config_updates: dict[str, dict[str, str]] = {
+        "certs.conf": {
+            "cert_country": _pick(ctx, "TAKS_CERT_COUNTRY", "CERT_COUNTRY"),
+            "cert_state": _pick(ctx, "TAKS_CERT_STATE", "CERT_STATE"),
+            "cert_city": _pick(ctx, "TAKS_CERT_CITY", "CERT_CITY"),
+            "cert_organization": _pick(ctx, "TAKS_CERT_ORGANIZATION", "CERT_ORGANIZATION"),
+            "cert_organizational_unit": _pick(ctx, "TAKS_CERT_ORGANIZATIONAL_UNIT", "CERT_ORGANIZATIONAL_UNIT"),
+        },
+        "llm.conf": {
+            "aws_region": _pick(ctx, "AWS_REGION"),
+            "bedrock_model_id": _pick(ctx, "BEDROCK_MODEL_ID"),
+            "llm_model": _pick(ctx, "TAKS_LLM_MODEL", "LLM_MODEL"),
+        },
+        "martine.conf": {
+            "martine_username": _pick(ctx, "MARTINE_USERNAME"),
+            "martine_groups_rw": _pick(ctx, "MARTINE_GROUPS_RW"),
+            "martine_groups_in": _pick(ctx, "MARTINE_GROUPS_IN"),
+            "martine_groups_out": _pick(ctx, "MARTINE_GROUPS_OUT"),
+        },
+    }
+
+    for name, updates in config_updates.items():
+        if _merge_simple_kv(BOOTSTRAP_CONFIG_D / name, updates):
+            log.info("taks-env: updated %s", BOOTSTRAP_CONFIG_D / name)
+
+    secret_updates: dict[str, dict[str, str]] = {
+        "bedrock.conf": {
+            "bedrock_api_key": _pick(ctx, "BEDROCK_API_KEY"),
+        },
+        "ses.conf": {
+            "ses_smtp_username": _pick(ctx, "SES_SMTP_USERNAME"),
+            "ses_smtp_password": _pick(ctx, "SES_SMTP_PASSWORD"),
+        },
+    }
+
+    for name, updates in secret_updates.items():
+        if _merge_simple_kv(BOOTSTRAP_SECRETS_D / name, updates):
+            log.info("taks-env: updated %s", BOOTSTRAP_SECRETS_D / name)
 
 
 class _Action:
@@ -69,7 +167,7 @@ class _Action:
 
     def inspect(self, ctx) -> int:
         print(f"Inspecting {self.ID} action...")
-        return 0 if ENV_FILE.exists() else 1
+        return 0
 
     def apply(self, ctx) -> int:
         print(f"Applying {self.ID} action...")

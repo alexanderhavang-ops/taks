@@ -21,8 +21,71 @@ run_step() {
   bash "$path"
 }
 
+
+generate_tak_server_certs() {
+  local node_env="/etc/taks-bootstrap.d/node.env"
+  local cert_dir="/opt/tak/certs"
+
+  if [ ! -d "$cert_dir" ]; then
+    log "skip cert generation (missing $cert_dir)"
+    return 0
+  fi
+
+  if [ ! -f "$node_env" ]; then
+    log "skip cert generation (missing $node_env)"
+    return 0
+  fi
+
+  # shellcheck disable=SC1090
+  . "$node_env"
+
+  local fqdn="${TAKS_NODE_FQDN:-${TAKS_FQDN:-}}"
+  if [ -z "$fqdn" ]; then
+    log "skip cert generation (TAKS_NODE_FQDN/TAKS_FQDN missing)"
+    return 0
+  fi
+
+  if [ -f "$cert_dir/files/ca.pem" ] && [ -f "$cert_dir/files/${fqdn}.jks" ]; then
+    log "cert material already present for $fqdn"
+    return 0
+  fi
+
+  if [ ! -f "$cert_dir/cert-metadata.sh" ]; then
+    log "skip cert generation (missing $cert_dir/cert-metadata.sh)"
+    return 0
+  fi
+
+  log "generating TAK root CA"
+  (
+    cd "$cert_dir"
+    bash ./makeRootCa.sh
+  )
+
+  log "generating TAK server cert for $fqdn"
+  (
+    cd "$cert_dir"
+    bash ./makeCert.sh server "$fqdn"
+  )
+}
+
+restart_takserver_if_present() {
+  if systemctl list-unit-files --type=service --no-pager | grep -q '^takserver\.service'; then
+    log "restarting takserver after cert/coreconfig render"
+    systemctl restart takserver || systemctl start takserver || true
+    return 0
+  fi
+
+  if [ -x /etc/init.d/takserver ]; then
+    log "restarting takserver via /etc/init.d after cert/coreconfig render"
+    service takserver restart || service takserver start || /etc/init.d/takserver restart || /etc/init.d/takserver start || true
+    return 0
+  fi
+
+  log "takserver service not found; skip restart"
+}
+
 install_base_files() {
-  mkdir -p /etc/taks
+  mkdir -p /etc/taks /etc/taks-bootstrap.d
 
   if [ -f "$BUNDLE_ROOT/config/unit.json" ]; then
     install -m 0644 "$BUNDLE_ROOT/config/unit.json" /etc/taks/unit.json
@@ -30,19 +93,19 @@ install_base_files() {
   fi
 
   if [ -f "$BUNDLE_ROOT/install/node.env" ]; then
-    install -m 0600 "$BUNDLE_ROOT/install/node.env" /etc/taks/node.env
-    log "installed /etc/taks/node.env"
+    install -m 0600 "$BUNDLE_ROOT/install/node.env" /etc/taks-bootstrap.d/node.env
+    log "installed /etc/taks-bootstrap.d/node.env"
   fi
 }
 
 install_bundled_tls_material() {
-  local node_env="/etc/taks/node.env"
+  local node_env="/etc/taks-bootstrap.d/node.env"
   local src_dir="$BUNDLE_ROOT/install/letsencrypt"
   local src_cert="$src_dir/fullchain.pem"
   local src_key="$src_dir/privkey.pem"
 
   if [ ! -f "$node_env" ]; then
-    log "skip bundled TLS install (missing /etc/taks/node.env)"
+    log "skip bundled TLS install (missing /etc/taks-bootstrap.d/node.env)"
     return 0
   fi
 
@@ -77,11 +140,11 @@ install_heartbeat() {
 
   systemctl daemon-reload
 
-  if [ -f /etc/taks/node.env ]; then
+  if [ -f /etc/taks-bootstrap.d/node.env ]; then
     systemctl enable --now taks-heartbeat.timer
     log "enabled taks-heartbeat.timer"
   else
-    log "node.env missing, not enabling taks-heartbeat.timer"
+    log "bootstrap node.env missing, not enabling taks-heartbeat.timer"
   fi
 }
 
@@ -100,6 +163,12 @@ main() {
       log "WARNING: taks step failed; continuing"
     fi
   fi
+
+  run_step "tak-certs-config" "$BUNDLE_ROOT/install/tak-certs-config.sh"
+  generate_tak_server_certs
+  run_step "tak-certs-layout" "$BUNDLE_ROOT/install/tak-certs-layout.sh"
+  run_step "tak-coreconfig-render" "$BUNDLE_ROOT/install/tak-coreconfig-render.sh"
+  restart_takserver_if_present
 
   log "install complete"
 }

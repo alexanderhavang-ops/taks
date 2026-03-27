@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
 import subprocess
 from pathlib import Path
@@ -17,6 +18,11 @@ DST_CONFMETA = DST_ROOT / "confmeta"
 LEGACY_DB_ENV = DST_ROOT / "secrets" / "db.env"
 LEGACY_DB_SPLIT_ENV = DST_ROOT / "secrets" / "db.env"
 DST_DB_SECRET_SPLIT = DST_SECRETS_D / "db.conf"
+
+BOOTSTRAP_ROOT = Path("/etc/taks-bootstrap.d")
+BOOTSTRAP_NODE_ENV = BOOTSTRAP_ROOT / "node.env"
+BOOTSTRAP_CONFIG_D = BOOTSTRAP_ROOT / "config"
+BOOTSTRAP_SECRETS_D = BOOTSTRAP_ROOT / "secrets"
 
 
 def _src_root(ctx) -> Path:
@@ -73,44 +79,95 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     return out
 
 
-def _copy_tree_text(src_dir: Path, dst_dir: Path, *, mode: int, preserve_existing: bool = False) -> int:
+def _parse_simple_kv(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not path.exists():
+        return out
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        v = v.strip()
+        if k:
+            out[k] = v
+    return out
+
+
+def _write_simple_kv(path: Path, data: dict[str, str], mode: int) -> None:
+    rows = [f"{k} = {v}" for k, v in data.items()]
+    _write_atomic(path, "\n".join(rows) + "\n", mode)
+
+
+def _source_components(src_dir: Path) -> dict[str, Path]:
+    out: dict[str, Path] = {}
     if not src_dir.exists() or not src_dir.is_dir():
-        return 0
-
-    dst_dir.mkdir(parents=True, exist_ok=True)
-
-    if not preserve_existing:
-        for old in dst_dir.iterdir():
-            if old.is_file() or old.is_symlink():
-                old.unlink()
-            elif old.is_dir():
-                shutil.rmtree(old)
-
-    n = 0
+        return out
     for src in sorted(src_dir.iterdir()):
         if not src.is_file():
             continue
-
         name = src.name
-
-        # Source-of-truth in git should be *.conf.template, materialized in runtime as *.conf.
         if name.endswith(".conf.template"):
-            dst_name = name[:-len(".template")]
+            out[name[:-len(".template")]] = src
         elif name.endswith(".conf"):
-            # Back-compat during migration; still render as-is if any old source files remain.
-            dst_name = name
-        else:
-            continue
+            out[name] = src
+    return out
 
-        dst = dst_dir / dst_name
 
-        # For secrets, keep existing runtime material if already present.
-        if preserve_existing and dst.exists():
+def _bootstrap_components(src_dir: Path) -> dict[str, Path]:
+    out: dict[str, Path] = {}
+    if not src_dir.exists() or not src_dir.is_dir():
+        return out
+    for src in sorted(src_dir.iterdir()):
+        if src.is_file() and src.name.endswith(".conf"):
+            out[src.name] = src
+    return out
+
+
+def _materialize_component_dir(
+    *,
+    src_dir: Path,
+    bootstrap_dir: Path,
+    dst_dir: Path,
+    mode: int,
+) -> int:
+    src_map = _source_components(src_dir)
+    bootstrap_map = _bootstrap_components(bootstrap_dir)
+
+    existing_map: dict[str, Path] = {}
+    if dst_dir.exists():
+        for p in sorted(dst_dir.iterdir()):
+            if p.is_file():
+                existing_map[p.name] = p
+            elif p.is_dir():
+                shutil.rmtree(p)
+
+    names = sorted(set(src_map.keys()) | set(bootstrap_map.keys()))
+    dst_dir.mkdir(parents=True, exist_ok=True)
+
+    for name, p in existing_map.items():
+        if name not in names:
+            p.unlink()
+
+    n = 0
+    for name in names:
+        defaults = _parse_simple_kv(src_map[name]) if name in src_map else {}
+        current = _parse_simple_kv(existing_map[name]) if name in existing_map else {}
+        override = _parse_simple_kv(bootstrap_map[name]) if name in bootstrap_map else {}
+
+        merged: dict[str, str] = {}
+        merged.update(defaults)
+        merged.update(current)
+        merged.update(override)
+
+        dst = dst_dir / name
+        if merged:
+            _write_simple_kv(dst, merged, mode)
             n += 1
-            continue
+        elif dst.exists():
+            dst.unlink()
 
-        _write_atomic(dst, src.read_text(encoding="utf-8"), mode)
-        n += 1
     return n
 
 
@@ -155,6 +212,23 @@ def _migrate_legacy_db_env_to_split_secret() -> bool:
     return True
 
 
+def _ensure_generated_secrets() -> None:
+    certs_path = DST_SECRETS_D / "certs.conf"
+    certs = _parse_simple_kv(certs_path)
+
+    changed = False
+    if not (certs.get("cert_capass") or "").strip():
+        certs["cert_capass"] = secrets.token_urlsafe(24)
+        changed = True
+    if not (certs.get("cert_pass") or "").strip():
+        certs["cert_pass"] = certs["cert_capass"]
+        changed = True
+
+    if changed or not certs_path.exists():
+        _write_simple_kv(certs_path, certs, 0o640)
+        log.info("takctl-config: ensured installer-owned cert secrets in %s", certs_path)
+
+
 def apply(ctx) -> None:
     src_conf = _src_conf(ctx)
     src_secrets = _src_secrets(ctx)
@@ -167,7 +241,6 @@ def apply(ctx) -> None:
 
     DST_ROOT.mkdir(parents=True, exist_ok=True)
 
-    # Keep legacy files for compatibility/fallback during migration.
     _copy_text_file(src_conf, DST_CONF, 0o640)
     subprocess.run(["chown", "tak:tak", str(DST_CONF)], check=False)
     log.info("takctl-config: installed %s from %s", DST_CONF, src_conf)
@@ -183,16 +256,49 @@ def apply(ctx) -> None:
     else:
         log.info("takctl-config: no source secrets template and no legacy db.env; runtime secrets.conf not installed")
 
-    n_conf = _copy_tree_text(src_conf_d, DST_CONF_D, mode=0o640, preserve_existing=False)
-    subprocess.run(["chown", "-R", "tak:tak", str(DST_CONF_D)], check=False)
-    log.info("takctl-config: installed %s conf.d files into %s", n_conf, DST_CONF_D)
+    n_conf = _materialize_component_dir(
+        src_dir=src_conf_d,
+        bootstrap_dir=BOOTSTRAP_CONFIG_D,
+        dst_dir=DST_CONF_D,
+        mode=0o640,
+    )
+    log.info("takctl-config: materialized %s conf.d files into %s", n_conf, DST_CONF_D)
 
     _migrate_legacy_db_env_to_split_secret()
-    n_sec = _copy_tree_text(src_secrets_d, DST_SECRETS_D, mode=0o640, preserve_existing=True)
-    subprocess.run(["chown", "-R", "tak:tak", str(DST_SECRETS_D)], check=False)
-    log.info("takctl-config: installed %s secrets.d files into %s", n_sec, DST_SECRETS_D)
 
-    n_meta = _copy_tree_text(src_confmeta, DST_CONFMETA, mode=0o644)
+    n_sec = _materialize_component_dir(
+        src_dir=src_secrets_d,
+        bootstrap_dir=BOOTSTRAP_SECRETS_D,
+        dst_dir=DST_SECRETS_D,
+        mode=0o640,
+    )
+    log.info("takctl-config: materialized %s secrets.d files into %s", n_sec, DST_SECRETS_D)
+
+    _ensure_generated_secrets()
+
+    subprocess.run(["chown", "-R", "tak:tak", str(DST_CONF_D)], check=False)
+    subprocess.run(["chown", "-R", "tak:tak", str(DST_SECRETS_D)], check=False)
+
+    n_meta = 0
+    if src_confmeta.exists() and src_confmeta.is_dir():
+        DST_CONFMETA.mkdir(parents=True, exist_ok=True)
+
+        for old in DST_CONFMETA.iterdir():
+            if old.is_file() or old.is_symlink():
+                old.unlink()
+            elif old.is_dir():
+                shutil.rmtree(old)
+
+        for src in sorted(src_confmeta.iterdir()):
+            if not src.is_file():
+                continue
+            name = src.name
+            if not (name.endswith(".json.template") or name.endswith(".json")):
+                continue
+            dst_name = name[:-len(".template")] if name.endswith(".json.template") else name
+            _write_atomic(DST_CONFMETA / dst_name, src.read_text(encoding="utf-8"), 0o644)
+            n_meta += 1
+
     subprocess.run(["chown", "-R", "tak:tak", str(DST_CONFMETA)], check=False)
     log.info("takctl-config: installed %s confmeta files into %s", n_meta, DST_CONFMETA)
 
@@ -208,11 +314,15 @@ class _Action:
         log.info("  dst secrets: %s", DST_SECRETS)
         log.info("  src conf.d: %s", _src_conf_d(ctx))
         log.info("  dst conf.d: %s", DST_CONF_D)
+        log.info("  bootstrap conf.d: %s", BOOTSTRAP_CONFIG_D)
         log.info("  src secrets.d: %s", _src_secrets_d(ctx))
         log.info("  dst secrets.d: %s", DST_SECRETS_D)
+        log.info("  bootstrap secrets.d: %s", BOOTSTRAP_SECRETS_D)
         log.info("  src confmeta: %s", _src_confmeta(ctx))
         log.info("  dst confmeta: %s", DST_CONFMETA)
         log.info("  legacy db env: %s", LEGACY_DB_ENV)
+        log.info("  legacy db split env: %s", LEGACY_DB_SPLIT_ENV)
+        log.info("  runtime db split secret: %s", DST_DB_SECRET_SPLIT)
         return 0
 
     def apply(self, ctx) -> int:
