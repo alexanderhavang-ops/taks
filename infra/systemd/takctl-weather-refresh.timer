@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh TAKCTL weather cache every 3 hours
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=3h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

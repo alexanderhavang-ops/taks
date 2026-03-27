@@ -1,0 +1,11 @@
+[Unit]
+Description=TAKCTL weather cache refresh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tak
+Group=tak
+WorkingDirectory=/opt/tak/tools/takctl
+ExecStart=/bin/bash -lc 'PYTHONPATH=/opt/tak/tools/takctl /opt/tak/tools/takctl/.venv/bin/python -m takctl.services.weather_fetch'

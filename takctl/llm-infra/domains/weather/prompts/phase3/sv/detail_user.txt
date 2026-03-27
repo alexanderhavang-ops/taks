@@ -1,0 +1,15 @@
+Skapa en detaljerad operatörsanpassad HTML-vy för domänen "weather" utifrån indatafynden.
+
+Föreslagen form:
+<div>
+  <h3>aktuellt väder och prognos</h3>
+  <p>kort sammanfattande stycke</p>
+  <ul>
+    <li>aktuella förhållanden</li>
+    <li>nästa betydande förändring</li>
+    <li>operativ påverkan</li>
+  </ul>
+</div>
+
+Använd struktur hellre än verbositet.
+Upprepa inte samma poäng i flera sektioner.
