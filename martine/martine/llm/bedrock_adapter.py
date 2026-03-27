@@ -30,12 +30,14 @@ class MartineLlm:
         temperature: float = 0.2,
         max_tokens: int = 800,
         seed: Optional[int] = None,
+        purpose: str = "",
     ) -> Dict[str, Any]:
         return self.client.complete_text(
             prompt=prompt,
             temperature=temperature,
             max_tokens=max_tokens,
             seed=seed,
+            purpose=purpose,
         )
 
     def info(self) -> Dict[str, Any]:

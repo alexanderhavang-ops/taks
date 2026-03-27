@@ -1,0 +1,14 @@
+Skapa en detaljerad operatörsanpassad HTML-vy för domänen "presence" utifrån indatafynden.
+
+Föreslagen form:
+<div>
+  <h3>tydlig rubrik</h3>
+  <p>kort sammanfattande stycke</p>
+  <ul>
+    <li>stödjande fakta</li>
+    <li>stödjande fakta</li>
+  </ul>
+</div>
+
+Fokusera på närvaro, gruppering, avvikelser, täckning och operativ betydelse.
+Upprepa inte samma poäng i flera sektioner.

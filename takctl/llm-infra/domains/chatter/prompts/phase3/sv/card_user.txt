@@ -1,0 +1,16 @@
+Skapa ett mycket kompakt operatörsanpassat HTML-kort för domänen "chatter" utifrån indatafynden.
+
+Föredragen form:
+<div>
+  <h3>kort rubrik</h3>
+  <p>en kort stödjande rad</p>
+</div>
+
+Använd punkter bara om det behövs.
+Om du använder punkter:
+- högst 2 punkter
+- varje punkt ska vara kort och snabb att skanna
+
+Mål:
+- en viktig huvudslutsats
+- en kort stödjande rad

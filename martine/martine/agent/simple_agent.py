@@ -83,6 +83,7 @@ def run_once(user_question: str, *, sender_uid: str = "", sender_callsign: str =
         prompt=select_prompt,
         temperature=0.0,
         max_tokens=300,
+        purpose="martine:tool_selection",
     )
     write_json(run_id, "02_tool_selection_llm.json", select_resp)
 
@@ -161,6 +162,7 @@ def run_once(user_question: str, *, sender_uid: str = "", sender_callsign: str =
         prompt=final_prompt,
         temperature=0.2,
         max_tokens=400,
+        purpose="martine:final_answer",
     )
     write_json(run_id, "07_final_answer_llm.json", final_resp)
 

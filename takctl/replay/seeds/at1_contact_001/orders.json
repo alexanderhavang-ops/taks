@@ -1,13 +1,24 @@
 {
   "initial_orders": [
     {
+      "side": "blue",
       "from": "TQ",
       "to": "AT1",
       "sim_time_s": 0,
       "issued_tnr": "T0+0",
       "language": "sv",
       "intent": "ta_och_forsvara_upk201",
-      "message": "Order. AT framrycker mot Ystad Saltsjöbad (UPK201) i syfte att ta terrängen och därefter försvara den mot främmande makts angripare från land och hav. Fienden bedöms bestå av en till två grupper med civila fordon samt gummibåtar och eventuellt drönare. Fienden bedöms vara specialförband utrustade med mörkermedel, automatvapen och sannolikt sprängmedel. Planera för att kvarstanna på platsen i minst 7 dygn. Anmäl er marschfärdiga till TQ senast T0+600 före fordonsmarsch. Verkställ."
+      "message": "Order. AT1 framrycker mot Ystad Saltsjöbad (UPK201) i syfte att ta terrängen och därefter försvara den mot infiltration, sabotage och anfall från land eller hav. Fienden bedöms uppträda med mindre spanings- eller sabotageelement. Prioritet är tidig upptäckt, skydd av egna militära resurser och bibehållen handlingsfrihet. Rapportera kontakt och viktiga observationer omedelbart. Verkställ."
+    },
+    {
+      "side": "red",
+      "from": "RU-HQ",
+      "to": "RU-REC-1",
+      "sim_time_s": 0,
+      "issued_tnr": "T0+0",
+      "language": "en",
+      "intent": "recon_infiltrate_and_sabotage_military_targets",
+      "message": "Order. RU-REC-1 infiltrates the Ystad Saltsjöbad area in order to identify blue positions, observation posts, routes, and command nodes. If feasible, conduct limited sabotage against military resources only. Avoid decisive engagement. If detected, break contact or conduct a short firefight only as required to preserve the patrol or complete the mission. Report progress every three hours. Mission to be completed before T0+20000."
     }
   ]
 }

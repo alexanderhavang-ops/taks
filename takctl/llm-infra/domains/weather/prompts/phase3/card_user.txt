@@ -1,0 +1,16 @@
+Create a very compact operator-facing HTML card for domain "weather" from the input findings.
+
+Preferred shape:
+<div>
+  <h3>short weather headline</h3>
+  <p>one short supporting line</p>
+</div>
+
+Use bullets only if necessary.
+If using bullets:
+- max 2 bullets
+- each bullet short and scannable
+
+Goal:
+- one current weather takeaway
+- one short forecast/impact line
