@@ -42,7 +42,7 @@
       deriveLastKeyRef.current = "";
       if (deriveAbortRef.current) { try { deriveAbortRef.current.abort(); } catch (e) {} }
       deriveAbortRef.current = null;
-      return null;
+      return;
     }
 
     const key = deriveKey(policyId, {
@@ -55,7 +55,7 @@
       team: team,
       callsign_policy: effectivePolicy
     });
-    if (key === deriveLastKeyRef.current) return null;
+    if (key === deriveLastKeyRef.current) return;
 
     const timer = setTimeout(function () {
       (async function () {
