@@ -6,6 +6,22 @@ from html import escape as h
 from takctl.onboarding.soldier_card.blocks import lifecycle_block, password_block, profile_block
 from takctl.onboarding.soldier_card.i18n import lang_norm, t
 from takctl.onboarding.soldier_card.common import safe
+from takctl.config import load_config
+
+
+
+
+def _cfg_bool(cfg, key: str, default: bool = False) -> bool:
+    try:
+        v = getattr(cfg, key)
+    except Exception:
+        try:
+            v = (getattr(cfg, "values", {}) or {}).get(key)
+        except Exception:
+            v = None
+    if v is None:
+        return default
+    return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
 
 
 def render_soldier_card_page(
@@ -38,6 +54,61 @@ def render_soldier_card_page(
     creds_html = password_block(lang=l, username=username, ident=ident, reveal_password=reveal_password)
     profile_html = profile_block(lang=l, username=username, groups=groups, sel=sel, ident=ident)
     lifecycle_html = lifecycle_block(l, lifecycle)
+
+    cfg = load_config()
+    create_cert_with_user = _cfg_bool(cfg, "create_cert_with_user", True)
+    include_client_password_in_package = _cfg_bool(cfg, "include_client_password_in_package", False)
+    include_truststore_password_in_package = _cfg_bool(cfg, "include_truststore_password_in_package", False)
+
+    needs_manual_import_passwords = create_cert_with_user and (
+        (not include_client_password_in_package) or (not include_truststore_password_in_package)
+    )
+    needs_user_password = not create_cert_with_user
+
+    if create_cert_with_user:
+        atak_start_note = """
+        1. Öppna telefonens kamera.
+        <br/>2. Skanna QR-koden med kameran.
+        <br/>3. Öppna länken i ATAK.
+        <br/>4. Om det inte fungerar, ladda ned paketet manuellt.
+        """
+        if needs_manual_import_passwords:
+            itak_start_note = """
+            1. Öppna iTAK på telefonen.
+            <br/>2. Öppna QR-skanning i iTAK.
+            <br/>3. Skanna QR-koden i appen, eller ladda ned paketet.
+            <br/>4. Om iTAK frågar efter importlösen använder du uppgifterna nedan.
+            """
+            guide_step4 = """
+            Om appen frågar efter importlösen eller certifikat-lösen använder du uppgifterna på detta kort.
+            <br/>Om inget lösenord visas här, kontakta instruktör.
+            """
+        else:
+            itak_start_note = """
+            1. Öppna iTAK på telefonen.
+            <br/>2. Öppna QR-skanning i iTAK.
+            <br/>3. Skanna QR-koden i appen, eller ladda ned paketet.
+            <br/>4. Följ importen i iTAK.
+            """
+            guide_step4 = """
+            Om appen frågar efter uppgifter använder du uppgifterna på detta kort.
+            <br/>Om inget lösenord visas här, kontakta instruktör.
+            """
+    else:
+        atak_start_note = """
+        1. Öppna telefonens kamera.
+        <br/>2. Skanna QR-koden med kameran.
+        <br/>3. Öppna länken i ATAK.
+        <br/>4. När ATAK frågar efter användarnamn och lösenord använder du uppgifterna nedan.
+        """
+        itak_start_note = """
+        Denna onboardingmodell är byggd för Android / ATAK auto-enroll.
+        <br/>Om du har iPhone behöver du hjälp av instruktör eller annan väg.
+        """
+        guide_step4 = """
+        Om ATAK frågar efter användarnamn och lösenord använder du uppgifterna på detta kort.
+        <br/>Om inget lösenord visas här, kontakta instruktör.
+        """
 
     token_url = f"{base}/api/onboarding/cards/{token}"
     exp = expires_at_utc.replace(microsecond=0).isoformat()
@@ -271,9 +342,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monos
     <div id="flow_android" class="card flow">
       <h3>Android / ATAK</h3>
       <div class="note">
-        1. Öppna ATAK på telefonen.
-        <br/>2. Skanna QR-koden i ATAK.
-        <br/>3. Om det inte fungerar, ladda ned paketet manuellt.
+        {atak_start_note}
       </div>
       <div class="qr"><img alt="ATAK Import QR" src="{atak_import_qr}" /></div>
       <div class="meta" style="margin-top:10px;">
@@ -284,9 +353,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monos
     <div id="flow_iphone" class="card flow">
       <h3>iPhone / iTAK</h3>
       <div class="note">
-        1. Öppna iTAK på telefonen.
-        <br/>2. Skanna QR-koden i iTAK, eller ladda ned paketet.
-        <br/>3. Paketet innehåller certifikat och truststore.
+        {itak_start_note}
       </div>
       <div class="qr"><img alt="iTAK QR" src="{itak_qr}" /></div>
       <div class="meta" style="margin-top:10px;">
@@ -328,15 +395,16 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monos
       <div class="card">
         <h3>Steg 2 — Öppna rätt app</h3>
         <div class="note">
-          Android: öppna ATAK.
-          <br/>iPhone: öppna iTAK.
+          Android / ATAK: använd telefonens kamera för att öppna QR-koden i ATAK.
+          <br/>iPhone / iTAK: öppna iTAK och använd QR-skanning i appen.
         </div>
       </div>
 
       <div class="card">
         <h3>Steg 3 — Skanna koden</h3>
         <div class="note">
-          Skanna QR-koden i appen.
+          ATAK: skanna med telefonens kamera.
+          <br/>iTAK: skanna i iTAK-appen.
           <br/>Om det inte fungerar, använd nedladdningslänken i Start-fliken.
         </div>
       </div>
@@ -344,8 +412,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monos
       <div class="card">
         <h3>Steg 4 — Använd uppgifterna om appen frågar</h3>
         <div class="note">
-          Om appen frågar efter användarnamn eller lösenord använder du uppgifterna på detta kort.
-          <br/>Om inget lösenord visas här, kontakta instruktör.
+          {guide_step4}
         </div>
       </div>
     </div>
