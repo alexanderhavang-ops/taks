@@ -11,6 +11,7 @@ from fastapi import HTTPException, Request
 
 from takctl.onboarding.http import bool_q, forwarded_host_only, password_from_req, q, qi
 from takctl.onboarding.policy import Policy, PolicyError
+from takctl.config import load_config
 from takctl.onboarding.selection import load_selection
 
 
@@ -66,6 +67,81 @@ def _read_runtime_user_cert_password() -> str:
 
 def now_utc_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _user_cert_dir(username: str) -> Path:
+    return Path("/opt/tak/certs/files/04_USERS") / username
+
+def _user_cert_paths(username: str) -> dict[str, Path]:
+    d = _user_cert_dir(username)
+    return {
+        "dir": d,
+        "key": d / f"{username}.key",
+        "pem": d / f"{username}.pem",
+        "p12": d / f"{username}.p12",
+        "modern_p12": d / f"{username}.modern.p12",
+        "jks": d / f"{username}.jks",
+    }
+
+def _user_cert_evidence(username: str) -> dict[str, str | bool]:
+    paths = _user_cert_paths(username)
+    return {
+        "dir": str(paths["dir"]),
+        "key_exists": paths["key"].exists(),
+        "pem_exists": paths["pem"].exists(),
+        "p12_exists": paths["p12"].exists(),
+        "modern_p12_exists": paths["modern_p12"].exists(),
+        "jks_exists": paths["jks"].exists(),
+    }
+
+
+def _export_user_client_p12(
+    *,
+    username: str,
+    out_p12: Path,
+    client_password: str,
+) -> dict[str, str]:
+    import subprocess
+
+    paths = _user_cert_paths(username)
+    key_path = paths["key"]
+    pem_path = paths["pem"]
+    ca_pem = Path("/opt/tak/certs/files/00_CA/ca.pem")
+
+    if not key_path.exists():
+        raise HTTPException(status_code=400, detail=f"missing user key for {username}: {key_path}")
+    if not pem_path.exists():
+        raise HTTPException(status_code=400, detail=f"missing user cert for {username}: {pem_path}")
+    if not ca_pem.exists():
+        raise HTTPException(status_code=400, detail=f"missing CA pem: {ca_pem}")
+
+    user_key_pass = _read_runtime_user_cert_password()
+    if not user_key_pass:
+        raise HTTPException(status_code=400, detail="missing user_key_pass / PASS for user cert export")
+
+    out_p12.parent.mkdir(parents=True, exist_ok=True)
+
+    cmd = [
+        "openssl", "pkcs12", "-export",
+        "-inkey", str(key_path),
+        "-passin", f"pass:{user_key_pass}",
+        "-in", str(pem_path),
+        "-certfile", str(ca_pem),
+        "-out", str(out_p12),
+        "-passout", f"pass:{client_password}",
+    ]
+
+    p = subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    if p.returncode != 0:
+        raise HTTPException(status_code=500, detail=f"openssl pkcs12 export failed for {username}: {(p.stdout or '').strip()}")
+
+    return {
+        "out_p12": str(out_p12),
+        "key_path": str(key_path),
+        "pem_path": str(pem_path),
+        "ca_pem": str(ca_pem),
+    }
+
 
 
 def normalize_atak_role_type(v: str | None) -> str | None:
@@ -453,10 +529,10 @@ def write_atak_package_zip(out_zip: Path, username: str, req: Request, include_c
 
 def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str) -> None:
     """
-    iTAK auto-enroll server package (root-level ZIP):
+    iTAK cert package (root-level ZIP):
       - config.pref
       - truststore-root.p12
-      - no client cert
+      - client.p12
     """
     out_zip.parent.mkdir(parents=True, exist_ok=True)
 
@@ -577,6 +653,32 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
     if not ca_password:
         raise HTTPException(status_code=400, detail="missing CA password for iTAK package")
 
+    client_name = "client.p12"
+    client_ref = f"cert/{client_name}"
+
+    include_client_pw = str(load_config().get("include_client_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    include_trust_pw = str(load_config().get("include_truststore_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+
+    client_password = (
+        q(req, "client_password", None)
+        or str(ep.get("client_password") or "").strip()
+        or _read_runtime_user_cert_password()
+    )
+    if not client_password:
+        raise HTTPException(status_code=400, detail="missing client password for iTAK package")
+
+    client_tmp = out_zip.parent / f"{username}.client.tmp.p12"
+    export_info = _export_user_client_p12(
+        username=username,
+        out_p12=client_tmp,
+        client_password=client_password,
+    )
+    client_p12_bytes = client_tmp.read_bytes()
+    try:
+        client_tmp.unlink()
+    except Exception:
+        pass
+
     role_value = normalize_atak_role_type(getattr(ident, "atak_role_type", None)) or "Team Member"
 
     itak_override_path = artifact_dir / "itak-config.pref"
@@ -585,6 +687,8 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
         if not config_pref:
             raise HTTPException(status_code=400, detail=f"empty iTAK config override: {itak_override_path}")
     else:
+        trust_pw_entry = f'    <entry key="caPassword0" class="class java.lang.String">{ca_password}</entry>\n' if include_trust_pw else ""
+        client_pw_entry = f'    <entry key="certificatePassword0" class="class java.lang.String">{client_password}</entry>\n' if include_client_pw else ""
         config_pref = (
             "<?xml version='1.0' encoding='ASCII' standalone='yes'?>\n"
             "<preferences>\n"
@@ -594,10 +698,11 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
             '    <entry key="enabled0" class="class java.lang.Boolean">true</entry>\n'
             f'    <entry key="connectString0" class="class java.lang.String">{host}:{port}:{("ssl" if use_ssl else "tcp")}</entry>\n'
             '    <entry key="caLocation0" class="class java.lang.String">truststore-root.p12</entry>\n'
-            f'    <entry key="caPassword0" class="class java.lang.String">{ca_password}</entry>\n'
+            f"{trust_pw_entry}"
+            '    <entry key="certificateLocation0" class="class java.lang.String">client.p12</entry>\n'
+            f"{client_pw_entry}"
             '    <entry key="useAuth0" class="class java.lang.Boolean">true</entry>\n'
             '    <entry key="cacheCreds0" class="class java.lang.String">Cache credentials</entry>\n'
-            '    <entry key="enrollForCertificateWithTrust0" class="class java.lang.Boolean">true</entry>\n'
             "  </preference>\n"
             '  <preference version="1" name="com.atakmap.app_preferences">\n'
             '    <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>\n'
@@ -636,11 +741,20 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
             "source_path": str(ca_path),
             "zip_name": ca_name,
             "password_present": bool(ca_password),
+            "password_included": bool(include_trust_pw),
         },
-        "package_mode": "itak-auto-enroll",
-        "note": "iTAK root-level auto-enroll package: config.pref + truststore-root.p12, no client cert.",
+        "client_cert": {
+            "source_dir": str(_user_cert_dir(username)),
+            "zip_name": client_name,
+            "password_present": bool(client_password),
+            "password_included": bool(include_client_pw),
+            "export": export_info,
+        },
+        "package_mode": "itak-cert",
+        "note": "iTAK cert package: config.pref + truststore-root.p12 + client.p12.",
     }
 
     with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr("config.pref", config_pref)
         z.writestr(ca_ref, ca_path.read_bytes())
+        z.writestr(client_ref, client_p12_bytes)

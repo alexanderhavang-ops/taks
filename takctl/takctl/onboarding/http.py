@@ -4,6 +4,8 @@ from urllib.parse import splitport
 
 from fastapi import HTTPException, Request
 
+from takctl.config import load_config
+
 
 def forwarded_host_only(req: Request) -> str:
     raw = (req.headers.get("x-forwarded-host") or req.headers.get("host") or "localhost").split(",")[0].strip()
@@ -18,7 +20,18 @@ def external_base(req: Request) -> str:
     Proxy-aware external base URL.
 
     IMPORTANT: /takctl is dead. This returns proto://host with NO prefix.
+
+    Resolution order:
+      1) takctl config onboarding_external_base
+      2) forwarded headers / request URL
     """
+    try:
+        cfg_base = str(load_config().get("onboarding_external_base", "") or "").strip().rstrip("/")
+        if cfg_base:
+            return cfg_base
+    except Exception:
+        pass
+
     h = req.headers
     proto = (h.get("x-forwarded-proto") or req.url.scheme or "https").split(",")[0].strip()
     host = (h.get("x-forwarded-host") or h.get("host") or req.url.hostname or "localhost").split(",")[0].strip()

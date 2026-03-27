@@ -39,6 +39,7 @@ def _gen_strong_password(length: int = 20) -> str:
 
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, Optional, List
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -54,12 +55,53 @@ from takctl.onboarding.emailer import send_onboarding_email, is_valid_email
 
 from takctl.services.usermgr import UserMgrService, UserMgrError
 from takctl.onboarding.policy import Policy
+from takctl.config import load_config
 
 router = APIRouter(tags=["onboarding"])
 
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _cfg_bool(name: str, default: bool = False) -> bool:
+    raw = str(load_config().get(name, "") or "").strip().lower()
+    if not raw:
+        return bool(default)
+    return raw in ("1", "true", "yes", "y", "on")
+
+
+def _user_cert_pem_path(username: str) -> Path:
+    u = (username or "").strip()
+    return Path("/opt/tak/certs/files/04_USERS") / u / f"{u}.pem"
+
+
+def _ensure_user_cert(username: str) -> Path | None:
+    u = (username or "").strip()
+    if not u:
+        return None
+    if not _cfg_bool("create_cert_with_user", False):
+        return None
+
+    cert_pem = _user_cert_pem_path(u)
+    if cert_pem.exists():
+        return cert_pem
+
+    import subprocess
+
+    helper = "/opt/tak/tools/takctl/bin/takctl-makecert"
+    p = subprocess.run(
+        ["sudo", "-n", helper, "client", u],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+    out = (p.stdout or "").strip()
+    if p.returncode != 0:
+        raise RuntimeError(out or f"failed to create cert for {u}")
+    if not cert_pem.exists():
+        raise RuntimeError(f"cert helper succeeded but PEM missing: {cert_pem}")
+    return cert_pem
 
 
 def _create_card_token_compat(store, *, username: str, ttl_sec: int, reveal_password: bool):
@@ -132,35 +174,6 @@ def _issue_card_link(req: Request, svc, *, username: str, ttl_sec: int, reveal_p
     )
 
 
-def _normalize_artifacts_requested(
-    artifacts_requested: Optional[Dict[str, Any]],
-    paths: Optional[Dict[str, Any]],
-) -> Dict[str, bool]:
-    out: Dict[str, bool] = {}
-
-    raw = dict(artifacts_requested or {})
-    for k, v in raw.items():
-        ks = str(k or "").strip()
-        if not ks:
-            continue
-        out[ks] = bool(v)
-
-    if out:
-        return out
-
-    p = dict(paths or {})
-
-    # Legacy fallback:
-    # - B was the previous "manual package" path
-    # - itak/wintak were client toggles
-    if bool(p.get("B")) and bool(p.get("itak")):
-        out["itak_soft_cert_no_password"] = True
-    if bool(p.get("B")) and bool(p.get("wintak")):
-        out["atak_soft_cert_no_password"] = True
-
-    return out
-
-
 class IdentityUpsertIn(BaseModel):
     origin: str = Field(default="marti", description="taks|marti")
     password: Optional[str] = Field(default=None, description="Only stored when origin=taks")
@@ -185,8 +198,6 @@ class UserCreateIn(BaseModel):
     groups_in: List[str] = Field(default_factory=list)
     groups_out: List[str] = Field(default_factory=list)
     ctx: Dict[str, Any] = Field(default_factory=dict)
-    paths: Dict[str, bool] = Field(default_factory=lambda: {"B": True, "itak": True, "wintak": True})
-    artifacts_requested: Dict[str, bool] = Field(default_factory=dict)
     endpoints: Dict[str, Any] = Field(default_factory=dict)
     ttl_sec: int = Field(default=600, ge=60, le=7 * 24 * 3600)
     reveal_password: bool = Field(default=True)
@@ -302,11 +313,22 @@ def create_user(req: Request, username: str, body: UserCreateIn):
             append=False,
             remove=False,
         )
+
+        cert_pem = _ensure_user_cert(u)
+        if cert_pem is not None:
+            um.user_set(
+                u,
+                certificate_path=str(cert_pem),
+                append=False,
+                remove=False,
+            )
     except UserMgrError as e:
         raise HTTPException(
             status_code=(400 if "Password complexity check failed" in str(e) else 500),
             detail=f"UserManager failed: {e}",
         )
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
     tak_user = svc.ud.get_user(u)
     if tak_user is None:
@@ -343,15 +365,8 @@ def create_user(req: Request, username: str, body: UserCreateIn):
         password=pw_for_store,
     )
 
-    artifacts_requested = _normalize_artifacts_requested(
-        body.artifacts_requested,
-        body.paths,
-    )
-
     sel = {
         "ctx": ctx,
-        "paths": dict(body.paths or {"B": True, "itak": True, "wintak": True}),
-        "artifacts_requested": artifacts_requested,
         "endpoints": dict(body.endpoints or {}),
     }
     save_selection(u, sel)

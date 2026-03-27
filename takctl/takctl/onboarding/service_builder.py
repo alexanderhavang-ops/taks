@@ -13,7 +13,7 @@ DEFAULT_STATE_ROOT = Path("/opt/tak/takctl-state/onboarding")
 
 def _default_external_base() -> str | None:
     cfg = load_config()
-    v = (cfg.onboarding_external_base or "").strip()
+    v = str(cfg.get("onboarding_external_base", "") or "").strip()
     return v.rstrip("/") if v else None
 
 

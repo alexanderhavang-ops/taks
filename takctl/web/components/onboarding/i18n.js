@@ -166,22 +166,16 @@
     }
   };
 
-  // default language selection: use localStorage or fall back to sv (Swedish)
+  // runtime language is authoritative; no browser/localStorage language selection
   const DEFAULT = "sv";
-  const LS_KEY = "taks_ui_lang";
 
-  function readSaved() {
-    try {
-      const v = localStorage.getItem(LS_KEY);
-      if (v && DICTS[v]) return v;
-    } catch (e) { /* ignore */ }
-    // fallback heuristic: use browser lang if it starts with en
-    const nav = (navigator.language || navigator.userLanguage || "").toLowerCase();
-    if (nav && nav.startsWith("en")) return "en";
+  function readRuntimeLang() {
+    const v = String(window.TAKS_RUNTIME_LANGUAGE || DEFAULT).toLowerCase();
+    if (DICTS[v]) return v;
     return DEFAULT;
   }
 
-  let current = readSaved();
+  let current = readRuntimeLang();
 
   function setLang(lang) {
     if (!DICTS[lang]) {
@@ -189,10 +183,7 @@
       return;
     }
     current = lang;
-    try { localStorage.setItem(LS_KEY, lang); } catch (e) {}
-    // expose for debugging
     window.currentLang = current;
-    // dispatch an event so UI can re-render if it wants to listen
     window.dispatchEvent(new CustomEvent("TAKS_LANG_CHANGED", { detail: { lang } }));
   }
 
