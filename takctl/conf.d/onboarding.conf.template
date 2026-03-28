@@ -1,5 +1,11 @@
 # onboarding identity + package policy
 
+# Main onboarding mode:
+#   auto-enroll   = ATAK enrolls with username/password
+#   cert-creation = TAKS creates client certs/packages
+onboarding_mode = cert-creation
+
+# Backward-compatibility legacy flag. Prefer onboarding_mode.
 # If true, creating a TAK user through onboarding also creates a client cert
 # with the same username/CN and binds it to the user via fingerprint.
 create_cert_with_user = true

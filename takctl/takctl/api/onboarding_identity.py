@@ -71,6 +71,13 @@ def _cfg_bool(name: str, default: bool = False) -> bool:
     return raw in ("1", "true", "yes", "y", "on")
 
 
+def _onboarding_mode() -> str:
+    raw = str(load_config().get("onboarding_mode", "") or "").strip().lower()
+    if raw in ("auto-enroll", "cert-creation"):
+        return raw
+    return "cert-creation" if _cfg_bool("create_cert_with_user", False) else "auto-enroll"
+
+
 def _user_cert_pem_path(username: str) -> Path:
     u = (username or "").strip()
     return Path("/opt/tak/certs/files/04_USERS") / u / f"{u}.pem"
@@ -80,7 +87,7 @@ def _ensure_user_cert(username: str) -> Path | None:
     u = (username or "").strip()
     if not u:
         return None
-    if not _cfg_bool("create_cert_with_user", False):
+    if _onboarding_mode() != "cert-creation":
         return None
 
     cert_pem = _user_cert_pem_path(u)

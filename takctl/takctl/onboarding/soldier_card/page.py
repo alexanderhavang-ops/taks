@@ -24,6 +24,26 @@ def _cfg_bool(cfg, key: str, default: bool = False) -> bool:
     return str(v).strip().lower() in ("1", "true", "yes", "y", "on")
 
 
+def _cfg_str(cfg, key: str, default: str = "") -> str:
+    try:
+        v = getattr(cfg, key)
+    except Exception:
+        try:
+            v = (getattr(cfg, "values", {}) or {}).get(key)
+        except Exception:
+            v = None
+    if v is None:
+        return default
+    return str(v).strip()
+
+
+def _onboarding_mode(cfg) -> str:
+    raw = _cfg_str(cfg, "onboarding_mode", "").lower()
+    if raw in ("auto-enroll", "cert-creation"):
+        return raw
+    return "cert-creation" if _cfg_bool(cfg, "create_cert_with_user", True) else "auto-enroll"
+
+
 def render_soldier_card_page(
     *,
     lang: str | None,
@@ -56,7 +76,8 @@ def render_soldier_card_page(
     lifecycle_html = lifecycle_block(l, lifecycle)
 
     cfg = load_config()
-    create_cert_with_user = _cfg_bool(cfg, "create_cert_with_user", True)
+    onboarding_mode = _onboarding_mode(cfg)
+    create_cert_with_user = (onboarding_mode == "cert-creation")
     include_client_password_in_package = _cfg_bool(cfg, "include_client_password_in_package", False)
     include_truststore_password_in_package = _cfg_bool(cfg, "include_truststore_password_in_package", False)
 
