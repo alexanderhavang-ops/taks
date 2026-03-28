@@ -1,27 +1,16 @@
-Skapa ett kompakt operatörsanpassat väderkort för domänen "weather" utifrån indatafynden.
+Create a compact operator-facing HTML weather card for domain "weather" from the input findings.
 
-Krav:
-- kort och snabbt att skanna
-- liten layout
-- ingen tabell
-- ingen tidslinje
-- högst 1 liten enkel SVG om den verkligen hjälper
-- högst 3 mycket korta punkter om punktlista används
+Prioritize:
+- current state
+- next important weather change
+- operational impact
 
-Bra struktur:
-<div>
-  <h3>kort rubrik</h3>
-  <p>en kort sammanfattning</p>
-  <ul>
-    <li>nuläge</li>
-    <li>nästa förändring</li>
-    <li>påverkan</li>
-  </ul>
-</div>
+Good cards usually contain:
+- a clear title
+- 1 short summary line
+- 2-4 small key points or visual indicators
+- optional simple SVG symbolism for rain, cloud, wind, temperature, or change
 
-Prioritera:
-- nuläge
-- nästa viktiga väderförändring
-- operativ påverkan
+Choose the structure yourself, but keep the card compact and easy to read.
 
-Om tider visas som TNR ska formatet vara DDHHMM.
+If times are shown, use compact English UTC rendering.

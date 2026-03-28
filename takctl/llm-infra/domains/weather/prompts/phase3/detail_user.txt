@@ -1,17 +1,17 @@
-Create a detailed operator-facing HTML view for domain "weather" from the input findings.
+Create a detailed but clear operator-facing HTML weather view for domain "weather" from the input findings.
 
-Goal:
-- clearly show current conditions
-- show the next significant change window
-- show likely operational impact
+Prioritize:
+- current state
+- next significant weather change
+- impact on visibility, surfaces, wind-sensitive systems, and movement
 
-You may choose the structure yourself.
+Good detail views may include:
+- a clear title
+- a short intro
+- a compact forecast table or timeline
+- a bullet list of operational impact
+- simple SVG for symbols, trend, or overview
 
-Possible structures include:
-- headline + summary + compact table
-- headline + summary + bullets
-- key metrics + timeline-like rows
-- compact infographic using simple inline SVG plus supporting text
+Choose the best rendering yourself.
 
-Use structure over verbosity.
-Do not repeat the same point in multiple sections.
+If times are shown, use compact English UTC rendering.
