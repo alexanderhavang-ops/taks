@@ -54,6 +54,7 @@
       card: `${base}/card`,
       api_get: `/api/onboarding/users/${u}`,
       api_create: `/api/onboarding/users/${u}/create`,
+      card_json: `/api/onboarding/users/${u}/card.json`,
     };
   };
 

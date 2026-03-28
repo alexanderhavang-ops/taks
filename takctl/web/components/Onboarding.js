@@ -49,6 +49,8 @@
 
     if (sub === "create") {
       page = h(window.OnboardingCreateUserPage, { routeUsername: username });
+    } else if (sub === "detail") {
+      page = h(window.OnboardingUserDetailPage, { routeUsername: username });
     } else if (sub === "import") {
       page = h(window.OnboardingImportUsersPage);
     } else if (sub === "import-jobs") {

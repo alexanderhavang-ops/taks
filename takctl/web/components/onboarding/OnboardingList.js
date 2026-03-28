@@ -202,7 +202,20 @@
                 onChange: function () { onToggleOne(username); }
               })
             ),
-            h("td", null, _colText(username || "—")),
+            h("td", null,
+              h("button", {
+                type: "button",
+                className: "btn",
+                style: { padding: "4px 8px" },
+                onClick: function () {
+                  try {
+                    const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
+                    if (lib && typeof lib.setHashRoute === "function") lib.setHashRoute("detail", username);
+                    else window.location.hash = "#onboarding/detail:" + encodeURIComponent(username);
+                  } catch (e) {}
+                }
+              }, _colText(username || "—"))
+            ),
             h("td", null, _colText(groupsTxt)),
             h("td", null, _colText(onboard || "—")),
             h("td", null, _badgeForState(state)),
