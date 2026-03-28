@@ -4,7 +4,13 @@
   "phases": {
     "phase1": {
       "enabled": true,
-      "enrich": "enrich/phase1.py"
+      "enrich": "enrich/phase1.py",
+      "sql_vars": {
+        "PRESENCE_HISTORY_HOURS": {
+          "config_key": "presence_history_hours",
+          "default": 24
+        }
+      }
     },
     "phase2": {
       "enabled": true,

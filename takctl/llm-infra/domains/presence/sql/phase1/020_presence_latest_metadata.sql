@@ -4,4 +4,5 @@ SELECT
   COUNT(DISTINCT uid) AS distinct_uids,
   COUNT(DISTINCT cot_type) AS distinct_types
 FROM latestcot
-WHERE cot_type LIKE 'a-f-%';
+WHERE cot_type LIKE 'a-f-%'
+  AND time >= (now() - make_interval(hours => {{PRESENCE_HISTORY_HOURS}}));

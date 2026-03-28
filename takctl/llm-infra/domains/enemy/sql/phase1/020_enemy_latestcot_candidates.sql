@@ -8,7 +8,8 @@ SELECT
   detail AS detail_xml
 FROM public.latestcot
 WHERE
-  (
+  time >= (now() - make_interval(days => {{ENEMY_HISTORY_DAYS}}))
+  AND (
        lower(coalesce(detail, '')) LIKE '%enemy%'
     OR lower(coalesce(detail, '')) LIKE '%fiend%'
     OR lower(coalesce(detail, '')) LIKE '%hostile%'

@@ -5,7 +5,13 @@
     "phase1": {
       "enabled": true,
       "sql_dir": "sql/phase1",
-      "enrich": "enrich/phase1.py"
+      "enrich": "enrich/phase1.py",
+      "sql_vars": {
+        "ENEMY_HISTORY_DAYS": {
+          "config_key": "enemy_history_days",
+          "default": 7
+        }
+      }
     },
     "phase2": {
       "enabled": true,

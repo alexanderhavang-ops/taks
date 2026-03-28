@@ -1,0 +1,16 @@
+Create a very compact operator-facing HTML card for domain "enemy" from the input findings.
+
+Preferred shape:
+<div>
+  <h3>short hostile picture headline</h3>
+  <p>one short supporting line</p>
+</div>
+
+Use bullets only if necessary.
+If using bullets:
+- max 2 bullets
+- each bullet short and scannable
+
+Goal:
+- one key hostile takeaway
+- one short supporting line

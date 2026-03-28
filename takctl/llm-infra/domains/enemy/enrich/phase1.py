@@ -258,7 +258,7 @@ def _build_cot_sightings(cot_rows: list[list[Any]]) -> list[dict[str, Any]]:
 
         dt = _parse_dt(time_utc)
         stale_dt = _parse_dt(stale_utc)
-        lat, lon = _decode_wkb_point_hex(point_wkb_hex)
+        lon, lat = _decode_wkb_point_hex(point_wkb_hex)
 
         root = _root_from_detail(detail_xml)
         remarks = _remarks_text(root)

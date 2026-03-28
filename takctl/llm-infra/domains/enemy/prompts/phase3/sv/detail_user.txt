@@ -1,0 +1,15 @@
+Create a detailed operator-facing HTML view for domain "enemy" from the input findings.
+
+Suggested shape:
+<div>
+  <h3>clear hostile picture headline</h3>
+  <p>short summary paragraph</p>
+  <ul>
+    <li>latest sighting</li>
+    <li>cluster or area</li>
+    <li>uncertainty or staleness note</li>
+  </ul>
+</div>
+
+Use structure over verbosity.
+Do not repeat the same point in multiple sections.

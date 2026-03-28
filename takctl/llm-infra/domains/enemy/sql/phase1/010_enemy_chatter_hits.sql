@@ -6,6 +6,7 @@ SELECT
 FROM public.cot_router_chat
 WHERE
   chat_content IS NOT NULL
+  AND time >= (now() - make_interval(days => {{ENEMY_HISTORY_DAYS}}))
   AND (
        lower(chat_content) LIKE '%enemy%'
     OR lower(chat_content) LIKE '%fiend%'
