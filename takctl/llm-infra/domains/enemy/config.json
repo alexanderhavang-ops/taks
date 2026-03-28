@@ -1,0 +1,21 @@
+{
+  "enabled": true,
+  "domain": "enemy",
+  "phases": {
+    "phase1": {
+      "enabled": true,
+      "sql_dir": "sql/phase1",
+      "enrich": "enrich/phase1.py"
+    },
+    "phase2": {
+      "enabled": true,
+      "prompt_dir": "prompts/phase2",
+      "input": "phase1_evidence",
+      "output_schema": "standard.summary.v1"
+    },
+    "phase3": {
+      "enabled": true,
+      "prompt_dir": "prompts/phase3"
+    }
+  }
+}
