@@ -609,7 +609,10 @@ def onboarding_card_html(req: Request, token: str):
     exp = getattr(ct, "expires_at_utc", None) or getattr(ct, "expires_at", None)
     reveal = bool(getattr(ct, "reveal_password", False))
 
-    lang = (req.query_params.get("lang") or "").strip().lower()
+    try:
+        lang = str(load_config().get("language", "") or "").strip().lower()
+    except Exception:
+        lang = ""
 
     html = render_soldier_card_page(
         lang=lang,
