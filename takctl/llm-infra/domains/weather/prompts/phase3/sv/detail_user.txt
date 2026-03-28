@@ -1,6 +1,9 @@
 Skapa en detaljerad men tydlig operatörsanpassad HTML-vy för domänen "weather" utifrån indatafynden.
 
-Du får själv välja bästa renderingssättet.
+Prioritera:
+- nuläge
+- nästa betydande väderförändring
+- påverkan på sikt, underlag, vindkänsliga system och rörelse
 
 Bra detaljvy kan till exempel innehålla:
 - en tydlig rubrik
@@ -9,11 +12,7 @@ Bra detaljvy kan till exempel innehålla:
 - en punktlista med operativ påverkan
 - enkel SVG för symboler, trend eller översikt
 
-Prioritera:
-- nuläge
-- nästa betydande väderförändring
-- påverkan på sikt, underlag, vindkänsliga system och rörelse
+Välj själv bästa renderingssättet.
 
-Om tider visas som TNR ska formatet vara DDHHMM.
-
-Vyn får gärna kännas mer som en liten operativ vädergrafik än som bara text.
+Om tider visas ska de i svensk rendering vara TNR enligt formatet DDHHMM.
+Visa inte UTC i svensk output.

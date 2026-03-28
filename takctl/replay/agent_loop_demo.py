@@ -7,7 +7,7 @@ from typing import Any, Dict
 from llm_decision import build_agent_packet, parse_and_validate
 from tasking import decision_to_work
 
-SAMPLE_RESPONSE = Path("/opt/taks/takctl/replay/sample_attq_response.json")
+SAMPLE_RESPONSE = Path("/opt/tak/tools/takctl/replay/sample_attq_response.json")
 
 
 def build_demo_packet(sim_time_s: int) -> Dict[str, Any]:

@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path("/opt/taks/takctl/replay")
+ROOT = Path("/opt/tak/tools/takctl/replay")
 
 
 def run(cmd: list[str], label: str) -> int:

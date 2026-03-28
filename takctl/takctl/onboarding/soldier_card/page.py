@@ -87,10 +87,10 @@ def render_soldier_card_page(
     needs_user_password = not create_cert_with_user
 
     if create_cert_with_user:
-        mode_label = "Cert-import"
-        atak_pw_label = "Client-lösen i paket: ja" if include_client_password_in_package else "Client-lösen i paket: nej"
-        trust_pw_label = "Trust-lösen i paket: ja" if include_truststore_password_in_package else "Trust-lösen i paket: nej"
-        mode_summary_html = f'<div class="meta" style="margin-top:8px;">Läge: <code>{h(mode_label)}</code> · {h(atak_pw_label)} · {h(trust_pw_label)}</div>'
+        mode_label = t(l, "soldier.mode.cert_import")
+        atak_pw_label = t(l, "soldier.mode.client_pw_embedded_yes") if include_client_password_in_package else t(l, "soldier.mode.client_pw_embedded_no")
+        trust_pw_label = t(l, "soldier.mode.trust_pw_embedded_yes") if include_truststore_password_in_package else t(l, "soldier.mode.trust_pw_embedded_no")
+        mode_summary_html = f'<div class="meta" style="margin-top:8px;">{h(t(l, "soldier.mode"))}: <code>{h(mode_label)}</code> · {h(atak_pw_label)} · {h(trust_pw_label)}</div>'
         atak_start_note = """
         1. Öppna telefonens kamera.
         <br/>2. Skanna QR-koden med kameran.
@@ -120,8 +120,8 @@ def render_soldier_card_page(
             <br/>Om inget lösenord visas här, kontakta instruktör.
             """
     else:
-        mode_label = "ATAK auto-enroll"
-        mode_summary_html = f'<div class="meta" style="margin-top:8px;">Läge: <code>{h(mode_label)}</code> · Inloggning med användarnamn/lösenord</div>'
+        mode_label = t(l, "soldier.mode.auto_enroll")
+        mode_summary_html = f'<div class="meta" style="margin-top:8px;">{h(t(l, "soldier.mode"))}: <code>{h(mode_label)}</code> · {h(t(l, "soldier.mode.userpass"))}</div>'
         atak_start_note = """
         1. Öppna telefonens kamera.
         <br/>2. Skanna QR-koden med kameran.
@@ -459,7 +459,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monos
       </div>
 
       <div class="card">
-        <h3>Onboarding-läge</h3>
+        <h3>{h(t(l, "soldier.mode.advanced"))}</h3>
         <div class="meta">
           onboarding_mode: <code>{h("cert-creation" if create_cert_with_user else "auto-enroll")}</code><br/>
           include_client_password_in_package: <code>{h("true" if include_client_password_in_package else "false")}</code><br/>

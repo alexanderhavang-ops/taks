@@ -14,11 +14,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-AGENT_RUNTIME_JSON = Path("/opt/taks/takctl/replay/state/agent_runtime.json")
+AGENT_RUNTIME_JSON = Path("/opt/tak/replay/state/agent_runtime.json")
 from xml.sax.saxutils import escape
 
 HERE = Path(__file__).resolve().parent
-REPO_ROOT = HERE.parents[2]  # /opt/taks
+REPO_ROOT = Path("/opt/tak/tools/takctl")
 sys.path.insert(0, str(REPO_ROOT / "takctl"))
 
 try:

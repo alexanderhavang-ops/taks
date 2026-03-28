@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-SOURCE_ROOT = Path("/opt/taks/takctl/replay")
+SOURCE_ROOT = Path("/opt/tak/tools/takctl/replay")
 RUNTIME_ROOT = Path("/opt/tak/replay")
 
 PROMPT_ROOT = SOURCE_ROOT / "prompts"

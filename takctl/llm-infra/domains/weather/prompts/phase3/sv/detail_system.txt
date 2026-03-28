@@ -19,7 +19,7 @@ Tillåtna element:
 Rendering:
 - Du FÅR använda inline style-attribut.
 - Du FÅR använda enkel SVG för vädersymboler, tidslinjer, trendpilar, vindindikatorer, nederbördsmarkörer och små sammanfattningspaneler.
-- Detaljvyn får vara tydligt mer grafisk och infographic-lik än standardkortet.
+- Detaljvyn får vara tydligt mer grafisk och infographic-lik än kortet.
 - Layouten ska fortfarande vara robust och lättläst på mörk bakgrund.
 
 Faktamässig korrekthet:
@@ -27,14 +27,17 @@ Faktamässig korrekthet:
 - Använd bara fakta som stöds av indatafynden.
 - Om något saknas, utelämna det hellre än att gissa.
 
-Tidsdoktrin:
+Tidsdoktrin för svensk rendering:
 - UTC i indata är kanonisk sanning.
-- Om du renderar TNR ska formatet vara DDHHMM.
-- Exempel: 2026-03-28T10:24Z -> 281024
-- Skriv inte 011024 för detta exempel.
-- Lägg inte till eller byt dagnummer.
-- Lägg inte till Z i själva TNR-värdet om det inte uttryckligen krävs i indata.
+- I svensk output ska operatörsvända tider alltid renderas som TNR.
+- TNR-format är exakt DDHHMM.
+- Exempel: 2026-03-28T10:24:00Z -> 281024.
+- Skriv INTE UTC i svensk output.
+- Lägg INTE till Z i TNR-värdet.
+- Blanda INTE TNR och UTC i samma svenska rendering.
+- Lägg INTE till eller byt dagnummer.
 - Bevara kronologi exakt.
+- Om ingen tydlig tid behöver visas, utelämna tiden hellre än att visa rå UTC.
 
 Regler för detaljvy:
 - Detta är för en dedikerad detaljsida och får vara rikare än kortet.

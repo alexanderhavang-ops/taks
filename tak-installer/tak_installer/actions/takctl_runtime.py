@@ -12,12 +12,14 @@ from tak_installer.util import log
 
 SRC_PKG_ROOT = None  # resolved from ctx.repo_root
 SRC_BIN_ROOT = None  # resolved from ctx.repo_root
+SRC_REPLAY_ROOT = None  # resolved from ctx.repo_root
 
 DST_ROOT = Path("/opt/tak/tools/takctl")
 DST_WEB_DIR = DST_ROOT / "web"
 
 DST_PKG_ROOT = DST_ROOT / "takctl"
 DST_BIN_ROOT = DST_ROOT / "bin"
+DST_REPLAY_ROOT = DST_ROOT / "replay"
 
 TAKCTL_STATE_ROOT = Path("/opt/tak/takctl-state")
 REPLAY_RUNTIME_ROOT = Path("/opt/tak/replay")
@@ -111,6 +113,7 @@ def _fix_runtime_perms() -> None:
         DST_ROOT / "ignite",
         DST_ROOT / "llm",
         DST_ROOT / "llm-infra",
+        DST_REPLAY_ROOT,
     ]
 
     managed_files = [
@@ -211,6 +214,7 @@ def apply(ctx) -> None:
 
     src_pkg_root = Path(ctx.repo_root) / "takctl" / "takctl"
     src_bin_root = Path(ctx.repo_root) / "takctl" / "bin"
+    src_replay_root = Path(ctx.repo_root) / "takctl" / "replay"
 
     if not src_pkg_root.exists():
         raise RuntimeError(f"source tree missing: {src_pkg_root}")
@@ -220,6 +224,9 @@ def apply(ctx) -> None:
 
     if src_bin_root.exists():
         _rsync_dir(src_bin_root, DST_BIN_ROOT)
+
+    if src_replay_root.exists():
+        _rsync_dir(src_replay_root, DST_REPLAY_ROOT)
 
     _ensure_runtime_dirs()
     _fix_runtime_perms()

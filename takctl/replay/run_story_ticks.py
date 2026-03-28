@@ -15,7 +15,7 @@ RUN_TICK = SOURCE_ROOT / "run_sim_tick.py"
 
 def _run_tick(sim_time_s: int) -> Tuple[int, str]:
     env = dict(os.environ)
-    env["PYTHONPATH"] = "/opt/taks/takctl"
+    env["PYTHONPATH"] = "/opt/tak/tools/takctl"
     proc = subprocess.run(
         [sys.executable, str(RUN_TICK), "--sim-time", str(sim_time_s)],
         capture_output=True,

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List
 
-SEED_DIR = Path("/opt/taks/takctl/replay/seeds/ystad_001")
+SEED_DIR = Path("/opt/tak/tools/takctl/replay/seeds/ystad_001")
 OUT_PATH = SEED_DIR / "forces.generated.json"
 
 COMPANIES = ["Q", "R", "S", "T"]

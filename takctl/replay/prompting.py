@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Dict, List
 
-PROMPT_ROOT = Path("/opt/taks/takctl/replay/prompts")
+PROMPT_ROOT = Path("/opt/tak/tools/takctl/replay/prompts")
 
 LEGACY_SYSTEM_PROMPT_PATH = PROMPT_ROOT / "system" / "base_system.txt"
 LEGACY_USER_PROMPT_PATH = PROMPT_ROOT / "user" / "agent_user.txt"

@@ -13,46 +13,41 @@ Säkerhet:
 - Använd INTE externa resurser.
 
 Tillåtna element:
-- HTML: div, h3, p, ul, li, strong, em, small, span, br
-- SVG: svg, g, path, circle, rect, line, polyline, polygon, text, title
+- HTML: div, h3, h4, p, ul, li, strong, em, small, span, br, table, thead, tbody, tr, th, td
+- SVG: svg, g, path, circle, rect, line, polyline, polygon, text, title, defs, linearGradient, stop
 
 Rendering:
 - Du FÅR använda inline style-attribut.
-- Du FÅR använda enkel SVG, men mycket sparsamt.
-- Kortet ska fungera bra på mörk bakgrund.
+- Du FÅR använda enkel SVG för små vädersymboler och enkla markörer.
+- Kortet ska vara kompakt och lätt att skanna på mörk bakgrund.
+- Undvik att bli för grafiskt tungt; prioritera ett litet, stabilt kort.
 
 Faktamässig korrekthet:
 - Hitta INTE på fakta.
 - Använd bara fakta som stöds av indatafynden.
-- Om uppgift saknas, utelämna den hellre än att gissa.
+- Om något saknas, utelämna det hellre än att gissa.
 
-Tidsdoktrin:
+Tidsdoktrin för svensk rendering:
 - UTC i indata är kanonisk sanning.
-- Om tider visas som TNR ska formatet vara DDHHMM.
-- Exempel: 2026-03-28T10:24Z -> 281024
-- Lägg inte till fel dagnummer.
-- Lägg inte till Z i själva TNR-värdet.
-- Omtolka inte datum eller tidsordning.
+- I svensk output ska operatörsvända tider alltid renderas som TNR.
+- TNR-format är exakt DDHHMM.
+- Exempel: 2026-03-28T10:24:00Z -> 281024.
+- Skriv INTE UTC i svensk output.
+- Lägg INTE till Z i TNR-värdet.
+- Blanda INTE TNR och UTC i samma svenska rendering.
+- Lägg INTE till eller byt dagnummer.
+- Bevara kronologi exakt.
+- Om ingen tydlig tid behöver visas, utelämna tiden hellre än att visa rå UTC.
 
 Kompakthetsregler:
-- Detta är ett litet översiktskort i en tät grid.
-- Håll totalen kort: ungefär 80-140 ord.
-- Använd högst:
-  - 1 rubrik
-  - 1 kort sammanfattningsrad
-  - 1 mycket liten lista med högst 3 punkter
-- Använd INTE tabell.
-- Använd INTE fler än 1 liten SVG.
-- Använd INTE bred infographic-layout.
-- Använd INTE tidslinje.
-- Undvik upprepning.
-
-Prioritera i denna ordning:
-1. nuläge
-2. nästa viktiga förändring
-3. operativ påverkan
+- Detta är ett översiktskort för tät grid.
+- Prioritera: nuläge, nästa viktiga förändring, operativ påverkan.
+- Undvik långa stycken.
+- Upprepa inte samma poäng i flera sektioner.
+- Hellre 2–4 tydliga datapunkter än mycket text.
 
 Mål:
-- ge en snabb väderbild på 2-5 sekunder
-- vara visuellt tydlig men liten
-- aldrig bli så stor att den dominerar grid-vyn
+- ge en snabb väderbild på 2–5 sekunder
+- visa det viktigaste nu
+- visa nästa förändring
+- ge operatören en direkt känsla för påverkan

@@ -9,11 +9,10 @@ from fastapi import APIRouter, HTTPException, Request
 
 router = APIRouter(prefix="/api/replay", tags=["replay"])
 
-REPO_ROOT = Path("/opt/taks")
-REPLAY_SRC = REPO_ROOT / "takctl" / "replay"
+REPLAY_CODE_ROOT = Path("/opt/tak/tools/takctl/replay")
 RUNTIME_ROOT = Path("/opt/tak/replay")
 STATE_ROOT = RUNTIME_ROOT / "state" / "agents"
-SEEDS_ROOT = REPLAY_SRC / "seeds"
+SEEDS_ROOT = REPLAY_CODE_ROOT / "seeds"
 UI_STATE_PATH = RUNTIME_ROOT / "ui_state.json"
 
 DEFAULT_SCENARIO_ID = "at1_contact_001"
@@ -61,7 +60,7 @@ def _append_jsonl(path: Path, obj: Dict[str, Any]) -> None:
 
 
 def _run(cmd: List[str]) -> None:
-    proc = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True)
+    proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError((proc.stdout or "") + "\n" + (proc.stderr or ""))
 
@@ -408,8 +407,8 @@ async def replay_reset(req: Request) -> Dict[str, Any]:
 
     try:
         _run([
-            "env", "PYTHONPATH=/opt/taks/takctl",
-            "python3", "takctl/replay/launch_seed.py",
+            "env", "PYTHONPATH=/opt/tak/tools/takctl",
+            "python3", "/opt/tak/tools/takctl/replay/launch_seed.py",
             "--seed-dir", scenario_id,
         ])
     except Exception as e:
@@ -493,8 +492,8 @@ async def replay_tick(req: Request) -> Dict[str, Any]:
 
     try:
         _run([
-            "env", "PYTHONPATH=/opt/taks/takctl",
-            "python3", "takctl/replay/run_sim_tick.py",
+            "env", "PYTHONPATH=/opt/tak/tools/takctl",
+            "python3", "/opt/tak/tools/takctl/replay/run_sim_tick.py",
             "--sim-time", str(sim_time),
             "--temperature", "0.2",
             "--max-tokens", "2000",

@@ -15,4 +15,20 @@ Regler:
 - Förklara inte schemat.
 - Inga markdown-staket.
 
+Tidsdoktrin för svensk output:
+- UTC i indata är kanonisk sanning.
+- I svensk output ska operatörsvända tider skrivas som TNR i formatet DDHHMM.
+- Exempel: 2026-03-28T10:24:00Z -> 281024.
+- Skriv inte "UTC" i svensk output.
+- Lägg inte till "Z" i TNR-värdet.
+- Skriv inte bara timme utan dagnummer.
+- Om du nämner tidsintervall ska båda ändarna ha full TNR, t.ex. 281200–281400.
+- Om du nämner "nu" och det finns en tydlig observationstid i indata, ankra den med korrekt TNR.
+- Gissa inte dagnummer; använd bara tider som stöds av indata.
+
+Innehåll:
+- "important" ska ge nuläge och viktigaste omedelbara operativa väderfaktorn.
+- "newest" ska ge nästa förändring eller tydlig färskhetsbedömning.
+- "details" ska vara konkret och kompakt, gärna med 2-4 tydliga tidsankare om det hjälper.
+
 Skriv nu ut JSON-objektet.
