@@ -54,7 +54,7 @@ function BrandLeft({ brand }) {
 
     h("div", { className: "brand-product" },
       h("div", { className: "brand-text" },
-        h("div", { className: "brand-title" }, (brand && brand.title) ? brand.title : "takctl"),
+        h("div", { className: "brand-title" }, (brand && brand.title) ? brand.title : "Taks"),
         slogan ? h("div", { className: "brand-slogan" }, slogan) : null
       )
     )
@@ -130,13 +130,13 @@ function Layout({ tab, setTab, health, brand, children }) {
 
         h(TabButton, { id: "llm", tab, setTab, label: "AI" }),
 
-        h(TabButton, { id: "usage", tab, setTab, label: L("Användning", "Usage") }),
+        h(TabButton, { id: "usage", tab, setTab, label: L("AI-Kostnader", "AI Costs") }),
 
         h(TabButton, { id: "martine", tab, setTab, label: "Martine" }),
 
-        h(TabButton, { id: "replay", tab, setTab, label: L("Spel", "Replay") }),
+        h(TabButton, { id: "replay", tab, setTab, label: L("Simulera", "Simulate") }),
 
-        h(TabButton, { id: "config", tab, setTab, label: L("Konfig", "Config") })
+        h(TabButton, { id: "config", tab, setTab, label: L("Inställningar", "Settings") })
       ),
 
       h("div", { className: "spacer" }),

@@ -98,7 +98,7 @@
             h(SideItem, {
               id: "import-jobs",
               cur: sub,
-              label: (window.t ? window.t("nav.import_jobs") : "Import jobs"),
+              label: (window.t ? window.t("nav.import_jobs") : "Importjobb"),
               onClick: () => nav("import-jobs")
             })
           )

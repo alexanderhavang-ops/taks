@@ -13,6 +13,7 @@
       "nav.list": "List",
       "nav.create_user": "Create user",
       "nav.import_users": "Import users file",
+      "nav.import_jobs": "Import jobs",
       "nav.section": "Section",
 
       // header / policy
@@ -99,6 +100,7 @@
       "nav.list": "Lista",
       "nav.create_user": "Skapa användare",
       "nav.import_users": "Importera användarfil",
+      "nav.import_jobs": "Importjobb",
       "nav.section": "Sektion",
 
       // header / policy

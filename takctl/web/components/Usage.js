@@ -87,7 +87,7 @@
     return e("div", { style: { display: "grid", gap: 16 } }, [
 
       e("div", { key: "head" }, [
-        e("h2", { key: "h", style: { margin: "0 0 6px 0" } }, "LLM Usage"),
+        e("h2", { key: "h", style: { margin: "0 0 6px 0" } }, (String(window.currentLang || window.TAKS_RUNTIME_LANGUAGE || "sv") === "en" ? "AI Costs" : "AI-Kostnader")),
         e("div", {
           key: "sub",
           className: "muted",

@@ -89,7 +89,7 @@
     if (n === "marti") return "Marti";
     if (n === "martine") return "Martine";
     if (n === "onboarding") return "Onboarding";
-    if (n === "replay") return "Replay";
+    if (n === "replay") return "Simulera";
     if (n === "weather") return "Weather";
     if (n === "certs") return "Certs";
     if (n === "legacy") return "Legacy";
@@ -101,7 +101,7 @@
 
     const n = String((item && item.name) || "").toLowerCase();
     if (n.startsWith("llm_") || n.startsWith("bedrock_") || n.startsWith("aws_")) return "LLM";
-    if (n.startsWith("replay_")) return "Replay";
+    if (n.startsWith("replay_")) return "Simulera";
     if (n.startsWith("martine_")) return "Martine";
     if (n.startsWith("marti_")) return "Marti";
     if (n.startsWith("onboarding_")) return "Onboarding";
@@ -136,7 +136,7 @@
       groups[g].push(item);
     });
 
-    const preferredOrder = ["Core", "Certs", "Marti", "Martine", "Onboarding", "LLM", "Weather", "Replay", "Policy", "Logging", "Legacy", "Other"];
+    const preferredOrder = ["Core", "Certs", "Marti", "Martine", "Onboarding", "LLM", "Weather", "Simulera", "Policy", "Logging", "Legacy", "Other"];
     const present = Object.keys(groups);
 
     return preferredOrder
@@ -380,7 +380,7 @@
 
     if (err) {
       return e("div", { style: cardStyle({ border: "1px solid rgba(248,81,73,.35)" }) }, [
-        e("div", { style: { fontSize: 18, fontWeight: 800, marginBottom: 8 } }, "Config"),
+        e("div", { style: { fontSize: 18, fontWeight: 800, marginBottom: 8 } }, (String(window.currentLang || window.TAKS_RUNTIME_LANGUAGE || "sv") === "en" ? "Settings" : "Inställningar")),
         e("div", { style: { whiteSpace: "pre-wrap", color: "#ffb4b4" } }, String(err || "Unknown error"))
       ]);
     }
@@ -391,7 +391,7 @@
 
     return e("div", null, [
       e("div", { style: cardStyle({ marginBottom: 16 }) }, [
-        e("div", { style: { fontSize: 22, fontWeight: 800, marginBottom: 8 } }, "Configuration"),
+        e("div", { style: { fontSize: 22, fontWeight: 800, marginBottom: 8 } }, (String(window.currentLang || window.TAKS_RUNTIME_LANGUAGE || "sv") === "en" ? "Settings" : "Inställningar")),
         e("div", { style: { opacity: .76, fontSize: 13, lineHeight: "18px", marginBottom: 10 } },
           "All values are string-backed in runtime. Metadata is optional and used only for documentation and UI hints."
         ),
