@@ -7,6 +7,7 @@ from takctl.onboarding.soldier_card.blocks import lifecycle_block, password_bloc
 from takctl.onboarding.soldier_card.i18n import lang_norm, t
 from takctl.onboarding.soldier_card.common import safe
 from takctl.config import load_config
+from takctl.onboarding.atak import _read_runtime_ca_password, _read_runtime_user_cert_password
 
 
 
@@ -71,7 +72,24 @@ def render_soldier_card_page(
     browser_card_qr = f"{base}/api/onboarding/cards/{token}/card-url/qr.png?b={bump}"
     browser_card_txt = f"{base}/api/onboarding/cards/{token}/card-url/qr.txt?b={bump}"
 
-    creds_html = password_block(lang=l, username=username, ident=ident, reveal_password=reveal_password)
+    reveal_truststore_password_on_soldier_card = _cfg_bool(cfg, "reveal_truststore_password_on_soldier_card", False)
+    reveal_client_password_on_soldier_card = _cfg_bool(cfg, "reveal_client_password_on_soldier_card", False)
+
+    truststore_password = None
+    client_password = None
+    if create_cert_with_user and (not include_truststore_password_in_package) and reveal_truststore_password_on_soldier_card:
+        truststore_password = _read_runtime_ca_password() or None
+    if create_cert_with_user and (not include_client_password_in_package) and reveal_client_password_on_soldier_card:
+        client_password = _read_runtime_user_cert_password() or None
+
+    creds_html = password_block(
+        lang=l,
+        username=username,
+        ident=ident,
+        reveal_password=reveal_password,
+        truststore_password=truststore_password,
+        client_password=client_password,
+    )
     profile_html = profile_block(lang=l, username=username, groups=groups, sel=sel, ident=ident)
     lifecycle_html = lifecycle_block(l, lifecycle)
 

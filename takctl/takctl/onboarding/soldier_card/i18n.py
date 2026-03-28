@@ -40,6 +40,8 @@ _I18N = {
         "pw.unknown_origin": "Password: unknown (origin={origin})",
         "pw.external_note": "This user appears created outside TAKS. Ask admin for out-of-band password or reset.",
         "pw.hidden": "Password: hidden (admin chose out-of-band)",
+        "pw.truststore_password": "Truststore password",
+        "pw.client_password": "Client certificate password",
         "lc.none": "No lifecycle data.",
         "lc.head": "Stage gate",
         "lc.taks_origin": "TAKS origin",

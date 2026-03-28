@@ -16,6 +16,14 @@ include_client_password_in_package = false
 # If true, cert-based packages may include the truststore password.
 include_truststore_password_in_package = false
 
+# If true, show truststore password on the soldier card when it is NOT embedded
+# in the package and the active onboarding mode needs it.
+reveal_truststore_password_on_soldier_card = false
+
+# If true, show client certificate password on the soldier card when it is NOT
+# embedded in the package and the active onboarding mode needs it.
+reveal_client_password_on_soldier_card = false
+
 # Default for showing the TAK user password on the soldier card.
 # Actual rendering still depends on TAKS knowing the password.
 reveal_password_default = true
