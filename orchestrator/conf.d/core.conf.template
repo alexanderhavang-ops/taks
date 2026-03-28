@@ -1,0 +1,29 @@
+orchestrator_fqdn =
+public_base_url =
+unit_bundle_base_url =
+
+state_dir =
+artifacts_dir =
+rendered_bundles_dir =
+
+aws_region =
+aws_default_ami =
+aws_default_subnet_id =
+aws_default_security_group_id =
+aws_default_instance_profile =
+aws_default_instance_type =
+aws_ssh_key_name =
+aws_route53_zone_id =
+aws_launch_enabled = true
+
+le_mode =
+le_email =
+le_wildcard_zone =
+le_artifact_cert_dir =
+
+bundles_source_repo_root =
+bundles_default_bundle_kind =
+bundles_include_taks_source = true
+
+nodes_default_node_domain =
+nodes_default_cert_model =

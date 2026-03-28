@@ -11,6 +11,20 @@ read_trimmed_file() {
   tr -d '\r' < "$p" | sed -e 's/[[:space:]]*$//' | head -n 1
 }
 
+read_shell_assignment() {
+  local p="$1"
+  local key="$2"
+  [ -f "$p" ] || return 1
+  local v
+  v="$(sed -n "s/^${key}=//p" "$p" | head -n 1)"
+  [ -n "$v" ] || return 1
+  case "$v" in
+    \"*\") v="${v#\"}"; v="${v%\"}" ;;
+    \'*\') v="${v#\'}"; v="${v%\'}" ;;
+  esac
+  printf '%s\n' "$v"
+}
+
 xml_escape() {
   sed \
     -e 's/&/\&amp;/g' \
@@ -38,6 +52,7 @@ main() {
 
   local taks_dir="/etc/taks"
   local cert_dir="$taks_dir/certs"
+  local cert_meta="/opt/tak/certs/cert-metadata.sh"
   local out="/opt/tak/CoreConfig.xml"
   local server_id_file="$taks_dir/server_id"
 
@@ -46,9 +61,9 @@ main() {
   fqdn="${TAKS_NODE_FQDN:-}"
   private_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   db_password="$(extract_db_password || true)"
-  cert_pass="$(read_trimmed_file "$cert_dir/PASS" || true)"
-  org="$(read_trimmed_file "$cert_dir/ORGANIZATION" || true)"
-  ou="$(read_trimmed_file "$cert_dir/ORGANIZATIONAL_UNIT" || true)"
+  cert_pass="$(read_shell_assignment "$cert_meta" PASS || read_trimmed_file "$cert_dir/PASS" || true)"
+  org="$(read_shell_assignment "$cert_meta" ORGANIZATION || read_trimmed_file "$cert_dir/ORGANIZATION" || true)"
+  ou="$(read_shell_assignment "$cert_meta" ORGANIZATIONAL_UNIT || read_trimmed_file "$cert_dir/ORGANIZATIONAL_UNIT" || true)"
 
   if [ -z "$fqdn" ]; then
     fqdn="$(hostname -f 2>/dev/null || true)"
@@ -73,6 +88,7 @@ main() {
   if [ ! -f "$server_id_file" ]; then
     uuidgen | tr -d '\r\n' > "$server_id_file"
   fi
+
   local server_id
   server_id="$(read_trimmed_file "$server_id_file" || true)"
   if [ -z "$server_id" ]; then
@@ -85,7 +101,7 @@ main() {
 
   mkdir -p /opt/tak
 
-  cat > "$out" <<EOF
+  cat > "$out" <<EOF2
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Configuration xmlns="http://bbn.com/marti/xml/config">
     <network multicastTTL="5" serverId="${server_id}" version="5.6-RELEASE-6-HEAD">
@@ -208,7 +224,7 @@ main() {
             signatureAlg="SHA256WithRSA"/>
     </certificateSigning>
 </Configuration>
-EOF
+EOF2
 
   chmod 600 "$out"
   log "wrote $out"
