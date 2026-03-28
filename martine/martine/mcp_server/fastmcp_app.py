@@ -20,6 +20,11 @@ from martine.tools.cot_sa import (
     get_my_position,
     get_nearest_friendly,
 )
+from martine.tools.osrm_geo import (
+    route_between_points,
+    route_alternatives_between_points,
+    snap_point_to_network,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -156,6 +161,60 @@ def get_enemy_contacts_near_me_tool(
         radius_m=radius_m,
         minutes=minutes,
         limit=limit,
+    )
+
+
+@mcp.tool(name="route_between_points")
+def route_between_points_tool(
+    from_lat: float,
+    from_lon: float,
+    to_lat: float,
+    to_lon: float,
+    profile: str = "foot",
+) -> dict:
+    """Return one OSRM route between two coordinates."""
+    return route_between_points(
+        from_lat=from_lat,
+        from_lon=from_lon,
+        to_lat=to_lat,
+        to_lon=to_lon,
+        profile=profile,
+    )
+
+
+@mcp.tool(name="route_alternatives_between_points")
+def route_alternatives_between_points_tool(
+    from_lat: float,
+    from_lon: float,
+    to_lat: float,
+    to_lon: float,
+    profile: str = "foot",
+    max_alternatives: int = 3,
+) -> dict:
+    """Return OSRM route alternatives between two coordinates."""
+    return route_alternatives_between_points(
+        from_lat=from_lat,
+        from_lon=from_lon,
+        to_lat=to_lat,
+        to_lon=to_lon,
+        profile=profile,
+        max_alternatives=max_alternatives,
+    )
+
+
+@mcp.tool(name="snap_point_to_network")
+def snap_point_to_network_tool(
+    lat: float,
+    lon: float,
+    profile: str = "foot",
+    number: int = 1,
+) -> dict:
+    """Snap a coordinate to the nearest OSRM network point."""
+    return snap_point_to_network(
+        lat=lat,
+        lon=lon,
+        profile=profile,
+        number=number,
     )
 
 

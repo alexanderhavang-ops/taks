@@ -17,6 +17,11 @@ from martine.tools.cot_sa import (
     get_my_position,
     get_nearest_friendly,
 )
+from martine.tools.osrm_geo import (
+    route_between_points,
+    route_alternatives_between_points,
+    snap_point_to_network,
+)
 
 
 def list_tools() -> List[Dict[str, Any]]:
@@ -163,6 +168,54 @@ def list_tools() -> List[Dict[str, Any]]:
                 "additionalProperties": False,
             },
         },
+        {
+            "name": "route_between_points",
+            "description": "Return one OSRM route between two coordinates.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "from_lat": {"type": "number"},
+                    "from_lon": {"type": "number"},
+                    "to_lat": {"type": "number"},
+                    "to_lon": {"type": "number"},
+                    "profile": {"type": "string"},
+                },
+                "required": ["from_lat", "from_lon", "to_lat", "to_lon"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "route_alternatives_between_points",
+            "description": "Return OSRM route alternatives between two coordinates.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "from_lat": {"type": "number"},
+                    "from_lon": {"type": "number"},
+                    "to_lat": {"type": "number"},
+                    "to_lon": {"type": "number"},
+                    "profile": {"type": "string"},
+                    "max_alternatives": {"type": "integer"},
+                },
+                "required": ["from_lat", "from_lon", "to_lat", "to_lon"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "snap_point_to_network",
+            "description": "Snap a coordinate to the nearest OSRM network point.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "lat": {"type": "number"},
+                    "lon": {"type": "number"},
+                    "profile": {"type": "string"},
+                    "number": {"type": "integer"},
+                },
+                "required": ["lat", "lon"],
+                "additionalProperties": False,
+            },
+        },
     ]
 
 
@@ -258,6 +311,33 @@ def call_tool(name: str, arguments: Dict[str, Any] | None = None) -> Dict[str, A
             radius_m=int(args.get("radius_m", 2000)),
             minutes=int(args.get("minutes", 60)),
             limit=int(args.get("limit", 20)),
+        )
+
+    if name == "route_between_points":
+        return route_between_points(
+            from_lat=float(args.get("from_lat")),
+            from_lon=float(args.get("from_lon")),
+            to_lat=float(args.get("to_lat")),
+            to_lon=float(args.get("to_lon")),
+            profile=str(args.get("profile", "foot")),
+        )
+
+    if name == "route_alternatives_between_points":
+        return route_alternatives_between_points(
+            from_lat=float(args.get("from_lat")),
+            from_lon=float(args.get("from_lon")),
+            to_lat=float(args.get("to_lat")),
+            to_lon=float(args.get("to_lon")),
+            profile=str(args.get("profile", "foot")),
+            max_alternatives=int(args.get("max_alternatives", 3)),
+        )
+
+    if name == "snap_point_to_network":
+        return snap_point_to_network(
+            lat=float(args.get("lat")),
+            lon=float(args.get("lon")),
+            profile=str(args.get("profile", "foot")),
+            number=int(args.get("number", 1)),
         )
 
     raise ValueError(f"unknown tool: {name}")
