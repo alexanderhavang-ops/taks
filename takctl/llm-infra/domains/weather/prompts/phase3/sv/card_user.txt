@@ -1,16 +1,18 @@
-Skapa ett mycket kompakt operatörsanpassat HTML-kort för domänen "weather" utifrån indatafynden.
+Skapa ett kompakt men visuellt tydligt operatörsanpassat väderkort för domänen "weather" utifrån indatafynden.
 
-Föredragen form:
-<div>
-  <h3>kort väderrubrik</h3>
-  <p>en kort stödjande rad</p>
-</div>
+Du får själv välja renderingsform, så länge den är kompakt och tydlig.
 
-Använd punkter bara om det behövs.
-Om du använder punkter:
-- högst 2 punkter
-- varje punkt ska vara kort och snabb att skanna
+Bra kort brukar innehålla:
+- en stark rubrik
+- 1 kort sammanfattningsrad
+- 2–4 små nyckelpunkter eller visuella indikatorer
+- gärna enkel SVG-symbolik för regn, moln, vind, temperatur eller förändring
 
-Mål:
-- en viktig aktuell väderslutsats
-- en kort rad om prognos eller operativ påverkan
+Prioritera:
+- nuläge
+- nästa viktiga väderförändring
+- operativ påverkan
+
+Om tider visas som TNR ska formatet vara DDHHMM.
+
+Kortet får gärna kännas mer som en liten infographic än som en vanlig textlåda.

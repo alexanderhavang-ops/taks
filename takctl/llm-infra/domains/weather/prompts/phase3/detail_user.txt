@@ -1,15 +1,17 @@
 Create a detailed operator-facing HTML view for domain "weather" from the input findings.
 
-Suggested shape:
-<div>
-  <h3>current weather and forecast</h3>
-  <p>short summary paragraph</p>
-  <ul>
-    <li>current conditions</li>
-    <li>next significant change</li>
-    <li>operational impact</li>
-  </ul>
-</div>
+Goal:
+- clearly show current conditions
+- show the next significant change window
+- show likely operational impact
+
+You may choose the structure yourself.
+
+Possible structures include:
+- headline + summary + compact table
+- headline + summary + bullets
+- key metrics + timeline-like rows
+- compact infographic using simple inline SVG plus supporting text
 
 Use structure over verbosity.
 Do not repeat the same point in multiple sections.

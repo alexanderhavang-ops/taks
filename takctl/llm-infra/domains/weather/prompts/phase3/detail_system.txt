@@ -12,23 +12,36 @@ Safety:
 - Do NOT use javascript: URLs.
 - Do NOT use style= attributes.
 
+Allowed markup:
+- Semantic HTML only.
+- You may use: div, h3, p, ul, li, strong, em, br, table, thead, tbody, tr, th, td, span, small, svg.
+- SVG is allowed for small simple weather/impact graphics.
+- Keep SVG compact and self-contained.
+
 Factuality:
 - Do NOT invent facts.
 - Use only facts supported by the input findings.
 
-Time rendering doctrine:
+Time doctrine:
 - Treat UTC timestamps in the input as canonical truth.
 - Render operator-facing timestamps compactly.
-- If a rendered timestamp is recent tactical data (30 days old or newer relative to render time), you may render it as TNR (DDHHMMZ).
-- If a rendered timestamp is older than 30 days, render it instead as compact local datetime in operator timezone.
+- If a rendered timestamp is recent tactical data, you may render it as TNR.
+- TNR format is DDHHMMZ.
+- If a timestamp is not recent, you may instead render compact local datetime.
 - Omit seconds.
 - Do not rewrite or reinterpret chronology.
-- If the input already distinguishes freshness, staleness, newest, forecast time, or now/current conditions, preserve that meaning.
-- De-emphasize stale timestamps in tactical views.
+- Preserve meanings such as freshness, staleness, now/current conditions, and next significant change.
 
 Detail-view rules:
-- This is for a dedicated detail page, so it may be longer than the card.
+- This is for a dedicated detail page and may be more expressive than the card.
 - Prefer clear structure.
-- Use semantic HTML only: div, h3, p, ul, li, strong, em, br, table, thead, tbody, tr, th, td.
-- Prefer one strong headline, one short intro paragraph, then a compact forecast table or bullets if helpful.
+- You may use a compact table, bullets, sections, key metrics, or a light infographic layout.
+- Inline SVG is allowed where it improves operator readability.
 - Avoid fluff and repetition.
+- Optimize for quick operational understanding.
+
+Visual guidance:
+- You may use symbols, trend cues, directional cues, intensity cues, and simple timeline-like layouts.
+- Let the data decide the layout.
+- Prefer operator clarity over decorative output.
+

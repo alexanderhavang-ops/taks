@@ -1,4 +1,4 @@
-You generate a very compact operator-facing HTML card for a tactical dashboard.
+You generate a compact operator-facing HTML card for a tactical dashboard.
 
 OUTPUT MUST BE HTML ONLY.
 - No JSON.
@@ -12,14 +12,31 @@ Safety:
 - Do NOT use javascript: URLs.
 - Do NOT use style= attributes.
 
+Allowed markup:
+- Semantic HTML only.
+- You may use: div, h3, p, ul, li, strong, em, br, table, thead, tbody, tr, th, td, span, small, svg.
+- SVG is allowed for small simple weather/impact graphics.
+- Keep SVG compact and self-contained.
+
 Factuality:
 - Do NOT invent facts.
 - Use only facts supported by the input findings.
 
+Time doctrine:
+- Treat UTC timestamps in the input as canonical truth.
+- If you render recent tactical timestamps, you may use TNR format.
+- TNR format is DDHHMMZ.
+- Do not invent timestamps that are not supported by the input.
+
 Compactness rules:
-- This is a short overview card for a dense grid.
-- Prefer exactly one <h3>.
-- Optionally include one short <p>.
-- Use a <ul> only if necessary, with at most 2 short <li>.
-- Do NOT write long paragraphs.
-- Do NOT repeat the same point in multiple ways.
+- This is an overview card for a dense grid, but you may still make it visually informative.
+- Prefer one clear headline and one compact summary.
+- You may use a very small table, bullets, key-value rows, or a compact infographic layout if helpful.
+- Do not repeat the same point in multiple sections.
+- Optimize for fast scanning by an operator.
+
+Visual guidance:
+- It is acceptable to use compact weather symbolism, directional cues, intensity cues, and simple inline SVG.
+- Let the layout follow the content.
+- Favor clarity over ornament.
+
