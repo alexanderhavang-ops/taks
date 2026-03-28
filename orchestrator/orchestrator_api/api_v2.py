@@ -17,6 +17,9 @@ from .bundles_v2 import bundle_name_for_unit, bundle_dir, ensure_unit_bundle
 router = APIRouter(prefix="/api/v2")
 
 
+
+
+
 # ----------------------------
 # Auth: allow either UI session cookie OR BASIC (for nodes)
 # ----------------------------
@@ -80,8 +83,12 @@ def _normalize_node_req(req: Dict[str, Any]) -> Dict[str, Any]:
     d["role"] = role
 
     if not str(d.get("hostname") or "").strip():
-        safe = unit_path.replace("/", "-").replace("_", "-")
-        d["hostname"] = f"tak-{safe}" if safe else "tak-node"
+        fqdn_guess = str(d.get("fqdn") or "").strip()
+        if fqdn_guess and "." in fqdn_guess:
+            d["hostname"] = fqdn_guess.split(".", 1)[0].strip()
+        else:
+            safe = unit_path.replace("/", "-").replace("_", "-")
+            d["hostname"] = f"tak-{safe}" if safe else "tak-node"
 
     if not str(d.get("name") or "").strip():
         d["name"] = str(d.get("hostname") or "tak-node")
@@ -117,8 +124,19 @@ def api_status() -> Dict[str, Any]:
     if not isinstance(out, dict):
         out = {"provider": "aws", "error": "unexpected aws_list_nodes() response"}
 
-    out["launch_enabled"] = load_orch_config().aws.launch_enabled
+    cfg = load_orch_config()
+    out["launch_enabled"] = cfg.aws.launch_enabled
     out["bundle_dir"] = str(bundle_dir())
+    out["launch_defaults"] = {
+        "region": cfg.aws.region,
+        "ami": cfg.aws.default_ami,
+        "subnet_id": cfg.aws.default_subnet_id,
+        "security_group_id": cfg.aws.default_security_group_id,
+        "instance_profile": cfg.aws.default_instance_profile,
+        "instance_type": cfg.aws.default_instance_type,
+        "ssh_key_name": cfg.aws.ssh_key_name,
+        "default_node_domain": cfg.nodes.default_node_domain,
+    }
     return out
 
 
@@ -165,6 +183,7 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     patch = {
         "node_id": node_id,
         "instance_id": instance_id,
+        "aws_instance_id": instance_id,
         "unit_path": nr.unit_path,
         "role": nr.role,
         "fqdn": nr.fqdn,
@@ -172,6 +191,10 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
         "region": launch.get("region"),
         "status": "booting",
         "aws_state": launch.get("state"),
+        "private_ip": launch.get("private_ip"),
+        "public_ip": launch.get("public_ip"),
+        "aws_private_ip": launch.get("private_ip"),
+        "aws_public_ip": launch.get("public_ip"),
         "last_seen_ts": None,
         "meta": {
             "launch_source": "api_v2",
@@ -329,6 +352,16 @@ def nodes_list(request: Request) -> Dict[str, Any]:
         row["aws_instance_id"] = aws_rec.get("instance_id")
         row["aws_private_ip"] = aws_rec.get("private_ip")
         row["aws_public_ip"] = aws_rec.get("public_ip")
+        row["availability_zone"] = aws_rec.get("availability_zone")
+        row["instance_type"] = aws_rec.get("instance_type") or ((row.get("meta") or {}).get("instance_type"))
+        row["subnet_id"] = aws_rec.get("subnet_id") or ((row.get("meta") or {}).get("subnet_id"))
+        row["vpc_id"] = aws_rec.get("vpc_id")
+        row["image_id"] = aws_rec.get("image_id")
+        row["launch_time"] = aws_rec.get("launch_time")
+        row["iam_instance_profile_arn"] = aws_rec.get("iam_instance_profile_arn")
+        row["security_groups"] = aws_rec.get("security_groups") or []
+        row["aws_tags"] = aws_rec.get("tags") or {}
+        row["display_name"] = str(((row.get("meta") or {}).get("name")) or row.get("hostname") or row.get("fqdn") or row.get("node_id") or "").strip()
 
         if aws_rec.get("instance_id"):
             row["instance_id"] = aws_rec.get("instance_id")
@@ -363,6 +396,7 @@ def nodes_list(request: Request) -> Dict[str, Any]:
             "role": aws_rec.get("role") or "",
             "fqdn": fqdn,
             "hostname": aws_rec.get("name") or "",
+            "display_name": aws_rec.get("name") or unit_path or inst_id,
             "public_dns": aws_rec.get("public_dns") or "",
             "public_ip": aws_rec.get("public_ip") or "",
             "private_ip": aws_rec.get("private_ip") or "",
@@ -373,6 +407,16 @@ def nodes_list(request: Request) -> Dict[str, Any]:
             "aws_instance_id": aws_rec.get("instance_id") or "",
             "aws_public_ip": aws_rec.get("public_ip") or "",
             "aws_private_ip": aws_rec.get("private_ip") or "",
+            "region": aws_rec.get("region"),
+            "availability_zone": aws_rec.get("availability_zone"),
+            "instance_type": aws_rec.get("instance_type"),
+            "subnet_id": aws_rec.get("subnet_id"),
+            "vpc_id": aws_rec.get("vpc_id"),
+            "image_id": aws_rec.get("image_id"),
+            "launch_time": aws_rec.get("launch_time"),
+            "iam_instance_profile_arn": aws_rec.get("iam_instance_profile_arn"),
+            "security_groups": aws_rec.get("security_groups") or [],
+            "aws_tags": aws_rec.get("tags") or {},
         }
         untracked.append(row)
 

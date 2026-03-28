@@ -205,6 +205,7 @@ def aws_launch(req: NodeRequest) -> Dict[str, Any]:
     cfg = load_orch_config()
     sg_id = (req.aws_sg_id or cfg.aws.default_security_group_id or "").strip()
     key_name = (req.aws_key_name or cfg.aws.ssh_key_name or "").strip()
+    instance_profile = str(getattr(cfg.aws, "default_instance_profile", "") or "").strip()
 
     if not sg_id:
         raise RuntimeError("Missing security group id (set aws.default_security_group_id or pass aws_sg_id)")
@@ -245,6 +246,7 @@ def aws_launch(req: NodeRequest) -> Dict[str, Any]:
             }
         ],
     }
+
 
     resp = ec2.run_instances(**kwargs)
     inst = resp["Instances"][0]
@@ -326,6 +328,22 @@ def aws_list_nodes() -> Dict[str, Any]:
                     "name": tags.get("Name", ""),
                     "role": tags.get("taks.role", ""),
                     "unit_path": tags.get("taks.unit_path", ""),
+                    "region": r,
+                    "availability_zone": ((i.get("Placement") or {}).get("AvailabilityZone") or ""),
+                    "instance_type": i.get("InstanceType"),
+                    "subnet_id": i.get("SubnetId"),
+                    "vpc_id": i.get("VpcId"),
+                    "image_id": i.get("ImageId"),
+                    "launch_time": str(i.get("LaunchTime") or ""),
+                    "iam_instance_profile_arn": ((i.get("IamInstanceProfile") or {}).get("Arn") or ""),
+                    "security_groups": [
+                        {
+                            "group_id": str(g.get("GroupId") or ""),
+                            "group_name": str(g.get("GroupName") or ""),
+                        }
+                        for g in (i.get("SecurityGroups") or [])
+                    ],
+                    "tags": tags,
                 }
             )
 
