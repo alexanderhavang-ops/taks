@@ -80,7 +80,7 @@
     const sub = String(parts[0] || "").toLowerCase();
     const username = (parts.length > 1) ? String(parts.slice(1).join(":") || "").trim() : "";
 
-    if (sub === "create" || sub === "import" || sub === "import-jobs" || sub === "list") {
+    if (sub === "create" || sub === "detail" || sub === "import" || sub === "import-jobs" || sub === "list") {
       return { sub, username };
     }
     return { sub: "list", username: "" };
@@ -91,7 +91,7 @@
     const u = String(username || "").trim();
 
     let tail = s;
-    if (s === "create" && u) tail = `create:${u}`;
+    if ((s === "create" || s === "detail") && u) tail = `${s}:${u}`;
 
     window.location.hash = `#onboarding/${encodeURIComponent(tail)}`;
   };
