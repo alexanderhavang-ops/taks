@@ -53,6 +53,13 @@
       "list.callsign_uid": "Callsign / UID",
       "list.actions": "Actions",
       "list.unmanaged_endpoints": "Unmanaged endpoints",
+      "list.selected_count": "Selected={selected} / {total}",
+      "list.select_all": "Select all",
+      "list.clear_selection": "Clear selection",
+      "list.print_mode": "Print mode",
+      "list.print_selected": "Print selected",
+      "list.print_all": "Print all",
+      "list.summary": "Users={users}  Seen={seen}  Never={never}  Unknown={unknown}  DB={db} ({source})",
 
       // buttons
       "btn.create_user": "Create user",
@@ -132,6 +139,13 @@
       "list.callsign_uid": "Anropssignal / UID",
       "list.actions": "Åtgärder",
       "list.unmanaged_endpoints": "Ohanterade klienter",
+      "list.selected_count": "Valda={selected} / {total}",
+      "list.select_all": "Välj alla",
+      "list.clear_selection": "Rensa val",
+      "list.print_mode": "Utskriftsläge",
+      "list.print_selected": "Skriv ut valda",
+      "list.print_all": "Skriv ut alla",
+      "list.summary": "Användare={users}  Sedda={seen}  Aldrig={never}  Okända={unknown}  DB={db} ({source})",
 
       // buttons
       "btn.create_user": "Skapa användare",

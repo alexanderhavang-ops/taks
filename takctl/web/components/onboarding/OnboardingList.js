@@ -88,22 +88,22 @@
         }
       },
       h("div", { className: "muted", style: { marginRight: "8px" } },
-        "Selected=" + _colText(selectedUsernames.length) + " / " + _colText(usernames.length)
+        _t("list.selected_count", { selected: _colText(selectedUsernames.length), total: _colText(usernames.length) })
       ),
 
       h("button", {
         className: "btn",
         type: "button",
         onClick: function () { onSelectAllVisible(); }
-      }, "Select all"),
+      }, _t("list.select_all")),
 
       h("button", {
         className: "btn",
         type: "button",
         onClick: function () { onClear(); }
-      }, "Clear selection"),
+      }, _t("list.clear_selection")),
 
-      h("div", { className: "muted", style: { marginLeft: "6px" } }, "Print mode:"),
+      h("div", { className: "muted", style: { marginLeft: "6px" } }, _t("list.print_mode") + ":"),
 
       h("select", {
         className: "inp",
@@ -123,7 +123,7 @@
         onClick: function () {
           _submitPrintPack(selectedUsernames, printMode);
         }
-      }, "Print selected"),
+      }, _t("list.print_selected")),
 
       h("button", {
         className: "btn",
@@ -132,7 +132,7 @@
         onClick: function () {
           _submitPrintPack(usernames, printMode);
         }
-      }, "Print all")
+      }, _t("list.print_all"))
     );
   }
 
@@ -361,11 +361,14 @@
       h(
         "div",
         { className: "muted", style: { marginBottom: "10px" } },
-        `Users=${_colText(summary.total_users)}  ` +
-          `Seen=${_colText(summary.cot_seen)}  ` +
-          `Never=${_colText(summary.never_seen)}  ` +
-          `Unknown=${_colText(summary.unknown_endpoints)}  ` +
-          `DB=${(typeof meta.db_attached === "boolean") ? (meta.db_attached ? "attached" : "none") : "?"} (${_colText((meta && meta.db_source) || "no meta")})`
+        _t("list.summary", {
+          users: _colText(summary.total_users),
+          seen: _colText(summary.cot_seen),
+          never: _colText(summary.never_seen),
+          unknown: _colText(summary.unknown_endpoints),
+          db: (typeof meta.db_attached === "boolean") ? (meta.db_attached ? "attached" : "none") : "?",
+          source: _colText((meta && meta.db_source) || "no meta")
+        })
       ),
 
       h(PrintToolbar, {

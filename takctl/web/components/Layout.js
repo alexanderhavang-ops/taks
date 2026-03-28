@@ -100,6 +100,12 @@ function LangAndSessionControls() {
 }
 
 function Layout({ tab, setTab, health, brand, children }) {
+  const current = String(window.currentLang || window.TAKS_RUNTIME_LANGUAGE || "sv");
+
+  function L(sv, en) {
+    return (current === "en") ? String(en) : String(sv);
+  }
+
   // Prefer the square-derived icon first (unit-current.png),
   // then fall back to svg and other extensions.
   const unitLogoSrcs = [
@@ -122,15 +128,15 @@ function Layout({ tab, setTab, health, brand, children }) {
 
         h(TabButton, { id: "onboarding", tab, setTab, label: "Onboarding" }),
 
-        h(TabButton, { id: "llm", tab, setTab, label: "LLM" }),
+        h(TabButton, { id: "llm", tab, setTab, label: "AI" }),
 
-        h(TabButton, { id: "usage", tab, setTab, label: "Usage" }),
+        h(TabButton, { id: "usage", tab, setTab, label: L("Användning", "Usage") }),
 
         h(TabButton, { id: "martine", tab, setTab, label: "Martine" }),
 
-        h(TabButton, { id: "replay", tab, setTab, label: "Replay" }),
+        h(TabButton, { id: "replay", tab, setTab, label: L("Spel", "Replay") }),
 
-        h(TabButton, { id: "config", tab, setTab, label: "Config" })
+        h(TabButton, { id: "config", tab, setTab, label: L("Konfig", "Config") })
       ),
 
       h("div", { className: "spacer" }),
