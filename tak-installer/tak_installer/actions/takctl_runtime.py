@@ -34,6 +34,32 @@ RSYNC_EXCLUDES = [
 ]
 
 
+def _parse_simple_kv(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not path.exists():
+        return out
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip()] = v.strip()
+    return out
+
+def _truthy(v: str) -> bool:
+    return str(v or "").strip().lower() in {"1", "true", "yes", "on"}
+
+def _replay_enabled(ctx) -> bool:
+    src = Path(ctx.repo_root) / "takctl" / "conf.d" / "replay.conf.template"
+    bootstrap = Path("/etc/taks-bootstrap.d/config/replay.conf")
+
+    merged: dict[str, str] = {}
+    merged.update(_parse_simple_kv(src))
+    merged.update(_parse_simple_kv(bootstrap))
+
+    return _truthy(merged.get("replay_enabled", "false"))
+
+
 # --------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------
@@ -113,7 +139,6 @@ def _fix_runtime_perms() -> None:
         DST_ROOT / "ignite",
         DST_ROOT / "llm",
         DST_ROOT / "llm-infra",
-        DST_REPLAY_ROOT,
     ]
 
     managed_files = [
@@ -225,16 +250,21 @@ def apply(ctx) -> None:
     if src_bin_root.exists():
         _rsync_dir(src_bin_root, DST_BIN_ROOT)
 
-    if src_replay_root.exists():
-        _rsync_dir(src_replay_root, DST_REPLAY_ROOT)
+    if _replay_enabled(ctx):
+        log.info("takctl-runtime: replay enabled -> syncing replay runtime")
+        if src_replay_root.exists():
+            _rsync_dir(src_replay_root, DST_REPLAY_ROOT)
+    else:
+        log.info("takctl-runtime: replay disabled -> skipping replay runtime sync")
 
     _ensure_runtime_dirs()
     _fix_runtime_perms()
     _ensure_venv()
     _fix_state_perms()
 
-    _ensure_replay_runtime_dirs()
-    _fix_replay_runtime_perms()
+    if _replay_enabled(ctx):
+        _ensure_replay_runtime_dirs()
+        _fix_replay_runtime_perms()
 
     log.info("takctl-runtime: ready")
 
