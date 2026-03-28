@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from tak_installer.actions.systemd_unit import SystemdUnit, _run
+from tak_installer.actions.systemd_unit import SystemdUnit
 from tak_installer.engine import Context
 
 
@@ -12,6 +13,20 @@ TIMER_NAME = "takctl-weather-refresh.timer"
 
 SERVICE_DST = Path("/etc/systemd/system") / SERVICE_NAME
 TIMER_DST = Path("/etc/systemd/system") / TIMER_NAME
+
+
+def _run(cmd: list[str]) -> tuple[int, str]:
+    try:
+        p = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            check=False,
+        )
+        return int(p.returncode), (p.stdout or "").rstrip()
+    except Exception as e:
+        return 1, f"{type(e).__name__}: {e}"
 
 
 @dataclass(frozen=True)
