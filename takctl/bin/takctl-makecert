@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [ "${1:-}" != "client" ]; then
+  echo "usage: takctl-makecert client <common-name>" >&2
+  exit 2
+fi
+
+CN="${2:-}"
+if [ -z "$CN" ]; then
+  echo "usage: takctl-makecert client <common-name>" >&2
+  exit 2
+fi
+
+cd /opt/tak/certs
+set -a
+. ./tak-cert-identity.env
+set +a
+
+exec ./makeCert.sh client "$CN" --force
