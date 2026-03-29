@@ -447,16 +447,10 @@ def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, incl
         f'    <entry key="certificateEnrollmentServerDescription0" class="class java.lang.String">{enroll_host}:{enroll_port}</entry>\n'
     )
 
-    itak_override_path = artifact_dir / "itak-config.pref"
-    if itak_override_path.exists():
-        config_pref = itak_override_path.read_text(encoding="utf-8", errors="replace").strip()
-        if not config_pref:
-            raise HTTPException(status_code=400, detail=f"empty iTAK config override: {itak_override_path}")
-    else:
-        config_pref = (
-            f"1 {username} @ {host} true :{port}:{'ssl' if use_ssl else 'tcp'} "
-            f"{ca_ref} {ca_password} true Cache credentials true true true"
-        )
+    config_pref = (
+        f"1 {username} @ {host} true :{port}:{'ssl' if use_ssl else 'tcp'} "
+        f"{ca_ref} {ca_password} true Cache credentials true true true"
+    )
 
     manifest_xml = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -506,24 +500,18 @@ def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, incl
             "zip_root_name": Path(ca_rel).name,
             "password_present": bool(ca_password),
         },
-        "package_mode": "package-creds" if include_creds else "package",
+        "package_mode": "atak-cert-package-creds" if include_creds else "atak-cert-package",
         "option_c": {"embedded_creds": bool(include_creds), "password_present": bool(pw_used)},
-        "note": "Combined ATAK/iTAK onboarding package: duplicated config.pref placement plus CA-backed enrollment config.",
+        "note": "ATAK cert package.",
     }
 
     ca_bytes = ca_path.read_bytes()
     ca_name = Path(ca_rel).name
 
     with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as z:
-        # ATAK-style mission package layout
         z.writestr("MANIFEST/manifest.xml", manifest_xml)
         z.writestr("certs/config.pref", config_pref)
         z.writestr(f"certs/{ca_name}", ca_bytes)
-
-        # iTAK-compatible root-level copies
-        z.writestr("config.pref", config_pref)
-        z.writestr(ca_name, ca_bytes)
-
         z.writestr("meta.json", json.dumps(meta, indent=2, sort_keys=True) + "\n")
 
 
