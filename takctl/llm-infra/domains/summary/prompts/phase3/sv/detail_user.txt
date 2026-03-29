@@ -1,0 +1,25 @@
+Skapa en detaljerad operatörsanpassad HTML-vy för den övergripande sammanfattningen utifrån indatafynden.
+
+Föreslagen form:
+<div>
+  <h3>samlad bedömning</h3>
+  <p>kort sammanfattande stycke</p>
+  <h3>viktigaste osäkerheter</h3>
+  <ul>
+    <li>kort punkt</li>
+    <li>kort punkt</li>
+    <li>kort punkt</li>
+  </ul>
+  <h3>bör klarläggas</h3>
+  <ul>
+    <li>kort punkt</li>
+    <li>kort punkt</li>
+  </ul>
+</div>
+
+Regler:
+- Håll texten kort och skarp.
+- Gör den mer användbar än imponerande.
+- Undvik långa tabeller om punktlista blir tydligare.
+- Lyft det viktigaste först.
+- Nämn inte faser, prompts, pipelines eller intern bearbetning.

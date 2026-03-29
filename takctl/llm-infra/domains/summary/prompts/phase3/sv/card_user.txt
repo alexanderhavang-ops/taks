@@ -1,0 +1,18 @@
+Skapa ett mycket kompakt operatörsanpassat HTML-kort för den övergripande sammanfattningen utifrån indatafynden.
+
+Föredragen form:
+<div>
+  <h3>kort rubrik</h3>
+  <p>en kort stödjande rad</p>
+</div>
+
+Mål:
+- en tydlig chefsrelevant slutsats
+- en kort stödjande rad
+- lätt att skanna i grid
+
+Regler:
+- Lyft bara det viktigaste.
+- Fokusera på hot, beredskap, samband eller omedelbar osäkerhet.
+- Undvik tabellkänsla och rapportspråk.
+- Skriv kortare än du först tror behövs.

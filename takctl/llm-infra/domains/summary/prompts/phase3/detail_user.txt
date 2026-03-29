@@ -1,0 +1,14 @@
+Create a detailed operator-facing HTML view for the overall summary from the input findings.
+
+Suggested shape:
+<div>
+  <h3>overall assessment</h3>
+  <p>short summary paragraph</p>
+  <ul>
+    <li>key point</li>
+    <li>key point</li>
+  </ul>
+</div>
+
+Keep it clear and structured.
+Do not mention phases, prompts, pipelines, or internal processing.
