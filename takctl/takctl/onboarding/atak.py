@@ -449,7 +449,7 @@ def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, incl
 
     config_pref = (
         f"1 {username} @ {host} true :{port}:{'ssl' if use_ssl else 'tcp'} "
-        f"{ca_ref} {ca_password} true Cache credentials true true true"
+        f"{ca_rel} {ca_password} true Cache credentials true true true"
     )
 
     manifest_xml = (
