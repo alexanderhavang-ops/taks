@@ -177,8 +177,42 @@
     if(priv && priv !== '—') privWrap.appendChild(S.copyBtn(priv));
     row2.appendChild(S.field('Private IP', privWrap));
 
-    row2.appendChild(S.field('Public IP', S.el('div', null, S.el('code', { text: node.public_ip || node.aws_public_ip || '—' }))));
+    const pubWrap = S.el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' });
+    const pub = String(node.public_ip || node.aws_public_ip || '—');
+    pubWrap.appendChild(S.el('code', { text: pub }));
+    if(pub && pub !== '—') pubWrap.appendChild(S.copyBtn(pub));
+    row2.appendChild(S.field('Public IP', pubWrap));
     wrap.appendChild(row2);
+
+    const details = S.el('details', { style: 'margin-top:4px' });
+    details.appendChild(S.el('summary', { text: 'Advanced node details' }));
+
+    const grid = S.el('div', { className: 'grid grid--6', style: 'margin-top:12px' });
+    grid.appendChild(S.field('Display name', S.el('div', { text: node.display_name || ((node.meta || {}).name) || node.fqdn || '—' }), 2));
+    grid.appendChild(S.field('Region', S.el('div', { text: node.region || '—' })));
+    grid.appendChild(S.field('AZ', S.el('div', { text: node.availability_zone || '—' })));
+
+    grid.appendChild(S.field('Instance type', S.el('div', { text: node.instance_type || ((node.meta || {}).instance_type) || '—' }), 2));
+    grid.appendChild(S.field('AMI', S.el('div', { style: 'word-break:break-all', text: node.image_id || '—' }), 2));
+    grid.appendChild(S.field('Subnet', S.el('div', { text: node.subnet_id || ((node.meta || {}).subnet_id) || '—' })));
+    grid.appendChild(S.field('VPC', S.el('div', { text: node.vpc_id || '—' })));
+
+    grid.appendChild(S.field('IAM profile', S.el('div', { style: 'word-break:break-all', text: node.iam_instance_profile_arn || 'No instance profile attached' }), 3));
+    grid.appendChild(S.field('Launch source', S.el('div', { text: ((node.meta || {}).launch_source) || '—' })));
+    grid.appendChild(S.field('Launch time', S.el('div', { text: node.launch_time || '—' }), 2));
+
+    const sgs = Array.isArray(node.security_groups) ? node.security_groups : [];
+    const sgText = sgs.length ? sgs.map(function(g){
+      return (g.group_name || 'sg') + ' (' + (g.group_id || '—') + ')';
+    }).join(', ') : '—';
+    grid.appendChild(S.field('Security groups', S.el('div', { style: 'word-break:break-word', text: sgText }), 3));
+
+    const tags = node.aws_tags || {};
+    const tagText = Object.keys(tags).sort().map(function(k){ return k + '=' + tags[k]; }).join(', ') || '—';
+    grid.appendChild(S.field('Tags', S.el('div', { style: 'word-break:break-word', text: tagText }), 6));
+
+    details.appendChild(grid);
+    wrap.appendChild(details);
 
     return wrap;
   }
@@ -280,17 +314,53 @@
     }));
 
     const grid = S.el('div', { className: 'grid grid--6', style: 'margin-top:12px' });
+
+    const nameCol = S.el('div', { style: 'grid-column: span 2;' });
+    nameCol.appendChild(S.el('label', { className: 'label', text: 'Display name' }));
+    nameCol.appendChild(S.el('input', {
+      id: 'node_display_name',
+      value: String((node && (((node.meta || {}).name) || node.hostname || node.fqdn)) || ('tak-' + String((node && node.unit_path) || S.getRouteUnitPath() || 'node')))
+    }));
+    grid.appendChild(nameCol);
+
     const typeCol = S.el('div', { style: 'grid-column: span 2;' });
     typeCol.appendChild(S.el('label', { className: 'label', text: 'AWS size' }));
     const sel = S.el('select', { id: 'node_instance_type' });
     ['t3.small', 't3.medium', 't3.large'].forEach(function(x){
       const opt = S.el('option', { value: x, text: x });
-      if(x === 't3.small') opt.selected = true;
+      const cur = String((node && (node.instance_type || ((node.meta || {}).instance_type))) || 't3.small');
+      if(x === cur) opt.selected = true;
       sel.appendChild(opt);
     });
     typeCol.appendChild(sel);
     grid.appendChild(typeCol);
     advanced.appendChild(grid);
+
+    const advGrid = S.el('div', { className: 'grid grid--6', style: 'margin-top:12px' });
+    advGrid.appendChild(S.field('FQDN', S.el('input', {
+      id: 'node_fqdn',
+      value: String((node && node.fqdn) || (S.getRouteUnitPath() + '.aws.tak-hv-sandbox.se'))
+    }), 3));
+    advGrid.appendChild(S.field('AWS SG override', S.el('input', {
+      id: 'node_aws_sg_id',
+      value: '',
+      placeholder: 'optional'
+    })));
+    advGrid.appendChild(S.field('AWS key override', S.el('input', {
+      id: 'node_aws_key_name',
+      value: '',
+      placeholder: 'optional'
+    })));
+    advanced.appendChild(advGrid);
+
+    const defaultsGrid = S.el('div', { className: 'grid grid--6', style: 'margin-top:12px' });
+    defaultsGrid.appendChild(S.field('Region', S.el('div', { id: 'node_default_region', text: '—' })));
+    defaultsGrid.appendChild(S.field('AMI', S.el('div', { id: 'node_default_ami', style: 'word-break:break-all', text: '—' }), 2));
+    defaultsGrid.appendChild(S.field('Subnet', S.el('div', { id: 'node_default_subnet', text: '—' })));
+    defaultsGrid.appendChild(S.field('Security group', S.el('div', { id: 'node_default_sg', text: '—' }), 2));
+    defaultsGrid.appendChild(S.field('IAM profile', S.el('div', { id: 'node_default_profile', style: 'word-break:break-all', text: '—' }), 3));
+    defaultsGrid.appendChild(S.field('Key pair', S.el('div', { id: 'node_default_key', text: '—' })));
+    advanced.appendChild(defaultsGrid);
 
     const advActions = S.el('div', { className: 'card__actions', style: 'margin-top:12px' });
     advActions.appendChild(S.el('button', { id: 'node_preview_btn', className: 'btn btn--secondary', text: 'Förhandsvisa' }));
@@ -311,6 +381,19 @@
     ));
 
     c.appendChild(advanced);
+
+    const defaults = (window.TAKS_UNIT && window.TAKS_UNIT.launchDefaults) || {};
+    const setText = function(id, value){
+      const x = c.querySelector('#' + id);
+      if(x) x.textContent = String(value || '—');
+    };
+    setText('node_default_region', defaults.region);
+    setText('node_default_ami', defaults.ami);
+    setText('node_default_subnet', defaults.subnet_id);
+    setText('node_default_sg', defaults.security_group_id);
+    setText('node_default_profile', defaults.instance_profile);
+    setText('node_default_key', defaults.ssh_key_name);
+
     return c;
   }
 
@@ -770,18 +853,22 @@
       return;
     }
 
-    let unit, brand, nodesResp, filesResp;
+    let unit, brand, nodesResp, filesResp, statusResp;
     try{
       const res = await Promise.all([
         A.loadUnitFromList(unitPath),
         A.loadBrand(unitPath),
         A.loadNodes(),
-        A.loadUnitFiles(unitPath)
+        A.loadUnitFiles(unitPath),
+        A.loadStatus()
       ]);
       unit = res[0];
       brand = res[1];
       nodesResp = res[2];
       filesResp = res[3];
+      statusResp = res[4];
+      window.TAKS_UNIT = window.TAKS_UNIT || {};
+      window.TAKS_UNIT.launchDefaults = ((statusResp || {}).launch_defaults) || {};
     }catch(e){
       S.clear(app);
       app.appendChild(

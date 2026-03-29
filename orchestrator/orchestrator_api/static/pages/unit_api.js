@@ -18,6 +18,10 @@
     return await CORE.api('GET', '/api/v2/nodes');
   }
 
+  async function loadStatus(){
+    return await CORE.api('GET', '/api/v2/status');
+  }
+
   async function loadUnitFiles(unitPath){
     return await CORE.api('GET', '/api/v2/units/' + encodeURIComponent(unitPath) + '/files');
   }
@@ -82,9 +86,18 @@
   function spawnPayload(){
     const unitPath = S.getRouteUnitPath();
     const instanceType = S.byId('node_instance_type') ? S.byId('node_instance_type').value.trim() : '';
+    const displayName = S.byId('node_display_name') ? S.byId('node_display_name').value.trim() : '';
+    const fqdn = S.byId('node_fqdn') ? S.byId('node_fqdn').value.trim() : '';
+    const awsSgId = S.byId('node_aws_sg_id') ? S.byId('node_aws_sg_id').value.trim() : '';
+    const awsKeyName = S.byId('node_aws_key_name') ? S.byId('node_aws_key_name').value.trim() : '';
+
     return {
       unit_path: unitPath,
-      instance_type: instanceType || 't3.small'
+      name: displayName,
+      fqdn: fqdn,
+      instance_type: instanceType || 't3.small',
+      aws_sg_id: awsSgId || null,
+      aws_key_name: awsKeyName || null
     };
   }
 
@@ -150,6 +163,7 @@
     loadUnitFromList,
     loadBrand,
     loadNodes,
+    loadStatus,
     loadUnitFiles,
     saveBrand,
     uploadLogo,

@@ -1,27 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
-try:
-    import tomllib  # py311+
-except ModuleNotFoundError:  # py310
-    import tomli as tomllib
+from orchestrator_core.config_store import (
+    KVView,
+    apply_runtime_updates,
+    load_runtime_config_view,
+    load_runtime_secrets_view,
+    runtime_public_state,
+    save_runtime_config_view,
+    save_runtime_secrets_view,
+)
 
-
-DEFAULT_CONFIG_PATH = Path("/etc/taks/tak_orch.conf")
-DEFAULT_SECRETS_PATH = Path("/etc/taks/secrets.conf")
-
-
-class ConfigError(RuntimeError):
-    pass
-
-
-class ConfigValidationError(ConfigError):
-    def __init__(self, errors: list[str]) -> None:
-        super().__init__("invalid configuration")
-        self.errors = errors
+RuntimeConfig = KVView
+RuntimeSecrets = KVView
 
 
 @dataclass(frozen=True)
@@ -92,140 +85,108 @@ class AuthSecrets:
 
 
 @dataclass(frozen=True)
-class CloudflareSecrets:
-    api_token: str = ""
-
-
-@dataclass(frozen=True)
 class SecretsConfig:
     auth: AuthSecrets
-    cloudflare: CloudflareSecrets
 
 
-def _read_toml(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        raise ConfigError(f"missing config file: {path}")
-    raw = tomllib.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raise ConfigError(f"invalid TOML root object in: {path}")
-    return raw
+def _s(v: Any, default: str = "") -> str:
+    if v is None:
+        return default
+    return str(v).strip()
 
 
-def _require_section(raw: dict[str, Any], name: str, errors: list[str]) -> dict[str, Any]:
-    value = raw.get(name)
-    if not isinstance(value, dict):
-        errors.append(f"missing section: {name}")
-        return {}
-    return value
+def _b(v: Any, default: bool = False) -> bool:
+    if isinstance(v, bool):
+        return v
+    s = _s(v, "").lower()
+    if not s:
+        return default
+    return s in {"1", "true", "yes", "on"}
 
 
-def _require_str(section: dict[str, Any], key: str, path: str, errors: list[str]) -> str:
-    value = section.get(key)
-    if not isinstance(value, str) or not value.strip():
-        errors.append(f"{path}.{key} is required")
-        return ""
-    return value.strip()
+def load_config(path: Optional[str] = None, *, secrets_path: Optional[str] = None) -> RuntimeConfig:
+    return load_runtime_config_view()
 
 
-def _require_bool(section: dict[str, Any], key: str, path: str, errors: list[str]) -> bool:
-    value = section.get(key)
-    if not isinstance(value, bool):
-        errors.append(f"{path}.{key} must be boolean")
-        return False
-    return value
+def load_secrets(path: Optional[str] = None) -> RuntimeSecrets:
+    return load_runtime_secrets_view()
 
 
-def parse_orch_config_dict(raw: dict[str, Any]) -> OrchConfig:
-    errors: list[str] = []
+def write_config(cfg: RuntimeConfig, path: Optional[str] = None) -> RuntimeConfig:
+    return save_runtime_config_view(cfg)
 
-    identity = _require_section(raw, "identity", errors)
-    paths = _require_section(raw, "paths", errors)
-    aws = _require_section(raw, "aws", errors)
-    letsencrypt = _require_section(raw, "letsencrypt", errors)
-    bundles = _require_section(raw, "bundles", errors)
-    nodes = _require_section(raw, "nodes", errors)
 
-    out = OrchConfig(
+def write_secrets(sec: RuntimeSecrets, path: Optional[str] = None) -> RuntimeSecrets:
+    return save_runtime_secrets_view(sec)
+
+
+def apply_config_updates(
+    *,
+    config_updates: dict[str, Any] | None = None,
+    secret_updates: dict[str, Any] | None = None,
+    config_path: Optional[str] = None,
+    secrets_path: Optional[str] = None,
+) -> tuple[RuntimeConfig, RuntimeSecrets]:
+    return apply_runtime_updates(
+        config_updates=config_updates,
+        secret_updates=secret_updates,
+    )
+
+
+def config_public_state() -> dict[str, Any]:
+    return runtime_public_state()
+
+
+def load_orch_config() -> OrchConfig:
+    cfg = load_runtime_config_view()
+    return OrchConfig(
         identity=IdentityConfig(
-            orchestrator_fqdn=_require_str(identity, "orchestrator_fqdn", "identity", errors),
-            public_base_url=_require_str(identity, "public_base_url", "identity", errors),
-            unit_bundle_base_url=_require_str(identity, "unit_bundle_base_url", "identity", errors),
+            orchestrator_fqdn=_s(cfg.get("orchestrator_fqdn")),
+            public_base_url=_s(cfg.get("public_base_url")),
+            unit_bundle_base_url=_s(cfg.get("unit_bundle_base_url")),
         ),
         paths=PathsConfig(
-            state_dir=_require_str(paths, "state_dir", "paths", errors),
-            artifacts_dir=_require_str(paths, "artifacts_dir", "paths", errors),
-            rendered_bundles_dir=_require_str(paths, "rendered_bundles_dir", "paths", errors),
+            state_dir=_s(cfg.get("state_dir")),
+            artifacts_dir=_s(cfg.get("artifacts_dir")),
+            rendered_bundles_dir=_s(cfg.get("rendered_bundles_dir")),
         ),
         aws=AwsConfig(
-            region=_require_str(aws, "region", "aws", errors),
-            default_ami=_require_str(aws, "default_ami", "aws", errors),
-            default_subnet_id=_require_str(aws, "default_subnet_id", "aws", errors),
-            default_security_group_id=_require_str(aws, "default_security_group_id", "aws", errors),
-            default_instance_profile=_require_str(aws, "default_instance_profile", "aws", errors),
-            default_instance_type=_require_str(aws, "default_instance_type", "aws", errors),
-            ssh_key_name=_require_str(aws, "ssh_key_name", "aws", errors),
-            route53_zone_id=_require_str(aws, "route53_zone_id", "aws", errors),
-            launch_enabled=_require_bool(aws, "launch_enabled", "aws", errors),
+            region=_s(cfg.get("aws_region")),
+            default_ami=_s(cfg.get("aws_default_ami")),
+            default_subnet_id=_s(cfg.get("aws_default_subnet_id")),
+            default_security_group_id=_s(cfg.get("aws_default_security_group_id")),
+            default_instance_profile=_s(cfg.get("aws_default_instance_profile")),
+            default_instance_type=_s(cfg.get("aws_default_instance_type"), "t3.large"),
+            ssh_key_name=_s(cfg.get("aws_ssh_key_name")),
+            route53_zone_id=_s(cfg.get("aws_route53_zone_id")),
+            launch_enabled=_b(cfg.get("aws_launch_enabled"), False),
         ),
         letsencrypt=LetsEncryptConfig(
-            mode=_require_str(letsencrypt, "mode", "letsencrypt", errors),
-            email=_require_str(letsencrypt, "email", "letsencrypt", errors),
-            wildcard_zone=_require_str(letsencrypt, "wildcard_zone", "letsencrypt", errors),
-            artifact_cert_dir=_require_str(letsencrypt, "artifact_cert_dir", "letsencrypt", errors),
+            mode=_s(cfg.get("le_mode")),
+            email=_s(cfg.get("le_email")),
+            wildcard_zone=_s(cfg.get("le_wildcard_zone")),
+            artifact_cert_dir=_s(cfg.get("le_artifact_cert_dir")),
         ),
         bundles=BundlesConfig(
-            source_repo_root=_require_str(bundles, "source_repo_root", "bundles", errors),
-            default_bundle_kind=_require_str(bundles, "default_bundle_kind", "bundles", errors),
-            include_taks_source=_require_bool(bundles, "include_taks_source", "bundles", errors),
+            source_repo_root=_s(cfg.get("bundles_source_repo_root")),
+            default_bundle_kind=_s(cfg.get("bundles_default_bundle_kind")),
+            include_taks_source=_b(cfg.get("bundles_include_taks_source"), True),
         ),
         nodes=NodesConfig(
-            default_node_domain=_require_str(nodes, "default_node_domain", "nodes", errors),
-            default_cert_model=_require_str(nodes, "default_cert_model", "nodes", errors),
+            default_node_domain=_s(cfg.get("nodes_default_node_domain")),
+            default_cert_model=_s(cfg.get("nodes_default_cert_model")),
         ),
     )
 
-    if errors:
-        raise ConfigValidationError(errors)
-    return out
 
-
-def parse_secrets_dict(raw: dict[str, Any]) -> SecretsConfig:
-    errors: list[str] = []
-
-    auth = _require_section(raw, "auth", errors)
-    cloudflare = raw.get("cloudflare")
-    if not isinstance(cloudflare, dict):
-        cloudflare = {}
-
-    api_token = cloudflare.get("api_token", "")
-    if api_token is None:
-        api_token = ""
-    if not isinstance(api_token, str):
-        errors.append("cloudflare.api_token must be string if present")
-        api_token = ""
-    api_token = api_token.strip()
-
-    out = SecretsConfig(
+def load_secrets_config() -> SecretsConfig:
+    sec = load_runtime_secrets_view()
+    return SecretsConfig(
         auth=AuthSecrets(
-            session_secret=_require_str(auth, "session_secret", "auth", errors),
-            operator_user=_require_str(auth, "operator_user", "auth", errors),
-            operator_password=_require_str(auth, "operator_password", "auth", errors),
-            node_api_user=_require_str(auth, "node_api_user", "auth", errors),
-            node_api_password=_require_str(auth, "node_api_password", "auth", errors),
-        ),
-        cloudflare=CloudflareSecrets(
-            api_token=api_token,
+            session_secret=_s(sec.get("session_secret")),
+            operator_user=_s(sec.get("operator_user")),
+            operator_password=_s(sec.get("operator_password")),
+            node_api_user=_s(sec.get("node_api_user")),
+            node_api_password=_s(sec.get("node_api_password")),
         ),
     )
-
-    if errors:
-        raise ConfigValidationError(errors)
-    return out
-
-
-def load_orch_config(path: Path = DEFAULT_CONFIG_PATH) -> OrchConfig:
-    return parse_orch_config_dict(_read_toml(path))
-
-
-def load_secrets_config(path: Path = DEFAULT_SECRETS_PATH) -> SecretsConfig:
-    return parse_secrets_dict(_read_toml(path))

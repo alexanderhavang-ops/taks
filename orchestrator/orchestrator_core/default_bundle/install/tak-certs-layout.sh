@@ -5,6 +5,12 @@ log() {
   printf '[tak-certs-layout] %s\n' "$*"
 }
 
+read_trimmed_file() {
+  local p="$1"
+  [ -f "$p" ] || return 1
+  tr -d '\r' < "$p" | sed -e 's/[[:space:]]*$//' | head -n 1
+}
+
 copy_if_exists() {
   local src="$1"
   local dst="$2"
@@ -37,7 +43,7 @@ main() {
   fi
 
   local unit_id server_base src_prefix
-  unit_id="$(tr -d '\r' < /etc/taks/TAKS_UNIT_ID 2>/dev/null | sed -e 's/[[:space:]]*$//' | head -n 1 || true)"
+  unit_id="$(read_trimmed_file /etc/taks/TAKS_UNIT_ID || true)"
   if [ -z "$unit_id" ]; then
     unit_id="$(hostname -s 2>/dev/null || true)"
   fi
@@ -49,7 +55,6 @@ main() {
     "$flat/01_TRUST" \
     "$flat/02_SERVER"
 
-  # CA
   copy_if_exists "$flat/ca.pem"                   "$flat/00_CA/ca.pem"
   copy_if_exists "$flat/ca-trusted.pem"           "$flat/00_CA/ca-trusted.pem"
   copy_if_exists "$flat/ca-do-not-share.key"      "$flat/00_CA/ca-do-not-share.key"
@@ -60,12 +65,10 @@ main() {
   copy_if_exists "$flat/ca-signing.p12"           "$flat/00_CA/ca-signing.p12"
   copy_if_exists "$flat/ca-signing.jks"           "$flat/00_CA/ca-signing.jks"
 
-  # TRUST
   copy_if_exists "$flat/truststore-root.jks"      "$flat/01_TRUST/truststore-root.jks"
   copy_if_exists "$flat/truststore-root.p12"      "$flat/01_TRUST/truststore-root.p12"
   copy_if_exists "$flat/fed-truststore.jks"       "$flat/01_TRUST/fed-truststore.jks"
 
-  # SERVER
   src_prefix="$(detect_server_prefix "$flat" || true)"
   if [ -z "$src_prefix" ]; then
     log "no server cert prefix detected under $flat"

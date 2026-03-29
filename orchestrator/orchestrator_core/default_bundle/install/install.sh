@@ -21,6 +21,58 @@ run_step() {
   bash "$path"
 }
 
+ensure_ca_signing_keystore() {
+  local cert_dir="/opt/tak/certs"
+  local files_dir="$cert_dir/files"
+
+  if [ ! -d "$files_dir" ]; then
+    log "skip CA signing keystore generation (missing $files_dir)"
+    return 0
+  fi
+
+  if [ -f "$files_dir/ca-signing.p12" ] && [ -f "$files_dir/ca-signing.jks" ]; then
+    log "CA signing keystore already present"
+    return 0
+  fi
+
+  if [ ! -f "$cert_dir/cert-metadata.sh" ]; then
+    log "skip CA signing keystore generation (missing $cert_dir/cert-metadata.sh)"
+    return 0
+  fi
+
+  # shellcheck disable=SC1090
+  . "$cert_dir/cert-metadata.sh"
+
+  local capass="${CAPASS:-atakatak}"
+  local alias="tak-ca"
+
+  if [ ! -f "$files_dir/ca.pem" ] || [ ! -f "$files_dir/ca-do-not-share.key" ]; then
+    log "skip CA signing keystore generation (missing ca.pem or ca-do-not-share.key)"
+    return 0
+  fi
+
+  log "generating CA signing keystore from root CA material"
+  (
+    cd "$files_dir"
+    openssl pkcs12 -legacy -export \
+      -in ca.pem \
+      -inkey ca-do-not-share.key \
+      -out ca-signing.p12 \
+      -name "$alias" \
+      -passin "pass:$capass" \
+      -passout "pass:$capass"
+
+    keytool -importkeystore \
+      -deststorepass "$capass" \
+      -destkeypass "$capass" \
+      -destkeystore ca-signing.jks \
+      -srckeystore ca-signing.p12 \
+      -srcstoretype PKCS12 \
+      -srcstorepass "$capass" \
+      -alias "$alias" \
+      -noprompt
+  )
+}
 
 generate_tak_server_certs() {
   local node_env="/etc/taks-bootstrap.d/node.env"
@@ -47,6 +99,7 @@ generate_tak_server_certs() {
 
   if [ -f "$cert_dir/files/ca.pem" ] && [ -f "$cert_dir/files/${fqdn}.jks" ]; then
     log "cert material already present for $fqdn"
+    ensure_ca_signing_keystore
     return 0
   fi
 
@@ -58,7 +111,9 @@ generate_tak_server_certs() {
   log "generating TAK root CA"
   (
     cd "$cert_dir"
-    bash ./makeRootCa.sh
+    bash ./makeRootCa.sh <<'EOT'
+
+EOT
   )
 
   log "generating TAK server cert for $fqdn"
@@ -66,6 +121,8 @@ generate_tak_server_certs() {
     cd "$cert_dir"
     bash ./makeCert.sh server "$fqdn"
   )
+
+  ensure_ca_signing_keystore
 }
 
 restart_takserver_if_present() {
