@@ -269,24 +269,19 @@ def atak_enroll_creds_payload(req: Request, username: str) -> str:
 # ATAK / iTAK package writer
 # -----------------------------------------------------------------------------
 
+
 def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, include_creds: bool, base: str) -> None:
     """
-    Combined ATAK/iTAK experiment package:
+    ATAK soft-certificate mission package:
 
-      ATAK-style:
-        - MANIFEST/manifest.xml
-        - certs/config.pref
-        - certs/caCert.p12
-
-      iTAK-style compatibility copies:
-        - config.pref
-        - caCert.p12
-
+      - MANIFEST/manifest.xml
+      - certs/config.pref
+      - certs/truststore-root.p12
+      - certs/client.p12
       - meta.json
 
-    We keep one config.pref content and duplicate placement to test cross-client
-    compatibility. Auto-enroll is CA-backed; we are not doing client cert packaging
-    here.
+    This is NOT auto-enroll. It is a cert package for ATAK import.
+    Password entries are embedded only when config says so.
     """
     out_zip.parent.mkdir(parents=True, exist_ok=True)
 
@@ -323,7 +318,6 @@ def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, incl
         or ep.get("enroll_host")
         or host
     )
-
     try:
         enroll_port = qi(req, "enroll_port")
     except Exception:
@@ -341,7 +335,6 @@ def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, incl
         enroll_ssl = str(ep.get("enroll_ssl") or "true").strip().lower() in ("1", "true", "yes", "y", "on")
 
     policy_id = q(req, "policy_id", None) or sel_ctx.get("policy_id") or "hemvarnet"
-
     ctx = dict(sel_ctx)
 
     overrides = {
@@ -385,31 +378,25 @@ def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, incl
 
     uid = str(uuid.uuid4())
 
-    ca_rel = q(req, "ca_rel", None) or str(ep.get("ca_rel") or "certs/truststore-root.p12").strip()
-    ca_rel = ca_rel.lstrip("/")
+    artifact_dir = out_zip.parent
+    ca_name = "truststore-root.p12"
+    ca_rel = f"certs/{ca_name}"
 
     ca_candidates = [
-        artifact_root := (out_zip.parent.parent if out_zip.parent.name == "atak" else out_zip.parent),
-    ]
-    ca_paths = [
-        artifact_root / ca_rel,
-        artifact_root / "truststore-root.p12",
-        artifact_root / "certs" / "truststore-root.p12",
-        artifact_root / "caCert.p12",
-        artifact_root / "certs" / "caCert.p12",
+        artifact_dir / ca_name,
+        artifact_dir / "certs" / ca_name,
         Path("/opt/tak/certs/files/01_TRUST/truststore-root.p12"),
         Path("/opt/tak/certs/files") / "caCert.p12",
         Path("/opt/tak/certs") / "caCert.p12",
     ]
 
     ca_path = None
-    for cand in ca_paths:
+    for cand in ca_candidates:
         if cand.exists() and cand.is_file():
             ca_path = cand
             break
-
     if ca_path is None:
-        raise HTTPException(status_code=400, detail="missing onboarding truststore .p12 for package")
+        raise HTTPException(status_code=400, detail="missing truststore-root.p12 for ATAK cert package")
 
     ca_password = (
         q(req, "ca_password", None)
@@ -417,39 +404,61 @@ def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, incl
         or _read_runtime_ca_password()
     )
     if not ca_password:
-        raise HTTPException(status_code=400, detail="ca password required (query, saved endpoint, or /opt/tak/certs/tak-cert-identity.env)")
+        raise HTTPException(status_code=400, detail="missing CA password for ATAK cert package")
 
-    role_entry = ""
-    role_value = normalize_atak_role_type(getattr(ident, "atak_role_type", None))
-    if role_value:
-        role_entry = f'    <entry key="atakRoleType" class="class java.lang.String">{role_value}</entry>\n'
+    cfg = load_config()
+    include_client_pw = str(cfg.get("include_client_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    include_trust_pw = str(cfg.get("include_truststore_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
 
-    auth_entries = ""
-    pw_used = False
-    user_pw = None
-    if include_creds:
-        user_pw = password_from_req(req)
-        if not user_pw:
-            raise HTTPException(status_code=400, detail="password required for package-creds (x-taks-password header or ?password=...)")
-        auth_entries = (
-            '    <entry key="useAuth0" class="class java.lang.Boolean">true</entry>\n'
-            '    <entry key="cacheCreds0" class="class java.lang.String">Cache credentials</entry>\n'
-            f'    <entry key="username0" class="class java.lang.String">{username}</entry>\n'
-            f'    <entry key="password0" class="class java.lang.String">{user_pw}</entry>\n'
-        )
-        pw_used = True
-
-    enroll_entries = (
-        '    <entry key="enrollForCertificateWithTrust0" class="class java.lang.Boolean">true</entry>\n'
-        f'    <entry key="caLocation0" class="class java.lang.String">{ca_rel}</entry>\n'
-        f'    <entry key="caPassword0" class="class java.lang.String">{ca_password}</entry>\n'
-        f'    <entry key="certificateEnrollmentServer0" class="class java.lang.String">{enroll_host}:{enroll_port}</entry>\n'
-        f'    <entry key="certificateEnrollmentServerDescription0" class="class java.lang.String">{enroll_host}:{enroll_port}</entry>\n'
+    client_name = "client.p12"
+    client_rel = f"certs/{client_name}"
+    client_password = (
+        q(req, "client_password", None)
+        or str(ep.get("client_password") or "").strip()
+        or _read_runtime_user_cert_password()
     )
+    if not client_password:
+        raise HTTPException(status_code=400, detail="missing client password for ATAK cert package")
+
+    client_tmp = out_zip.parent / f"{username}.atak.client.tmp.p12"
+    export_info = _export_user_client_p12(
+        username=username,
+        out_p12=client_tmp,
+        client_password=client_password,
+    )
+    client_p12_bytes = client_tmp.read_bytes()
+    try:
+        client_tmp.unlink()
+    except Exception:
+        pass
+
+    role_value = normalize_atak_role_type(getattr(ident, "atak_role_type", None)) or "Team Member"
+
+    trust_pw_entry = f'    <entry key="caPassword0" class="class java.lang.String">{ca_password}</entry>\n' if include_trust_pw else ""
+    client_pw_entry = f'    <entry key="certificatePassword0" class="class java.lang.String">{client_password}</entry>\n' if include_client_pw else ""
 
     config_pref = (
-        f"1 {username} @ {host} true :{port}:{'ssl' if use_ssl else 'tcp'} "
-        f"{ca_rel} {ca_password} true Cache credentials true true true"
+        "<?xml version='1.0' encoding='ASCII' standalone='yes'?>\n"
+        "<preferences>\n"
+        '  <preference version="1" name="cot_streams">\n'
+        '    <entry key="count" class="class java.lang.Integer">1</entry>\n'
+        f'    <entry key="description0" class="class java.lang.String">{username} @ {host}</entry>\n'
+        '    <entry key="enabled0" class="class java.lang.Boolean">true</entry>\n'
+        f'    <entry key="connectString0" class="class java.lang.String">{connect}</entry>\n'
+        f'    <entry key="caLocation0" class="class java.lang.String">{ca_rel}</entry>\n'
+        f"{trust_pw_entry}"
+        f'    <entry key="certificateLocation0" class="class java.lang.String">{client_rel}</entry>\n'
+        f"{client_pw_entry}"
+        '    <entry key="useAuth0" class="class java.lang.Boolean">true</entry>\n'
+        '    <entry key="cacheCreds0" class="class java.lang.String">Cache credentials</entry>\n'
+        "  </preference>\n"
+        '  <preference version="1" name="com.atakmap.app_preferences">\n'
+        '    <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>\n'
+        f'    <entry key="locationCallsign" class="class java.lang.String">{ident.callsign}</entry>\n'
+        f'    <entry key="locationTeam" class="class java.lang.String">{ident.team}</entry>\n'
+        f'    <entry key="atakRoleType" class="class java.lang.String">{role_value}</entry>\n'
+        "  </preference>\n"
+        "</preferences>\n"
     )
 
     manifest_xml = (
@@ -462,7 +471,8 @@ def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, incl
         "  </Configuration>\n"
         "  <Contents>\n"
         '    <Content ignore="false" zipEntry="certs/config.pref"/>\n'
-        f'    <Content ignore="false" zipEntry="certs/{Path(ca_rel).name}"/>\n'
+        f'    <Content ignore="false" zipEntry="{ca_rel}"/>\n'
+        f'    <Content ignore="false" zipEntry="{client_rel}"/>\n'
         "  </Contents>\n"
         "</MissionPackageManifest>\n"
     )
@@ -497,25 +507,30 @@ def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, incl
         "ca_cert": {
             "source_path": str(ca_path),
             "zip_rel": ca_rel,
-            "zip_root_name": Path(ca_rel).name,
+            "zip_root_name": ca_name,
             "password_present": bool(ca_password),
+            "password_embedded": bool(include_trust_pw),
+        },
+        "client_cert": {
+            "zip_rel": client_rel,
+            "zip_root_name": client_name,
+            "password_present": bool(client_password),
+            "password_embedded": bool(include_client_pw),
+            "export": export_info,
         },
         "package_mode": "atak-cert-package-creds" if include_creds else "atak-cert-package",
-        "option_c": {"embedded_creds": bool(include_creds), "password_present": bool(pw_used)},
-        "note": "ATAK cert package.",
+        "option_c": {"embedded_creds": bool(include_creds), "password_present": bool(include_creds)},
+        "note": "ATAK soft-certificate mission package.",
     }
 
     ca_bytes = ca_path.read_bytes()
-    ca_name = Path(ca_rel).name
 
     with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr("MANIFEST/manifest.xml", manifest_xml)
         z.writestr("certs/config.pref", config_pref)
-        z.writestr(f"certs/{ca_name}", ca_bytes)
+        z.writestr(ca_rel, ca_bytes)
+        z.writestr(client_rel, client_p12_bytes)
         z.writestr("meta.json", json.dumps(meta, indent=2, sort_keys=True) + "\n")
-
-
-
 
 def write_atak_auto_enroll_package_zip(out_zip: Path, username: str, req: Request, include_creds: bool, base: str) -> None:
     raise HTTPException(status_code=501, detail="ATAK auto-enroll package writer not split out yet")
