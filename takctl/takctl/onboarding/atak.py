@@ -269,7 +269,7 @@ def atak_enroll_creds_payload(req: Request, username: str) -> str:
 # ATAK / iTAK package writer
 # -----------------------------------------------------------------------------
 
-def write_atak_package_zip(out_zip: Path, username: str, req: Request, include_creds: bool, base: str) -> None:
+def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, include_creds: bool, base: str) -> None:
     """
     Combined ATAK/iTAK experiment package:
 
@@ -525,6 +525,37 @@ def write_atak_package_zip(out_zip: Path, username: str, req: Request, include_c
         z.writestr(ca_name, ca_bytes)
 
         z.writestr("meta.json", json.dumps(meta, indent=2, sort_keys=True) + "\n")
+
+
+
+
+def write_atak_auto_enroll_package_zip(out_zip: Path, username: str, req: Request, include_creds: bool, base: str) -> None:
+    raise HTTPException(status_code=501, detail="ATAK auto-enroll package writer not split out yet")
+
+
+def write_atak_package_zip(out_zip: Path, username: str, req: Request, include_creds: bool, base: str) -> None:
+    cfg = load_config()
+    raw_mode = str(cfg.get("onboarding_mode", "") or "").strip().lower()
+    if raw_mode not in ("auto-enroll", "cert-creation"):
+        legacy = str(cfg.get("create_cert_with_user", "") or "").strip().lower()
+        raw_mode = "cert-creation" if legacy in ("1", "true", "yes", "y", "on") else "auto-enroll"
+
+    if raw_mode == "auto-enroll":
+        return write_atak_auto_enroll_package_zip(
+            out_zip=out_zip,
+            username=username,
+            req=req,
+            include_creds=include_creds,
+            base=base,
+        )
+
+    return write_atak_cert_package_zip(
+        out_zip=out_zip,
+        username=username,
+        req=req,
+        include_creds=include_creds,
+        base=base,
+    )
 
 
 def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str) -> None:
