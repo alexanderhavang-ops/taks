@@ -292,7 +292,7 @@ def token_atak_package_zip(req: Request, token: str):
 
     base = external_base(req)
     if regen or (not out.exists()):
-        write_atak_package_zip(out, username, req, include_creds=False, base=base)
+        write_itak_package_zip(out, username, req, base=base)
         _mark_package_generated(svc, username, package_type="atak", sel=(load_selection(username) or {}))
 
     via = (req.query_params.get("via") or "").strip()
@@ -369,7 +369,7 @@ def token_itak_package_zip(req: Request, token: str):
 
     base = _resolve_public_base(req, username)
     if regen or (not out.exists()):
-        write_atak_package_zip(out, username, req, include_creds=False, base=base)
+        write_itak_package_zip(out, username, req, base=base)
         _mark_package_generated(svc, username, package_type="itak", sel=(load_selection(username) or {}))
 
     via = (req.query_params.get("via") or "").strip()
@@ -392,7 +392,7 @@ def itak_package_zip(req: Request, username: str):
 
     base = _resolve_public_base(req, username)
     if regen or (not out.exists()):
-        write_atak_package_zip(out, username, req, include_creds=False, base=base)
+        write_itak_package_zip(out, username, req, base=base)
         _mark_package_generated(svc, username, package_type="itak", sel=(load_selection(username) or {}))
 
     via = (req.query_params.get("via") or "").strip()
