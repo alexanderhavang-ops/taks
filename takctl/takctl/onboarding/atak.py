@@ -65,6 +65,19 @@ def _read_runtime_user_cert_password() -> str:
     return (vals.get("PASS") or vals.get("CAPASS") or "").strip()
 
 
+def _read_user_client_password(username: str) -> str:
+    u = (username or "").strip()
+    if u:
+        pwf = Path("/opt/tak/certs/files/04_USERS") / u / ".client-password"
+        try:
+            v = pwf.read_text(encoding="utf-8", errors="replace").strip()
+            if v:
+                return v
+        except Exception:
+            pass
+    return _read_runtime_user_cert_password()
+
+
 def now_utc_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -115,7 +128,7 @@ def _export_user_client_p12(
     if not ca_pem.exists():
         raise HTTPException(status_code=400, detail=f"missing CA pem: {ca_pem}")
 
-    user_key_pass = _read_runtime_user_cert_password()
+    user_key_pass = _read_user_client_password(username)
     if not user_key_pass:
         raise HTTPException(status_code=400, detail="missing user_key_pass / PASS for user cert export")
 
@@ -415,7 +428,7 @@ def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, incl
     client_password = (
         q(req, "client_password", None)
         or str(ep.get("client_password") or "").strip()
-        or _read_runtime_user_cert_password()
+        or _read_user_client_password(username)
     )
     if not client_password:
         raise HTTPException(status_code=400, detail="missing client password for ATAK cert package")
@@ -696,7 +709,7 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
     client_password = (
         q(req, "client_password", None)
         or str(ep.get("client_password") or "").strip()
-        or _read_runtime_user_cert_password()
+        or _read_user_client_password(username)
     )
     if not client_password:
         raise HTTPException(status_code=400, detail="missing client password for iTAK package")

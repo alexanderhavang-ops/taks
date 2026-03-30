@@ -54,9 +54,12 @@ if [ -f "${FILES_DIR}/${CN}-trusted.pem" ]; then
 fi
 
 printf '%s\n' "${USER_PASS}" > "${PW_FILE}"
-chmod 0600 "${PW_FILE}"
 
-chmod 0600 "${USER_DIR}/${CN}.key" 2>/dev/null || true
-chmod 0640 "${USER_DIR}/${CN}.pem" "${USER_DIR}/${CN}.p12" "${USER_DIR}/${CN}.jks" 2>/dev/null || true
+chown -R tak:tak "${USER_DIR}" 2>/dev/null || true
+chmod 0750 "${USER_DIR}" 2>/dev/null || true
+chmod 0640 "${PW_FILE}" 2>/dev/null || true
+
+chmod 0640 "${USER_DIR}/${CN}.key" 2>/dev/null || true
+chmod 0640 "${USER_DIR}/${CN}.pem" "${USER_DIR}/${CN}.p12" "${USER_DIR}/${CN}.jks" "${USER_DIR}/${CN}.csr" "${USER_DIR}/${CN}-trusted.pem" 2>/dev/null || true
 
 echo "ok: ${USER_DIR}/${CN}.pem"
