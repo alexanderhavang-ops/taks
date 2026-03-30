@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from html import escape as h
 
 from takctl.onboarding.soldier_card.blocks import lifecycle_block, password_block, profile_block
@@ -45,6 +46,23 @@ def _onboarding_mode(cfg) -> str:
     return "cert-creation" if _cfg_bool(cfg, "create_cert_with_user", True) else "auto-enroll"
 
 
+def _read_user_client_password(username: str) -> str:
+    u = (username or "").strip()
+    if not u:
+        return ""
+    for p in (
+        Path("/opt/tak/certs/files/04_USERS") / u / ".client-password",
+        Path("/opt/tak/takctl-state/onboarding/identities") / f"{u}.client-password",
+    ):
+        try:
+            v = p.read_text(encoding="utf-8", errors="replace").strip()
+            if v:
+                return v
+        except Exception:
+            pass
+    return ""
+
+
 def render_soldier_card_page(
     *,
     lang: str | None,
@@ -72,6 +90,15 @@ def render_soldier_card_page(
     browser_card_qr = f"{base}/api/onboarding/cards/{token}/card-url/qr.png?b={bump}"
     browser_card_txt = f"{base}/api/onboarding/cards/{token}/card-url/qr.txt?b={bump}"
 
+    creds_html = ""
+    profile_html = profile_block(lang=l, username=username, groups=groups, sel=sel, ident=ident)
+    lifecycle_html = lifecycle_block(l, lifecycle)
+
+    cfg = load_config()
+    onboarding_mode = _onboarding_mode(cfg)
+    create_cert_with_user = (onboarding_mode == "cert-creation")
+    include_client_password_in_package = _cfg_bool(cfg, "include_client_password_in_package", False)
+    include_truststore_password_in_package = _cfg_bool(cfg, "include_truststore_password_in_package", False)
     reveal_truststore_password_on_soldier_card = _cfg_bool(cfg, "reveal_truststore_password_on_soldier_card", False)
     reveal_client_password_on_soldier_card = _cfg_bool(cfg, "reveal_client_password_on_soldier_card", False)
 
@@ -80,7 +107,7 @@ def render_soldier_card_page(
     if create_cert_with_user and (not include_truststore_password_in_package) and reveal_truststore_password_on_soldier_card:
         truststore_password = _read_runtime_ca_password() or None
     if create_cert_with_user and (not include_client_password_in_package) and reveal_client_password_on_soldier_card:
-        client_password = _read_runtime_user_cert_password() or None
+        client_password = _read_user_client_password(username) or _read_runtime_user_cert_password() or None
 
     creds_html = password_block(
         lang=l,
@@ -90,14 +117,6 @@ def render_soldier_card_page(
         truststore_password=truststore_password,
         client_password=client_password,
     )
-    profile_html = profile_block(lang=l, username=username, groups=groups, sel=sel, ident=ident)
-    lifecycle_html = lifecycle_block(l, lifecycle)
-
-    cfg = load_config()
-    onboarding_mode = _onboarding_mode(cfg)
-    create_cert_with_user = (onboarding_mode == "cert-creation")
-    include_client_password_in_package = _cfg_bool(cfg, "include_client_password_in_package", False)
-    include_truststore_password_in_package = _cfg_bool(cfg, "include_truststore_password_in_package", False)
 
     needs_manual_import_passwords = create_cert_with_user and (
         (not include_client_password_in_package) or (not include_truststore_password_in_package)
