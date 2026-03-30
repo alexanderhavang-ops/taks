@@ -188,6 +188,7 @@
     details.appendChild(S.el('summary', { text: 'Advanced node details' }));
 
     const grid = S.el('div', { className: 'grid grid--6', style: 'margin-top:12px' });
+    grid.appendChild(S.field('FQDN', S.el('div', { style: 'word-break:break-all', text: node.fqdn || '—' }), 3));
     grid.appendChild(S.field('Display name', S.el('div', { text: node.display_name || ((node.meta || {}).name) || node.fqdn || '—' }), 2));
     grid.appendChild(S.field('Region', S.el('div', { text: node.region || '—' })));
     grid.appendChild(S.field('AZ', S.el('div', { text: node.availability_zone || '—' })));
@@ -319,7 +320,7 @@
     nameCol.appendChild(S.el('label', { className: 'label', text: 'Display name' }));
     nameCol.appendChild(S.el('input', {
       id: 'node_display_name',
-      value: String((node && (((node.meta || {}).name) || node.hostname || node.fqdn)) || ('tak-' + String((node && node.unit_path) || S.getRouteUnitPath() || 'node')))
+      value: String((node && (((node.meta || {}).name) || node.display_name || node.fqdn)) || ('tak-' + String((node && node.unit_path) || S.getRouteUnitPath() || 'node')))
     }));
     grid.appendChild(nameCol);
 
@@ -343,20 +344,20 @@
     }), 3));
     advGrid.appendChild(S.field('AWS SG override', S.el('input', {
       id: 'node_aws_sg_id',
-      value: '',
-      placeholder: 'optional'
-    })));
+      value: String((node && (((node.meta || {}).sg_id) || node.subnet_id)) ? (((node.meta || {}).sg_id) || '') : ''),
+      placeholder: 'default from orchestrator config'
+    }), 2));
     advGrid.appendChild(S.field('AWS key override', S.el('input', {
       id: 'node_aws_key_name',
       value: '',
-      placeholder: 'optional'
+      placeholder: 'default from orchestrator config'
     })));
     advanced.appendChild(advGrid);
 
     const defaultsGrid = S.el('div', { className: 'grid grid--6', style: 'margin-top:12px' });
     defaultsGrid.appendChild(S.field('Region', S.el('div', { id: 'node_default_region', text: '—' })));
     defaultsGrid.appendChild(S.field('AMI', S.el('div', { id: 'node_default_ami', style: 'word-break:break-all', text: '—' }), 2));
-    defaultsGrid.appendChild(S.field('Subnet', S.el('div', { id: 'node_default_subnet', text: '—' })));
+    defaultsGrid.appendChild(S.field('Subnet', S.el('div', { id: 'node_default_subnet', text: '—' }), 2));
     defaultsGrid.appendChild(S.field('Security group', S.el('div', { id: 'node_default_sg', text: '—' }), 2));
     defaultsGrid.appendChild(S.field('IAM profile', S.el('div', { id: 'node_default_profile', style: 'word-break:break-all', text: '—' }), 3));
     defaultsGrid.appendChild(S.field('Key pair', S.el('div', { id: 'node_default_key', text: '—' })));
@@ -381,19 +382,6 @@
     ));
 
     c.appendChild(advanced);
-
-    const defaults = (window.TAKS_UNIT && window.TAKS_UNIT.launchDefaults) || {};
-    const setText = function(id, value){
-      const x = c.querySelector('#' + id);
-      if(x) x.textContent = String(value || '—');
-    };
-    setText('node_default_region', defaults.region);
-    setText('node_default_ami', defaults.ami);
-    setText('node_default_subnet', defaults.subnet_id);
-    setText('node_default_sg', defaults.security_group_id);
-    setText('node_default_profile', defaults.instance_profile);
-    setText('node_default_key', defaults.ssh_key_name);
-
     return c;
   }
 
@@ -689,7 +677,6 @@
     const launchBtn = S.byId('node_launch_btn');
     const refreshBtn = S.byId('node_refresh_btn');
     const terminateBtn = S.byId('node_terminate_btn');
-    const statusEl = S.byId('node_action_status');
 
     if(previewBtn) previewBtn.onclick = function(){ A.callNode('/api/v2/nodes/preview'); };
     if(dryrunBtn) dryrunBtn.onclick = function(){ A.callNode('/api/v2/nodes/dry-run'); };
@@ -867,7 +854,6 @@
       nodesResp = res[2];
       filesResp = res[3];
       statusResp = res[4];
-      window.TAKS_UNIT = window.TAKS_UNIT || {};
       window.TAKS_UNIT.launchDefaults = ((statusResp || {}).launch_defaults) || {};
     }catch(e){
       S.clear(app);
@@ -895,6 +881,18 @@
     app.appendChild(renderHeaderCard(ctx));
     app.appendChild(renderNodeCard(node));
     app.appendChild(renderFilesCard(filesResp));
+
+    const defaults = (window.TAKS_UNIT && window.TAKS_UNIT.launchDefaults) || {};
+    const setText = function(id, value){
+      const x = S.byId(id);
+      if(x) x.textContent = String(value || '—');
+    };
+    setText('node_default_region', defaults.region);
+    setText('node_default_ami', defaults.ami);
+    setText('node_default_subnet', defaults.subnet_id);
+    setText('node_default_sg', defaults.security_group_id);
+    setText('node_default_profile', defaults.instance_profile);
+    setText('node_default_key', defaults.ssh_key_name);
 
     wireBrandActions(ctx);
     wireNodeActions();
