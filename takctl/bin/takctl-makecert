@@ -1,20 +1,62 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "${1:-}" != "client" ]; then
+usage() {
   echo "usage: takctl-makecert client <common-name>" >&2
   exit 2
+}
+
+if [ "${1:-}" != "client" ]; then
+  usage
 fi
 
 CN="${2:-}"
 if [ -z "$CN" ]; then
-  echo "usage: takctl-makecert client <common-name>" >&2
-  exit 2
+  usage
 fi
 
-cd /opt/tak/certs
+CERTS_DIR="/opt/tak/certs"
+FILES_DIR="${CERTS_DIR}/files"
+USER_DIR="${FILES_DIR}/04_USERS/${CN}"
+PW_FILE="${USER_DIR}/.client-password"
+
+mkdir -p "${USER_DIR}"
+chmod 0700 "${USER_DIR}"
+
+cd "${CERTS_DIR}"
 set -a
 . ./tak-cert-identity.env
 set +a
 
-exec ./makeCert.sh client "$CN" --force
+# Per-user client cert password.
+# Reuse existing password if present so regenerate stays stable for the same user.
+if [ -f "${PW_FILE}" ]; then
+  USER_PASS="$(cat "${PW_FILE}")"
+else
+  USER_PASS="$(openssl rand -base64 18 | tr -d '\n' | tr '/+' 'AB' | cut -c1-24)"
+fi
+
+# makeCert.sh writes into DIR=files and uses PASS from env for client artifacts.
+export PASS="${USER_PASS}"
+
+./makeCert.sh client "${CN}" --force
+
+# Move artifacts into the structure expected by takctl onboarding code.
+for ext in key csr pem p12 jks; do
+  src="${FILES_DIR}/${CN}.${ext}"
+  if [ -f "${src}" ]; then
+    mv -f "${src}" "${USER_DIR}/${CN}.${ext}"
+  fi
+done
+
+if [ -f "${FILES_DIR}/${CN}-trusted.pem" ]; then
+  mv -f "${FILES_DIR}/${CN}-trusted.pem" "${USER_DIR}/${CN}-trusted.pem"
+fi
+
+printf '%s\n' "${USER_PASS}" > "${PW_FILE}"
+chmod 0600 "${PW_FILE}"
+
+chmod 0600 "${USER_DIR}/${CN}.key" 2>/dev/null || true
+chmod 0640 "${USER_DIR}/${CN}.pem" "${USER_DIR}/${CN}.p12" "${USER_DIR}/${CN}.jks" 2>/dev/null || true
+
+echo "ok: ${USER_DIR}/${CN}.pem"
