@@ -549,13 +549,16 @@ def write_atak_package_zip(out_zip: Path, username: str, req: Request, include_c
 
 
 
+
 def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str) -> None:
     """
-    iTAK soft-cert root ZIP:
+    iTAK package, but intentionally shaped like the currently working ATAK
+    soft-cert mission package format:
 
-      - config.pref
-      - cert/caCert.p12
-      - cert/clientCert.p12
+      - MANIFEST/manifest.xml
+      - certs/config.pref
+      - certs/caCert.p12
+      - certs/clientCert.p12
       - meta.json
     """
     out_zip.parent.mkdir(parents=True, exist_ok=True)
@@ -629,8 +632,11 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
     except PolicyError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    uid = str(uuid.uuid4())
+
     ca_name = "caCert.p12"
-    ca_zip_rel = f"cert/{ca_name}"
+    ca_zip_rel = f"certs/{ca_name}"
+    ca_cfg_rel = f"cert/{ca_name}"
 
     ca_candidates = [
         Path("/opt/tak/certs/files/01_TRUST/truststore-root.p12"),
@@ -658,7 +664,8 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
     include_trust_pw = str(cfg.get("include_truststore_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
 
     client_name = "clientCert.p12"
-    client_zip_rel = f"cert/{client_name}"
+    client_zip_rel = f"certs/{client_name}"
+    client_cfg_rel = f"cert/{client_name}"
 
     client_password = (
         q(req, "client_password", None)
@@ -682,8 +689,8 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
 
     role_value = normalize_atak_role_type(getattr(ident, "atak_role_type", None)) or "Team Member"
 
-    trust_pw_entry = f'    <entry key="caPassword0" class="class java.lang.String">{ca_password}</entry>\n' if include_trust_pw else ""
-    client_pw_entry = f'    <entry key="certificatePassword0" class="class java.lang.String">{client_password}</entry>\n' if include_client_pw else ""
+    ca_pw_entry = f'    <entry key="caPassword" class="class java.lang.String">{ca_password}</entry>\n' if include_trust_pw else ""
+    client_pw_entry = f'    <entry key="clientPassword" class="class java.lang.String">{client_password}</entry>\n' if include_client_pw else ""
 
     config_pref = (
         "<?xml version='1.0' encoding='ASCII' standalone='yes'?>\n"
@@ -693,18 +700,33 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
         f'    <entry key="description0" class="class java.lang.String">{username} @ {host}</entry>\n'
         '    <entry key="enabled0" class="class java.lang.Boolean">true</entry>\n'
         f'    <entry key="connectString0" class="class java.lang.String">{connect}</entry>\n'
-        '    <entry key="caLocation0" class="class java.lang.String">cert/caCert.p12</entry>\n'
-        f"{trust_pw_entry}"
-        '    <entry key="certificateLocation0" class="class java.lang.String">cert/clientCert.p12</entry>\n'
-        f"{client_pw_entry}"
         "  </preference>\n"
         '  <preference version="1" name="com.atakmap.app_preferences">\n'
         '    <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>\n'
+        f'    <entry key="caLocation" class="class java.lang.String">{ca_cfg_rel}</entry>\n'
+        f"{ca_pw_entry}"
+        f"{client_pw_entry}"
+        f'    <entry key="certificateLocation" class="class java.lang.String">{client_cfg_rel}</entry>\n'
         f'    <entry key="locationCallsign" class="class java.lang.String">{ident.callsign}</entry>\n'
         f'    <entry key="locationTeam" class="class java.lang.String">{ident.team}</entry>\n'
         f'    <entry key="atakRoleType" class="class java.lang.String">{role_value}</entry>\n'
         "  </preference>\n"
         "</preferences>\n"
+    )
+
+    manifest_xml = (
+        '<MissionPackageManifest version="2">\n'
+        "  <Configuration>\n"
+        f'    <Parameter name="uid" value="{uid}"/>\n'
+        '    <Parameter name="name" value="TAK_Server.zip"/>\n'
+        '    <Parameter name="onReceiveDelete" value="true"/>\n'
+        "  </Configuration>\n"
+        "  <Contents>\n"
+        '    <Content ignore="false" zipEntry="certs/config.pref"/>\n'
+        f'    <Content ignore="false" zipEntry="{ca_zip_rel}"/>\n'
+        f'    <Content ignore="false" zipEntry="{client_zip_rel}"/>\n'
+        "  </Contents>\n"
+        "</MissionPackageManifest>\n"
     )
 
     meta = {
@@ -731,6 +753,7 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
         "ca_cert": {
             "source_path": str(ca_path),
             "zip_rel": ca_zip_rel,
+            "config_rel": ca_cfg_rel,
             "zip_root_name": ca_name,
             "password_present": bool(ca_password),
             "password_embedded": bool(include_trust_pw),
@@ -738,19 +761,20 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
         "client_cert": {
             "export": export_info,
             "zip_rel": client_zip_rel,
+            "config_rel": client_cfg_rel,
             "zip_root_name": client_name,
             "password_present": bool(client_password),
             "password_embedded": bool(include_client_pw),
         },
         "package_mode": "itak-cert-package",
-        "note": "iTAK soft-certificate package.",
+        "note": "iTAK package intentionally shaped like working ATAK soft-cert package.",
     }
 
     ca_bytes = ca_path.read_bytes()
 
     with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as z:
-        z.writestr("config.pref", config_pref)
+        z.writestr("MANIFEST/manifest.xml", manifest_xml)
+        z.writestr("certs/config.pref", config_pref)
         z.writestr(ca_zip_rel, ca_bytes)
         z.writestr(client_zip_rel, client_p12_bytes)
         z.writestr("meta.json", json.dumps(meta, indent=2, sort_keys=True) + "\n")
-
