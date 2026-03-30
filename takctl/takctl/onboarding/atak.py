@@ -548,12 +548,15 @@ def write_atak_package_zip(out_zip: Path, username: str, req: Request, include_c
     )
 
 
+
 def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str) -> None:
     """
-    iTAK cert package (root-level ZIP):
+    iTAK soft-cert root ZIP:
+
       - config.pref
-      - truststore-root.p12
-      - client.p12
+      - cert/caCert.p12
+      - cert/clientCert.p12
+      - meta.json
     """
     out_zip.parent.mkdir(parents=True, exist_ok=True)
 
@@ -583,28 +586,6 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
         use_ssl = str(ep.get("stream_ssl") or "true").strip().lower() in ("1", "true", "yes", "y", "on")
 
     connect = f"{host}:{port}" + (":ssl" if use_ssl else "")
-
-    enroll_host = (
-        q(req, "enroll_host", None)
-        or str(ep.get("enroll_host") or "").strip()
-        or str(ep.get("stream_host") or "").strip()
-        or forwarded_host_only(req)
-    )
-    try:
-        enroll_port = qi(req, "enroll_port")
-    except Exception:
-        enroll_port = None
-    if enroll_port is None:
-        try:
-            enroll_port = int(str(ep.get("enroll_port") or "").strip() or "8446")
-        except Exception:
-            enroll_port = 8446
-
-    enroll_ssl_q = req.query_params.get("enroll_ssl")
-    if enroll_ssl_q is not None and str(enroll_ssl_q).strip():
-        enroll_ssl = bool_q(req, "enroll_ssl", True)
-    else:
-        enroll_ssl = str(ep.get("enroll_ssl") or "true").strip().lower() in ("1", "true", "yes", "y", "on")
 
     policy_id = q(req, "policy_id", None) or sel_ctx.get("policy_id") or "hemvarnet"
     ctx = dict(sel_ctx)
@@ -648,12 +629,13 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
     except PolicyError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    artifact_dir = out_zip.parent.parent if out_zip.parent.name == "itak" else out_zip.parent
+    ca_name = "caCert.p12"
+    ca_zip_rel = f"cert/{ca_name}"
 
     ca_candidates = [
-        artifact_dir / "truststore-root.p12",
-        artifact_dir / "certs" / "truststore-root.p12",
         Path("/opt/tak/certs/files/01_TRUST/truststore-root.p12"),
+        Path("/opt/tak/certs/files") / "caCert.p12",
+        Path("/opt/tak/certs") / "caCert.p12",
     ]
     ca_path = None
     for cand in ca_candidates:
@@ -661,10 +643,7 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
             ca_path = cand
             break
     if ca_path is None:
-        raise HTTPException(status_code=400, detail="missing truststore-root.p12 for iTAK package")
-
-    ca_name = "truststore-root.p12"
-    ca_ref = f"cert/{ca_name}"
+        raise HTTPException(status_code=400, detail="missing caCert/truststore p12 for iTAK package")
 
     ca_password = (
         q(req, "ca_password", None)
@@ -674,11 +653,12 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
     if not ca_password:
         raise HTTPException(status_code=400, detail="missing CA password for iTAK package")
 
-    client_name = "client.p12"
-    client_ref = f"cert/{client_name}"
+    cfg = load_config()
+    include_client_pw = str(cfg.get("include_client_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    include_trust_pw = str(cfg.get("include_truststore_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
 
-    include_client_pw = str(load_config().get("include_client_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
-    include_trust_pw = str(load_config().get("include_truststore_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    client_name = "clientCert.p12"
+    client_zip_rel = f"cert/{client_name}"
 
     client_password = (
         q(req, "client_password", None)
@@ -688,7 +668,7 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
     if not client_password:
         raise HTTPException(status_code=400, detail="missing client password for iTAK package")
 
-    client_tmp = out_zip.parent / f"{username}.client.tmp.p12"
+    client_tmp = out_zip.parent / f"{username}.itak.client.tmp.p12"
     export_info = _export_user_client_p12(
         username=username,
         out_p12=client_tmp,
@@ -702,34 +682,30 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
 
     role_value = normalize_atak_role_type(getattr(ident, "atak_role_type", None)) or "Team Member"
 
-    itak_override_path = artifact_dir / "itak-config.pref"
-    if itak_override_path.exists():
-        config_pref = itak_override_path.read_text(encoding="utf-8", errors="replace").strip()
-        if not config_pref:
-            raise HTTPException(status_code=400, detail=f"empty iTAK config override: {itak_override_path}")
-    else:
-        trust_pw_entry = f'    <entry key="caPassword0" class="class java.lang.String">{ca_password}</entry>\n' if include_trust_pw else ""
-        client_pw_entry = f'    <entry key="certificatePassword0" class="class java.lang.String">{client_password}</entry>\n' if include_client_pw else ""
-        config_pref = (
-            "<?xml version='1.0' encoding='ASCII' standalone='yes'?>\n"
-            "<preferences>\n"
-            '  <preference version="1" name="cot_streams">\n'
-            '    <entry key="count" class="class java.lang.Integer">1</entry>\n'
-            f'    <entry key="description0" class="class java.lang.String">{username} @ {host}</entry>\n'
-            '    <entry key="enabled0" class="class java.lang.Boolean">true</entry>\n'
-            f'    <entry key="connectString0" class="class java.lang.String">{host}:{port}:{("ssl" if use_ssl else "tcp")}</entry>\n'
-            '    <entry key="caLocation0" class="class java.lang.String">truststore-root.p12</entry>\n'
-            f"{trust_pw_entry}"
-            '    <entry key="certificateLocation0" class="class java.lang.String">client.p12</entry>\n'
-            f"{client_pw_entry}"
-            '    <entry key="useAuth0" class="class java.lang.Boolean">true</entry>\n'
-            '    <entry key="cacheCreds0" class="class java.lang.String">Cache credentials</entry>\n'
-            "  </preference>\n"
-            '  <preference version="1" name="com.atakmap.app_preferences">\n'
-            '    <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>\n'
-            "  </preference>\n"
-            "</preferences>\n"
-        )
+    trust_pw_entry = f'    <entry key="caPassword0" class="class java.lang.String">{ca_password}</entry>\n' if include_trust_pw else ""
+    client_pw_entry = f'    <entry key="certificatePassword0" class="class java.lang.String">{client_password}</entry>\n' if include_client_pw else ""
+
+    config_pref = (
+        "<?xml version='1.0' encoding='ASCII' standalone='yes'?>\n"
+        "<preferences>\n"
+        '  <preference version="1" name="cot_streams">\n'
+        '    <entry key="count" class="class java.lang.Integer">1</entry>\n'
+        f'    <entry key="description0" class="class java.lang.String">{username} @ {host}</entry>\n'
+        '    <entry key="enabled0" class="class java.lang.Boolean">true</entry>\n'
+        f'    <entry key="connectString0" class="class java.lang.String">{connect}</entry>\n'
+        '    <entry key="caLocation0" class="class java.lang.String">cert/caCert.p12</entry>\n'
+        f"{trust_pw_entry}"
+        '    <entry key="certificateLocation0" class="class java.lang.String">cert/clientCert.p12</entry>\n'
+        f"{client_pw_entry}"
+        "  </preference>\n"
+        '  <preference version="1" name="com.atakmap.app_preferences">\n'
+        '    <entry key="displayServerConnectionWidget" class="class java.lang.Boolean">true</entry>\n'
+        f'    <entry key="locationCallsign" class="class java.lang.String">{ident.callsign}</entry>\n'
+        f'    <entry key="locationTeam" class="class java.lang.String">{ident.team}</entry>\n'
+        f'    <entry key="atakRoleType" class="class java.lang.String">{role_value}</entry>\n'
+        "  </preference>\n"
+        "</preferences>\n"
+    )
 
     meta = {
         "username": username,
@@ -752,30 +728,29 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
             "ssl": bool(use_ssl),
             "connectString0": connect,
         },
-        "enroll_connect": {
-            "host": enroll_host,
-            "port": enroll_port,
-            "ssl": bool(enroll_ssl),
-            "certificateEnrollmentServer0": f"{enroll_host}:{enroll_port}",
-        },
         "ca_cert": {
             "source_path": str(ca_path),
-            "zip_name": ca_name,
+            "zip_rel": ca_zip_rel,
+            "zip_root_name": ca_name,
             "password_present": bool(ca_password),
-            "password_included": bool(include_trust_pw),
+            "password_embedded": bool(include_trust_pw),
         },
         "client_cert": {
-            "source_dir": str(_user_cert_dir(username)),
-            "zip_name": client_name,
-            "password_present": bool(client_password),
-            "password_included": bool(include_client_pw),
             "export": export_info,
+            "zip_rel": client_zip_rel,
+            "zip_root_name": client_name,
+            "password_present": bool(client_password),
+            "password_embedded": bool(include_client_pw),
         },
-        "package_mode": "itak-cert",
-        "note": "iTAK cert package: config.pref + truststore-root.p12 + client.p12.",
+        "package_mode": "itak-cert-package",
+        "note": "iTAK soft-certificate package.",
     }
+
+    ca_bytes = ca_path.read_bytes()
 
     with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr("config.pref", config_pref)
-        z.writestr(ca_ref, ca_path.read_bytes())
-        z.writestr(client_ref, client_p12_bytes)
+        z.writestr(ca_zip_rel, ca_bytes)
+        z.writestr(client_zip_rel, client_p12_bytes)
+        z.writestr("meta.json", json.dumps(meta, indent=2, sort_keys=True) + "\n")
+
