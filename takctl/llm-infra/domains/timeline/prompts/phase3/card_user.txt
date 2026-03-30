@@ -1,22 +1,48 @@
-Render a very compact operator-facing HTML card for domain "timeline".
+Render a very compact operator-facing HTML card for the timeline domain as a mini-TNR.
 
 Use:
 - headline
 - window
 - lanes
 
-Intent:
-- one key takeaway
-- one short supporting line
-- one compact SVG timeline
+Goals:
+- a short title capturing headline.important
+- optionally one very short supporting line
+- a mini-TNR with 8h back and 8h forward
+- Swedish local time
+- almost no text inside the chart
 
-Lane order when rendered:
-1. enemy
-2. orders
-3. missions
-4. weather
+Graphics:
+- prefer a single horizontal time axis
+- no swimlanes if they make the card worse
+- use symbols for point items
+- use bands for ongoing intervals
+- let <title> carry details
+- keep visible labels to an absolute minimum
 
-Do not render empty lanes.
-Do not render filler.
-Do not narrate the chart.
-Keep the text shorter than you first think necessary.
+Prioritize:
+- enemy near now
+- chatter / order effect that still matters
+- mission ongoing now
+- weather affecting now or the next few hours
+
+Do not:
+- no full summary inside the chart
+- no legend
+- no decorative flourishes
+- no dense text
+- no long time strings
+- no labels that collide
+
+If several objects are close:
+- keep only the most important ones
+- stack symbols lightly in height if needed
+- shorten labels hard
+- or show only symbol + <title>
+
+The card should feel like:
+- quick scanning
+- situational pulse
+- not a briefing graphic
+
+Show only what clearly helps the user right now.

@@ -10,6 +10,7 @@ Använd endast fakta från INPUT_FINDINGS_JSON.
 
 Tillåten HTML:
 - div, h3, p, svg
+
 Tillåtna SVG-element:
 - line, rect, circle, polygon, polyline, text, g, defs, linearGradient, radialGradient, stop, title
 
@@ -18,26 +19,26 @@ Regler:
 - Högst en kort <p> ovanför grafen.
 - Exakt en stor SVG.
 - SVG:n ska dominera vyn.
-- 48 timmar exakt.
+- Exakt 48 timmars fönster.
 - Vänster = nu - 24h.
 - Mitten = nu.
 - Höger = nu + 24h.
 - Horisontell placering ska följa faktisk tid.
 - En swimlane per mini-domän.
-- Fokusera främst på headline.important och därefter newest/next.
+- Fokusera främst på headline.important, därefter newest, därefter next.
 - Visa tider i svensk lokal tid, inte Z.
 - Använd svensk militär ton.
-- Skriv "Tidslinje" eller "TNR", inte "Timeline".
+- Skriv "TNR" eller "tidslinje".
 - Punktobjekt som symboler, intervall som band.
-- Korta synliga etiketter.
-- Längre text i <title>.
+- Håll synliga etiketter korta.
+- Lägg längre text i <title>.
 - Text får inte överlappa så att läsbarheten förstörs.
 - Om flera objekt ligger nära:
-  - stacka symboler i höjdled inom lane
+  - stacka markörer i höjdled inom lane
   - förkorta synlig text
   - visa bara viktigaste etiketter
-  - låt mindre viktiga detaljer ligga i <title>
-- Undvik legender om de inte verkligen behövs.
+  - låt mindre viktig detalj ligga i <title>
+- Undvik legend om den inte verkligen behövs.
 - Inga tabeller.
 - Inga listor.
 - Inga style=-attribut.
@@ -50,3 +51,10 @@ Lane-ordning:
 3. chatter
 4. missions
 5. weather
+
+Rendering-doktrin:
+- nu ska vara tydligt centrerat
+- rita tydliga swimlanes över hela bredden
+- läsbarhet går före fullständighet
+- färre, tydligare etiketter är bättre än många små
+- slösa inte yta på dekor eller brödtext under grafen

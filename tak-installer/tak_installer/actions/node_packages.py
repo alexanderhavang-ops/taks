@@ -8,6 +8,7 @@ from tak_installer.log import get_logger
 log = get_logger(__name__)
 
 PACKAGES = [
+    "poppler-utils",
     "python3-venv",
     "python3.10-venv",
     "python3-pip",

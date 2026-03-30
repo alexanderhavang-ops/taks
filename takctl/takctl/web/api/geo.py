@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 import requests
 from fastapi import APIRouter, HTTPException, Query, Response
@@ -81,6 +81,174 @@ def _area_summary_poi_limit() -> int:
         return 12
 
 
+def _feature_limit() -> int:
+    cfg = _cfg_dict()
+    try:
+        return max(50, min(int(cfg.get("area_geometry_feature_limit", "400")), 1500))
+    except Exception:
+        return 400
+
+
+def _center_of(el: Dict[str, Any]) -> Tuple[float | None, float | None]:
+    if "lat" in el and "lon" in el:
+        try:
+            return float(el["lat"]), float(el["lon"])
+        except Exception:
+            return None, None
+    c = el.get("center") or {}
+    if "lat" in c and "lon" in c:
+        try:
+            return float(c["lat"]), float(c["lon"])
+        except Exception:
+            return None, None
+    return None, None
+
+
+def _overpass_query(lat: float, lon: float, radius_m: int) -> str:
+    return f"""
+[out:json][timeout:25];
+(
+  way(around:{radius_m},{lat},{lon})[highway];
+  way(around:{radius_m},{lat},{lon})[building];
+  way(around:{radius_m},{lat},{lon})[landuse];
+  way(around:{radius_m},{lat},{lon})[natural];
+  way(around:{radius_m},{lat},{lon})[waterway];
+  way(around:{radius_m},{lat},{lon})[water];
+  way(around:{radius_m},{lat},{lon})[railway];
+  way(around:{radius_m},{lat},{lon})[leisure];
+  way(around:{radius_m},{lat},{lon})[amenity];
+  way(around:{radius_m},{lat},{lon})[tourism];
+  relation(around:{radius_m},{lat},{lon})[landuse];
+  relation(around:{radius_m},{lat},{lon})[natural];
+  relation(around:{radius_m},{lat},{lon})[water];
+  relation(around:{radius_m},{lat},{lon})[leisure];
+  relation(around:{radius_m},{lat},{lon})[building];
+  node(around:{radius_m},{lat},{lon})[amenity];
+  node(around:{radius_m},{lat},{lon})[tourism];
+  node(around:{radius_m},{lat},{lon})[shop];
+  node(around:{radius_m},{lat},{lon})[place];
+);
+out body center tags geom qt;
+""".strip()
+
+
+def _fetch_overpass(lat: float, lon: float, radius_m: int) -> List[Dict[str, Any]]:
+    try:
+        r = requests.post(
+            _overpass_url(),
+            data={"data": _overpass_query(lat, lon, radius_m)},
+            timeout=40,
+            headers={"User-Agent": "TAKS-GeoProxy/1.0"},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"overpass upstream error: {e}")
+
+    if r.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"overpass upstream returned {r.status_code}")
+
+    try:
+        body = r.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"overpass invalid json: {e}")
+
+    return list(body.get("elements") or [])
+
+
+def _feature_type(tags: Dict[str, Any]) -> Tuple[str, str]:
+    if tags.get("highway"):
+        return "road", str(tags.get("highway"))
+    if tags.get("building"):
+        return "building", str(tags.get("building"))
+    if tags.get("landuse"):
+        return "landuse", str(tags.get("landuse"))
+    if tags.get("natural"):
+        return "natural", str(tags.get("natural"))
+    if tags.get("waterway"):
+        return "waterway", str(tags.get("waterway"))
+    if tags.get("water"):
+        return "water", str(tags.get("water"))
+    if tags.get("railway"):
+        return "railway", str(tags.get("railway"))
+    if tags.get("leisure"):
+        return "leisure", str(tags.get("leisure"))
+    if tags.get("amenity"):
+        return "amenity", str(tags.get("amenity"))
+    if tags.get("tourism"):
+        return "tourism", str(tags.get("tourism"))
+    if tags.get("shop"):
+        return "shop", str(tags.get("shop"))
+    if tags.get("place"):
+        return "place", str(tags.get("place"))
+    return "other", ""
+
+
+def _geometry_of(el: Dict[str, Any]) -> Dict[str, Any] | None:
+    geom = el.get("geometry")
+    if isinstance(geom, list) and geom:
+        coords = []
+        for pt in geom:
+            if not isinstance(pt, dict):
+                continue
+            if "lon" not in pt or "lat" not in pt:
+                continue
+            try:
+                coords.append([float(pt["lon"]), float(pt["lat"])])
+            except Exception:
+                continue
+        if len(coords) >= 2:
+            if coords[0] == coords[-1] and len(coords) >= 4:
+                return {"type": "Polygon", "coordinates": [coords]}
+            return {"type": "LineString", "coordinates": coords}
+
+    lat, lon = _center_of(el)
+    if lat is not None and lon is not None:
+        return {"type": "Point", "coordinates": [lon, lat]}
+    return None
+
+
+def _to_feature(el: Dict[str, Any]) -> Dict[str, Any] | None:
+    tags = dict(el.get("tags") or {})
+    geometry = _geometry_of(el)
+    if geometry is None:
+        return None
+    ftype, subtype = _feature_type(tags)
+    lat, lon = _center_of(el)
+    return {
+        "id": f'{el.get("type","?")}/{el.get("id","?")}',
+        "feature_type": ftype,
+        "subtype": subtype,
+        "name": str(tags.get("name") or ""),
+        "geometry": geometry,
+        "center": {"lat": lat, "lon": lon} if lat is not None and lon is not None else None,
+        "tags": tags,
+    }
+
+
+def _build_geometry_packet(lat: float, lon: float, radius_m: int) -> Dict[str, Any]:
+    elements = _fetch_overpass(lat, lon, radius_m)
+    features: List[Dict[str, Any]] = []
+
+    for el in elements:
+        f = _to_feature(el)
+        if f is not None:
+            features.append(f)
+        if len(features) >= _feature_limit():
+            break
+
+    return {
+        "ok": True,
+        "source": {
+            "provider": "overpass",
+            "url": _overpass_url(),
+            "element_count": len(elements),
+            "feature_count": len(features),
+        },
+        "center": {"lat": lat, "lon": lon},
+        "radius_m": radius_m,
+        "features": features,
+    }
+
+
 def _classify_vehicle_mobility(roads: Counter, water: Counter, wet: int) -> str:
     good_roads = sum(roads.get(k, 0) for k in ("motorway", "trunk", "primary", "secondary", "tertiary", "residential", "unclassified"))
     small_roads = sum(roads.get(k, 0) for k in ("service", "track"))
@@ -126,27 +294,15 @@ def _classify_observation(openish: int, woodland: int, buildings: int) -> str:
     return "mixed"
 
 
-def _top_named_pois(elements: List[Dict[str, Any]], limit: int) -> List[str]:
+def _top_named_pois(features: List[Dict[str, Any]], limit: int) -> List[str]:
     rows: List[str] = []
     seen = set()
-    for el in elements:
-        tags = el.get("tags") or {}
-        name = str(tags.get("name") or "").strip()
+    for f in features:
+        name = str(f.get("name") or "").strip()
         if not name:
             continue
-        kind = (
-            tags.get("amenity")
-            or tags.get("tourism")
-            or tags.get("shop")
-            or tags.get("leisure")
-            or tags.get("building")
-            or tags.get("place")
-            or tags.get("landuse")
-            or tags.get("natural")
-            or tags.get("highway")
-            or ""
-        )
-        label = f"{name} ({kind})" if kind else name
+        subtype = str(f.get("subtype") or "")
+        label = f"{name} ({subtype})" if subtype else name
         if label in seen:
             continue
         seen.add(label)
@@ -197,61 +353,16 @@ def _build_tactical_assessment(
     if not risk_areas:
         risk_areas.append("terrain appears mixed with no single dominant risk area")
 
-    key_features = named_pois[:6]
     return {
         "likely_approach_routes": likely_routes[:4],
         "good_op_positions": op_positions[:4],
         "risk_areas": risk_areas[:4],
-        "named_features": key_features,
+        "named_features": named_pois[:6],
     }
 
 
-def _overpass_query(lat: float, lon: float, radius_m: int) -> str:
-    return f"""
-[out:json][timeout:25];
-(
-  way(around:{radius_m},{lat},{lon})[highway];
-  way(around:{radius_m},{lat},{lon})[building];
-  way(around:{radius_m},{lat},{lon})[landuse];
-  way(around:{radius_m},{lat},{lon})[natural];
-  way(around:{radius_m},{lat},{lon})[waterway];
-  way(around:{radius_m},{lat},{lon})[railway];
-  way(around:{radius_m},{lat},{lon})[leisure];
-  way(around:{radius_m},{lat},{lon})[amenity];
-  way(around:{radius_m},{lat},{lon})[tourism];
-  node(around:{radius_m},{lat},{lon})[amenity];
-  node(around:{radius_m},{lat},{lon})[tourism];
-  node(around:{radius_m},{lat},{lon})[shop];
-  node(around:{radius_m},{lat},{lon})[place];
-);
-out tags center qt;
-""".strip()
-
-
-def _fetch_overpass(lat: float, lon: float, radius_m: int) -> List[Dict[str, Any]]:
-    try:
-        r = requests.post(
-            _overpass_url(),
-            data={"data": _overpass_query(lat, lon, radius_m)},
-            timeout=35,
-            headers={"User-Agent": "TAKS-GeoProxy/1.0"},
-        )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"overpass upstream error: {e}")
-
-    if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"overpass upstream returned {r.status_code}")
-
-    try:
-        body = r.json()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"overpass invalid json: {e}")
-
-    return list(body.get("elements") or [])
-
-
-def _summarize_area(lat: float, lon: float, radius_m: int) -> Dict[str, Any]:
-    elements = _fetch_overpass(lat, lon, radius_m)
+def _summarize_from_geometry_packet(packet: Dict[str, Any]) -> Dict[str, Any]:
+    features = list(packet.get("features") or [])
 
     roads: Counter = Counter()
     landuse: Counter = Counter()
@@ -266,36 +377,40 @@ def _summarize_area(lat: float, lon: float, radius_m: int) -> Dict[str, Any]:
     place_count = 0
     wet = 0
 
-    for el in elements:
-        tags = el.get("tags") or {}
-        if tags.get("highway"):
-            roads[str(tags.get("highway"))] += 1
-        if tags.get("building"):
+    for f in features:
+        ftype = str(f.get("feature_type") or "")
+        subtype = str(f.get("subtype") or "")
+        tags = dict(f.get("tags") or {})
+
+        if ftype == "road":
+            roads[subtype] += 1
+        elif ftype == "building":
             building_count += 1
-        if tags.get("landuse"):
-            landuse[str(tags.get("landuse"))] += 1
-        if tags.get("natural"):
-            natural[str(tags.get("natural"))] += 1
-        if tags.get("waterway"):
-            water[str(tags.get("waterway"))] += 1
-        if tags.get("railway"):
-            railway[str(tags.get("railway"))] += 1
-        if tags.get("leisure"):
-            leisure[str(tags.get("leisure"))] += 1
-        if tags.get("amenity"):
+        elif ftype == "landuse":
+            landuse[subtype] += 1
+        elif ftype == "natural":
+            natural[subtype] += 1
+        elif ftype in {"waterway", "water"}:
+            water[subtype or "water"] += 1
+        elif ftype == "railway":
+            railway[subtype] += 1
+        elif ftype == "leisure":
+            leisure[subtype] += 1
+        elif ftype == "amenity":
             amenity_count += 1
-        if tags.get("tourism"):
+        elif ftype == "tourism":
             tourism_count += 1
-        if tags.get("place"):
+        elif ftype == "place":
             place_count += 1
-        if tags.get("natural") in {"wetland", "marsh"} or tags.get("landuse") in {"basin", "reservoir"}:
+
+        if subtype in {"wetland", "marsh"} or tags.get("landuse") in {"basin", "reservoir"}:
             wet += 1
-        if tags.get("water") or tags.get("natural") == "water":
+        if tags.get("water") or subtype == "water":
             water["water"] += 1
-        if tags.get("natural") == "coastline":
+        if subtype == "coastline":
             water["coastline"] += 1
 
-    named_pois = _top_named_pois(elements, _area_summary_poi_limit())
+    named_pois = _top_named_pois(features, _area_summary_poi_limit())
 
     primary = roads.get("motorway", 0) + roads.get("trunk", 0) + roads.get("primary", 0)
     secondary = roads.get("secondary", 0) + roads.get("tertiary", 0)
@@ -313,13 +428,9 @@ def _summarize_area(lat: float, lon: float, radius_m: int) -> Dict[str, Any]:
 
     return {
         "ok": True,
-        "source": {
-            "provider": "overpass",
-            "url": _overpass_url(),
-            "element_count": len(elements),
-        },
-        "center": {"lat": lat, "lon": lon},
-        "radius_m": radius_m,
+        "source": packet.get("source") or {},
+        "center": packet.get("center") or {},
+        "radius_m": packet.get("radius_m"),
         "roads": {
             "primary": primary,
             "secondary": secondary,
@@ -407,6 +518,21 @@ def geo_tiles(z: int, x: int, y: int):
     )
 
 
+@router.get("/area_geometry")
+def geo_area_geometry(
+    lat: float = Query(...),
+    lon: float = Query(...),
+    radius_m: int = Query(None),
+):
+    cfg = _cfg_dict()
+    if not _truthy(cfg.get("area_summary_enabled", "true")):
+        raise HTTPException(status_code=404, detail="area geometry disabled")
+
+    rr = radius_m if radius_m is not None else _area_summary_default_radius_m()
+    rr = max(100, min(int(rr), 5000))
+    return JSONResponse(_build_geometry_packet(float(lat), float(lon), rr))
+
+
 @router.get("/area_summary")
 def geo_area_summary(
     lat: float = Query(...),
@@ -419,7 +545,8 @@ def geo_area_summary(
 
     rr = radius_m if radius_m is not None else _area_summary_default_radius_m()
     rr = max(100, min(int(rr), 5000))
-    return JSONResponse(_summarize_area(float(lat), float(lon), rr))
+    packet = _build_geometry_packet(float(lat), float(lon), rr)
+    return JSONResponse(_summarize_from_geometry_packet(packet))
 
 
 @router.get("/osrm/nearest/v1/{profile}/{lon},{lat}")

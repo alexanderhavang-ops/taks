@@ -1,4 +1,4 @@
-Rendera ett mycket kompakt operatörsanpassat HTML-kort för domänen tidslinje.
+Rendera ett mycket kompakt operatörsanpassat HTML-kort för domänen tidslinje som en mini-TNR.
 
 Använd:
 - headline
@@ -6,16 +6,43 @@ Använd:
 - lanes
 
 Mål:
-- en tydlig huvudslutsats från headline.important
-- en mycket kort stödjande rad
-- en kompakt SVG där nu ligger i mitten
-- svensk lokal tid på x-axeln
+- en kort rubrik som fångar headline.important
+- eventuellt en enda mycket kort stödlinje
+- en mini-TNR i 8h bakåt och 8h framåt
+- svensk lokal tid
+- nästan ingen text i grafen
 
-Viktigt:
-- Text och symboler får inte överlappa.
-- Om två etiketter hamnar för nära ska du:
-  1. prioritera viktigare objekt
-  2. flytta etiketter i höjdled
-  3. korta etiketten
-  4. lägga detalj i <title>
-- Gör kortet lätt att skanna, inte imponerande.
+Grafik:
+- använd helst en enda horisontell tidsaxel
+- inga swimlanes behövs om de gör kortet sämre
+- använd symboler för punktobjekt
+- använd band för pågående intervall
+- låt <title> bära detaljer
+- håll synliga etiketter till absolut minimum
+
+Prioritera:
+- enemy nära nu
+- chatter/ordereffekt som fortfarande gäller
+- mission som pågår nu
+- weather som påverkar nu eller närmaste timmarna
+
+Gör inte:
+- ingen full sammanfattning i grafen
+- ingen legend
+- inga dekorativa element
+- ingen tät text
+- inga långa tidssträngar
+- inga etiketter som krockar
+
+Om flera objekt ligger nära:
+- behåll bara de viktigaste
+- stapla symboler lätt i höjdled om det behövs
+- förkorta etiketter hårt
+- eller visa bara symbol + <title>
+
+Kortet ska kännas som:
+- snabb scanning
+- lägespuls
+- inte briefingbild
+
+Visa bara sådant som tydligt hjälper användaren just nu.

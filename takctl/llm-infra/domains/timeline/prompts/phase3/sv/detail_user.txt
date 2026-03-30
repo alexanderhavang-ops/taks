@@ -12,18 +12,24 @@ Prioritering:
 - därefter next
 
 Utformning:
-- stor SVG över nästan hela ytan
+- stor SVG som tar nästan all yta
 - nu i mitten
-- 24h historik till vänster
-- 24h framtid till höger
+- 24 timmar historik till vänster
+- 24 timmar framtid till höger
 - svensk lokal tid på x-axeln
+- en swimlane per mini-domän
 - korta labels nära viktiga objekt
-- <title> för längre förklaringar
+- <title> för längre detalj
 
-Läsbarhet går före fullständighet:
+Läsbarhetsregler:
 - undvik överlappande text
 - visa inte fler etiketter än vad som går att läsa
-- färre, tydliga labels är bättre än många små
-- om något är viktigt men svårt att märka ut utan krock, prioritera symbol + <title>
+- färre, tydligare etiketter är bättre än många små
+- om något är viktigt men svårt att märka ut rent, prioritera symbol + <title>
 
-Skriv ingen extra brödtext under grafen.
+Gör inte:
+- ingen brödtext under grafen
+- inga tabeller
+- inga punktlistor
+- inga kommentarer
+- ingen geometri-narration

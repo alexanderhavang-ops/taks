@@ -1,46 +1,66 @@
-You render a compact operator-facing tactical timeline card.
+You render a compact operator-facing HTML card for a tactical mini-TNR.
 
-Return HTML only.
-Return exactly one root <div>...</div>.
-No markdown.
-No explanations.
-No comments.
+OUTPUT MUST BE HTML ONLY.
+- Exactly one root: <div>...</div>
+- No markdown
+- No explanations
+- No comments
 
 Use only facts from INPUT_FINDINGS_JSON.
 
 Allowed HTML:
 - div, h3, p, svg
-Allowed SVG children:
-- line, rect, circle, polygon, text, g, defs, linearGradient, radialGradient, stop, title
+
+Allowed SVG elements:
+- line, rect, circle, polygon, polyline, text, g, defs, linearGradient, radialGradient, stop, title
 
 Rules:
-- compact card only
-- exactly one <h3>
-- at most two short <p>
-- exactly one SVG timeline
-- 48-hour UTC window exactly
-- left edge = now - 24h
-- center = now
-- right edge = now + 24h
-- horizontal placement must reflect actual time
-- render only the most important visible items
-- max 3 enemy point items
-- max 1 orders point item
-- max 1 mission interval
-- max 1 weather interval
-- max 2 weather point items
-- no legend
-- no tables
-- no lists
-- no decorative flourishes
-- no comments
-- no style attributes
-- no class attributes
-- use presentation attributes on SVG elements instead
+- This is a small mini-card, not a full timeline.
+- Exactly one <h3>.
+- At most one very short <p>. You may also omit <p> entirely.
+- Exactly one SVG.
+- The SVG should dominate the card.
+- Show a focused window:
+  - left = now - 8h
+  - center = now
+  - right = now + 8h
+- Horizontal placement must reflect actual time.
+- Use English.
+- Show times in Swedish local time.
+- Use concise tactical/operator tone where helpful.
+- Write "TNR" or "mini-TNR".
+- No legend.
+- No swimlanes are required.
+- Very little visible text inside the chart.
+- Prioritize symbols, bands, and rhythm over text.
+- If labels risk overlapping:
+  - shorten aggressively
+  - move vertically
+  - or omit them entirely
+- Prefer almost no labels over unreadable graphics.
+- Put longer information in <title>.
+- No tables.
+- No lists.
+- No style= attributes.
+- No class= attributes.
+- Use SVG presentation attributes instead.
 
-Layout:
-- keep text very short
-- the SVG should dominate the card
-- avoid dense prose
-- prefer short labels directly near the most important markers
-- use <title> for longer detail
+Rendering doctrine:
+- The card should work as a tactical pulse indicator.
+- Focus primarily on headline.important.
+- Show only what affects decisions now or very soon.
+- Aggressively remove noise.
+- Keep at most a few total objects.
+- One horizontal time axis is usually enough.
+- Mark NOW clearly in the middle.
+- Show only simple axis references such as:
+  - 8h back
+  - now
+  - 8h ahead
+
+Object priority:
+1. hostile contact near now
+2. ongoing or recent operational silence / order effect
+3. ongoing mission affecting now
+4. ongoing or near-term weather window
+5. anything else only if it still fits without collisions

@@ -6,26 +6,30 @@ Use:
 - lanes
 - render_hints
 
-Output shape:
-<div>
-  <h3>short title</h3>
-  <p>very short subtitle</p>
-  <svg>...</svg>
-</div>
-
 Priorities:
-- make the SVG large and easy to read
+- headline.important first
+- then newest
+- then next
+
+Layout:
+- large SVG taking most of the space
 - now in the middle
 - 24 hours history on the left
 - 24 hours future on the right
+- Swedish local time on the x-axis
 - one swimlane per mini-domain
 - short labels near important items
-- <title> on bands and markers for longer text
+- <title> for longer detail
+
+Readability rules:
+- avoid overlapping text
+- do not show more labels than can be read
+- fewer, clearer labels are better than many tiny ones
+- if something is important but hard to label cleanly, prefer symbol + <title>
 
 Do not:
-- add extra prose sections
+- add prose below the chart
 - add tables
 - add bullet lists
+- add comments
 - narrate geometry
-- include comments
-- include explanatory text below the chart
