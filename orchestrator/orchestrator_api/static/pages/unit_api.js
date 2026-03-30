@@ -115,11 +115,13 @@
       if(plan) plan.textContent = JSON.stringify(j.plan || {}, null, 2);
       if(cloud) cloud.textContent = j.cloud_init || '—';
       if(raw) raw.textContent = JSON.stringify(j, null, 2);
+      return j;
     }catch(e){
       const msg = String(e && e.message ? e.message : e);
       if(plan) plan.textContent = msg;
       if(cloud) cloud.textContent = '—';
       if(raw) raw.textContent = msg;
+      throw e;
     }
   }
 

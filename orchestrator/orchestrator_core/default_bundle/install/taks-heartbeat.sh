@@ -1,10 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NODE_ENV=/etc/taks/node.env
+NODE_ENV=""
+for cand in \
+  /etc/taks-bootstrap.d/node.env \
+  /etc/taks/node.env
+do
+  if [[ -f "$cand" ]]; then
+    NODE_ENV="$cand"
+    break
+  fi
+done
+
 UNIT_JSON=/etc/taks/unit.json
 
-[[ -f "$NODE_ENV" ]] || exit 0
+[[ -n "$NODE_ENV" ]] || {
+  echo "[taks-heartbeat] no node.env found in /etc/taks-bootstrap.d or /etc/taks" >&2
+  exit 0
+}
+
 # shellcheck disable=SC1090
 . "$NODE_ENV"
 
@@ -12,18 +26,35 @@ ORCH_API_URL="${ORCH_API_URL:-}"
 TAKS_NODE_USER="${TAKS_NODE_USER:-}"
 TAKS_NODE_PASSWORD="${TAKS_NODE_PASSWORD:-}"
 
-[[ -n "$ORCH_API_URL" ]] || exit 0
-[[ -n "$TAKS_NODE_USER" ]] || exit 0
-[[ -n "$TAKS_NODE_PASSWORD" ]] || exit 0
+[[ -n "$ORCH_API_URL" ]] || {
+  echo "[taks-heartbeat] ORCH_API_URL missing in $NODE_ENV" >&2
+  exit 0
+}
+[[ -n "$TAKS_NODE_USER" ]] || {
+  echo "[taks-heartbeat] TAKS_NODE_USER missing in $NODE_ENV" >&2
+  exit 0
+}
+[[ -n "$TAKS_NODE_PASSWORD" ]] || {
+  echo "[taks-heartbeat] TAKS_NODE_PASSWORD missing in $NODE_ENV" >&2
+  exit 0
+}
 
 UNIT_ID=""
 if command -v jq >/dev/null 2>&1 && [[ -f "$UNIT_JSON" ]]; then
-  UNIT_ID="$(jq -r '.unit_id // empty' "$UNIT_JSON" 2>/dev/null || true)"
+  UNIT_ID="$(jq -r '.unit_id // .unit_path // empty' "$UNIT_JSON" 2>/dev/null || true)"
 fi
 
 NODE_ID="${TAKS_NODE_ID:-${TAKS_NODE_FQDN:-$(hostname -f 2>/dev/null || hostname)}}"
 NODE_FQDN="${TAKS_NODE_FQDN:-$NODE_ID}"
-NODE_HOSTNAME="${TAKS_NODE_HOSTNAME:-$(hostname -s 2>/dev/null || hostname)}"
+
+if [[ -n "${TAKS_NODE_HOSTNAME:-}" ]]; then
+  NODE_HOSTNAME="$TAKS_NODE_HOSTNAME"
+elif [[ -n "${TAKS_NODE_FQDN:-}" ]]; then
+  NODE_HOSTNAME="${TAKS_NODE_FQDN%%.*}"
+else
+  NODE_HOSTNAME="$(hostname -s 2>/dev/null || hostname)"
+fi
+
 PRIVATE_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 
 curl -fsS \
