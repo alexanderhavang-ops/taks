@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>takctl – Documents</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { font-family: sans-serif; margin: 24px; background: #f6f7f9; color: #111; }
+    h1 { margin-top: 0; }
+    .card { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .muted { color: #666; font-size: 14px; }
+    input[type="text"] { min-width: 320px; padding: 8px; }
+    button { padding: 8px 14px; cursor: pointer; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #fafafa; border: 1px solid #eee; padding: 10px; border-radius: 8px; }
+    .doc-title { font-weight: 700; margin-bottom: 6px; }
+    .ok { color: #0a7a2f; }
+    .err { color: #a40000; }
+  </style>
+</head>
+<body>
+  <h1>Documents</h1>
+  <div class="muted">Runtime-only PDF upload and ingest for Martine reference docs.</div>
+
+  <div class="card">
+    <form id="upload-form">
+      <div class="row">
+        <input id="file" type="file" accept="application/pdf,.pdf" required>
+        <input id="title" type="text" placeholder="Optional title">
+        <button type="submit">Upload PDF</button>
+        <button type="button" id="refresh-btn">Refresh</button>
+      </div>
+    </form>
+    <div id="status" class="muted" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <strong>Uploaded documents</strong>
+      <span id="count" class="muted"></span>
+    </div>
+    <div id="docs" style="margin-top:12px"></div>
+  </div>
+
+  <script>
+    async function api(path, opts) {
+      const r = await fetch(path, opts || {});
+      const text = await r.text();
+      let data = null;
+      try { data = text ? JSON.parse(text) : null; } catch (_) {}
+      if (!r.ok) {
+        throw new Error((data && (data.detail || data.error)) || text || ('HTTP ' + r.status));
+      }
+      return data;
+    }
+
+    function esc(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function renderDoc(it) {
+      return `
+        <div class="card" style="margin-bottom:12px">
+          <div class="doc-title">${esc(it.title || it.filename || it.doc_id)}</div>
+          <div class="muted">doc_id: ${esc(it.doc_id || '')}</div>
+          <div class="muted">file: ${esc(it.filename || '')}</div>
+          <div class="muted">status: ${esc(it.status || '')}</div>
+          <div class="muted">active: ${esc(String(!!it.active))}</div>
+          <div class="muted">uploaded_at: ${esc(it.uploaded_at || '')}</div>
+          <div class="muted">chunks: ${esc(it.chunk_count == null ? '' : String(it.chunk_count))}</div>
+          ${it.error ? `<pre class="err">${esc(it.error)}</pre>` : ``}
+        </div>
+      `;
+    }
+
+    async function loadDocs() {
+      const docsEl = document.getElementById('docs');
+      const countEl = document.getElementById('count');
+      const statusEl = document.getElementById('status');
+      try {
+        const out = await api('/api/docs');
+        const items = out.items || [];
+        countEl.textContent = `${items.length} document(s)`;
+        docsEl.innerHTML = items.length ? items.map(renderDoc).join('') : '<div class="muted">No uploaded documents yet.</div>';
+        if (!statusEl.textContent.startsWith('Upload')) {
+          statusEl.textContent = '';
+        }
+      } catch (e) {
+        docsEl.innerHTML = '';
+        countEl.textContent = '';
+        statusEl.textContent = 'Failed to load documents: ' + e.message;
+        statusEl.className = 'err';
+      }
+    }
+
+    async function handleUpload(ev) {
+      ev.preventDefault();
+      const fileEl = document.getElementById('file');
+      const titleEl = document.getElementById('title');
+      const statusEl = document.getElementById('status');
+
+      if (!fileEl.files || !fileEl.files.length) {
+        statusEl.textContent = 'Choose a PDF first.';
+        statusEl.className = 'err';
+        return;
+      }
+
+      const fd = new FormData();
+      fd.append('file', fileEl.files[0]);
+      fd.append('title', titleEl.value || '');
+
+      statusEl.textContent = 'Uploading and ingesting...';
+      statusEl.className = 'muted';
+
+      try {
+        const out = await api('/api/docs/upload', { method: 'POST', body: fd });
+        statusEl.textContent = `Upload complete: ${out.doc_id || ''} (${out.status || 'ok'})`;
+        statusEl.className = 'ok';
+        document.getElementById('upload-form').reset();
+        await loadDocs();
+      } catch (e) {
+        statusEl.textContent = 'Upload failed: ' + e.message;
+        statusEl.className = 'err';
+      }
+    }
+
+    document.getElementById('upload-form').addEventListener('submit', handleUpload);
+    document.getElementById('refresh-btn').addEventListener('click', loadDocs);
+    loadDocs();
+  </script>
+</body>
+</html>

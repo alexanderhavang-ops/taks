@@ -136,6 +136,8 @@ function Layout({ tab, setTab, health, brand, children }) {
 
         h(TabButton, { id: "replay", tab, setTab, label: L("Simulera", "Simulate") }),
 
+        h(TabButton, { id: "documents", tab, setTab, label: L("Dokument", "Documents") }),
+
         h(TabButton, { id: "config", tab, setTab, label: L("Inställningar", "Settings") })
       ),
 
@@ -161,3 +163,4 @@ function Layout({ tab, setTab, health, brand, children }) {
     )
   );
 }
+

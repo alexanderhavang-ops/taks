@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, Response, FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from takctl.config_store import load_runtime_config_view
 
 WEB_DIR = Path("/opt/tak/tools/takctl/web")

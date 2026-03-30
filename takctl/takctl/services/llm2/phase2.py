@@ -272,32 +272,54 @@ def _validate_standard_summary_obj(obj: Any) -> Dict[str, Any]:
 
 def _validate_timeline_phase2_v1_obj(obj: Any) -> Dict[str, Any]:
     if not isinstance(obj, dict):
-        raise RuntimeError("not_a_json_object")
+        raise RuntimeError("timeline_phase2_not_object")
 
     if str(obj.get("schema") or "").strip() != "timeline.phase2.v1":
-        raise RuntimeError("missing_or_invalid_schema")
-    if str(obj.get("domain") or "").strip() != "timeline":
-        raise RuntimeError("missing_or_invalid_domain")
+        raise RuntimeError("timeline_phase2_schema_mismatch")
 
-    if not isinstance(obj.get("generated_utc"), str):
-        obj["generated_utc"] = "" if obj.get("generated_utc") is None else str(obj.get("generated_utc"))
+    obj["domain"] = str(obj.get("domain") or "timeline").strip() or "timeline"
+    obj["generated_utc"] = "" if obj.get("generated_utc") is None else str(obj.get("generated_utc"))
+
+    root_now = obj.get("now_utc")
+    root_left = obj.get("left_utc")
+    root_right = obj.get("right_utc")
+    root_past = obj.get("past_hours")
+    root_future = obj.get("future_hours")
 
     window = obj.get("window")
     if not isinstance(window, dict):
-        raise RuntimeError("missing_or_invalid_window")
-    for k in ("now_utc", "left_utc", "right_utc", "timezone"):
-        if not isinstance(window.get(k), str):
-            window[k] = "" if window.get(k) is None else str(window.get(k))
-    for k in ("past_hours", "future_hours"):
-        if not isinstance(window.get(k), int):
-            raise RuntimeError(f"invalid_window_key:{k}")
+        window = {}
+        obj["window"] = window
+
+    now_utc = window.get("now_utc", root_now)
+    left_utc = window.get("left_utc", root_left)
+    right_utc = window.get("right_utc", root_right)
+    past_hours = window.get("past_hours", root_past if root_past is not None else 24)
+    future_hours = window.get("future_hours", root_future if root_future is not None else 24)
+
+    window["now_utc"] = "" if now_utc is None else str(now_utc)
+    window["left_utc"] = "" if left_utc is None else str(left_utc)
+    window["right_utc"] = "" if right_utc is None else str(right_utc)
+
+    try:
+        window["past_hours"] = int(past_hours)
+    except Exception:
+        window["past_hours"] = 24
+
+    try:
+        window["future_hours"] = int(future_hours)
+    except Exception:
+        window["future_hours"] = 24
+
+    window["timezone"] = str(window.get("timezone") or "UTC")
 
     headline = obj.get("headline")
     if not isinstance(headline, dict):
         raise RuntimeError("missing_or_invalid_headline")
+
     for k in ("important", "newest", "next"):
         if k not in headline:
-            raise RuntimeError(f"missing_headline_key:{k}")
+            headline[k] = ""
         if not isinstance(headline.get(k), str):
             headline[k] = "" if headline.get(k) is None else str(headline.get(k))
 
@@ -305,70 +327,159 @@ def _validate_timeline_phase2_v1_obj(obj: Any) -> Dict[str, Any]:
     if not isinstance(lanes, list):
         raise RuntimeError("missing_or_invalid_lanes")
 
-    for lane in lanes:
+    norm_lanes = []
+    for lane_idx, lane in enumerate(lanes):
         if not isinstance(lane, dict):
-            raise RuntimeError("invalid_lane_object")
-        if not isinstance(lane.get("id"), str):
-            raise RuntimeError("invalid_lane_id")
-        if not isinstance(lane.get("title"), str):
-            lane["title"] = "" if lane.get("title") is None else str(lane.get("title"))
+            continue
+
+        lane_id = str(lane.get("id") or "").strip()
+        if not lane_id:
+            lane_id = f"lane_{lane_idx}"
+
+        lane_title = lane.get("title")
+        if lane_title is None:
+            lane_title = lane.get("label")
+        if lane_title is None:
+            lane_title = lane_id
 
         items = lane.get("items")
         if not isinstance(items, list):
-            raise RuntimeError(f"invalid_lane_items:{lane.get('id')}")
+            items = []
 
-        for item in items:
+        norm_items = []
+        for item_idx, item in enumerate(items):
             if not isinstance(item, dict):
-                raise RuntimeError(f"invalid_lane_item:{lane.get('id')}")
+                continue
 
-            kind = str(item.get("kind") or "").strip()
+            kind = str(item.get("kind") or item.get("type") or "").strip().lower()
             if kind not in ("point", "interval"):
-                raise RuntimeError(f"invalid_item_kind:{kind or 'missing'}")
+                if item.get("start_utc") is not None or item.get("end_utc") is not None or item.get("t_start") is not None or item.get("t_end") is not None:
+                    kind = "interval"
+                elif item.get("time_utc") is not None or item.get("t") is not None:
+                    kind = "point"
+                else:
+                    raise RuntimeError(f"invalid_item_kind:{kind or 'missing'}")
 
-            if not isinstance(item.get("id"), str):
-                raise RuntimeError("invalid_item_id")
+            item_id = str(item.get("id") or "").strip() or f"{lane_id}_{kind}_{item_idx+1}"
+            label = item.get("label")
+            if label is None:
+                label = item.get("title")
+            label = "" if label is None else str(label)
 
-            for k in ("status", "label", "summary", "priority", "source_domain"):
-                if not isinstance(item.get(k), str):
-                    item[k] = "" if item.get(k) is None else str(item.get(k))
+            summary = item.get("summary")
+            if summary is None:
+                summary = item.get("note")
+            if summary is None:
+                summary = item.get("details")
+            summary = "" if summary is None else str(summary)
+
+            status = "" if item.get("status") is None else str(item.get("status"))
+            priority = "" if item.get("priority") is None else str(item.get("priority"))
+
+            source_domain = item.get("source_domain")
+            if source_domain is None:
+                source_domain = lane_id
+            source_domain = "" if source_domain is None else str(source_domain)
+
+            raw_refs = item.get("source_refs")
+            norm_refs = []
+            if raw_refs is None:
+                norm_refs = []
+            elif isinstance(raw_refs, list):
+                for ref in raw_refs:
+                    if isinstance(ref, dict):
+                        norm_refs.append({
+                            "domain": "" if ref.get("domain") is None else str(ref.get("domain")),
+                            "item_id": "" if ref.get("item_id") is None else str(ref.get("item_id")),
+                        })
+                    else:
+                        norm_refs.append({
+                            "domain": source_domain,
+                            "item_id": "" if ref is None else str(ref),
+                        })
+            else:
+                norm_refs = [{
+                    "domain": source_domain,
+                    "item_id": str(raw_refs),
+                }]
+
+            out = {
+                "id": item_id,
+                "kind": kind,
+                "label": label,
+                "summary": summary,
+                "status": status,
+                "priority": priority,
+                "source_domain": source_domain,
+                "source_refs": norm_refs,
+            }
 
             if kind == "point":
-                for k in ("time_utc", "unit", "marker"):
-                    if not isinstance(item.get(k), str):
-                        item[k] = "" if item.get(k) is None else str(item.get(k))
-
-            if kind == "interval":
-                for k in ("start_utc", "end_utc", "band_style"):
-                    if not isinstance(item.get(k), str):
-                        item[k] = "" if item.get(k) is None else str(item.get(k))
-
-            source_refs = item.get("source_refs")
-            if source_refs is None:
-                item["source_refs"] = []
-            elif not isinstance(source_refs, list):
-                raise RuntimeError("invalid_source_refs")
+                time_utc = item.get("time_utc")
+                if time_utc is None:
+                    time_utc = item.get("t")
+                if time_utc is None:
+                    time_utc = item.get("timestamp")
+                out["time_utc"] = "" if time_utc is None else str(time_utc)
+                out["unit"] = "" if item.get("unit") is None else str(item.get("unit"))
+                out["marker"] = "" if item.get("marker") is None else str(item.get("marker"))
             else:
-                for ref in source_refs:
-                    if not isinstance(ref, dict):
-                        raise RuntimeError("invalid_source_ref_object")
-                    if not isinstance(ref.get("domain"), str):
-                        ref["domain"] = "" if ref.get("domain") is None else str(ref.get("domain"))
-                    if not isinstance(ref.get("item_id"), str):
-                        ref["item_id"] = "" if ref.get("item_id") is None else str(ref.get("item_id"))
+                start_utc = item.get("start_utc")
+                if start_utc is None:
+                    start_utc = item.get("t_start")
+                if start_utc is None:
+                    start_utc = item.get("start")
+
+                end_utc = item.get("end_utc")
+                if end_utc is None:
+                    end_utc = item.get("t_end")
+                if end_utc is None:
+                    end_utc = item.get("end")
+
+                out["start_utc"] = "" if start_utc is None else str(start_utc)
+                out["end_utc"] = "" if end_utc is None else str(end_utc)
+                out["band_style"] = "" if item.get("band_style") is None else str(item.get("band_style"))
+
+            norm_items.append(out)
+
+        norm_lanes.append({
+            "id": lane_id,
+            "title": str(lane_title),
+            "items": norm_items,
+        })
+
+    obj["lanes"] = norm_lanes
 
     render_hints = obj.get("render_hints")
     if render_hints is None:
-        obj["render_hints"] = {"dense_clusters": []}
+        render_hints = {}
+        obj["render_hints"] = render_hints
     elif not isinstance(render_hints, dict):
-        raise RuntimeError("invalid_render_hints")
-    else:
-        dense = render_hints.get("dense_clusters")
-        if dense is None:
-            render_hints["dense_clusters"] = []
-        elif not isinstance(dense, list):
-            raise RuntimeError("invalid_dense_clusters")
+        render_hints = {}
+        obj["render_hints"] = render_hints
+
+    dense = render_hints.get("dense_clusters")
+    norm_dense = []
+    if isinstance(dense, list):
+        for cluster in dense:
+            if isinstance(cluster, dict):
+                norm_dense.append({
+                    "lane_id": "" if cluster.get("lane_id", cluster.get("lane")) is None else str(cluster.get("lane_id", cluster.get("lane"))),
+                    "start_utc": "" if cluster.get("start_utc", cluster.get("t_start")) is None else str(cluster.get("start_utc", cluster.get("t_start"))),
+                    "end_utc": "" if cluster.get("end_utc", cluster.get("t_end")) is None else str(cluster.get("end_utc", cluster.get("t_end"))),
+                    "note": "" if cluster.get("note") is None else str(cluster.get("note")),
+                })
+            else:
+                norm_dense.append({
+                    "lane_id": "",
+                    "start_utc": "" if cluster is None else str(cluster),
+                    "end_utc": "" if cluster is None else str(cluster),
+                    "note": "",
+                })
+    render_hints["dense_clusters"] = norm_dense
 
     return obj
+
 
 
 def _validate_obj_for_schema(obj: Any, schema_name: str) -> Dict[str, Any]:

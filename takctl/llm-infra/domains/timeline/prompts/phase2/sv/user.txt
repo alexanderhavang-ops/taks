@@ -1,0 +1,28 @@
+Skapa ett timeline.phase2.v1-objekt från indata.
+
+Fokusera främst på:
+- headline.important
+- headline.newest
+- headline.next
+
+Lane-disciplin:
+- enemy: fientliga kontakter eller fientliga förlopp
+- presence: egna eller andra relevanta lägesobjekt i fönstret
+- chatter: order, tystnad efter order, viktig operativ trafik
+- missions: uppdrag som faktiskt påverkar fönstret
+- weather: väderhändelser och väderintervall som påverkar fönstret
+
+Mål:
+- få, tydliga objekt
+- hellre 1 bra interval än många små brusobjekt
+- tidslinjen ska bli läsbar i en SVG med swimlanes
+
+Viktigt:
+- använd exakt nyckeln "title" för lanes
+- använd exakt nyckeln "kind" för items
+- använd exakt nyckeln "summary" för beskrivning
+- använd "time_utc" för point
+- använd "start_utc" och "end_utc" för interval
+
+## INPUT
+{{EVIDENCE_JSON}}

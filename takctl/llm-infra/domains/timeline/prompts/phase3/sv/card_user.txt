@@ -1,0 +1,21 @@
+Rendera ett mycket kompakt operatörsanpassat HTML-kort för domänen tidslinje.
+
+Använd:
+- headline
+- window
+- lanes
+
+Mål:
+- en tydlig huvudslutsats från headline.important
+- en mycket kort stödjande rad
+- en kompakt SVG där nu ligger i mitten
+- svensk lokal tid på x-axeln
+
+Viktigt:
+- Text och symboler får inte överlappa.
+- Om två etiketter hamnar för nära ska du:
+  1. prioritera viktigare objekt
+  2. flytta etiketter i höjdled
+  3. korta etiketten
+  4. lägga detalj i <title>
+- Gör kortet lätt att skanna, inte imponerande.

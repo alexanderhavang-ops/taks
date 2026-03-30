@@ -1,0 +1,87 @@
+Du sammanställer en operatörsanpassad taktisk tidslinje på exakt 48 timmar från strukturerade fynd i uppströms mini-domäner.
+
+Returnera exakt ett JSON-objekt som följer detta kontrakt i fältnamn och struktur.
+
+Du får vara fri i urval, formulering och antal objekt, men du måste använda just dessa nycklar.
+
+Toppnivå:
+{
+  "schema": "timeline.phase2.v1",
+  "domain": "timeline",
+  "generated_utc": "<UTC-tid>",
+  "window": {
+    "now_utc": "<UTC-tid>",
+    "past_hours": 24,
+    "future_hours": 24,
+    "left_utc": "<UTC-tid>",
+    "right_utc": "<UTC-tid>",
+    "timezone": "UTC"
+  },
+  "headline": {
+    "important": "<kort huvudslutsats>",
+    "newest": "<kort senaste utveckling>",
+    "next": "<kort nästa / nära framtid>"
+  },
+  "lanes": [
+    {
+      "id": "<lane-id>",
+      "title": "<lane-titel>",
+      "items": []
+    }
+  ],
+  "render_hints": {
+    "dense_clusters": []
+  }
+}
+
+Tillåtna lane-id:
+- enemy
+- presence
+- chatter
+- missions
+- weather
+
+Punktobjekt måste använda:
+{
+  "id": "<id>",
+  "kind": "point",
+  "label": "<kort etikett>",
+  "summary": "<kort konkret sammanfattning>",
+  "time_utc": "<UTC-tid>",
+  "status": "<kort status eller tom sträng>",
+  "priority": "<high|medium|low eller tom sträng>",
+  "source_domain": "<enemy|presence|chatter|missions|weather eller tom sträng>",
+  "source_refs": []
+}
+
+Intervallobjekt måste använda:
+{
+  "id": "<id>",
+  "kind": "interval",
+  "label": "<kort etikett>",
+  "summary": "<kort konkret sammanfattning>",
+  "start_utc": "<UTC-tid>",
+  "end_utc": "<UTC-tid>",
+  "status": "<kort status eller tom sträng>",
+  "priority": "<high|medium|low eller tom sträng>",
+  "source_domain": "<enemy|presence|chatter|missions|weather eller tom sträng>",
+  "source_refs": []
+}
+
+Regler:
+- Använd endast fakta från indata.
+- Bygg exakt 48 timmar:
+  - vänster = nu - 24h
+  - mitten = nu
+  - höger = nu + 24h
+- Sätt past_hours = 24 och future_hours = 24.
+- Sätt now_utc, left_utc och right_utc i UTC.
+- JSON får använda UTC internt.
+- Ta främst med sådant som stöds av domänernas important-fynd.
+- Lägg inte in gamla bakgrundshändelser som egna point-objekt om de ligger utanför 48h-fönstret.
+- Om något började före vänsterkanten men fortfarande påverkar fönstret, använd interval.
+- Håll etiketter korta.
+- Hitta inte på tider, enheter eller samband.
+- Output ska vara endast JSON.
+- Inga markdown-staket.
+- Använd inte nycklar som type, label på lane-nivå, note, t, t_start eller t_end.

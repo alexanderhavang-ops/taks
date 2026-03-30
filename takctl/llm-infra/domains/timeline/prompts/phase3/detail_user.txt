@@ -6,15 +6,26 @@ Use:
 - lanes
 - render_hints
 
-Rendering guidance:
-- large SVG with clean swimlanes
-- concise title and subtitle above the SVG
-- show only short visible labels
-- use <title> for summaries
-- stack markers only when items share nearly the same timestamp in the same lane
-- do not narrate geometry
-- do not include comments
-- do not include explanatory text outside the chart except title/subtitle
+Output shape:
+<div>
+  <h3>short title</h3>
+  <p>very short subtitle</p>
+  <svg>...</svg>
+</div>
 
-If input items are outside the 48-hour window, do not render them.
-If a lane has no visible items in the 48-hour window, omit visible lane content for it.
+Priorities:
+- make the SVG large and easy to read
+- now in the middle
+- 24 hours history on the left
+- 24 hours future on the right
+- one swimlane per mini-domain
+- short labels near important items
+- <title> on bands and markers for longer text
+
+Do not:
+- add extra prose sections
+- add tables
+- add bullet lists
+- narrate geometry
+- include comments
+- include explanatory text below the chart

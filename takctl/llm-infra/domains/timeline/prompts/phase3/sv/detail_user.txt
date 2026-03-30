@@ -1,0 +1,29 @@
+Rendera en detaljerad HTML-vy för domänen tidslinje från den strukturerade JSON-indatan.
+
+Använd:
+- headline
+- window
+- lanes
+- render_hints
+
+Prioritering:
+- headline.important först
+- därefter newest
+- därefter next
+
+Utformning:
+- stor SVG över nästan hela ytan
+- nu i mitten
+- 24h historik till vänster
+- 24h framtid till höger
+- svensk lokal tid på x-axeln
+- korta labels nära viktiga objekt
+- <title> för längre förklaringar
+
+Läsbarhet går före fullständighet:
+- undvik överlappande text
+- visa inte fler etiketter än vad som går att läsa
+- färre, tydliga labels är bättre än många små
+- om något är viktigt men svårt att märka ut utan krock, prioritera symbol + <title>
+
+Skriv ingen extra brödtext under grafen.

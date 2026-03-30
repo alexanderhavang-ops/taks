@@ -35,13 +35,8 @@ def _truthy(v: str) -> bool:
     return str(v or "").strip().lower() in {"1", "true", "yes", "on"}
 
 def _replay_enabled(ctx) -> bool:
-    src = Path(ctx.repo_root) / "takctl" / "conf.d" / "replay.conf.template"
-    bootstrap = Path("/etc/taks-bootstrap.d/config/replay.conf")
-
-    merged: dict[str, str] = {}
-    merged.update(_parse_simple_kv(src))
-    merged.update(_parse_simple_kv(bootstrap))
-
+    runtime_conf = Path("/opt/tak/tools/takctl/conf.d/replay.conf")
+    merged = _parse_simple_kv(runtime_conf)
     return _truthy(merged.get("replay_enabled", "false"))
 
 def _packages_for_ctx(ctx) -> list[str]:

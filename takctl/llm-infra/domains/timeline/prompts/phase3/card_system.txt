@@ -15,18 +15,20 @@ Allowed SVG children:
 
 Rules:
 - compact card only
-- one title
-- one short subtitle
-- one short status line
-- one SVG timeline
-- 48-hour UTC window
-- left = 24h ago
+- exactly one <h3>
+- at most two short <p>
+- exactly one SVG timeline
+- 48-hour UTC window exactly
+- left edge = now - 24h
 - center = now
-- right = 24h ahead
+- right edge = now + 24h
 - horizontal placement must reflect actual time
-- max 3 enemy markers
-- max 2 weather markers
-- max 1 mission band
+- render only the most important visible items
+- max 3 enemy point items
+- max 1 orders point item
+- max 1 mission interval
+- max 1 weather interval
+- max 2 weather point items
 - no legend
 - no tables
 - no lists
@@ -35,3 +37,10 @@ Rules:
 - no style attributes
 - no class attributes
 - use presentation attributes on SVG elements instead
+
+Layout:
+- keep text very short
+- the SVG should dominate the card
+- avoid dense prose
+- prefer short labels directly near the most important markers
+- use <title> for longer detail

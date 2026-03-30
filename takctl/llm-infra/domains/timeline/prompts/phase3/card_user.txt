@@ -7,17 +7,16 @@ Use:
 
 Intent:
 - one key takeaway
-- one short supporting subtitle
-- one short status line covering newest + next
+- one short supporting line
 - one compact SVG timeline
 
-Render only these lane items when present:
-- up to 3 highest-priority enemy point items
-- up to 1 highest-priority orders point item
-- up to 1 mission interval
-- up to 1 weather interval
-- up to 2 weather point items
+Lane order when rendered:
+1. enemy
+2. orders
+3. missions
+4. weather
 
 Do not render empty lanes.
-Do not render stale low-priority filler unless needed for the main takeaway.
-Do not render prose paragraphs beyond the title/subtitle/status line.
+Do not render filler.
+Do not narrate the chart.
+Keep the text shorter than you first think necessary.

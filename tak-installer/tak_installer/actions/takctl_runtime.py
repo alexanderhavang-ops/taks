@@ -50,13 +50,8 @@ def _truthy(v: str) -> bool:
     return str(v or "").strip().lower() in {"1", "true", "yes", "on"}
 
 def _replay_enabled(ctx) -> bool:
-    src = Path(ctx.repo_root) / "takctl" / "conf.d" / "replay.conf.template"
-    bootstrap = Path("/etc/taks-bootstrap.d/config/replay.conf")
-
-    merged: dict[str, str] = {}
-    merged.update(_parse_simple_kv(src))
-    merged.update(_parse_simple_kv(bootstrap))
-
+    runtime_conf = Path("/opt/tak/tools/takctl/conf.d/replay.conf")
+    merged = _parse_simple_kv(runtime_conf)
     return _truthy(merged.get("replay_enabled", "false"))
 
 
@@ -139,6 +134,7 @@ def _fix_runtime_perms() -> None:
         DST_ROOT / "ignite",
         DST_ROOT / "llm",
         DST_ROOT / "llm-infra",
+        DST_REPLAY_ROOT,
     ]
 
     managed_files = [
@@ -255,7 +251,9 @@ def apply(ctx) -> None:
         if src_replay_root.exists():
             _rsync_dir(src_replay_root, DST_REPLAY_ROOT)
     else:
-        log.info("takctl-runtime: replay disabled -> skipping replay runtime sync")
+        log.info("takctl-runtime: replay disabled -> removing replay runtime code if present")
+        if DST_REPLAY_ROOT.exists():
+            shutil.rmtree(DST_REPLAY_ROOT)
 
     _ensure_runtime_dirs()
     _fix_runtime_perms()

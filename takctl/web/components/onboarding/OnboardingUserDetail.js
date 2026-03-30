@@ -12,6 +12,18 @@
 
   function _yn(v) { return v ? "Ja" : "Nej"; }
   function _join(v) { return Array.isArray(v) && v.length ? v.join(", ") : "—"; }
+  function _onboardText(v) {
+    const x = String(v || "").trim();
+    return x ? x : "okänt";
+  }
+  function _endpointFlags(sel) {
+    const ep = (sel && sel.endpoints) || {};
+    const out = [];
+    if (ep && ep.stream_host) out.push("stream-host");
+    if (ep && ep.stream_port) out.push("stream-port");
+    if (ep && ep.stream_ssl !== undefined) out.push("tls");
+    return out.length ? out.join(", ") : "—";
+  }
 
   function Box(props) {
     return h("div", {
@@ -62,6 +74,53 @@
       type: "button",
       style: { padding: "6px 10px" }
     }, props), props.children);
+  }
+
+  function StatusBadge(props) {
+    const tone = String((props && props.tone) || "neutral");
+    const text = String((props && props.text) || "—");
+
+    const styles = {
+      good:  { border: "1px solid rgba(80,200,120,0.45)", background: "rgba(80,200,120,0.12)", color: "#b8f5c8" },
+      warn:  { border: "1px solid rgba(240,190,70,0.45)",  background: "rgba(240,190,70,0.12)",  color: "#ffe29a" },
+      bad:   { border: "1px solid rgba(255,90,90,0.45)",   background: "rgba(255,90,90,0.12)",   color: "#ffb3b3" },
+      neutral:{ border: "1px solid rgba(255,255,255,0.16)", background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.92)" }
+    };
+    const st = styles[tone] || styles.neutral;
+
+    return h("span", {
+      style: {
+        display: "inline-block",
+        padding: "4px 10px",
+        borderRadius: "999px",
+        fontSize: "12px",
+        fontWeight: 800,
+        letterSpacing: "0.02em",
+        border: st.border,
+        background: st.background,
+        color: st.color
+      }
+    }, text);
+  }
+
+  function boolTone(v) {
+    return v ? "good" : "bad";
+  }
+
+  function cotStateTone(stateText) {
+    const s = String(stateText || "").toUpperCase();
+    if (s === "CURRENT") return "good";
+    if (s === "RECENT") return "warn";
+    if (s === "STALE") return "bad";
+    return "neutral";
+  }
+
+  function onboardTone(v) {
+    const s = String(v || "").toUpperCase();
+    if (s === "DOWNLOADED" || s === "COMPLETE" || s === "ACTIVE") return "good";
+    if (s === "NEW" || s === "PACKAGE_GENERATED" || s === "QR_GENERATED") return "warn";
+    if (!s || s === "—") return "neutral";
+    return "neutral";
   }
 
   function JsonToggle(props) {
@@ -158,7 +217,7 @@
     const username = String(user.username || routeUsername || "").trim();
     const groups = Array.isArray(user.groups) ? user.groups : [];
     const cardUrl = (userData && userData.card_url) || (card && card.card_url) || "";
-    const onboardStatus = _colText(card.onboarding_status);
+    const onboardStatus = _onboardText((card.onboarding && card.onboarding.status) || (lifecycle.evidence && lifecycle.evidence.onboarding_status));
     const stateText = activity
       ? (activity.is_current === true ? "CURRENT" : (activity.seen_recently === true ? "RECENT" : "STALE"))
       : "NEVER";
@@ -176,8 +235,8 @@
         }
       },
         h(Pill, null, _colText(username)),
-        h(Pill, null, "Onboarding: " + onboardStatus),
-        h(Pill, null, "Status: " + stateText)
+        h(StatusBadge, { tone: onboardTone(onboardStatus), text: "Onboarding: " + onboardStatus }),
+        h(StatusBadge, { tone: cotStateTone(stateText), text: "Status: " + stateText })
       ),
 
       h("div", {
@@ -203,7 +262,7 @@
           href: cardUrl,
           target: "_blank",
           rel: "noopener noreferrer"
-        }, "Öppna soldatkort") : null
+        }, "Soldatkort") : null
       ),
 
       h("div", {
@@ -228,25 +287,25 @@
           h(Box, null,
             SectionTitle("TAKS / konto"),
             h(KV, { k: "Origin" }, _colText(ti.origin)),
-            h(KV, { k: "Lösenord känt" }, _yn(!!ti.password_known)),
-            h(KV, { k: "Reveal password" }, _yn(!!(sel && sel.reveal_password))),
-            h(KV, { k: "Kortlänk" },
+            h(KV, { k: "Lösenord känt" }, h(StatusBadge, { tone: boolTone(!!ti.password_known), text: _yn(!!ti.password_known) })),
+            h(KV, { k: "Visa lösenord" }, _yn(!!(sel && sel.reveal_password))),
+            h(KV, { k: "Soldatkort" },
               cardUrl ? h("a", { href: cardUrl, target: "_blank", rel: "noopener noreferrer" }, cardUrl) : "—"
             )
           ),
 
           h(Box, null,
-            SectionTitle("Selection"),
-            h(KV, { k: "Endpoints" }, _colText(_join(Object.keys((sel && sel.endpoints) || {})))),
-            h(KV, { k: "Ctx finns" }, _yn(!!(sel && sel.ctx)))
+            SectionTitle("Paketval"),
+            h(KV, { k: "Paket-/endpointval" }, _colText(_endpointFlags(sel))),
+            h(KV, { k: "Urval sparat" }, _yn(!!(sel && sel.ctx)))
           )
         ),
 
         h("div", null,
           h(Box, null,
             SectionTitle("Runtime / aktivitet"),
-            h(KV, { k: "Onboarding-status" }, onboardStatus),
-            h(KV, { k: "Status" }, _colText(stateText)),
+            h(KV, { k: "Onboarding-status" }, h(StatusBadge, { tone: onboardTone(onboardStatus), text: onboardStatus })),
+            h(KV, { k: "Status" }, h(StatusBadge, { tone: cotStateTone(stateText), text: _colText(stateText) })),
             h(KV, { k: "Ålder" }, _colText(activity.age_human)),
             h(KV, { k: "UID" }, _colText(activity.uid)),
             h(KV, { k: "Senast sedd" }, _colText(activity.last_seen)),
@@ -258,19 +317,22 @@
             SectionTitle("Livscykel"),
             h(KV, { k: "Stage" }, _colText(lifecycle.stage)),
             h(KV, { k: "Label" }, _colText(lifecycle.label)),
-            h(KV, { k: "Lösenord känt" }, _yn(!!(lifecycle.evidence && lifecycle.evidence.taks_password_known))),
-            h(KV, { k: "CoT sedd" }, _yn(!!(lifecycle.evidence && lifecycle.evidence.cot_seen))),
-            h(KV, { k: "Sedd nyligen" }, _yn(!!(lifecycle.evidence && lifecycle.evidence.seen_recently))),
-            h(KV, { k: "Har endpoint" }, _yn(!!(lifecycle.evidence && lifecycle.evidence.marti_client && lifecycle.evidence.marti_client.has_endpoint))),
-            h(KV, { k: "Har certifikat" }, _yn(!!(lifecycle.evidence && lifecycle.evidence.marti_client && lifecycle.evidence.marti_client.has_certificate)))
+            h(KV, { k: "Lösenord känt" }, h(StatusBadge, { tone: boolTone(!!(lifecycle.evidence && lifecycle.evidence.taks_password_known)), text: _yn(!!(lifecycle.evidence && lifecycle.evidence.taks_password_known)) })),
+            h(KV, { k: "CoT sedd" }, h(StatusBadge, { tone: boolTone(!!(lifecycle.evidence && lifecycle.evidence.cot_seen)), text: _yn(!!(lifecycle.evidence && lifecycle.evidence.cot_seen)) })),
+            h(KV, { k: "Sedd nyligen" }, h(StatusBadge, { tone: boolTone(!!(lifecycle.evidence && lifecycle.evidence.seen_recently)), text: _yn(!!(lifecycle.evidence && lifecycle.evidence.seen_recently)) })),
+            h(KV, { k: "Har endpoint" }, h(StatusBadge, { tone: boolTone(!!(lifecycle.evidence && lifecycle.evidence.marti_client && lifecycle.evidence.marti_client.has_endpoint)), text: _yn(!!(lifecycle.evidence && lifecycle.evidence.marti_client && lifecycle.evidence.marti_client.has_endpoint)) })),
+            h(KV, { k: "Har certifikat" }, h(StatusBadge, { tone: boolTone(!!(lifecycle.evidence && lifecycle.evidence.marti_client && lifecycle.evidence.marti_client.has_certificate)), text: _yn(!!(lifecycle.evidence && lifecycle.evidence.marti_client && lifecycle.evidence.marti_client.has_certificate)) }))
           ),
 
           h(Box, null,
-            SectionTitle("Teknisk metadata"),
-            h(KV, { k: "DB attached" }, _colText(typeof meta.db_attached === "boolean" ? (meta.db_attached ? "yes" : "no") : "?")),
-            h(KV, { k: "DB source" }, _colText(meta.db_source)),
-            h(KV, { k: "DB target" }, _colText(meta.db_target)),
-            h(KV, { k: "DB error" }, _colText(meta.db_error))
+            SectionTitle("Teknisk status"),
+            h(KV, { k: "Databas" }, h(StatusBadge, {
+              tone: (typeof meta.db_attached === "boolean") ? boolTone(!!meta.db_attached) : "neutral",
+              text: _colText(typeof meta.db_attached === "boolean" ? (meta.db_attached ? "yes" : "no") : "?")
+            })),
+            h(KV, { k: "DB-källa" }, _colText(meta.db_source)),
+            h(KV, { k: "DB-mål" }, _colText(meta.db_target)),
+            h(KV, { k: "DB-fel" }, _colText(meta.db_error))
           )
         )
       ),
