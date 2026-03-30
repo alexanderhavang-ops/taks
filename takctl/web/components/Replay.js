@@ -79,6 +79,16 @@
     return out;
   }
 
+  function sideUnits(units, side){
+    var out = {};
+    var want = String(side || "");
+    Object.keys(units || {}).forEach(function(k){
+      var u = units[k] || {};
+      if (String(u.side || "") === want) out[k] = u;
+    });
+    return out;
+  }
+
   function TreeNode(props){
     const node = props.node || {};
     const selected = props.selected === node.callsign;
@@ -196,12 +206,137 @@
     return rows;
   }
 
+
+  function DetailTabButton(props){
+    var label = props.label;
+    var active = !!props.active;
+    var onClick = props.onClick;
+    return e("button", {
+      type: "button",
+      onClick: onClick,
+      style: {
+        padding: "6px 10px",
+        borderRadius: 8,
+        border: "1px solid rgba(255,255,255,0.10)",
+        background: active ? "rgba(255,255,255,0.10)" : "transparent",
+        color: "inherit",
+        cursor: "pointer",
+        fontSize: 12
+      }
+    }, label);
+  }
+
+  function workChainRows(work){
+    return (Array.isArray(work) ? work : []).map(function(chain, idx){
+      var items = Array.isArray(chain) ? chain.filter(Boolean) : [];
+      var root = items.length ? items[0] : {};
+      return {
+        key: idx,
+        title: String(root.title || root.action || "work"),
+        description: String(root.description || ""),
+        action: String(root.action || ""),
+        status: String(root.status || ""),
+        duration_s: Number(root.duration_s || 0),
+        deadline_sim_time_s: root.deadline_sim_time_s,
+        params: root.params || {},
+        items: items
+      };
+    });
+  }
+
+  function WorkItemCard(props){
+    var r = props.row || {};
+    var compact = !!props.compact;
+    return e("div", {
+      style: {
+        padding: 10,
+        borderRadius: 8,
+        background: compact ? "rgba(255,255,255,0.025)" : "rgba(255,255,255,0.04)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        opacity: compact ? 0.9 : 1
+      }
+    },
+      e("div", { style: { fontWeight: 600, fontSize: 13 } }, r.title),
+      e("div", { style: { fontSize: 12, opacity: 0.7, marginTop: 2 } },
+        [
+          r.action,
+          r.status,
+          r.duration_s ? (r.duration_s + "s") : "",
+          (r.deadline_sim_time_s != null) ? ("ddl " + fmtSimTime(r.deadline_sim_time_s)) : ""
+        ].filter(Boolean).join(" · ")
+      ),
+      r.description ? e("div", { style: { fontSize: 12, marginTop: 4, opacity: 0.9 } }, r.description) : null,
+      e("pre", {
+        style: {
+          margin: "6px 0 0 0",
+          whiteSpace: "pre-wrap",
+          overflowWrap: "anywhere",
+          fontSize: 12,
+          lineHeight: "16px",
+          background: "rgba(0,0,0,0.15)",
+          padding: 8,
+          borderRadius: 8
+        }
+      }, JSON.stringify(r.params || {}, null, 2))
+    );
+  }
+
+  function WorkChainCard(props){
+    var chain = props.chain || {};
+    var items = Array.isArray(chain.items) ? chain.items : [];
+    return e("div", {
+      style: {
+        padding: 10,
+        borderRadius: 8,
+        background: "rgba(255,255,255,0.03)",
+        border: "1px solid rgba(255,255,255,0.06)"
+      }
+    },
+      e("div", { style: { fontWeight: 600, marginBottom: 8, fontSize: 13 } },
+        "Kedja " + String((chain.key || 0) + 1)
+      ),
+      items.length ? e("div", { style: { display: "grid", gap: 8 } },
+        items.map(function(it, i){
+          return e(WorkItemCard, {
+            key: i,
+            row: {
+              key: i,
+              title: String(it.title || it.action || "work"),
+              description: String(it.description || ""),
+              action: String(it.action || ""),
+              status: String(it.status || ""),
+              duration_s: Number(it.duration_s || 0),
+              deadline_sim_time_s: it.deadline_sim_time_s,
+              params: it.params || {}
+            },
+            compact: false
+          });
+        })
+      ) : e("div", { style: { opacity: 0.7, fontSize: 13 } }, "Tom kedja.")
+    );
+  }
+
   function UnitDetail(props){
     const u = props.unit;
+    const initialTab = props.initialTab || "status";
+    const tabState = React.useState(initialTab);
+    const tab = tabState[0];
+    const setTab = tabState[1];
+
+    React.useEffect(function(){
+      setTab(initialTab || "status");
+    }, [u && u.callsign, initialTab]);
+
     if (!u) return e(Box, null, e("div", { style: { opacity: 0.75 } }, "Select a unit"));
 
     const active = workRootRows(u.work || []);
-    const done = workRootRows(u.completed_work || []);
+    const completed = workRootRows(u.completed_work || []);
+    const futureChains = workChainRows(u.work || []).map(function(c){
+      return {
+        key: c.key,
+        items: (c.items || []).slice(1)
+      };
+    }).filter(function(c){ return c.items.length > 0; });
     const corr = correspondenceRows(u);
 
     return e("div", { style: { display: "grid", gap: 12 } },
@@ -224,100 +359,92 @@
       ),
 
       e(Box, null,
-        e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "Aktivt work[]"),
-        active.length ? e("div", { style: { display: "grid", gap: 8 } },
-          active.map(function(r){
-            return e("div", {
-              key: r.key,
+        e("div", { style: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 } },
+          e(DetailTabButton, {
+            label: "Status",
+            active: tab === "status",
+            onClick: function(){ setTab("status"); }
+          }),
+          e(DetailTabButton, {
+            label: "Current Work",
+            active: tab === "current",
+            onClick: function(){ setTab("current"); }
+          }),
+          e(DetailTabButton, {
+            label: "Future Work",
+            active: tab === "future",
+            onClick: function(){ setTab("future"); }
+          }),
+          e(DetailTabButton, {
+            label: "Correspondence",
+            active: tab === "corr",
+            onClick: function(){ setTab("corr"); }
+          })
+        ),
+
+        tab === "status" ? e("div", { style: { display: "grid", gap: 12 } },
+          e("div", null,
+            e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "Avslutat arbete"),
+            completed.length ? e("div", { style: { display: "grid", gap: 8 } },
+              completed.map(function(r){
+                return e(WorkItemCard, { key: r.key, row: r, compact: true });
+              })
+            ) : e("div", { style: { opacity: 0.7, fontSize: 13 } }, "Inget avslutat arbete ännu.")
+          ),
+          e("div", null,
+            e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "Rått state.json"),
+            e("pre", {
               style: {
+                margin: 0,
+                whiteSpace: "pre-wrap",
+                overflowWrap: "anywhere",
+                fontSize: 12,
+                lineHeight: "16px",
+                maxHeight: 360,
+                overflow: "auto",
+                background: "rgba(0,0,0,0.15)",
                 padding: 10,
-                borderRadius: 8,
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.06)"
+                borderRadius: 8
               }
-            },
-              e("div", { style: { fontWeight: 600, fontSize: 13 } }, r.title),
-              e("div", { style: { fontSize: 12, opacity: 0.7, marginTop: 2 } },
-                [r.action, r.status, r.duration_s ? (r.duration_s + "s") : ""].filter(Boolean).join(" · ")
-              ),
-              r.description ? e("div", { style: { fontSize: 12, marginTop: 4, opacity: 0.9 } }, r.description) : null,
-              e("pre", {
+            }, JSON.stringify(u.raw_state || {}, null, 2))
+          )
+        ) : null,
+
+        tab === "current" ? (
+          active.length ? e("div", { style: { display: "grid", gap: 8 } },
+            active.map(function(r){
+              return e(WorkItemCard, { key: r.key, row: r, compact: false });
+            })
+          ) : e("div", { style: { opacity: 0.7, fontSize: 13 } }, "Ingen aktiv work-kedja.")
+        ) : null,
+
+        tab === "future" ? (
+          futureChains.length ? e("div", { style: { display: "grid", gap: 8 } },
+            futureChains.map(function(c){
+              return e(WorkChainCard, { key: c.key, chain: c });
+            })
+          ) : e("div", { style: { opacity: 0.7, fontSize: 13 } }, "Ingen framtida work i kedjorna.")
+        ) : null,
+
+        tab === "corr" ? (
+          corr.length ? e("div", { style: { display: "grid", gap: 8, maxHeight: 520, overflow: "auto" } },
+            corr.map(function(r){
+              return e("div", {
+                key: r.key,
                 style: {
-                  margin: "6px 0 0 0",
-                  whiteSpace: "pre-wrap",
-                  overflowWrap: "anywhere",
-                  fontSize: 12,
-                  lineHeight: "16px",
-                  background: "rgba(0,0,0,0.15)",
-                  padding: 8,
-                  borderRadius: 8
+                  paddingBottom: 8,
+                  borderBottom: "1px solid rgba(255,255,255,0.06)",
+                  fontSize: 13
                 }
-              }, JSON.stringify(r.params || {}, null, 2))
-            );
-          })
-        ) : e("div", { style: { opacity: 0.7, fontSize: 13 } }, "Ingen aktiv work-kedja.")
-      ),
-
-      e(Box, null,
-        e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "completed_work[]"),
-        done.length ? e("div", { style: { display: "grid", gap: 8 } },
-          done.map(function(r){
-            return e("div", {
-              key: r.key,
-              style: {
-                padding: 10,
-                borderRadius: 8,
-                background: "rgba(255,255,255,0.025)",
-                border: "1px solid rgba(255,255,255,0.06)",
-                opacity: 0.85
-              }
-            },
-              e("div", { style: { fontWeight: 600, fontSize: 13 } }, r.title),
-              e("div", { style: { fontSize: 12, opacity: 0.7, marginTop: 2 } },
-                [r.action, r.status].filter(Boolean).join(" · ")
-              )
-            );
-          })
-        ) : e("div", { style: { opacity: 0.7, fontSize: 13 } }, "Inget avslutat arbete ännu.")
-      ),
-
-      e(Box, null,
-        e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "Korrespondens"),
-        corr.length ? e("div", { style: { display: "grid", gap: 8, maxHeight: 260, overflow: "auto" } },
-          corr.map(function(r){
-            return e("div", {
-              key: r.key,
-              style: {
-                paddingBottom: 8,
-                borderBottom: "1px solid rgba(255,255,255,0.06)",
-                fontSize: 13
-              }
-            },
-              e("div", { style: { opacity: 0.7, marginBottom: 3 } },
-                fmtSimTime(r.sim_time_s) + " · " + r.dir + " · " + r.from + " → " + r.to + " · " + r.kind
-              ),
-              e("div", null, r.message)
-            );
-          })
-        ) : e("div", { style: { opacity: 0.7, fontSize: 13 } }, "Ingen korrespondens ännu.")
-      ),
-
-      e(Box, null,
-        e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "Rått state.json"),
-        e("pre", {
-          style: {
-            margin: 0,
-            whiteSpace: "pre-wrap",
-            overflowWrap: "anywhere",
-            fontSize: 12,
-            lineHeight: "16px",
-            maxHeight: 360,
-            overflow: "auto",
-            background: "rgba(0,0,0,0.15)",
-            padding: 10,
-            borderRadius: 8
-          }
-        }, JSON.stringify(u.raw_state || {}, null, 2))
+              },
+                e("div", { style: { opacity: 0.7, marginBottom: 3 } },
+                  fmtSimTime(r.sim_time_s) + " · " + r.dir + " · " + r.from + " → " + r.to + " · " + r.kind
+                ),
+                e("div", null, r.message)
+              );
+            })
+          ) : e("div", { style: { opacity: 0.7, fontSize: 13 } }, "Ingen korrespondens ännu.")
+        ) : null
       )
     );
 
@@ -329,61 +456,134 @@
     }
   }
 
+
+
+
+  function markerSymbolForUnit(m){
+    var roots = workRootRows((m && m.work) || []);
+    var root = roots.length ? roots[0] : {};
+    var action = String(root.action || "");
+    if (action === "move_unit") return "→";
+    if (action === "llm_replan_from_inbox" || action === "llm_replan_from_deadline" || action === "llm_replan_from_world_change") return "P";
+    if (action === "observe_area") return "O";
+    if (action === "hold_position") return "H";
+    return "";
+  }
+
   function ReplayMap(props){
+    const hostRef = React.useRef(null);
+    const mapRef = React.useRef(null);
+    const layerRef = React.useRef(null);
+
     const markers = Array.isArray(props.markers) ? props.markers : [];
-    const w = 900, h = 520, pad = 28;
+    const units = props.units || {};
 
-    if (!markers.length) {
-      return e(Box, null, e("div", { style: { opacity: 0.75 } }, "No map markers yet"));
-    }
+    React.useEffect(function(){
+      if (!hostRef.current || !window.L) return;
+      if (mapRef.current) return;
 
-    let minLat = markers[0].lat, maxLat = markers[0].lat;
-    let minLon = markers[0].lon, maxLon = markers[0].lon;
-    markers.forEach(function(m){
-      minLat = Math.min(minLat, m.lat);
-      maxLat = Math.max(maxLat, m.lat);
-      minLon = Math.min(minLon, m.lon);
-      maxLon = Math.max(maxLon, m.lon);
-    });
+      var first = markers[0] || {};
+      var lat = Number(first.lat || 55.422);
+      var lon = Number(first.lon || 13.918);
 
-    if (minLat === maxLat) { minLat -= 0.002; maxLat += 0.002; }
-    if (minLon === maxLon) { minLon -= 0.002; maxLon += 0.002; }
+      var map = window.L.map(hostRef.current, {
+        zoomControl: true,
+        attributionControl: true
+      }).setView([lat, lon], 14);
 
-    function x(lon){ return pad + ((lon - minLon) / (maxLon - minLon)) * (w - pad * 2); }
-    function y(lat){ return h - pad - ((lat - minLat) / (maxLat - minLat)) * (h - pad * 2); }
+      window.L.tileLayer("/api/geo/tiles/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: "&copy; OpenStreetMap contributors"
+      }).addTo(map);
+
+      mapRef.current = map;
+      layerRef.current = window.L.layerGroup().addTo(map);
+
+      setTimeout(function(){ map.invalidateSize(); }, 0);
+    }, []);
+
+    React.useEffect(function(){
+      var map = mapRef.current;
+      var layer = layerRef.current;
+      if (!map || !layer || !window.L) return;
+
+      layer.clearLayers();
+
+      var bounds = [];
+      markers.forEach(function(m){
+        var lat = Number(m.lat);
+        var lon = Number(m.lon);
+        if (!isFinite(lat) || !isFinite(lon)) return;
+
+        var side = String(m.side || "");
+        var status = String(m.status || "");
+        var role = String(m.role || "");
+        var label = String(m.label || m.callsign || "");
+        var unit = units[String(m.callsign || "")] || {};
+        var symbol = markerSymbolForUnit(unit);
+
+        var color = side === "red" ? "#ff6b6b" : "#6bb6ff";
+        var radius = role === "platoon" ? 9 : 7;
+        if (status === "working") radius += 2;
+
+        var base = window.L.circleMarker([lat, lon], {
+          radius: radius,
+          color: color,
+          weight: 2,
+          fillColor: color,
+          fillOpacity: 0.75
+        });
+
+        base.on("click", function(){
+          if (props.onSelect) props.onSelect(String(m.callsign || ""));
+        });
+        base.bindTooltip(label, { permanent: true, direction: "top", offset: [0, -8] });
+        base.addTo(layer);
+
+        if (symbol) {
+          var icon = window.L.marker([lat, lon], {
+            interactive: true,
+            icon: window.L.divIcon({
+              className: "replay-map-symbol",
+              html: '<div style="color:' + color + ';font-weight:700;font-size:14px;text-shadow:0 0 2px #000;">' + symbol + '</div>',
+              iconSize: [16, 16],
+              iconAnchor: [8, 8]
+            })
+          });
+          icon.on("click", function(){
+            if (props.onSelect) props.onSelect(String(m.callsign || ""));
+          });
+          icon.addTo(layer);
+        }
+
+        bounds.push([lat, lon]);
+      });
+
+      if (bounds.length === 1) {
+        map.setView(bounds[0], Math.max(map.getZoom(), 14));
+      } else if (bounds.length > 1) {
+        map.fitBounds(bounds, { padding: [20, 20] });
+      }
+
+      setTimeout(function(){ map.invalidateSize(); }, 0);
+    }, [JSON.stringify(markers), JSON.stringify(units)]);
 
     return e(Box, null,
-      e("svg", {
-        viewBox: "0 0 " + w + " " + h,
-        style: { width: "100%", height: 520, display: "block", background: "rgba(255,255,255,0.02)", borderRadius: 8 }
-      },
-        markers.map(function(m){
-          var fill = (m.side === "red") ? "#d55" : "#6cf";
-          var cx = x(m.lon), cy = y(m.lat);
-          return e("g", {
-            key: m.callsign,
-            onClick: function(){ props.onSelect && props.onSelect(m.callsign); },
-            style: { cursor: "pointer" }
-          },
-            e("circle", { cx: cx, cy: cy, r: 7, fill: fill }),
-            e("text", {
-              x: cx + 9, y: cy - 8, fill: "currentColor",
-              style: { fontSize: 12, fontWeight: 600 }
-            }, m.callsign)
-          );
-        })
-      )
+      e("div", { style: { fontWeight: 600, marginBottom: 8 } }, "Karta"),
+      e("div", {
+        ref: hostRef,
+        style: {
+          height: "100%",
+          minHeight: 520,
+          borderRadius: 10,
+          overflow: "hidden",
+          background: "#1b1f24"
+        }
+      })
     );
   }
 
-  function sideUnits(units, side){
-    var out = {};
-    Object.keys(units || {}).forEach(function(k){
-      var u = units[k];
-      if (u && u.side === side) out[k] = u;
-    });
-    return out;
-  }
+
 
   function ReplayView(){
     const scenarios = useApi("api/replay/scenarios", { cacheMs: 60000, pollMs: 0 });
@@ -398,6 +598,7 @@
     const [orderTextRed, setOrderTextRed] = React.useState("");
     const [expandedBlue, setExpandedBlue] = React.useState({});
     const [expandedRed, setExpandedRed] = React.useState({});
+    const [detailTab, setDetailTab] = React.useState("status");
 
     React.useEffect(function(){
       var items = (((scenarios || {}).data || {}).items || []);
@@ -610,7 +811,10 @@
                 key: n.callsign,
                 node: n,
                 selected: selectedUnit,
-                onSelect: setSelectedUnit,
+                onSelect: function(cs){
+                  setSelectedUnit(cs);
+                  setDetailTab("status");
+                },
                 depth: 0,
                 expanded: expanded,
                 onToggle: toggleNode
@@ -622,12 +826,19 @@
         e("div", { style: { minHeight: 0, overflow: "auto" } },
           e(ReplayMap, {
             markers: markers,
-            onSelect: setSelectedUnit
+            units: filteredUnits,
+            onSelect: function(cs){
+              setSelectedUnit(cs);
+              setDetailTab("status");
+            }
           })
         ),
 
         e("div", { style: { minHeight: 0, overflow: "auto" } },
-          e(UnitDetail, { unit: selected && selected.side === selectedSide ? selected : null })
+          e(UnitDetail, {
+            unit: selected && selected.side === selectedSide ? selected : null,
+            initialTab: detailTab
+          })
         )
       ),
 

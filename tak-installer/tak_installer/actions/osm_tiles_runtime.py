@@ -33,25 +33,25 @@ def _replay_enabled() -> bool:
 
 
 class _Action:
-    ID = "osrm-packages"
+    ID = "osm-tiles-runtime"
 
     def inspect(self, ctx) -> int:
         cfg = _geo_cfg()
         log.info("Inspecting %s action...", self.ID)
         log.info("  replay_enabled: %s", str(_replay_enabled()).lower())
-        log.info("  routing_enabled: %s", str(_truthy(cfg.get("routing_enabled", "false"))).lower())
-        log.info("  routing_mode: %s", cfg.get("routing_mode", "external"))
-        log.info("  routing_url: %s", cfg.get("routing_url", ""))
-        log.info("%s: local OSRM package install disabled; use /api/geo/osrm proxy", self.ID)
+        log.info("  osm_tiles_enabled: %s", str(_truthy(cfg.get("osm_tiles_enabled", "false"))).lower())
+        log.info("  osm_tiles_mode: %s", cfg.get("osm_tiles_mode", "external"))
+        log.info("  osm_tiles_url: %s", cfg.get("osm_tiles_url", ""))
+        log.info("%s: local OSM tile runtime disabled; use /api/geo proxy with external/dedicated/node_local later", self.ID)
         return 0
 
     def apply(self, ctx) -> int:
         cfg = _geo_cfg()
         log.info("Applying %s action...", self.ID)
         log.info("  replay_enabled: %s", str(_replay_enabled()).lower())
-        log.info("  routing_enabled: %s", str(_truthy(cfg.get("routing_enabled", "false"))).lower())
-        log.info("  routing_mode: %s", cfg.get("routing_mode", "external"))
-        log.info("%s: no local OSRM install performed; routing goes through takctl geo proxy", self.ID)
+        log.info("  osm_tiles_enabled: %s", str(_truthy(cfg.get("osm_tiles_enabled", "false"))).lower())
+        log.info("  osm_tiles_mode: %s", cfg.get("osm_tiles_mode", "external"))
+        log.info("%s: no local OSM tile install performed; geo is served via takctl proxy", self.ID)
         return 0
 
 

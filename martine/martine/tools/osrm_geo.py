@@ -7,7 +7,7 @@ import requests
 
 
 def _osrm_base_url() -> str:
-    return os.environ.get("MARTINE_OSRM_URL", "http://127.0.0.1:5000").rstrip("/")
+    return os.environ.get("MARTINE_OSRM_URL", "http://127.0.0.1:8080/api/geo/osrm").rstrip("/")
 
 
 def _validate_profile(profile: str) -> str:

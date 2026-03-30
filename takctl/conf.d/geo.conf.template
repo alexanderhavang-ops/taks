@@ -1,0 +1,15 @@
+# geo config
+osm_tiles_enabled = true
+osm_tiles_mode = external
+osm_tiles_url = https://tile.openstreetmap.org/{z}/{x}/{y}.png
+osm_tiles_pbf_url = https://download.geofabrik.de/europe/sweden-latest.osm.pbf
+osm_tiles_data_root = /opt/tak/geo/osm-tiles
+osm_tiles_container_name = taks-osm-tiles
+osm_tiles_listen_host = 127.0.0.1
+osm_tiles_listen_port = 8088
+osm_tiles_import = false
+
+routing_enabled = true
+routing_mode = external
+routing_url = https://router.project-osrm.org
+routing_local_url = http://127.0.0.1:5000
