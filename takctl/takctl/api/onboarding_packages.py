@@ -249,6 +249,40 @@ def token_qr_png(req: Request, token: str, client: str):
     )
 
 
+
+
+def _onboarding_mode_label() -> str:
+    try:
+        raw = str(load_config().get("onboarding_mode", "") or "").strip().lower()
+    except Exception:
+        raw = ""
+    if raw in ("auto-enroll", "cert-creation"):
+        return "auto-enroll" if raw == "auto-enroll" else "cert"
+    try:
+        legacy = str(load_config().get("create_cert_with_user", "") or "").strip().lower()
+    except Exception:
+        legacy = ""
+    return "cert" if legacy in ("1", "true", "yes", "y", "on") else "auto-enroll"
+
+
+def _pw_embed_label(key: str, short: str) -> str:
+    try:
+        raw = str(load_config().get(key, "") or "").strip().lower()
+    except Exception:
+        raw = ""
+    on = raw in ("1", "true", "yes", "y", "on")
+    return f"{short}-in" if on else f"{short}-out"
+
+
+def _package_filename(username: str, client: str) -> str:
+    mode = _onboarding_mode_label()
+    trust = _pw_embed_label("include_truststore_password_in_package", "trustpw")
+    clientpw = _pw_embed_label("include_client_password_in_package", "clientpw")
+    u = (username or "").strip() or "user"
+    c = (client or "").strip().lower() or "client"
+    return f"{u}.{c}.{mode}.{trust}.{clientpw}.zip"
+
+
 @router.get("/onboarding/cards/{token}/packages/atak/package.zip")
 def token_atak_package_zip(req: Request, token: str):
     svc, _, username, _ = _require_token(token)
@@ -267,7 +301,7 @@ def token_atak_package_zip(req: Request, token: str):
     return FileResponse(
         str(out),
         media_type="application/zip",
-        filename=f"{username}.atak.package.zip",
+        filename=_package_filename(username, "atak"),
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
 
@@ -344,7 +378,7 @@ def token_itak_package_zip(req: Request, token: str):
     return FileResponse(
         str(out),
         media_type="application/zip",
-        filename=f"{username}.itak.package.zip",
+        filename=_package_filename(username, "itak"),
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
 
@@ -367,7 +401,7 @@ def itak_package_zip(req: Request, username: str):
     return FileResponse(
         str(out),
         media_type="application/zip",
-        filename=f"{username}.itak.package.zip",
+        filename=_package_filename(username, "itak"),
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
 
@@ -617,7 +651,7 @@ def atak_package_zip(req: Request, username: str):
     return FileResponse(
         str(out),
         media_type="application/zip",
-        filename=f"{username}.atak.package.zip",
+        filename=_package_filename(username, "atak"),
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
 
