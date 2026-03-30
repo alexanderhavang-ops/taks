@@ -191,7 +191,7 @@ def token_qr_payload_txt(req: Request, token: str, client: str):
 
     base = _resolve_public_base(req, username)
     package_url = f"{base}/api/onboarding/cards/{token}/packages/{c}/package.zip"
-    package_url = _url_with_qs(package_url, via="qr")
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
 
     host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
     payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
@@ -233,7 +233,7 @@ def token_qr_png(req: Request, token: str, client: str):
 
     base = _resolve_public_base(req, username)
     package_url = f"{base}/api/onboarding/cards/{token}/packages/{c}/package.zip"
-    package_url = _url_with_qs(package_url, via="qr")
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
 
     host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
     payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
@@ -419,7 +419,7 @@ def qr_payload_txt(req: Request, username: str, client: str):
         raise HTTPException(status_code=400, detail=f"unknown client: {client}")
 
     base = _resolve_public_base(req, username)
-    package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), via="qr")
+    package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), regen="1", via="qr")
     host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
     payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
@@ -435,7 +435,7 @@ def qr_payload_json(req: Request, username: str, client: str):
         raise HTTPException(status_code=400, detail=f"unknown client: {client}")
 
     base = _resolve_public_base(req, username)
-    package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), via="qr")
+    package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), regen="1", via="qr")
     host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
     payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
@@ -454,7 +454,7 @@ def qr_png(req: Request, username: str, client: str):
         raise HTTPException(status_code=400, detail=f"unknown client: {client}")
 
     base = _resolve_public_base(req, username)
-    package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), via="qr")
+    package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), regen="1", via="qr")
     host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
     payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
