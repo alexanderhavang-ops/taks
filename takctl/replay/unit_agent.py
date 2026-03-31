@@ -144,6 +144,29 @@ def ingest_inbox_into_state(callsign: str) -> Dict[str, Any]:
 
 
 def _geo_area_summary_for_state(st: Dict[str, Any]) -> Dict[str, Any]:
+    own = dict(st.get("own_state") or {})
+    pos = dict(own.get("position") or {})
+    lat = pos.get("lat")
+    lon = pos.get("lon")
+    if lat is None or lon is None:
+        return {"ok": False, "error": "missing_position"}
+
+    params = urllib.parse.urlencode({
+        "lat": str(lat),
+        "lon": str(lon),
+        "radius_m": "1000",
+    })
+    url = f"http://127.0.0.1:8080/api/geo/area_summary?{params}"
+
+    try:
+        with urllib.request.urlopen(url, timeout=8.0) as r:
+            raw = (r.read() or b"").decode("utf-8", "replace")
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+        return {"ok": False, "error": "invalid_geo_payload"}
+    except Exception as e:
+        return {"ok": False, "error": f"geo_lookup_failed: {e}"}
 
 
 def _geo_area_brief(local_area: Dict[str, Any]) -> Dict[str, Any]:
@@ -191,31 +214,6 @@ def _geo_area_brief(local_area: Dict[str, Any]) -> Dict[str, Any]:
         "risk_areas": risks[:4],
         "summary_sv": " | ".join(parts) if parts else "Ingen tydlig terrängbedömning tillgänglig.",
     }
-
-    own = dict(st.get("own_state") or {})
-    pos = dict(own.get("position") or {})
-    lat = pos.get("lat")
-    lon = pos.get("lon")
-    if lat is None or lon is None:
-        return {"ok": False, "error": "missing_position"}
-
-    params = urllib.parse.urlencode({
-        "lat": str(lat),
-        "lon": str(lon),
-        "radius_m": "1000",
-    })
-    url = f"http://127.0.0.1:8080/api/geo/area_summary?{params}"
-
-    try:
-        with urllib.request.urlopen(url, timeout=8.0) as r:
-            raw = (r.read() or b"").decode("utf-8", "replace")
-        data = json.loads(raw)
-        if isinstance(data, dict):
-            return data
-        return {"ok": False, "error": "invalid_geo_payload"}
-    except Exception as e:
-        return {"ok": False, "error": f"geo_lookup_failed: {e}"}
-
 
 def build_packet_from_state(st: Dict[str, Any], sim_time_s: int) -> Dict[str, Any]:
     agent = dict(st.get("agent") or {})
