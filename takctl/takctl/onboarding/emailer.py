@@ -5,16 +5,14 @@ import re
 import subprocess
 from email.message import EmailMessage
 from pathlib import Path
-from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from takctl.config import load_config
 
 
-_DEFAULT_RESEND_SECRET_FILES = (
-    "/opt/tak/tools/takctl/secrets.d/onboarding.conf",
-    "/opt/taks/secrets.d/mail.conf",
-)
+_RUNTIME_ONBOARDING_SECRET = "/opt/tak/tools/takctl/secrets.d/onboarding.conf"
+_DEV_FALLBACK_SECRET = "/opt/taks/secrets.d/mail.conf"
 
 
 def _sendmail_path() -> str:
@@ -23,11 +21,8 @@ def _sendmail_path() -> str:
         "/usr/lib/sendmail",
         "/usr/bin/sendmail",
     ):
-        try:
-            if Path(p).exists():
-                return p
-        except Exception:
-            pass
+        if Path(p).exists():
+            return p
     raise RuntimeError("sendmail not found (/usr/sbin/sendmail, /usr/lib/sendmail, /usr/bin/sendmail)")
 
 
@@ -56,7 +51,7 @@ def _provider() -> str:
     v = _cfg_get("onboarding_email_provider", "").lower()
     if v in ("", "sendmail"):
         return "sendmail"
-    if v in ("resend",):
+    if v == "resend":
         return "resend"
     raise RuntimeError(f"unsupported onboarding_email_provider: {v!r}")
 
@@ -72,16 +67,6 @@ def _reply_to() -> str:
     return _cfg_get("onboarding_reply_to", "")
 
 
-def _resend_secret_file() -> str:
-    v = _cfg_get("onboarding_resend_secret_file", "")
-    if v:
-        return v
-    for p in _DEFAULT_RESEND_SECRET_FILES:
-        if Path(p).exists():
-            return p
-    return _DEFAULT_RESEND_SECRET_FILES[0]
-
-
 def _read_kv_file(path: str) -> dict[str, str]:
     out: dict[str, str] = {}
     p = Path(path)
@@ -90,9 +75,7 @@ def _read_kv_file(path: str) -> dict[str, str]:
 
     for raw in p.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
+        if not line or line.startswith("#") or "=" not in line:
             continue
         k, v = line.split("=", 1)
         out[k.strip()] = v.strip()
@@ -100,16 +83,15 @@ def _read_kv_file(path: str) -> dict[str, str]:
 
 
 def _resend_api_key() -> str:
-    env = _cfg_get("resend_apikey", "")
-    if env:
-        return env
-
-    secret_file = _resend_secret_file()
-    kv = _read_kv_file(secret_file)
-    key = (kv.get("resend.apikey") or "").strip()
-    if not key:
-        raise RuntimeError(f"resend.apikey missing in {secret_file}")
-    return key
+    for path in (_RUNTIME_ONBOARDING_SECRET, _DEV_FALLBACK_SECRET):
+        kv = _read_kv_file(path)
+        key = (kv.get("resend.apikey") or "").strip()
+        if key:
+            return key
+    raise RuntimeError(
+        f"resend.apikey missing in {_RUNTIME_ONBOARDING_SECRET}"
+        f" (dev fallback also checked: {_DEV_FALLBACK_SECRET})"
+    )
 
 
 def _subject(username: str) -> str:
@@ -188,10 +170,9 @@ def _send_via_resend(*, to_addr: str, username: str, card_url: str) -> dict:
     if reply_to:
         payload["reply_to"] = [reply_to]
 
-    body = json.dumps(payload).encode("utf-8")
     req = Request(
         "https://api.resend.com/emails",
-        data=body,
+        data=json.dumps(payload).encode("utf-8"),
         method="POST",
         headers={
             "Authorization": f"Bearer {_resend_api_key()}",

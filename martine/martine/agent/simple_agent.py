@@ -153,6 +153,30 @@ def run_once(user_question: str, *, sender_uid: str = "", sender_callsign: str =
         tool_result = tool_resp.get("structured")
         if tool_result is None:
             tool_result = tool_resp
+
+        secondary_tool_result = None
+        if tool_name == "search_reference_docs" and isinstance(tool_result, dict):
+            items = list(tool_result.get("items") or [])
+            if items:
+                top = dict(items[0] or {})
+                top_doc_id = str(top.get("doc_id") or "")
+                top_chunk_id = str(top.get("chunk_id") or "")
+                if top_doc_id and top_chunk_id:
+                    secondary_resp = call_tool_via_mcp(
+                        "get_reference_doc_context",
+                        {"doc_id": top_doc_id, "chunk_id": top_chunk_id, "window": 1},
+                    )
+                    write_json(run_id, "04b_tool_call_raw.json", secondary_resp)
+                    secondary_tool_result = secondary_resp.get("structured")
+                    if secondary_tool_result is None:
+                        secondary_tool_result = secondary_resp
+
+        if secondary_tool_result is not None:
+            tool_result = {
+                "search": tool_result,
+                "context": secondary_tool_result,
+            }
+
         write_json(run_id, "05_tool_result.json", tool_result)
 
     final_prompt = _build_final_answer_prompt(user_question, tool_result)

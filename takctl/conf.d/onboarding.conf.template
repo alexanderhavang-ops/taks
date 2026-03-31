@@ -27,3 +27,8 @@ reveal_client_password_on_soldier_card = false
 # Default for showing the TAK user password on the soldier card.
 # Actual rendering still depends on TAKS knowing the password.
 reveal_password_default = true
+
+# onboarding email delivery
+onboarding_email_provider = resend
+onboarding_from_addr = TAKS <onboarding@mail.tak-hv-sandbox.se>
+onboarding_reply_to =

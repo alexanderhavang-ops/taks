@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 from martine.config import load_config
 from martine.state.paths import ensure_state_dirs
 from martine.tools.taks_state import get_taks_state_summary
-from martine.tools.docs_ref import list_reference_docs, search_reference_docs
+from martine.tools.docs_ref import list_reference_docs, search_reference_docs, get_reference_doc_context
 from martine.tools.cot_sa import (
     get_contact_status,
     get_current_time,
@@ -87,6 +87,21 @@ def list_tools() -> List[Dict[str, Any]]:
                     "doc_id": {"type": "string"}
                 },
                 "required": ["query"],
+                "additionalProperties": False,
+            },
+        },
+
+        {
+            "name": "get_reference_doc_context",
+            "description": "Return one matching chunk plus neighboring chunks for better document answer context.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "doc_id": {"type": "string"},
+                    "chunk_id": {"type": "string"},
+                    "window": {"type": "integer"}
+                },
+                "required": ["doc_id", "chunk_id"],
                 "additionalProperties": False,
             },
         },
@@ -301,6 +316,14 @@ def call_tool(name: str, arguments: Dict[str, Any] | None = None) -> Dict[str, A
             query=str(args.get("query", "")),
             limit=int(args.get("limit", 8) or 8),
             doc_id=str(args.get("doc_id", "")),
+        )
+
+
+    if name == "get_reference_doc_context":
+        return get_reference_doc_context(
+            doc_id=str(args.get("doc_id", "")),
+            chunk_id=str(args.get("chunk_id", "")),
+            window=int(args.get("window", 1) or 1),
         )
 
     if name == "get_current_time":

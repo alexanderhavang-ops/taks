@@ -169,50 +169,135 @@ def _geo_area_summary_for_state(st: Dict[str, Any]) -> Dict[str, Any]:
         return {"ok": False, "error": f"geo_lookup_failed: {e}"}
 
 
-def _geo_area_brief(local_area: Dict[str, Any]) -> Dict[str, Any]:
+def _geo_area_brief(local_area: Dict[str, Any], language_profile: str) -> Dict[str, Any]:
+    lang = "sv" if str(language_profile or "").strip().lower().startswith("sv") else "en"
+
     if not isinstance(local_area, dict) or not local_area.get("ok"):
         return {
             "ok": False,
-            "summary_sv": "Ingen geografisk områdessammanfattning tillgänglig.",
+            "language": lang,
+            "summary_text": (
+                "Ingen geografisk områdessammanfattning tillgänglig."
+                if lang == "sv" else
+                "No geographic area summary available."
+            ),
         }
+
+    def tr_mob(v: str) -> str:
+        key = str(v or "").strip()
+        if lang == "sv":
+            m = {
+                "good": "god",
+                "mixed": "blandad",
+                "limited": "begränsad",
+                "restricted": "mycket begränsad",
+                "good_on_roads": "god på väg",
+                "good_on_roads_limited_offroad": "god på väg, begränsad terrängframkomlighet",
+            }
+            return m.get(key, key or "okänd")
+        m = {
+            "god": "good",
+            "blandad": "mixed",
+            "begränsad": "limited",
+            "mycket begränsad": "restricted",
+        }
+        return m.get(key, key or "unknown")
+
+    def tr_text(v: str) -> str:
+        t = str(v or "").strip()
+        sv = {
+            "approach routes appear limited and exposed": "framryckningsvägarna bedöms vara få och exponerade",
+            "few obvious observation positions detected": "få tydliga observationslägen identifierade",
+            "open ground exposure": "öppen mark medför exponering",
+            "road approach likely": "framryckning längs väg är sannolik",
+            "foot infiltration via tracks/paths possible": "infiltration till fots via stigar och mindre vägar möjlig",
+            "covered movement through built-up area possible": "skyddad framryckning genom bebyggelse möjlig",
+            "concealed movement via tree cover possible": "dold framryckning via trädbevuxen terräng möjlig",
+            "built-up edge positions": "läge i bebyggelsekant",
+            "tree line / woodland edge": "läge i skogsbryn eller trädlinje",
+            "waterfront observation line": "observationslinje längs strand eller vatten",
+            "road junction overwatch": "övervakning av vägkorsning",
+            "water obstacle / exposed shoreline": "vattenhinder eller exponerad strandlinje",
+            "road crossing / avenue of approach": "vägövergång eller sannolik anfallsriktning",
+            "terrain appears mixed with no single dominant risk area": "terrängen är blandad utan en tydligt dominerande riskyta",
+        }
+        en = {v: k for k, v in sv.items()}
+        if lang == "sv":
+            return sv.get(t, t)
+        return en.get(t, t)
+
+    def tr_label(label: str) -> str:
+        t = str(label or "").strip()
+        if lang == "sv":
+            return t.replace("(nature_reserve)", "(naturreservat)")
+        return t.replace("(naturreservat)", "(nature_reserve)")
 
     mobility = dict(local_area.get("mobility") or {})
     ta = dict(local_area.get("tactical_assessment") or {})
 
-    named = list(local_area.get("named_pois") or [])
-    likely = list(ta.get("likely_approach_routes") or [])
-    op = list(ta.get("good_op_positions") or [])
-    risks = list(ta.get("risk_areas") or [])
+    named = [tr_label(x) for x in list(local_area.get("named_pois") or [])]
+    likely = [tr_text(x) for x in list(ta.get("likely_approach_routes") or [])]
+    op = [tr_text(x) for x in list(ta.get("good_op_positions") or [])]
+    risks = [tr_text(x) for x in list(ta.get("risk_areas") or [])]
+
+    mobility_i18n = {
+        "foot": tr_mob(mobility.get("foot")),
+        "vehicle": tr_mob(mobility.get("vehicle")),
+        "concealment": tr_mob(mobility.get("concealment")),
+        "observation": tr_mob(mobility.get("observation")),
+    }
 
     parts = []
-    if named:
-        parts.append("Viktiga terrängföremål: " + ", ".join(named[:3]))
-    if mobility:
+    if lang == "sv":
+        if named:
+            parts.append("Viktiga terrängföremål: " + ", ".join(named[:3]))
         parts.append(
-            "Framkomlighet: fot="
-            + str(mobility.get("foot") or "okänd")
+            "Framkomlighet och terräng: fot="
+            + mobility_i18n["foot"]
             + ", fordon="
-            + str(mobility.get("vehicle") or "okänd")
+            + mobility_i18n["vehicle"]
             + ", skydd="
-            + str(mobility.get("concealment") or "okänd")
+            + mobility_i18n["concealment"]
             + ", observation="
-            + str(mobility.get("observation") or "okänd")
+            + mobility_i18n["observation"]
         )
-    if likely:
-        parts.append("Sannolika framryckningsvägar: " + "; ".join(likely[:2]))
-    if op:
-        parts.append("Lämpliga observationslägen: " + "; ".join(op[:2]))
-    if risks:
-        parts.append("Riskytor: " + "; ".join(risks[:2]))
+        if likely:
+            parts.append("Sannolika framryckningsvägar: " + "; ".join(likely[:2]))
+        if op:
+            parts.append("Lämpliga observationslägen: " + "; ".join(op[:2]))
+        if risks:
+            parts.append("Riskytor: " + "; ".join(risks[:2]))
+        summary_text = " | ".join(parts) if parts else "Ingen tydlig terrängbedömning tillgänglig."
+    else:
+        if named:
+            parts.append("Key terrain features: " + ", ".join(named[:3]))
+        parts.append(
+            "Mobility and terrain: foot="
+            + mobility_i18n["foot"]
+            + ", vehicle="
+            + mobility_i18n["vehicle"]
+            + ", concealment="
+            + mobility_i18n["concealment"]
+            + ", observation="
+            + mobility_i18n["observation"]
+        )
+        if likely:
+            parts.append("Likely approach routes: " + "; ".join(likely[:2]))
+        if op:
+            parts.append("Suitable observation positions: " + "; ".join(op[:2]))
+        if risks:
+            parts.append("Risk areas: " + "; ".join(risks[:2]))
+        summary_text = " | ".join(parts) if parts else "No clear terrain assessment available."
 
     return {
         "ok": True,
+        "language": lang,
         "named_features": named[:6],
-        "mobility": mobility,
+        "mobility": mobility_i18n,
         "likely_approach_routes": likely[:4],
         "good_op_positions": op[:4],
         "risk_areas": risks[:4],
-        "summary_sv": " | ".join(parts) if parts else "Ingen tydlig terrängbedömning tillgänglig.",
+        "summary_text": summary_text,
     }
 
 def build_packet_from_state(st: Dict[str, Any], sim_time_s: int) -> Dict[str, Any]:
@@ -236,7 +321,7 @@ def build_packet_from_state(st: Dict[str, Any], sim_time_s: int) -> Dict[str, An
     local_area = _geo_area_summary_for_state(st)
     packet["geo"] = {
         "local_area": local_area,
-        "local_area_brief": _geo_area_brief(local_area),
+        "local_area_brief": _geo_area_brief(local_area, str(agent.get("language_profile") or "")),
     }
     return packet
 

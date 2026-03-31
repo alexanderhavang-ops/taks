@@ -118,3 +118,80 @@ def search_reference_docs(
         "count": len(hits),
         "items": hits,
     }
+
+
+def get_reference_doc_context(
+    *,
+    doc_id: str,
+    chunk_id: str,
+    window: int = 1,
+) -> dict[str, Any]:
+    d = str(doc_id or "").strip()
+    c = str(chunk_id or "").strip()
+    if not d:
+        return {"ok": False, "error": "doc_id required"}
+    if not c:
+        return {"ok": False, "error": "chunk_id required"}
+
+    reg_items = _load_registry()
+    reg_by_id = {str(x.get("doc_id") or ""): x for x in reg_items if isinstance(x, dict)}
+    reg = reg_by_id.get(d) or {}
+    if not reg:
+        return {"ok": False, "error": "document not found", "doc_id": d}
+    if str(reg.get("status") or "") != "ready":
+        return {"ok": False, "error": "document not ready", "doc_id": d}
+
+    chunk_path = DERIVED_ROOT / d / "chunks.jsonl"
+    if not chunk_path.exists():
+        return {"ok": False, "error": "chunks missing", "doc_id": d}
+
+    rows: list[dict[str, Any]] = []
+    try:
+        for line in chunk_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(row, dict):
+                rows.append(row)
+    except Exception as e:
+        return {"ok": False, "error": f"failed to read chunks: {e}", "doc_id": d}
+
+    idx = -1
+    for i, row in enumerate(rows):
+        if str(row.get("chunk_id") or "") == c:
+            idx = i
+            break
+
+    if idx < 0:
+        return {"ok": False, "error": "chunk not found", "doc_id": d, "chunk_id": c}
+
+    w = max(0, min(int(window or 1), 3))
+    lo = max(0, idx - w)
+    hi = min(len(rows), idx + w + 1)
+
+    items: list[dict[str, Any]] = []
+    for i in range(lo, hi):
+        row = rows[i]
+        items.append({
+            "chunk_id": str(row.get("chunk_id") or ""),
+            "is_focus": i == idx,
+            "text": str(row.get("text") or "")[:2200],
+            "section_path": list(row.get("section_path") or []),
+            "page_start": row.get("page_start"),
+            "page_end": row.get("page_end"),
+        })
+
+    focus = rows[idx]
+    return {
+        "ok": True,
+        "doc_id": d,
+        "title": str(reg.get("title") or d),
+        "chunk_id": c,
+        "window": w,
+        "items": items,
+        "focus_text": str(focus.get("text") or "")[:2200],
+    }
