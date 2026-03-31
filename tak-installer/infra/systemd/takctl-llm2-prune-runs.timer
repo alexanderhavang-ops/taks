@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic prune of TAKCTL LLM2 run state
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+Persistent=true
+Unit=takctl-llm2-prune-runs.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import os
+import shutil
+import sys
+from pathlib import Path
+
+RUNS_DIR = Path(os.environ.get("TAKCTL_LLM2_RUNS_DIR", "/opt/tak/tools/takctl/state/llm2/runs"))
+KEEP = int(os.environ.get("TAKCTL_LLM2_KEEP_RUNS", "5"))
+
+
+def main() -> int:
+    runs_dir = RUNS_DIR
+    keep = max(0, KEEP)
+
+    if not runs_dir.exists():
+        print(f"[takctl-llm2-prune] runs dir missing, nothing to do: {runs_dir}")
+        return 0
+
+    if not runs_dir.is_dir():
+        print(f"[takctl-llm2-prune] not a directory: {runs_dir}", file=sys.stderr)
+        return 1
+
+    run_dirs = sorted(
+        [p for p in runs_dir.iterdir() if p.is_dir()],
+        key=lambda p: p.name,
+        reverse=True,
+    )
+
+    keep_dirs = run_dirs[:keep]
+    prune_dirs = run_dirs[keep:]
+
+    print(f"[takctl-llm2-prune] runs_dir={runs_dir}")
+    print(f"[takctl-llm2-prune] keep={keep}")
+    print(f"[takctl-llm2-prune] found={len(run_dirs)}")
+    print(f"[takctl-llm2-prune] pruning={len(prune_dirs)}")
+
+    for p in prune_dirs:
+        print(f"[takctl-llm2-prune] removing {p}")
+        shutil.rmtree(p, ignore_errors=False)
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
