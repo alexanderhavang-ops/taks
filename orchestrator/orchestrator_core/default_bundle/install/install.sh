@@ -212,6 +212,11 @@ main() {
 
   run_step "os-tuning" "$BUNDLE_ROOT/install/os-tuning.sh"
   run_step "takserver" "$BUNDLE_ROOT/install/takserver.sh"
+  run_step "tak-certs-config" "$BUNDLE_ROOT/install/tak-certs-config.sh"
+  generate_tak_server_certs
+  run_step "tak-certs-layout" "$BUNDLE_ROOT/install/tak-certs-layout.sh"
+  run_step "tak-coreconfig-render" "$BUNDLE_ROOT/install/tak-coreconfig-render.sh"
+  restart_takserver_if_present
 
   if [ -f "$BUNDLE_ROOT/install/taks.sh" ]; then
     if bash "$BUNDLE_ROOT/install/taks.sh"; then
@@ -220,12 +225,6 @@ main() {
       log "WARNING: taks step failed; continuing"
     fi
   fi
-
-  run_step "tak-certs-config" "$BUNDLE_ROOT/install/tak-certs-config.sh"
-  generate_tak_server_certs
-  run_step "tak-certs-layout" "$BUNDLE_ROOT/install/tak-certs-layout.sh"
-  run_step "tak-coreconfig-render" "$BUNDLE_ROOT/install/tak-coreconfig-render.sh"
-  restart_takserver_if_present
 
   log "install complete"
 }
