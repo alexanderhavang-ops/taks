@@ -17,6 +17,86 @@ RuntimeConfig = KVView
 RuntimeSecrets = KVView
 
 
+def _render_conf(section: str, values: dict[str, str]) -> str:
+    lines = [f"[{section}]", "# written by orchestrator_core.config", ""]
+    for k in sorted(values.keys()):
+        lines.append(f"{k} = {values.get(k, '')}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def load_config(path: Optional[str] = None, *, secrets_path: Optional[str] = None) -> RuntimeConfig:
+    cfg = load_runtime_config_view()
+    if path and path != cfg.root_path and path != cfg._loaded_from:
+        pass
+    return cfg
+
+
+def load_secrets(path: Optional[str] = None) -> RuntimeSecrets:
+    sec = load_runtime_secrets_view()
+    if path and path != sec.root_path and path != sec._loaded_from:
+        pass
+    return sec
+
+
+def render_config(cfg: RuntimeConfig) -> str:
+    return _render_conf("orchestrator", cfg.values)
+
+
+def render_secrets(sec: RuntimeSecrets) -> str:
+    return _render_conf("orchestrator-secrets", sec.values)
+
+
+def write_config(cfg: RuntimeConfig, path: Optional[str] = None) -> RuntimeConfig:
+    return save_runtime_config_view(cfg)
+
+
+def write_secrets(sec: RuntimeSecrets, path: Optional[str] = None) -> RuntimeSecrets:
+    return save_runtime_secrets_view(sec)
+
+
+def apply_config_updates(
+    *,
+    config_updates: dict[str, Any] | None = None,
+    secret_updates: dict[str, Any] | None = None,
+    config_path: Optional[str] = None,
+    secrets_path: Optional[str] = None,
+) -> tuple[RuntimeConfig, RuntimeSecrets]:
+    return apply_runtime_updates(
+        config_updates=config_updates,
+        secret_updates=secret_updates,
+    )
+
+
+def config_public_state() -> dict[str, Any]:
+    return runtime_public_state()
+
+
+def _s(v: Any, default: str = "") -> str:
+    if v is None:
+        return default
+    s = str(v).strip()
+    return s if s else default
+
+
+def _b(v: Any, default: bool = False) -> bool:
+    if v is None:
+        return default
+    s = str(v).strip().lower()
+    if s in ("1", "true", "yes", "on"):
+        return True
+    if s in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
+def _i(v: Any, default: int = 0) -> int:
+    try:
+        return int(str(v).strip())
+    except Exception:
+        return default
+
+
 @dataclass(frozen=True)
 class IdentityConfig:
     orchestrator_fqdn: str
@@ -35,8 +115,10 @@ class PathsConfig:
 class AwsConfig:
     region: str
     default_ami: str
+    default_vpc_id: str
     default_subnet_id: str
     default_security_group_id: str
+    default_key_name: str
     default_instance_profile: str
     default_instance_type: str
     ssh_key_name: str
@@ -57,6 +139,7 @@ class BundlesConfig:
     source_repo_root: str
     default_bundle_kind: str
     include_taks_source: bool
+    default_bundle_ttl: int
 
 
 @dataclass(frozen=True)
@@ -85,108 +168,77 @@ class AuthSecrets:
 
 
 @dataclass(frozen=True)
-class SecretsConfig:
+class OrchSecrets:
     auth: AuthSecrets
 
 
-def _s(v: Any, default: str = "") -> str:
-    if v is None:
-        return default
-    return str(v).strip()
+def load_orch_config(path: Optional[str] = None, *, secrets_path: Optional[str] = None) -> OrchConfig:
+    cfg = load_config(path=path, secrets_path=secrets_path)
 
+    orchestrator_fqdn = _s(cfg.get("orchestrator_fqdn"))
+    public_base_url = _s(cfg.get("public_base_url"))
+    if not public_base_url and orchestrator_fqdn:
+        public_base_url = f"https://{orchestrator_fqdn}"
 
-def _b(v: Any, default: bool = False) -> bool:
-    if isinstance(v, bool):
-        return v
-    s = _s(v, "").lower()
-    if not s:
-        return default
-    return s in {"1", "true", "yes", "on"}
+    unit_bundle_base_url = _s(cfg.get("unit_bundle_base_url"))
+    if not unit_bundle_base_url and public_base_url:
+        unit_bundle_base_url = public_base_url.rstrip("/") + "/bundles"
 
+    state_dir = _s(cfg.get("state_dir"), "/opt/tak-orch/state")
+    artifacts_dir = _s(cfg.get("artifacts_dir"), f"{state_dir}/artifacts")
+    rendered_bundles_dir = _s(cfg.get("rendered_bundles_dir"), f"{state_dir}/bundles/rendered")
 
-def load_config(path: Optional[str] = None, *, secrets_path: Optional[str] = None) -> RuntimeConfig:
-    return load_runtime_config_view()
-
-
-def load_secrets(path: Optional[str] = None) -> RuntimeSecrets:
-    return load_runtime_secrets_view()
-
-
-def write_config(cfg: RuntimeConfig, path: Optional[str] = None) -> RuntimeConfig:
-    return save_runtime_config_view(cfg)
-
-
-def write_secrets(sec: RuntimeSecrets, path: Optional[str] = None) -> RuntimeSecrets:
-    return save_runtime_secrets_view(sec)
-
-
-def apply_config_updates(
-    *,
-    config_updates: dict[str, Any] | None = None,
-    secret_updates: dict[str, Any] | None = None,
-    config_path: Optional[str] = None,
-    secrets_path: Optional[str] = None,
-) -> tuple[RuntimeConfig, RuntimeSecrets]:
-    return apply_runtime_updates(
-        config_updates=config_updates,
-        secret_updates=secret_updates,
-    )
-
-
-def config_public_state() -> dict[str, Any]:
-    return runtime_public_state()
-
-
-def load_orch_config() -> OrchConfig:
-    cfg = load_runtime_config_view()
     return OrchConfig(
         identity=IdentityConfig(
-            orchestrator_fqdn=_s(cfg.get("orchestrator_fqdn")),
-            public_base_url=_s(cfg.get("public_base_url")),
-            unit_bundle_base_url=_s(cfg.get("unit_bundle_base_url")),
+            orchestrator_fqdn=orchestrator_fqdn,
+            public_base_url=public_base_url,
+            unit_bundle_base_url=unit_bundle_base_url,
         ),
         paths=PathsConfig(
-            state_dir=_s(cfg.get("state_dir")),
-            artifacts_dir=_s(cfg.get("artifacts_dir")),
-            rendered_bundles_dir=_s(cfg.get("rendered_bundles_dir")),
+            state_dir=state_dir,
+            artifacts_dir=artifacts_dir,
+            rendered_bundles_dir=rendered_bundles_dir,
         ),
         aws=AwsConfig(
-            region=_s(cfg.get("aws_region")),
+            region=_s(cfg.get("aws_region"), "eu-north-1"),
             default_ami=_s(cfg.get("aws_default_ami")),
+            default_vpc_id=_s(cfg.get("aws_default_vpc_id")),
             default_subnet_id=_s(cfg.get("aws_default_subnet_id")),
             default_security_group_id=_s(cfg.get("aws_default_security_group_id")),
+            default_key_name=_s(cfg.get("aws_default_key_name")),
             default_instance_profile=_s(cfg.get("aws_default_instance_profile")),
-            default_instance_type=_s(cfg.get("aws_default_instance_type"), "t3.large"),
-            ssh_key_name=_s(cfg.get("aws_ssh_key_name")),
+            default_instance_type=_s(cfg.get("aws_default_instance_type"), "t3.medium"),
+            ssh_key_name=_s(cfg.get("aws_ssh_key_name"), _s(cfg.get("aws_default_key_name"))),
             route53_zone_id=_s(cfg.get("aws_route53_zone_id")),
-            launch_enabled=_b(cfg.get("aws_launch_enabled"), False),
+            launch_enabled=_b(cfg.get("launch_enabled"), _b(cfg.get("aws_launch_enabled"), True)),
         ),
         letsencrypt=LetsEncryptConfig(
-            mode=_s(cfg.get("le_mode")),
+            mode=_s(cfg.get("le_mode"), "dns-route53"),
             email=_s(cfg.get("le_email")),
             wildcard_zone=_s(cfg.get("le_wildcard_zone")),
-            artifact_cert_dir=_s(cfg.get("le_artifact_cert_dir")),
+            artifact_cert_dir=_s(cfg.get("le_artifact_cert_dir"), f"{artifacts_dir}/taks/tls"),
         ),
         bundles=BundlesConfig(
-            source_repo_root=_s(cfg.get("bundles_source_repo_root")),
-            default_bundle_kind=_s(cfg.get("bundles_default_bundle_kind")),
+            source_repo_root=_s(cfg.get("bundles_source_repo_root"), "/opt/taks"),
+            default_bundle_kind=_s(cfg.get("bundles_default_bundle_kind"), "tak-node"),
             include_taks_source=_b(cfg.get("bundles_include_taks_source"), True),
+            default_bundle_ttl=_i(cfg.get("launch_default_bundle_ttl"), 3600),
         ),
         nodes=NodesConfig(
-            default_node_domain=_s(cfg.get("nodes_default_node_domain")),
-            default_cert_model=_s(cfg.get("nodes_default_cert_model")),
+            default_node_domain=_s(cfg.get("nodes_default_node_domain"), "aws.tak-hv-sandbox.se"),
+            default_cert_model=_s(cfg.get("nodes_default_cert_model"), "WILDCARD_DNS_01"),
         ),
     )
 
 
-def load_secrets_config() -> SecretsConfig:
-    sec = load_runtime_secrets_view()
-    return SecretsConfig(
+def load_secrets_config(path: Optional[str] = None) -> OrchSecrets:
+    sec = load_secrets(path=path)
+    return OrchSecrets(
         auth=AuthSecrets(
             session_secret=_s(sec.get("session_secret")),
             operator_user=_s(sec.get("operator_user")),
             operator_password=_s(sec.get("operator_password")),
             node_api_user=_s(sec.get("node_api_user")),
             node_api_password=_s(sec.get("node_api_password")),
-        ),
+        )
     )

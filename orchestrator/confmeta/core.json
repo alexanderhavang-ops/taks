@@ -1,34 +1,84 @@
 {
   "component": "core",
   "fields": {
-    "orchestrator_fqdn": {"type":"string","default":"","doc":"Public orchestrator FQDN","secret":false},
-    "public_base_url": {"type":"string","default":"","doc":"Public orchestrator base URL","secret":false},
-    "unit_bundle_base_url": {"type":"string","default":"","doc":"Public bundle base URL","secret":false},
-
-    "state_dir": {"type":"string","default":"/opt/tak-orch/state","doc":"State root","secret":false},
-    "artifacts_dir": {"type":"string","default":"/opt/tak-orch/state/artifacts","doc":"Artifacts root","secret":false},
-    "rendered_bundles_dir": {"type":"string","default":"/opt/tak-orch/state/bundles/rendered","doc":"Rendered bundles root","secret":false},
-
-    "aws_region": {"type":"string","default":"eu-north-1","doc":"AWS region","secret":false},
-    "aws_default_ami": {"type":"string","default":"","doc":"Default AMI","secret":false},
-    "aws_default_subnet_id": {"type":"string","default":"","doc":"Default subnet ID","secret":false},
-    "aws_default_security_group_id": {"type":"string","default":"","doc":"Default security group ID","secret":false},
-    "aws_default_instance_profile": {"type":"string","default":"","doc":"Default IAM instance profile name or ARN","secret":false},
-    "aws_default_instance_type": {"type":"string","default":"t3.large","doc":"Default instance type","secret":false},
-    "aws_ssh_key_name": {"type":"string","default":"","doc":"AWS SSH key name","secret":false},
-    "aws_route53_zone_id": {"type":"string","default":"","doc":"Route53 hosted zone ID","secret":false},
-    "aws_launch_enabled": {"type":"bool","default":"true","doc":"Allow launches from orchestrator","secret":false},
-
-    "le_mode": {"type":"string","default":"wildcard_dns_01","doc":"Let's Encrypt mode","secret":false},
-    "le_email": {"type":"string","default":"","doc":"Let's Encrypt email","secret":false},
-    "le_wildcard_zone": {"type":"string","default":"","doc":"Wildcard zone","secret":false},
-    "le_artifact_cert_dir": {"type":"string","default":"","doc":"Artifact cert dir","secret":false},
-
-    "bundles_source_repo_root": {"type":"string","default":"/opt/taks","doc":"Source repo root","secret":false},
-    "bundles_default_bundle_kind": {"type":"string","default":"tak-node","doc":"Default bundle kind","secret":false},
-    "bundles_include_taks_source": {"type":"bool","default":"true","doc":"Include taks source in bundle","secret":false},
-
-    "nodes_default_node_domain": {"type":"string","default":"aws.tak-hv-sandbox.se","doc":"Default node domain","secret":false},
-    "nodes_default_cert_model": {"type":"string","default":"WILDCARD_DNS_01","doc":"Default cert model","secret":false}
+    "aws_region": {
+      "type": "string",
+      "default": "",
+      "doc": "AWS region for node launch operations",
+      "secret": false
+    },
+    "aws_default_ami": {
+      "type": "string",
+      "default": "",
+      "doc": "Default AMI used when launching nodes",
+      "secret": false
+    },
+    "aws_default_vpc_id": {
+      "type": "string",
+      "default": "",
+      "doc": "Default VPC for launched nodes",
+      "secret": false
+    },
+    "aws_default_subnet_id": {
+      "type": "string",
+      "default": "",
+      "doc": "Default subnet for launched nodes",
+      "secret": false
+    },
+    "aws_default_security_group_id": {
+      "type": "string",
+      "default": "",
+      "doc": "Default security group for launched nodes",
+      "secret": false
+    },
+    "aws_default_key_name": {
+      "type": "string",
+      "default": "",
+      "doc": "Default EC2 key pair name for launched nodes",
+      "secret": false
+    },
+    "aws_default_instance_type": {
+      "type": "string",
+      "default": "t3.medium",
+      "doc": "Default instance type for launched nodes",
+      "secret": false
+    },
+    "nodes_default_node_domain": {
+      "type": "string",
+      "default": "aws.tak-hv-sandbox.se",
+      "doc": "Default DNS suffix for node FQDN canonicalization",
+      "secret": false
+    },
+    "launch_enabled": {
+      "type": "bool",
+      "default": "true",
+      "doc": "Enable AWS node launch from orchestrator",
+      "secret": false
+    },
+    "launch_default_bundle_ttl": {
+      "type": "int",
+      "default": "3600",
+      "doc": "Default signed/public bundle TTL in seconds",
+      "secret": false,
+      "min": 60
+    },
+    "aws_access_key_id": {
+      "type": "string",
+      "default": "",
+      "doc": "AWS access key ID",
+      "secret": true
+    },
+    "aws_secret_access_key": {
+      "type": "string",
+      "default": "",
+      "doc": "AWS secret access key",
+      "secret": true
+    },
+    "aws_session_token": {
+      "type": "string",
+      "default": "",
+      "doc": "AWS session token for temporary credentials",
+      "secret": true
+    }
   }
 }
