@@ -47,7 +47,7 @@
   }
 
   function niceDomainName(name){
-    if (name === "_summary") return "Summary";
+    if (name === "summary") return "Summary";
     if (name === "chatter") return "Friendly Activity";
     if (name === "missions") return "Mission Status";
     if (name === "presence") return "Presence";
@@ -58,7 +58,7 @@
   }
 
   function niceDomainEyebrow(name){
-    if (name === "_summary") return "Latest assessment";
+    if (name === "summary") return "Latest assessment";
     if (name === "chatter") return "Communications";
     if (name === "missions") return "Operations";
     if (name === "presence") return "Presence";
@@ -241,7 +241,7 @@
 
     let headline = important || details || newest || "No current assessment";
 
-    if (name === "_summary"){
+    if (name === "summary"){
       const summary = details && details !== headline ? details : "";
       return { title, eyebrow, headline, timestamp, summary, bullets: [] };
     }
@@ -426,8 +426,8 @@
       }, m.eyebrow),
       e("div", {
         style:{
-          fontSize:name === "_summary" ? 33 : 30,
-          lineHeight:name === "_summary" ? "38px" : "34px",
+          fontSize:name === "summary" ? 33 : 30,
+          lineHeight:name === "summary" ? "38px" : "34px",
           fontWeight:800,
           marginBottom:m.timestamp ? 8 : 12
         }
@@ -446,6 +446,15 @@
 
   function renderOperationalCard(name, s){
     return renderOperationalCardFromModel(name, deriveOperationalModel(name, s));
+  }
+
+  function renderPhase3CardHtml(s){
+    const html = s && s.p3card && typeof s.p3card.html === "string" ? String(s.p3card.html).trim() : "";
+    if (!html) return null;
+    return e("div", {
+      className:"llm-card-html",
+      dangerouslySetInnerHTML:{__html: sanitizeHtmlLite(html)}
+    });
   }
 
   function renderDebugSection(s){
@@ -641,13 +650,19 @@
 
     const doms = (data && data.domains) ? data.domains : {};
     const domNames = Object.keys(doms).sort((a,b)=>{
-      if (a === "_summary") return -1;
-      if (b === "_summary") return 1;
+      if (a === "summary") return -1;
+      if (b === "summary") return 1;
       return a.localeCompare(b);
     });
 
-    const summaryName = domNames.find(n => n === "_summary") || null;
-    const otherNames = domNames.filter(n => n !== "_summary");
+    function isSpecialSummaryName(n){
+      return n === "summary";
+    }
+
+    const summaryName =
+      domNames.find(n => n === "summary") ||
+      null;
+    const otherNames = domNames.filter(n => !isSpecialSummaryName(n));
 
     if (detailName) {
       const s = domPhaseSummary(doms[detailName] || {});
@@ -662,7 +677,7 @@
       if (s.runId) metaBits.push("Run " + s.runId);
       if (model.timestamp) metaBits.push(model.timestamp);
 
-      if (detailName === "_summary") {
+      if (isSpecialSummaryName(detailName)) {
         const useOwnSummaryDetail =
           s.p3detail &&
           typeof s.p3detail.html === "string" &&
@@ -707,15 +722,16 @@
 
     const summaryCard = (function(){
       const summaryState = summaryName ? domPhaseSummary(doms[summaryName] || {}) : null;
-      const summaryModel = summaryState ? deriveOperationalModel("_summary", summaryState) : null;
+      const summaryModel = summaryState ? deriveOperationalModel("summary", summaryState) : null;
       const useFallbackSummary = !summaryModel || isBadSummaryText(summaryModel.headline);
       const fallbackModel = buildSummaryFallback(otherNames, doms);
 
+      const summaryHtmlBody = summaryState ? renderPhase3CardHtml(summaryState) : null;
       const body = showDebug
-        ? (summaryState ? renderDebugSection(summaryState) : renderOperationalCardFromModel("_summary", fallbackModel))
-        : renderOperationalCardFromModel("_summary", useFallbackSummary ? fallbackModel : summaryModel);
+        ? (summaryState ? renderDebugSection(summaryState) : renderOperationalCardFromModel("summary", fallbackModel))
+        : (summaryHtmlBody || renderOperationalCardFromModel("summary", useFallbackSummary ? fallbackModel : summaryModel));
 
-      const onClick = !showDebug ? ()=>openDetailPage("_summary") : null;
+      const onClick = !showDebug ? ()=>openDetailPage(summaryName || "summary") : null;
 
       return CardShell("Summary", body, {marginBottom:12}, onClick);
     })();
@@ -728,7 +744,8 @@
       }
     }, otherNames.map(name=>{
       const s = domPhaseSummary(doms[name] || {});
-      const body = showDebug ? renderDebugSection(s) : renderOperationalCard(name, s);
+      const htmlBody = renderPhase3CardHtml(s);
+      const body = showDebug ? renderDebugSection(s) : (htmlBody || renderOperationalCard(name, s));
       const onClick = !showDebug ? ()=>openDetailPage(name) : null;
       return CardShell(niceDomainName(name), body, {minHeight: showDebug ? "auto" : 150}, onClick);
     }));

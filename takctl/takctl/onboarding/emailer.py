@@ -1,10 +1,20 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from email.message import EmailMessage
+from pathlib import Path
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 
 from takctl.config import load_config
+
+
+_DEFAULT_RESEND_SECRET_FILES = (
+    "/opt/tak/tools/takctl/secrets.d/onboarding.conf",
+    "/opt/taks/secrets.d/mail.conf",
+)
 
 
 def _sendmail_path() -> str:
@@ -14,7 +24,6 @@ def _sendmail_path() -> str:
         "/usr/bin/sendmail",
     ):
         try:
-            from pathlib import Path
             if Path(p).exists():
                 return p
         except Exception:
@@ -31,12 +40,76 @@ def is_valid_email(addr: str) -> bool:
     return re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", s) is not None
 
 
-def _from_addr() -> str:
+def _cfg_get(name: str, default: str = "") -> str:
     cfg = load_config()
-    v = (cfg.onboarding_from_addr or "").strip()
+    try:
+        v = getattr(cfg, name)
+    except Exception:
+        try:
+            v = cfg.get(name, default)
+        except Exception:
+            v = default
+    return str(v or "").strip()
+
+
+def _provider() -> str:
+    v = _cfg_get("onboarding_email_provider", "").lower()
+    if v in ("", "sendmail"):
+        return "sendmail"
+    if v in ("resend",):
+        return "resend"
+    raise RuntimeError(f"unsupported onboarding_email_provider: {v!r}")
+
+
+def _from_addr() -> str:
+    v = _cfg_get("onboarding_from_addr", "")
     if not v:
-        raise RuntimeError("onboarding_from_addr is empty in takctl.conf")
+        raise RuntimeError("onboarding_from_addr is empty in takctl config")
     return v
+
+
+def _reply_to() -> str:
+    return _cfg_get("onboarding_reply_to", "")
+
+
+def _resend_secret_file() -> str:
+    v = _cfg_get("onboarding_resend_secret_file", "")
+    if v:
+        return v
+    for p in _DEFAULT_RESEND_SECRET_FILES:
+        if Path(p).exists():
+            return p
+    return _DEFAULT_RESEND_SECRET_FILES[0]
+
+
+def _read_kv_file(path: str) -> dict[str, str]:
+    out: dict[str, str] = {}
+    p = Path(path)
+    if not p.exists():
+        return out
+
+    for raw in p.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip()] = v.strip()
+    return out
+
+
+def _resend_api_key() -> str:
+    env = _cfg_get("resend_apikey", "")
+    if env:
+        return env
+
+    secret_file = _resend_secret_file()
+    kv = _read_kv_file(secret_file)
+    key = (kv.get("resend.apikey") or "").strip()
+    if not key:
+        raise RuntimeError(f"resend.apikey missing in {secret_file}")
+    return key
 
 
 def _subject(username: str) -> str:
@@ -54,22 +127,28 @@ def _text_body(*, username: str, card_url: str) -> str:
     )
 
 
-def send_onboarding_email(*, to_addr: str, username: str, card_url: str) -> dict:
-    to_addr = (to_addr or "").strip()
-    username = (username or "").strip()
-    card_url = (card_url or "").strip()
+def _html_body(*, username: str, card_url: str) -> str:
+    return (
+        "<html><body>"
+        "<p>Hello,</p>"
+        f"<p>Your TAKS onboarding card is ready for user <b>{username}</b>.</p>"
+        f'<p><a href="{card_url}">Open onboarding card</a></p>'
+        "<p>The link may expire, so use it promptly.</p>"
+        "<p>/TAKS</p>"
+        "</body></html>"
+    )
 
-    if not is_valid_email(to_addr):
-        raise RuntimeError(f"invalid email address: {to_addr!r}")
-    if not username:
-        raise RuntimeError("username required for onboarding email")
-    if not card_url:
-        raise RuntimeError("card_url required for onboarding email")
 
+def _send_via_sendmail(*, to_addr: str, username: str, card_url: str) -> dict:
     msg = EmailMessage()
     msg["From"] = _from_addr()
     msg["To"] = to_addr
     msg["Subject"] = _subject(username)
+
+    reply_to = _reply_to()
+    if reply_to:
+        msg["Reply-To"] = reply_to
+
     msg.set_content(_text_body(username=username, card_url=card_url))
 
     sendmail = _sendmail_path()
@@ -94,3 +173,76 @@ def send_onboarding_email(*, to_addr: str, username: str, card_url: str) -> dict
         "subject": str(msg["Subject"] or ""),
         "delivery": "sendmail",
     }
+
+
+def _send_via_resend(*, to_addr: str, username: str, card_url: str) -> dict:
+    payload = {
+        "from": _from_addr(),
+        "to": [to_addr],
+        "subject": _subject(username),
+        "text": _text_body(username=username, card_url=card_url),
+        "html": _html_body(username=username, card_url=card_url),
+    }
+
+    reply_to = _reply_to()
+    if reply_to:
+        payload["reply_to"] = [reply_to]
+
+    body = json.dumps(payload).encode("utf-8")
+    req = Request(
+        "https://api.resend.com/emails",
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {_resend_api_key()}",
+            "Content-Type": "application/json",
+        },
+    )
+
+    try:
+        with urlopen(req, timeout=20) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+    except HTTPError as e:
+        try:
+            err_body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            err_body = ""
+        raise RuntimeError(f"resend failed (http={e.code}): {err_body[:400]}")
+    except URLError as e:
+        raise RuntimeError(f"resend connection failed: {e}")
+    except Exception as e:
+        raise RuntimeError(f"resend send failed: {e}")
+
+    try:
+        out = json.loads(raw or "{}")
+    except Exception:
+        out = {"raw": raw}
+
+    return {
+        "ok": True,
+        "to": to_addr,
+        "subject": _subject(username),
+        "delivery": "resend",
+        "provider_response": out,
+    }
+
+
+def send_onboarding_email(*, to_addr: str, username: str, card_url: str) -> dict:
+    to_addr = (to_addr or "").strip()
+    username = (username or "").strip()
+    card_url = (card_url or "").strip()
+
+    if not is_valid_email(to_addr):
+        raise RuntimeError(f"invalid email address: {to_addr!r}")
+    if not username:
+        raise RuntimeError("username required for onboarding email")
+    if not card_url:
+        raise RuntimeError("card_url required for onboarding email")
+
+    provider = _provider()
+    if provider == "sendmail":
+        return _send_via_sendmail(to_addr=to_addr, username=username, card_url=card_url)
+    if provider == "resend":
+        return _send_via_resend(to_addr=to_addr, username=username, card_url=card_url)
+
+    raise RuntimeError(f"unsupported onboarding email provider: {provider!r}")

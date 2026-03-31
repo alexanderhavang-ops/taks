@@ -12,20 +12,28 @@ Prioritering:
 - därefter next
 
 Utformning:
-- stor SVG som tar nästan all yta
+- stor SVG som tar nästan all yta men fortfarande får plats i detaljkortet
+- håll SVG:n kompakt i höjd
 - nu i mitten
 - 24 timmar historik till vänster
 - 24 timmar framtid till höger
-- svensk lokal tid på x-axeln
 - en swimlane per mini-domän
 - korta labels nära viktiga objekt
 - <title> för längre detalj
+
+Tid:
+- använd UTC/TNR konsekvent i synliga tider
+- använd kompakta TNR-tider på x-axeln och nära objekt
+- använd inte fri lokal klocktid
+- om lokal tid inte kan visas helt korrekt med DST för Europe/Stockholm, visa bara TNR/UTC
 
 Läsbarhetsregler:
 - undvik överlappande text
 - visa inte fler etiketter än vad som går att läsa
 - färre, tydligare etiketter är bättre än många små
 - om något är viktigt men svårt att märka ut rent, prioritera symbol + <title>
+- undvik stora callout-rutor som äter höjd
+- minimera top- och bottom-dekor
 
 Gör inte:
 - ingen brödtext under grafen

@@ -64,6 +64,10 @@ def _overpass_url() -> str:
     cfg = _cfg_dict()
     return (cfg.get("overpass_url") or "https://overpass-api.de/api/interpreter").strip()
 
+def _overpass_fallback_url() -> str:
+    cfg = _cfg_dict()
+    return (cfg.get("overpass_fallback_url") or "").strip()
+
 
 def _area_summary_default_radius_m() -> int:
     cfg = _cfg_dict()
@@ -133,25 +137,44 @@ out body center tags geom qt;
 
 
 def _fetch_overpass(lat: float, lon: float, radius_m: int) -> List[Dict[str, Any]]:
-    try:
-        r = requests.post(
-            _overpass_url(),
-            data={"data": _overpass_query(lat, lon, radius_m)},
-            timeout=40,
-            headers={"User-Agent": "TAKS-GeoProxy/1.0"},
-        )
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"overpass upstream error: {e}")
+    import time
 
-    if r.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"overpass upstream returned {r.status_code}")
+    urls = [_overpass_url()]
+    fb = _overpass_fallback_url()
+    if fb and fb not in urls:
+        urls.append(fb)
 
-    try:
-        body = r.json()
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"overpass invalid json: {e}")
+    last_err = "overpass unavailable"
+    query = _overpass_query(lat, lon, radius_m)
 
-    return list(body.get("elements") or [])
+    for idx, url in enumerate(urls):
+        for attempt in range(2):
+            try:
+                r = requests.post(
+                    url,
+                    data={"data": query},
+                    timeout=40,
+                    headers={"User-Agent": "TAKS-GeoProxy/1.0"},
+                )
+                if r.status_code == 200:
+                    try:
+                        body = r.json()
+                    except Exception as e:
+                        last_err = f"{url} invalid json: {e}"
+                    else:
+                        return list(body.get("elements") or [])
+                else:
+                    last_err = f"{url} returned {r.status_code}"
+            except Exception as e:
+                last_err = f"{url} error: {e}"
+
+            if attempt == 0:
+                time.sleep(1.0)
+
+        if idx < len(urls) - 1:
+            time.sleep(0.5)
+
+    raise HTTPException(status_code=502, detail=last_err)
 
 
 def _feature_type(tags: Dict[str, Any]) -> Tuple[str, str]:

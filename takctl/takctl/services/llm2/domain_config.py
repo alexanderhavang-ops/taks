@@ -46,8 +46,8 @@ def discover_enabled_domains(infra_dir: Path) -> List[str]:
             continue
         out.append(p.name)
 
-    if "_summary" in out:
-        out = ["_summary"] + [d for d in out if d != "_summary"]
+    if "summary" in out:
+        out = ["summary"] + [d for d in out if d != "summary"]
     return out
 
 

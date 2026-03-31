@@ -10,6 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from martine.config import load_config
 from martine.state.paths import ensure_state_dirs
 from martine.tools.taks_state import get_taks_state_summary
+from martine.tools.docs_ref import list_reference_docs, search_reference_docs
 from martine.tools.cot_sa import (
     get_contact_status,
     get_current_time,
@@ -86,6 +87,19 @@ def get_taks_state_summary_tool() -> dict:
         "tool": "get_taks_state_summary",
         "summary": get_taks_state_summary(),
     }
+
+
+
+@mcp.tool(name="list_reference_docs")
+def list_reference_docs_tool(only_active: bool = True) -> dict:
+    """List uploaded runtime reference documents available to Martine."""
+    return list_reference_docs(only_active=only_active)
+
+
+@mcp.tool(name="search_reference_docs")
+def search_reference_docs_tool(query: str, limit: int = 8, doc_id: str = "") -> dict:
+    """Search uploaded runtime reference documents by keyword over chunked extracted text."""
+    return search_reference_docs(query=query, limit=limit, doc_id=doc_id)
 
 
 @mcp.tool(name="get_current_time")

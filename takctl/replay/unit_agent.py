@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import urllib.parse
+import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -140,6 +142,81 @@ def ingest_inbox_into_state(callsign: str) -> Dict[str, Any]:
 
 
 
+
+def _geo_area_summary_for_state(st: Dict[str, Any]) -> Dict[str, Any]:
+
+
+def _geo_area_brief(local_area: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(local_area, dict) or not local_area.get("ok"):
+        return {
+            "ok": False,
+            "summary_sv": "Ingen geografisk områdessammanfattning tillgänglig.",
+        }
+
+    mobility = dict(local_area.get("mobility") or {})
+    ta = dict(local_area.get("tactical_assessment") or {})
+
+    named = list(local_area.get("named_pois") or [])
+    likely = list(ta.get("likely_approach_routes") or [])
+    op = list(ta.get("good_op_positions") or [])
+    risks = list(ta.get("risk_areas") or [])
+
+    parts = []
+    if named:
+        parts.append("Viktiga terrängföremål: " + ", ".join(named[:3]))
+    if mobility:
+        parts.append(
+            "Framkomlighet: fot="
+            + str(mobility.get("foot") or "okänd")
+            + ", fordon="
+            + str(mobility.get("vehicle") or "okänd")
+            + ", skydd="
+            + str(mobility.get("concealment") or "okänd")
+            + ", observation="
+            + str(mobility.get("observation") or "okänd")
+        )
+    if likely:
+        parts.append("Sannolika framryckningsvägar: " + "; ".join(likely[:2]))
+    if op:
+        parts.append("Lämpliga observationslägen: " + "; ".join(op[:2]))
+    if risks:
+        parts.append("Riskytor: " + "; ".join(risks[:2]))
+
+    return {
+        "ok": True,
+        "named_features": named[:6],
+        "mobility": mobility,
+        "likely_approach_routes": likely[:4],
+        "good_op_positions": op[:4],
+        "risk_areas": risks[:4],
+        "summary_sv": " | ".join(parts) if parts else "Ingen tydlig terrängbedömning tillgänglig.",
+    }
+
+    own = dict(st.get("own_state") or {})
+    pos = dict(own.get("position") or {})
+    lat = pos.get("lat")
+    lon = pos.get("lon")
+    if lat is None or lon is None:
+        return {"ok": False, "error": "missing_position"}
+
+    params = urllib.parse.urlencode({
+        "lat": str(lat),
+        "lon": str(lon),
+        "radius_m": "1000",
+    })
+    url = f"http://127.0.0.1:8080/api/geo/area_summary?{params}"
+
+    try:
+        with urllib.request.urlopen(url, timeout=8.0) as r:
+            raw = (r.read() or b"").decode("utf-8", "replace")
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+        return {"ok": False, "error": "invalid_geo_payload"}
+    except Exception as e:
+        return {"ok": False, "error": f"geo_lookup_failed: {e}"}
+
+
 def build_packet_from_state(st: Dict[str, Any], sim_time_s: int) -> Dict[str, Any]:
     agent = dict(st.get("agent") or {})
     callsign = str(agent.get("callsign") or "").strip()
@@ -158,6 +235,11 @@ def build_packet_from_state(st: Dict[str, Any], sim_time_s: int) -> Dict[str, An
     packet["inbox"] = inbox_rows
     packet["work"] = list(st.get("work") or [])
     packet["completed_work"] = list(st.get("completed_work") or [])
+    local_area = _geo_area_summary_for_state(st)
+    packet["geo"] = {
+        "local_area": local_area,
+        "local_area_brief": _geo_area_brief(local_area),
+    }
     return packet
 
 

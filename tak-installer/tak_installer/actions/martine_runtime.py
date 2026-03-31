@@ -98,7 +98,7 @@ def _ensure_venv() -> None:
     )
 
     subprocess.run(
-        ["sudo", "-u", "tak", str(venv_py), "-m", "pip", "install", "-q", "mcp"],
+        ["sudo", "-u", "tak", str(venv_py), "-m", "pip", "install", "-q", "mcp", "requests", "boto3", "psycopg2-binary"],
         check=True,
     )
 

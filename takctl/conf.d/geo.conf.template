@@ -16,5 +16,6 @@ routing_local_url = http://127.0.0.1:5000
 
 area_summary_enabled = true
 overpass_url = https://overpass-api.de/api/interpreter
+overpass_fallback_url = https://lz4.overpass-api.de/api/interpreter
 area_summary_default_radius_m = 1000
 area_summary_poi_limit = 12

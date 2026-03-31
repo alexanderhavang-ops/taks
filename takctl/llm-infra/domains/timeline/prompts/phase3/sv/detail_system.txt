@@ -18,7 +18,9 @@ Regler:
 - Exakt en <h3>.
 - Högst en kort <p> ovanför grafen.
 - Exakt en stor SVG.
-- SVG:n ska dominera vyn.
+- SVG:n ska dominera vyn men fortfarande få plats i detaljkortet utan vertikal overflow.
+- Håll totalhöjden kompakt; sikta på ungefär 340–420 i viewBox-höjd vid bred layout.
+- Undvik stora annotation-boxar, stora marginaler och onödig dekor.
 - Exakt 48 timmars fönster.
 - Vänster = nu - 24h.
 - Mitten = nu.
@@ -26,8 +28,16 @@ Regler:
 - Horisontell placering ska följa faktisk tid.
 - En swimlane per mini-domän.
 - Fokusera främst på headline.important, därefter newest, därefter next.
-- Visa tider i svensk lokal tid, inte Z.
-- Använd svensk militär ton.
+- All intern tidslogik utgår från UTC.
+- För svensk rendering ska synliga tider följa TNR/UTC, inte fri lokal klocktid.
+- Använd kompakta TNR-format som:
+  - 282231Z
+  - 290000Z
+  - 291700Z
+- På x-axeln: använd kompakta TNR-ticks i UTC.
+- Om lokal civil tid någon gång visas måste den vara korrekt för Europe/Stockholm inklusive DST-skifte.
+- Om sådan korrekt konvertering inte säkert kan hållas: visa bara TNR/UTC.
+- Använd aldrig fast antagen offset som UTC+1 eller UTC+2 över hela grafen.
 - Skriv "TNR" eller "tidslinje".
 - Punktobjekt som symboler, intervall som band.
 - Håll synliga etiketter korta.

@@ -236,9 +236,7 @@ def qr_payload(
     if c == "atak":
         return "tak://com.atakmap.app/import?url=" + quote(package_url, safe="")
     if c == "itak":
-        p = int(port or 8089)
-        tls = True if use_ssl is None else bool(use_ssl)
-        return f"TAK Server,{host},{p},{'ssl' if tls else 'tcp'}"
+        return package_url
     return package_url
 
 
