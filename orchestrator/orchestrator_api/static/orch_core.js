@@ -106,7 +106,6 @@
     lang = (lang === 'en') ? 'en' : 'sv';
     try{ localStorage.setItem('taks_lang', lang); }catch(e){}
     window.CORE.lang = lang;
-    // allow pages/router to re-render translations without forcing a full reload
     window.dispatchEvent(new Event('taks:lang'));
   }
 
@@ -122,7 +121,6 @@
     return s;
   }
 
-  // --------------- HTTP + error helpers --------------------------------------
   function _errToString(e){
     if(!e) return 'Error';
     if(typeof e === 'string') return e;
@@ -131,7 +129,6 @@
   }
 
   function errorDetails(e){
-    // Prefer CORE.api error shape: err.status + err.body (json or text)
     try{
       const status = (e && typeof e.status === 'number') ? e.status : null;
       const body = (e && Object.prototype.hasOwnProperty.call(e,'body')) ? e.body : null;
@@ -145,6 +142,45 @@
       return { status, msg, detail };
     }catch(_){
       return { status: null, msg: _errToString(e), detail: '' };
+    }
+  }
+
+  function _loginUrl(){
+    const next = encodeURIComponent(window.location.pathname + (window.location.hash || ''));
+    return '/login?next=' + next;
+  }
+
+  function _looksLikeHtml(text){
+    const s = String(text || '').trim().toLowerCase();
+    return s.startsWith('<!doctype html') || s.startsWith('<html') || s.includes('<title>');
+  }
+
+  function _isAuthResponse(res, data, text){
+    if(res && (res.status === 401 || res.status === 403)) return true;
+
+    if(data && typeof data === 'object'){
+      if(data.authenticated === false) return true;
+      if(String(data.detail || '').match(/unauthorized|forbidden|not authenticated|session/i)) return true;
+    }
+
+    const bodyText = String(text || '');
+    if(bodyText && /unauthorized|forbidden|not authenticated|session expired/i.test(bodyText)) return true;
+
+    return false;
+  }
+
+  function _shouldBounceToLogin(res, data, text){
+    if(_isAuthResponse(res, data, text)) return true;
+    if(res && (res.status === 502 || res.status === 503 || res.status === 504) && _looksLikeHtml(text)) return true;
+    return false;
+  }
+
+  function _bounceToLogin(){
+    try{
+      if(window.CORE) window.CORE._sessionExpired = true;
+      window.location.replace(_loginUrl());
+    }catch(_){
+      window.location.href = _loginUrl();
     }
   }
 
@@ -178,7 +214,15 @@
       if(isJson) data = await res.json();
       else text = await res.text();
     }catch(e){
-      // ignore parse errors; we'll use whatever we got
+      // ignore parse errors
+    }
+
+    if(_shouldBounceToLogin(res, data, text)){
+      _bounceToLogin();
+      const err = new Error('SESSION_EXPIRED');
+      err.status = res.status;
+      err.body = (data !== null ? data : text);
+      throw err;
     }
 
     if(!res.ok){
@@ -207,9 +251,12 @@
     try{
       const j = await api('GET','/api/v2/status');
       const ok = j && j.ok ? 'ok' : '??';
-      const launch = (j && typeof j.launch_enabled === 'boolean') ? (j.launch_enabled ? 'launch:on' : 'launch:off') : 'launch:?';
+      const launch = (j && typeof j.launch_enabled === 'boolean')
+        ? (j.launch_enabled ? 'launch:on' : 'launch:off')
+        : 'launch:?';
       target.textContent = `${ok} · ${launch}`;
     }catch(e){
+      if(e && e.message === 'SESSION_EXPIRED') return;
       target.textContent = 'status:error';
     }
   }
@@ -222,14 +269,18 @@
   window.CORE.setLang = setLang;
   window.CORE.lang = _getLang();
   window.CORE.errorDetails = errorDetails;
+  window.CORE.loginUrl = _loginUrl;
+  window.CORE.bounceToLogin = _bounceToLogin;
+  window.CORE._sessionExpired = false;
 
-  // Compatibility shim: some pages call window.TAKS.api(...)
   window.TAKS = window.TAKS || {};
   if(typeof window.TAKS.api !== 'function'){
     window.TAKS.api = api;
   }
 
-  // Kick status polling
   loadStatus();
-  setInterval(loadStatus, 5000);
+  setInterval(function(){
+    if(window.CORE && window.CORE._sessionExpired) return;
+    loadStatus();
+  }, 5000);
 })();
