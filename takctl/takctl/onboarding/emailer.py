@@ -177,6 +177,7 @@ def _send_via_resend(*, to_addr: str, username: str, card_url: str) -> dict:
         headers={
             "Authorization": f"Bearer {_resend_api_key()}",
             "Content-Type": "application/json",
+            "User-Agent": "taks-onboarding/1.0",
         },
     )
 

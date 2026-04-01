@@ -1,34 +1,86 @@
-# onboarding identity + package policy
+# -----------------------------------------------------------------------------
+# TAKS onboarding
+# -----------------------------------------------------------------------------
+#
+# Model:
+#   - ATAK supports three paths:
+#       1) Quick-connect QR (tak://... -> username/password auto-enroll)
+#       2) QR -> download ATAK auto-enroll zip
+#       3) QR -> download ATAK soft-cert zip
+#
+#   - iTAK supports:
+#       1) Quick-connect QR
+#     and manual install of a soft-cert zip.
+#     iTAK auto-enroll via zip is NOT supported.
+#
+# Security model:
+#   - Password embedding for soft-cert packages is GLOBAL, not per client.
+#   - If a password is not embedded in the package, it may be shown on the
+#     soldier card depending on the reveal_* settings below.
+# -----------------------------------------------------------------------------
 
-# Main onboarding mode:
-#   auto-enroll   = ATAK enrolls with username/password
-#   cert-creation = TAKS creates client certs/packages
+# Main onboarding mode used when creating the user/card defaults.
+#   auto-enroll   = username/password enrollment flow
+#   cert-creation = create client cert + soft-cert package flow
 onboarding_mode = cert-creation
 
 # Backward-compatibility legacy flag. Prefer onboarding_mode.
-# If true, creating a TAK user through onboarding also creates a client cert
-# with the same username/CN and binds it to the user via fingerprint.
 create_cert_with_user = true
 
-# If true, cert-based packages may include the client cert password.
-include_client_password_in_package = false
+# -----------------------------------------------------------------------------
+# Global soft-cert security policy
+# -----------------------------------------------------------------------------
 
-# If true, cert-based packages may include the truststore password.
-include_truststore_password_in_package = false
+# If true, embed truststore password inside generated soft-cert packages.
+soft_cert_include_truststore_password = false
+
+# If true, embed client certificate password inside generated soft-cert packages.
+soft_cert_include_client_password = false
 
 # If true, show truststore password on the soldier card when it is NOT embedded
-# in the package and the active onboarding mode needs it.
+# in the soft-cert package and the user needs it for manual import.
 reveal_truststore_password_on_soldier_card = false
 
 # If true, show client certificate password on the soldier card when it is NOT
-# embedded in the package and the active onboarding mode needs it.
+# embedded in the soft-cert package and the user needs it for manual import.
 reveal_client_password_on_soldier_card = false
 
-# Default for showing the TAK user password on the soldier card.
-# Actual rendering still depends on TAKS knowing the password.
+# Default for showing the TAK username/password on the soldier card.
+# Mainly relevant for quick-connect / auto-enroll flows.
 reveal_password_default = true
 
-# onboarding email delivery
+# -----------------------------------------------------------------------------
+# ATAK artifacts shown/generated on soldier card
+# -----------------------------------------------------------------------------
+
+# QR: tak://... quick-connect payload for ATAK auto-enroll.
+atak_qr_quick_connect_enabled = true
+
+# QR -> download ATAK auto-enroll zip package.
+atak_qr_auto_enroll_zip_enabled = true
+
+# QR -> download ATAK soft-cert zip package.
+atak_qr_soft_cert_zip_enabled = true
+
+# -----------------------------------------------------------------------------
+# iTAK artifacts shown/generated on soldier card
+# -----------------------------------------------------------------------------
+
+# QR: iTAK quick-connect payload.
+itak_qr_quick_connect_enabled = true
+
+# Manual-download soft-cert zip for iTAK.
+itak_soft_cert_zip_enabled = true
+
+# Informational warning on soldier card:
+# iTAK QR import is currently unreliable in this deployment, so prefer:
+# Networking -> Servers -> + -> Upload server package
+itak_manual_import_warning_enabled = true
+
+# -----------------------------------------------------------------------------
+# Email delivery
+# -----------------------------------------------------------------------------
+
 onboarding_email_provider = resend
 onboarding_from_addr = TAKS <onboarding@mail.tak-hv-sandbox.se>
 onboarding_reply_to =
