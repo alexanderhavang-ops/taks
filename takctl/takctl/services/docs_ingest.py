@@ -142,22 +142,276 @@ def _chunk_text(text: str, *, chunk_chars: int = 1800, overlap_chars: int = 250)
     return chunks
 
 
-def write_chunks(doc_id: str, title: str, text: str) -> int:
+
+_HEADING_RE = re.compile(
+    r"^\s*(\d+(?:\.\d+){0,3})\.\s+([A-ZÅÄÖA-Za-z][^\n]{1,140})\s*$",
+    re.MULTILINE,
+)
+
+
+def _clean_heading_title(title: str) -> str:
+    t = str(title or "").strip()
+    t = re.sub(r"\s{2,}", " ", t)
+    t = re.sub(r"\.{3,}.*$", "", t).strip()
+    t = re.sub(r"\s+\d+\s*$", "", t).strip()
+    return t
+
+
+def _looks_like_toc_title(title: str) -> bool:
+    t = str(title or "")
+    return (
+        "..." in t
+        or "….." in t
+        or "................................................................" in t
+    )
+
+
+def _line_bounds(text: str, pos: int) -> tuple[int, int]:
+    a = text.rfind("\n", 0, pos)
+    b = text.find("\n", pos)
+    if a < 0:
+        a = 0
+    else:
+        a += 1
+    if b < 0:
+        b = len(text)
+    return a, b
+
+
+def _candidate_score(text: str, m: re.Match[str]) -> int:
+    num = str(m.group(1) or "").strip()
+    title = _clean_heading_title(m.group(2) or "")
+    start = m.start()
+
+    line_a, line_b = _line_bounds(text, start)
+    line = text[line_a:line_b]
+    prev_a, prev_b = _line_bounds(text, max(0, line_a - 2))
+    prev_line = text[prev_a:prev_b].strip()
+    next_a, next_b = _line_bounds(text, min(len(text) - 1, line_b + 1 if line_b < len(text) else line_b))
+    next_line = text[next_a:next_b].strip()
+
+    score = 0
+
+    # Hard rejects
+    if not title:
+        return -999
+    if num.startswith("0"):
+        return -999
+    if len(title) < 2:
+        return -999
+    if any(x in title for x in ['"', "'", '”']) and len(title) < 12:
+        return -999
+    if re.search(r'[^A-Za-zÅÄÖåäö0-9 ()/,\-]', title):
+        score -= 25
+
+    # Heading-like shape
+    score += 20
+    if len(title) <= 80:
+        score += 10
+    if title[:1].isupper():
+        score += 5
+    if re.fullmatch(r"[A-ZÅÄÖ0-9 ()/\-]{4,}", title or ""):
+        score += 8
+    if re.fullmatch(r"[A-Za-zÅÄÖåäö0-9 ()/\-]{4,}", title or ""):
+        score += 6
+
+    # TOC penalties
+    if _looks_like_toc_title(line):
+        score -= 120
+    if re.search(r"\.{5,}\s*\d+\s*$", line):
+        score -= 120
+    if re.search(r"\b(INNEHÅLL|CONTENTS)\b", prev_line, re.IGNORECASE):
+        score -= 80
+
+    # Early-frontmatter penalty, but not fatal
+    if start < max(5000, len(text) // 40):
+        score -= 25
+
+    # Inline / paragraph penalties
+    if prev_line and prev_line[-1:] not in {"", ".", "!", "?", ":"}:
+        score -= 20
+    if next_line and len(next_line) > 180:
+        score -= 10
+    if prev_line and len(prev_line) > 120:
+        score -= 10
+
+    # Real heading bonuses
+    if not prev_line:
+        score += 10
+    if next_line and len(next_line) > 0:
+        score += 8
+    if next_line and not re.match(r"^\d+(?:\.\d+){0,3}\.\s", next_line):
+        score += 10
+
+    # Prefer more specific numbering
+    score += num.count(".") * 3
+
+    return score
+
+
+def _parse_sections_from_text(text: str) -> list[dict[str, Any]]:
+    src = str(text or "")
+    if not src.strip():
+        return []
+
+    matches = list(_HEADING_RE.finditer(src))
+    if not matches:
+        return []
+
+    by_num: dict[str, tuple[int, re.Match[str], str]] = {}
+
+    for m in matches:
+        num = str(m.group(1) or "").strip()
+        title = _clean_heading_title(m.group(2) or "")
+        if not num or not title:
+            continue
+
+        score = _candidate_score(src, m)
+        cur = by_num.get(num)
+        if cur is None or score > cur[0] or (score == cur[0] and m.start() > cur[1].start()):
+            by_num[num] = (score, m, title)
+
+    picked: list[tuple[int, re.Match[str], str]] = []
+    for num, item in by_num.items():
+        score, m, title = item
+        if score < 0:
+            continue
+        picked.append((score, m, title))
+
+    picked.sort(key=lambda x: x[1].start())
+
+    raw_items: list[dict[str, Any]] = []
+    for i, (score, m, title) in enumerate(picked):
+        num = str(m.group(1) or "").strip()
+        start = m.start()
+        end = picked[i + 1][1].start() if i + 1 < len(picked) else len(src)
+        level = num.count(".") + 1
+        raw_items.append({
+            "id": num,
+            "title": title,
+            "level": level,
+            "score": score,
+            "start_offset": start,
+            "end_offset": end,
+        })
+
+    # Find the first stable sequence start.
+    # Heuristic: prefer the earliest place where we soon get several headings
+    # starting with 1.x / 2.x rather than isolated later-number fragments.
+    start_idx = 0
+    for i, item in enumerate(raw_items):
+        nums = [str(x.get("id") or "") for x in raw_items[i:i+8]]
+        score = 0
+        for n in nums:
+            if n == "1" or n.startswith("1."):
+                score += 3
+            elif n == "2" or n.startswith("2."):
+                score += 2
+            elif n == "3" or n.startswith("3."):
+                score += 1
+        if score >= 10:
+            start_idx = i
+            break
+
+    raw_items = raw_items[start_idx:]
+
+    # Drop leading outliers before the first plausible main sequence.
+    # Generic heuristic: if the first few items contain a lower top-level chapter
+    # than the very first item, trim everything before that lower chapter begins.
+    if raw_items:
+        def major_num(item: dict[str, Any]) -> int:
+            try:
+                return int(str(item.get("id") or "").split(".")[0])
+            except Exception:
+                return 999999
+
+        majors = [major_num(x) for x in raw_items[:12]]
+        if majors:
+            min_major = min(majors)
+            first_major = majors[0]
+            if min_major < first_major:
+                for i, item in enumerate(raw_items[:12]):
+                    if major_num(item) == min_major:
+                        raw_items = raw_items[i:]
+                        break
+
+    out: list[dict[str, Any]] = []
+    for i, item in enumerate(raw_items):
+        start = int(item["start_offset"])
+        end = int(raw_items[i + 1]["start_offset"]) if i + 1 < len(raw_items) else len(src)
+        item["end_offset"] = end
+        out.append(item)
+
+    return out
+
+def _write_sections(doc_id: str, title: str, text: str) -> list[dict[str, Any]]:
+    items = _parse_sections_from_text(text)
+    _write_json(
+        sections_path(doc_id),
+        {
+            "doc_id": doc_id,
+            "title": title,
+            "items": items,
+        },
+    )
+    return items
+
+
+def _section_path_for_offset(sections: list[dict[str, Any]], offset: int) -> list[str]:
+    active = []
+    for sec in sections:
+        try:
+            s = int(sec.get("start_offset") or 0)
+            e = int(sec.get("end_offset") or 0)
+            lvl = int(sec.get("level") or 1)
+        except Exception:
+            continue
+        if s <= offset < e:
+            label = f'{sec.get("id", "")} {sec.get("title", "")}'.strip()
+            if not label:
+                continue
+            active = active[: max(0, lvl - 1)]
+            active.append(label)
+    return active
+
+
+def write_chunks(doc_id: str, title: str, text: str, sections: list[dict[str, Any]] | None = None) -> int:
     out_path = chunks_path(doc_id)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     rows: list[str] = []
-    for idx, chunk in enumerate(_chunk_text(text), start=1):
-        row = {
-            "chunk_id": f"c{idx:04d}",
-            "doc_id": doc_id,
-            "title": title,
-            "section_path": [],
-            "page_start": None,
-            "page_end": None,
-            "text": chunk,
-            "token_estimate": max(1, len(chunk) // 4),
-        }
-        rows.append(json.dumps(row, ensure_ascii=False))
+
+    s = _normalize_text(text)
+    if not s:
+        _write_text(out_path, "")
+        return 0
+
+    sections = list(sections or [])
+    chunk_chars = 1800
+    overlap_chars = 250
+    start = 0
+    idx = 1
+    n = len(s)
+
+    while start < n:
+        end = min(n, start + chunk_chars)
+        chunk = s[start:end].strip()
+        if chunk:
+            row = {
+                "chunk_id": f"c{idx:04d}",
+                "doc_id": doc_id,
+                "title": title,
+                "section_path": _section_path_for_offset(sections, start),
+                "page_start": None,
+                "page_end": None,
+                "text": chunk,
+                "token_estimate": max(1, len(chunk) // 4),
+            }
+            rows.append(json.dumps(row, ensure_ascii=False))
+            idx += 1
+        if end >= n:
+            break
+        start = max(end - overlap_chars, start + 1)
+
     _write_text(out_path, ("\n".join(rows) + ("\n" if rows else "")))
     return len(rows)
 
@@ -213,7 +467,6 @@ def ingest_uploaded_pdf(
     }
     write_manifest(doc_id, manifest)
     write_status(doc_id, status="uploaded", steps={})
-    initialize_sections_placeholder(doc_id, doc_title)
 
     steps: dict[str, Any] = {}
 
@@ -223,11 +476,13 @@ def ingest_uploaded_pdf(
         _write_text(extract_path(doc_id), text)
         steps["extract"] = {"ok": True}
 
-        write_status(doc_id, status="chunking", steps=steps)
-        chunk_count = write_chunks(doc_id, doc_title, text)
-        steps["chunk"] = {"ok": True, "count": chunk_count}
+        write_status(doc_id, status="structuring", steps=steps)
+        sections = _write_sections(doc_id, doc_title, text)
+        steps["structure"] = {"ok": True, "mode": "heading_parser", "count": len(sections)}
 
-        steps["structure"] = {"ok": True, "mode": "placeholder"}
+        write_status(doc_id, status="chunking", steps=steps)
+        chunk_count = write_chunks(doc_id, doc_title, text, sections=sections)
+        steps["chunk"] = {"ok": True, "count": chunk_count}
         manifest["status"] = "ready"
         write_manifest(doc_id, manifest)
         write_status(doc_id, status="ready", steps=steps)

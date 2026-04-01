@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from martine.config import load_config
 from martine.state.paths import ensure_state_dirs
 from martine.tools.taks_state import get_taks_state_summary
-from martine.tools.docs_ref import list_reference_docs, search_reference_docs, get_reference_doc_context
+from martine.tools.docs_ref import list_reference_docs, search_reference_docs, get_reference_doc_context, list_reference_doc_sections, get_reference_section
 from martine.tools.cot_sa import (
     get_contact_status,
     get_current_time,
@@ -106,6 +106,18 @@ def search_reference_docs_tool(query: str, limit: int = 8, doc_id: str = "") -> 
 def get_reference_doc_context_tool(doc_id: str, chunk_id: str, window: int = 1) -> dict:
     """Return one matching chunk plus neighboring chunks for better document answer context."""
     return get_reference_doc_context(doc_id=doc_id, chunk_id=chunk_id, window=window)
+
+
+@mcp.tool(name="list_reference_doc_sections")
+def list_reference_doc_sections_tool(doc_id: str, limit: int = 200) -> dict:
+    """List parsed sections/chapters for one uploaded reference document."""
+    return list_reference_doc_sections(doc_id=doc_id, limit=limit)
+
+
+@mcp.tool(name="get_reference_section")
+def get_reference_section_tool(doc_id: str, section_id: str = "", title_query: str = "", max_chars: int = 6000) -> dict:
+    """Fetch one parsed section by section_id or title_query from an uploaded reference document."""
+    return get_reference_section(doc_id=doc_id, section_id=section_id, title_query=title_query, max_chars=max_chars)
 
 
 @mcp.tool(name="get_current_time")

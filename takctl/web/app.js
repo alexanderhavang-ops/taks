@@ -13,6 +13,7 @@ function App() {
   const ALLOWED_TABS = {
     onboarding: true,
     llm: true,
+    llm3: true,
     usage: true,
     martine: true,
     replay: true,
@@ -24,6 +25,7 @@ function App() {
   return h(Layout, { tab, setTab, health, brand },
     tab === "onboarding" && h(OnboardingView),
     tab === "llm" && h(LLMView),
+    tab === "llm3" && h(LLM3View),
     tab === "usage" && h(UsageView),
     tab === "martine" && h(MartineView),
     tab === "replay" && h(ReplayView),

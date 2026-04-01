@@ -8,6 +8,7 @@ from takctl.web.core.auth_routes import mount_auth_routes
 from takctl.web.core.debug_routes import mount_debug_routes, install_exception_handlers
 from takctl.web.api.onboarding_import import router as onboarding_import_router
 from takctl.web.api.llm2_debug import router as llm2_debug_router
+from takctl.web.api.llm3 import router as llm3_router
 from takctl.web.api.llm_config import router as llm_config_router
 from takctl.web.api.documents import router as documents_router
 from takctl.web.api.llm_usage import router as llm_usage_router
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
 
     app.include_router(onboarding_import_router)
     app.include_router(llm2_debug_router)
+    app.include_router(llm3_router)
     app.include_router(llm_config_router)
     app.include_router(documents_router)
     app.include_router(llm_usage_router)

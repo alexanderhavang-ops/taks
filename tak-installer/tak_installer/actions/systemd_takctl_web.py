@@ -27,12 +27,32 @@ HEALTH_STABLE_SUCCESSES = 3
 HEALTH_POLL_SEC = 0.25
 
 
+def _repo_root(ctx: Context) -> Path:
+    return Path(ctx.repo_root)
+
+
 def _unit_src(ctx: Context) -> Path:
-    return Path(ctx.repo_root) / "infra" / "systemd" / "takctl-web.service"
+    root = _repo_root(ctx)
+    candidates = [
+        root / "infra" / "systemd" / "takctl-web.service",
+        root / "tak-installer" / "infra" / "systemd" / "takctl-web.service",
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return candidates[0]
 
 
 def _dropin_src_dir(ctx: Context) -> Path:
-    return Path(ctx.repo_root) / "infra" / "systemd" / "takctl-web.service.d"
+    root = _repo_root(ctx)
+    candidates = [
+        root / "infra" / "systemd" / "takctl-web.service.d",
+        root / "tak-installer" / "infra" / "systemd" / "takctl-web.service.d",
+    ]
+    for p in candidates:
+        if p.exists():
+            return p
+    return candidates[0]
 
 
 def _run(cmd: list[str]) -> tuple[int, str]:
@@ -171,12 +191,7 @@ class _Action:
     ID: str = "systemd.takctl-web"
 
     def inspect(self, ctx: Context) -> int:
-        unit = SystemdUnit(
-            name=UNIT_NAME,
-            src=_unit_src(ctx),
-            dst=UNIT_DST,
-        )
-
+        unit = SystemdUnit(name=UNIT_NAME, src=_unit_src(ctx), dst=UNIT_DST)
         info = unit.inspect()
         if info.get("status") == "missing-src":
             print(f"ERROR: source unit not found: {info.get('src')}")
@@ -186,10 +201,8 @@ class _Action:
         print(f"  src: {info['src']}")
         print(f"  dst: {info['dst']}")
         print(f"  src sha256: {info['src_sha256']}")
-
-        dropins = _dropin_src_dir(ctx)
-        print(f"  dropin src dir: {dropins}")
-        print(f"  dropin src exists: {str(dropins.is_dir()).lower()}")
+        print(f"  dropin src dir: {_dropin_src_dir(ctx)}")
+        print(f"  dropin src exists: {str(_dropin_src_dir(ctx).is_dir()).lower()}")
 
         if info["status"] == "not-installed":
             print("  status: not installed")
@@ -199,29 +212,16 @@ class _Action:
             if info["status"] == "differs":
                 print("  diff:")
                 print(info.get("diff") or "(no diff output)")
-
-        print("  dry-run: no changes performed.")
         return 0
 
     def apply(self, ctx: Context) -> int:
-        unit = SystemdUnit(
-            name=UNIT_NAME,
-            src=_unit_src(ctx),
-            dst=UNIT_DST,
-        )
-
+        unit = SystemdUnit(name=UNIT_NAME, src=_unit_src(ctx), dst=UNIT_DST)
         info = unit.inspect()
         if info.get("status") == "missing-src":
             print(f"ERROR: source unit not found: {info.get('src')}")
             return 1
 
         expected_apply_ts = _read_apply_ts_from_state()
-
-        if os.environ.get("TAKS_DEBUG", "") == "1":
-            dbg = float(os.environ.get("TAKS_DEBUG_SLEEP_BEFORE_HEALTH", "0") or "0")
-            if dbg > 0:
-                print(f"debug: sleeping {dbg:.1f}s before health check")
-                time.sleep(dbg)
 
         print(f"Applying systemd unit: {UNIT_NAME}")
         try:

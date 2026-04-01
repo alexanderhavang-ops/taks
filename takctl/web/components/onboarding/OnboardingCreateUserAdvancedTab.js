@@ -30,21 +30,6 @@
 
     const setCfg = props.setCfg;
 
-    const artifactAtakAutoEnroll = !!props.artifactAtakAutoEnroll;
-    const setArtifactAtakAutoEnroll = props.setArtifactAtakAutoEnroll;
-
-    const artifactAtakSoftCertNoPassword = !!props.artifactAtakSoftCertNoPassword;
-    const setArtifactAtakSoftCertNoPassword = props.setArtifactAtakSoftCertNoPassword;
-
-    const artifactAtakSoftCertWithPassword = !!props.artifactAtakSoftCertWithPassword;
-    const setArtifactAtakSoftCertWithPassword = props.setArtifactAtakSoftCertWithPassword;
-
-    const artifactItakSoftCertNoPassword = !!props.artifactItakSoftCertNoPassword;
-    const setArtifactItakSoftCertNoPassword = props.setArtifactItakSoftCertNoPassword;
-
-    const artifactItakSoftCertWithPassword = !!props.artifactItakSoftCertWithPassword;
-    const setArtifactItakSoftCertWithPassword = props.setArtifactItakSoftCertWithPassword;
-
     return h("div", null,
       h("div", { style: { fontWeight: 700, marginBottom: "10px" } }, t("tab.advanced")),
 
@@ -84,70 +69,6 @@
             value: ttlSec,
             onChange: function (e) { setTtlSec(e.target.value); }
           }))
-        ),
-
-        h(Field, { label: "Generated onboarding artifacts" },
-          h("div", { style: { display: "grid", gap: "8px" } },
-            h("label", null,
-              h("input", Object.assign({}, LP, {
-                type: "checkbox",
-                checked: artifactAtakAutoEnroll,
-                onChange: function (e) { setArtifactAtakAutoEnroll(e.target.checked); }
-              })),
-              " ATAK auto-enroll"
-            ),
-            h("label", null,
-              h("input", Object.assign({}, LP, {
-                type: "checkbox",
-                checked: artifactAtakSoftCertNoPassword,
-                onChange: function (e) {
-                  const checked = !!e.target.checked;
-                  setArtifactAtakSoftCertNoPassword(checked);
-                  if (checked) setArtifactAtakSoftCertWithPassword(false);
-                }
-              })),
-              " ATAK soft-cert zip (no password)"
-            ),
-            h("label", null,
-              h("input", Object.assign({}, LP, {
-                type: "checkbox",
-                checked: artifactAtakSoftCertWithPassword,
-                onChange: function (e) {
-                  const checked = !!e.target.checked;
-                  setArtifactAtakSoftCertWithPassword(checked);
-                  if (checked) setArtifactAtakSoftCertNoPassword(false);
-                }
-              })),
-              " ATAK soft-cert zip (with password)"
-            ),
-            h("label", null,
-              h("input", Object.assign({}, LP, {
-                type: "checkbox",
-                checked: artifactItakSoftCertNoPassword,
-                onChange: function (e) {
-                  const checked = !!e.target.checked;
-                  setArtifactItakSoftCertNoPassword(checked);
-                  if (checked) setArtifactItakSoftCertWithPassword(false);
-                }
-              })),
-              " iTAK zip (no password)"
-            ),
-            h("label", null,
-              h("input", Object.assign({}, LP, {
-                type: "checkbox",
-                checked: artifactItakSoftCertWithPassword,
-                onChange: function (e) {
-                  const checked = !!e.target.checked;
-                  setArtifactItakSoftCertWithPassword(checked);
-                  if (checked) setArtifactItakSoftCertNoPassword(false);
-                }
-              })),
-              " iTAK zip (with password)"
-            ),
-            h("div", { className: "muted", style: { fontSize: "12px" } },
-              "ATAK/iTAK no-password vs with-password are mutually exclusive per client."
-            )
-          )
         ),
 
         ((policy && policy.config_fields) || []).map(function (f) {

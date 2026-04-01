@@ -195,3 +195,133 @@ def get_reference_doc_context(
         "items": items,
         "focus_text": str(focus.get("text") or "")[:2200],
     }
+
+
+def list_reference_doc_sections(
+    *,
+    doc_id: str,
+    limit: int = 200,
+) -> dict[str, Any]:
+    d = str(doc_id or "").strip()
+    if not d:
+        return {"ok": False, "error": "doc_id required"}
+
+    reg_items = _load_registry()
+    reg_by_id = {str(x.get("doc_id") or ""): x for x in reg_items if isinstance(x, dict)}
+    reg = reg_by_id.get(d) or {}
+    if not reg:
+        return {"ok": False, "error": "document not found", "doc_id": d}
+
+    sec_path = DERIVED_ROOT / d / "sections.json"
+    if not sec_path.exists():
+        return {"ok": False, "error": "sections missing", "doc_id": d}
+
+    try:
+        data = json.loads(sec_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        return {"ok": False, "error": f"failed to read sections: {e}", "doc_id": d}
+
+    items = [x for x in (data.get("items") or []) if isinstance(x, dict)]
+    lim = max(1, min(int(limit or 200), 500))
+
+    out = []
+    for it in items[:lim]:
+        out.append({
+            "id": str(it.get("id") or ""),
+            "title": str(it.get("title") or ""),
+            "level": int(it.get("level") or 0),
+            "score": int(it.get("score") or 0),
+            "start_offset": int(it.get("start_offset") or 0),
+            "end_offset": int(it.get("end_offset") or 0),
+        })
+
+    return {
+        "ok": True,
+        "doc_id": d,
+        "title": str(reg.get("title") or d),
+        "count": len(out),
+        "items": out,
+    }
+
+
+def get_reference_section(
+    *,
+    doc_id: str,
+    section_id: str = "",
+    title_query: str = "",
+    max_chars: int = 6000,
+) -> dict[str, Any]:
+    d = str(doc_id or "").strip()
+    sid = str(section_id or "").strip()
+    tq = _norm(str(title_query or "").strip())
+
+    if not d:
+        return {"ok": False, "error": "doc_id required"}
+    if not sid and not tq:
+        return {"ok": False, "error": "section_id or title_query required"}
+
+    reg_items = _load_registry()
+    reg_by_id = {str(x.get("doc_id") or ""): x for x in reg_items if isinstance(x, dict)}
+    reg = reg_by_id.get(d) or {}
+    if not reg:
+        return {"ok": False, "error": "document not found", "doc_id": d}
+
+    sec_path = DERIVED_ROOT / d / "sections.json"
+    txt_path = DERIVED_ROOT / d / "extract.txt"
+    if not sec_path.exists():
+        return {"ok": False, "error": "sections missing", "doc_id": d}
+    if not txt_path.exists():
+        return {"ok": False, "error": "extract missing", "doc_id": d}
+
+    try:
+        sec_data = json.loads(sec_path.read_text(encoding="utf-8"))
+        full_text = txt_path.read_text(encoding="utf-8")
+    except Exception as e:
+        return {"ok": False, "error": f"failed to read section source: {e}", "doc_id": d}
+
+    items = [x for x in (sec_data.get("items") or []) if isinstance(x, dict)]
+    if not items:
+        return {"ok": False, "error": "no sections", "doc_id": d}
+
+    chosen = None
+
+    if sid:
+        for it in items:
+            if str(it.get("id") or "").strip() == sid:
+                chosen = it
+                break
+
+    if chosen is None and tq:
+        ranked = []
+        for it in items:
+            title = str(it.get("title") or "")
+            score = _score(tq, f'{it.get("id","")} {title}')
+            if score > 0:
+                ranked.append((score, it))
+        ranked.sort(key=lambda x: (-x[0], str(x[1].get("id") or "")))
+        if ranked:
+            chosen = ranked[0][1]
+
+    if chosen is None:
+        return {"ok": False, "error": "section not found", "doc_id": d, "section_id": sid, "title_query": title_query}
+
+    start = max(0, int(chosen.get("start_offset") or 0))
+    end = min(len(full_text), int(chosen.get("end_offset") or len(full_text)))
+    mx = max(500, min(int(max_chars or 6000), 20000))
+    body = full_text[start:end].strip()
+    body = body[:mx]
+
+    return {
+        "ok": True,
+        "doc_id": d,
+        "title": str(reg.get("title") or d),
+        "section": {
+            "id": str(chosen.get("id") or ""),
+            "title": str(chosen.get("title") or ""),
+            "level": int(chosen.get("level") or 0),
+            "score": int(chosen.get("score") or 0),
+            "start_offset": start,
+            "end_offset": end,
+        },
+        "text": body,
+    }

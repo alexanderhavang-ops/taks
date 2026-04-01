@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+from takctl.services.docs_ingest import _write_sections, write_chunks
+from takctl.services.docs_paths import extract_path
+from takctl.services.docs_registry import load_docs_registry, save_docs_registry
+
+
+def main() -> int:
+    reg = load_docs_registry()
+    items = [x for x in (reg.get("items") or []) if isinstance(x, dict)]
+    changed = 0
+
+    for item in items:
+        doc_id = str(item.get("doc_id") or "").strip()
+        title = str(item.get("title") or doc_id)
+        if not doc_id:
+            continue
+
+        ep = extract_path(doc_id)
+        if not ep.exists():
+            print(f"{doc_id}: skip missing extract")
+            continue
+
+        text = ep.read_text(encoding="utf-8")
+        sections = _write_sections(doc_id, title, text)
+        chunk_count = write_chunks(doc_id, title, text, sections=sections)
+
+        item["chunk_count"] = chunk_count
+        item["status"] = "ready"
+
+        changed += 1
+        print(f"{doc_id}: sections={len(sections)} chunks={chunk_count}")
+
+    reg["items"] = items
+    save_docs_registry(reg)
+    print(f"reindexed={changed}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

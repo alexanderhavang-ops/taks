@@ -1,9 +1,0 @@
-You are given structured domain findings (JSON) from Phase2.
-Produce an overall operational assessment with:
-- summary
-- priority actions
-- risks
-- signals
-
-Inputs follow as JSON:
-{{EVIDENCE_JSON}}

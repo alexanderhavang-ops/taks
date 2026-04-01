@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 from martine.config import load_config
 from martine.state.paths import ensure_state_dirs
 from martine.tools.taks_state import get_taks_state_summary
-from martine.tools.docs_ref import list_reference_docs, search_reference_docs, get_reference_doc_context
+from martine.tools.docs_ref import list_reference_docs, search_reference_docs, get_reference_doc_context, list_reference_doc_sections, get_reference_section
 from martine.tools.cot_sa import (
     get_contact_status,
     get_current_time,
@@ -102,6 +102,35 @@ def list_tools() -> List[Dict[str, Any]]:
                     "window": {"type": "integer"}
                 },
                 "required": ["doc_id", "chunk_id"],
+                "additionalProperties": False,
+            },
+        },
+
+        {
+            "name": "list_reference_doc_sections",
+            "description": "List parsed sections/chapters for one uploaded reference document.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "doc_id": {"type": "string"},
+                    "limit": {"type": "integer"}
+                },
+                "required": ["doc_id"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "get_reference_section",
+            "description": "Fetch one parsed section by section_id or title_query from an uploaded reference document.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "doc_id": {"type": "string"},
+                    "section_id": {"type": "string"},
+                    "title_query": {"type": "string"},
+                    "max_chars": {"type": "integer"}
+                },
+                "required": ["doc_id"],
                 "additionalProperties": False,
             },
         },
@@ -324,6 +353,21 @@ def call_tool(name: str, arguments: Dict[str, Any] | None = None) -> Dict[str, A
             doc_id=str(args.get("doc_id", "")),
             chunk_id=str(args.get("chunk_id", "")),
             window=int(args.get("window", 1) or 1),
+        )
+
+
+    if name == "list_reference_doc_sections":
+        return list_reference_doc_sections(
+            doc_id=str(args.get("doc_id", "")),
+            limit=int(args.get("limit", 200) or 200),
+        )
+
+    if name == "get_reference_section":
+        return get_reference_section(
+            doc_id=str(args.get("doc_id", "")),
+            section_id=str(args.get("section_id", "")),
+            title_query=str(args.get("title_query", "")),
+            max_chars=int(args.get("max_chars", 6000) or 6000),
         )
 
     if name == "get_current_time":
