@@ -30,6 +30,7 @@ def run_once(user_question: str, *, sender_uid: str = '', sender_callsign: str =
         output_schema='',
         max_turns=int(profile.get('max_turns', cfg.default_max_turns)),
         max_tool_calls=int(profile.get('max_tool_calls', cfg.default_max_tool_calls)),
+        max_output_tokens=int(profile.get('max_output_tokens', cfg.default_max_output_tokens)),
         allow_repair_turn=bool(profile.get('allow_repair_turn', cfg.default_allow_repair_turn)),
         purpose_prefix='martine',
         sender_uid=sender_uid,

@@ -28,6 +28,79 @@ class AgentLoop:
         self.trace = trace
         self.llm = MartineLlm()
 
+    def _extract_reference_doc_names(self, raw: Any) -> list[str]:
+        names: list[str] = []
+
+        def add_name(v: Any) -> None:
+            s = str(v or "").strip()
+            if s and s not in names:
+                names.append(s)
+
+        if isinstance(raw, dict):
+            items = raw.get("items")
+            if isinstance(items, list):
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    add_name(item.get("title"))
+                    add_name(item.get("name"))
+                    add_name(item.get("doc_title"))
+                    add_name(item.get("doc_name"))
+                    add_name(item.get("doc_id"))
+            else:
+                for k in ("title", "name", "doc_title", "doc_name", "doc_id"):
+                    add_name(raw.get(k))
+
+        elif isinstance(raw, list):
+            for item in raw:
+                if isinstance(item, dict):
+                    add_name(item.get("title"))
+                    add_name(item.get("name"))
+                    add_name(item.get("doc_title"))
+                    add_name(item.get("doc_name"))
+                    add_name(item.get("doc_id"))
+                else:
+                    add_name(item)
+
+        return names
+
+    def _list_reference_docs_once(self, tool_names: set[str]) -> dict[str, Any]:
+        if "list_reference_docs" not in tool_names:
+            return {
+                "ok": False,
+                "available": False,
+                "tool_name": "list_reference_docs",
+                "names": [],
+                "raw": None,
+            }
+
+        try:
+            tool_resp = call_tool("list_reference_docs", {"only_active": True})
+        except Exception as e:
+            out = {
+                "ok": False,
+                "available": True,
+                "tool_name": "list_reference_docs",
+                "error": f"{type(e).__name__}: {e}",
+                "names": [],
+                "raw": None,
+            }
+            self.trace.write_json("00_reference_docs.json", out)
+            return out
+
+        structured = tool_resp.get("structured", tool_resp) if isinstance(tool_resp, dict) else tool_resp
+        names = self._extract_reference_doc_names(structured)
+
+        out = {
+            "ok": True,
+            "available": True,
+            "tool_name": "list_reference_docs",
+            "names": names,
+            "raw": structured,
+        }
+        self.trace.write_json("00_reference_docs.json", out)
+        return out
+
     def _prompt(
         self,
         *,
@@ -36,6 +109,7 @@ class AgentLoop:
         tools: list[dict[str, Any]],
         turns: list[dict[str, Any]],
         final_format: str,
+        reference_doc_names: list[str],
     ) -> str:
         tools_json = json.dumps(tools, ensure_ascii=False, indent=2)
         turns_json = json.dumps(turns, ensure_ascii=False, indent=2)
@@ -48,6 +122,17 @@ class AgentLoop:
             "sender_callsign": self.ctx.sender_callsign,
             "extras": self.ctx.extras,
         }
+
+        docs_block = "REFERENCE_DOCUMENT_NAMES:\n[]\n\n"
+        if reference_doc_names:
+            docs_block = (
+                "REFERENCE_DOCUMENT_NAMES:\n"
+                + json.dumps(reference_doc_names[:200], ensure_ascii=False, indent=2)
+                + "\n\n"
+                + "Use these names as a hint for what doctrine/reference material exists behind the document tools.\n"
+                + "Do not assume any document content unless you actually call a document tool.\n\n"
+            )
+
         return (
             f"{system_prompt.strip()}\n\n"
             "You are running inside the Martine Server agent loop.\n"
@@ -69,14 +154,18 @@ class AgentLoop:
             f"- Desired final format: {final_format}.\n"
             "- Max remaining turns are limited; be efficient.\n\n"
             f"AVAILABLE_TOOLS:\n{tools_json}\n\n"
-            f"RUN_CONTEXT:\n{json.dumps(run_ctx, ensure_ascii=False, indent=2)}\n\n"
-            f"TURN_HISTORY:\n{turns_json}\n\n"
-            f"USER_INPUT:\n{user_input.strip()}\n"
+            + docs_block
+            + f"RUN_CONTEXT:\n{json.dumps(run_ctx, ensure_ascii=False, indent=2)}\n\n"
+            + f"TURN_HISTORY:\n{turns_json}\n\n"
+            + f"USER_INPUT:\n{user_input.strip()}\n"
         )
 
     def run(self, *, system_prompt: str, user_input: str, final_format: str = "text") -> AgentLoopResult:
         tools = list_tools()
         tool_names = {str(t.get("name") or "") for t in tools}
+        ref_docs = self._list_reference_docs_once(tool_names)
+        reference_doc_names = list(ref_docs.get("names") or [])
+
         turns: list[dict[str, Any]] = []
         tool_results: list[dict[str, Any]] = []
         tool_calls = 0
@@ -88,12 +177,13 @@ class AgentLoop:
                 tools=tools,
                 turns=turns,
                 final_format=final_format,
+                reference_doc_names=reference_doc_names,
             )
             self.trace.write_text(f"{turn_idx:02d}_prompt.txt", prompt)
             resp = self.llm.complete_text(
                 prompt=prompt,
                 temperature=0.1,
-                max_tokens=2000,
+                max_tokens=int(self.ctx.max_output_tokens),
                 purpose=f"{self.ctx.purpose_prefix}:agent_loop",
             )
             self.trace.write_json(f"{turn_idx:02d}_llm.json", resp)

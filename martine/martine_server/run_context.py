@@ -15,6 +15,7 @@ class RunContext:
     output_schema: str = ''
     max_turns: int = 6
     max_tool_calls: int = 10
+    max_output_tokens: int = 2000
     allow_repair_turn: bool = True
     purpose_prefix: str = 'martine'
     sender_uid: str = ''

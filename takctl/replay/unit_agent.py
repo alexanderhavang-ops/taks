@@ -564,65 +564,74 @@ def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
         if not isinstance(chain, list) or not chain:
             continue
 
-        root = dict(chain[0] or {})
+        chain = [dict(x or {}) for x in chain if isinstance(x, dict)]
+        if not chain:
+            continue
+
+        root = chain[0]
+        rest = chain[1:]
+
         action = str(root.get("action") or "")
         status = str(root.get("status") or "")
         deadline = int(root.get("deadline_sim_time_s") or 0)
 
-        keep_chain = True
+        if status == "pending":
+            root["status"] = "active"
+            root["started_sim_time_s"] = int(sim_time_s)
+            if not root.get("deadline_sim_time_s"):
+                root["deadline_sim_time_s"] = int(sim_time_s) + int(root.get("duration_s") or 0)
+            deadline = int(root.get("deadline_sim_time_s") or 0)
+
+            if action == "move_unit":
+                _execute_move_unit(st, root, sim_time_s)
+            elif action == "change_posture":
+                _execute_change_posture(st, root, sim_time_s)
+            elif action == "observe_area":
+                _execute_observe_area(st, root, sim_time_s)
+            elif action == "hold_position":
+                _execute_hold_position(st, root, sim_time_s)
+
+        completed_now = False
 
         if action == "send_message":
             emit_message_action(callsign, root, sim_time_s, outbox_path, st)
-            root["status"] = "completed"
-            root["completed_sim_time_s"] = int(sim_time_s)
-            append_completed_work(st, root)
-            keep_chain = False
+            _complete_root(st, root, sim_time_s)
+            completed_now = True
 
         elif action == "report_status":
             params = dict(root.get("params") or {})
             recipient = str(params.get("recipient") or superior).strip()
             root["message"] = str(params.get("message") or "")
             emit_report_up(callsign, recipient, root, sim_time_s, outbox_path, st)
-            root["status"] = "completed"
-            root["completed_sim_time_s"] = int(sim_time_s)
-            append_completed_work(st, root)
-            keep_chain = False
+            _complete_root(st, root, sim_time_s)
+            completed_now = True
 
         elif action in {
             "llm_replan_from_inbox",
             "llm_replan_from_deadline",
             "llm_replan_from_world_change",
+            "move_unit",
+            "change_posture",
+            "observe_area",
+            "hold_position",
         }:
-            if status == "active" and deadline and int(sim_time_s) >= deadline:
+            if deadline and int(sim_time_s) >= deadline:
                 _complete_root(st, root, sim_time_s)
-                keep_chain = False
+                completed_now = True
 
-        elif action == "move_unit":
-            _execute_move_unit(st, root, sim_time_s)
-            _complete_root(st, root, sim_time_s)
-            keep_chain = False
-
-        elif action == "change_posture":
-            _execute_change_posture(st, root, sim_time_s)
-            _complete_root(st, root, sim_time_s)
-            keep_chain = False
-
-        elif action == "observe_area":
-            _execute_observe_area(st, root, sim_time_s)
-            _complete_root(st, root, sim_time_s)
-            keep_chain = False
-
-        elif action == "hold_position":
-            _execute_hold_position(st, root, sim_time_s)
-            _complete_root(st, root, sim_time_s)
-            keep_chain = False
-
-        if keep_chain:
-            new_work.append(chain)
+        if completed_now:
+            if rest:
+                nxt = dict(rest[0] or {})
+                if not nxt.get("status") or str(nxt.get("status")) == "completed":
+                    nxt["status"] = "pending"
+                if nxt.get("created_sim_time_s") is None:
+                    nxt["created_sim_time_s"] = int(sim_time_s)
+                new_work.append([nxt] + rest[1:])
+        else:
+            new_work.append([root] + rest)
 
     st["work"] = new_work
     return len(list(st.get("completed_work") or []))
-
 
 def main() -> None:
     ap = argparse.ArgumentParser()

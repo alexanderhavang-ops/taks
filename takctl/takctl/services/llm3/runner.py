@@ -128,6 +128,7 @@ def run_phase2(*, domain: str | None = None) -> dict[str, Any]:
             output_schema=phase_output_schema(cfg, "phase2"),
             max_turns=int(profile.get("max_turns", 8)),
             max_tool_calls=int(profile.get("max_tool_calls", 12)),
+            max_output_tokens=int(profile.get("max_output_tokens", getattr(martine_cfg, "default_max_output_tokens", 2000))),
             allow_repair_turn=bool(profile.get("allow_repair_turn", True)),
             purpose_prefix=f"llm3:{dom}:phase2",
         )
@@ -209,6 +210,7 @@ def run_phase3(*, domain: str | None = None) -> dict[str, Any]:
                 output_schema="phase3.html.v1",
                 max_turns=int(profile.get("max_turns", 6)),
                 max_tool_calls=int(profile.get("max_tool_calls", 10)),
+                max_output_tokens=int(profile.get("max_output_tokens", getattr(martine_cfg, "default_max_output_tokens", 2000))),
                 allow_repair_turn=bool(profile.get("allow_repair_turn", True)),
                 purpose_prefix=f"llm3:{dom}:phase3:{kind}",
             )

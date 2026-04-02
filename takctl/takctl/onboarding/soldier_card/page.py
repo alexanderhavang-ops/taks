@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from html import escape as h
@@ -156,16 +157,21 @@ def render_soldier_card_page(
     exp = expires_at_utc.replace(microsecond=0).isoformat()
 
     btn_css = """
-    .btn { font-size: 12px; padding: 3px 8px; border: 1px solid rgba(255,255,255,0.20); border-radius: 10px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.90); cursor: pointer; text-decoration:none; display:inline-block; }
+    .btn { font-size: 12px; padding: 7px 11px; border: 1px solid rgba(255,255,255,0.20); border-radius: 12px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.92); cursor: pointer; text-decoration:none; display:inline-block; font-weight:600; }
     .btn:hover { background: rgba(255,255,255,0.10); }
     .warn { color:#ffd27a; }
     .danger-note { margin-top:8px; padding:10px 12px; border-radius:10px; background:rgba(255,210,122,0.08); border:1px solid rgba(255,210,122,0.18); color:#ffe3ac; font-size:13px; line-height:1.45; }
-    .stepcard { background: rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:14px; padding:14px; }
-    .stepcard h4 { margin:0 0 8px 0; font-size:14px; }
-    .qrimg { width:220px; max-width:100%; height:auto; border-radius:10px; background:#fff; padding:8px; }
+    .stepcard { background: rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:16px; }
+    .stepcard h4 { margin:0 0 8px 0; font-size:15px; }
+    .qrimg { width:220px; max-width:100%; height:auto; border-radius:12px; background:#fff; padding:8px; }
     .choicegrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px; }
     .dlrow { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
     code.inline { font-size:12px; }
+    .hero { background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03)); border:1px solid rgba(255,255,255,0.10); border-radius:18px; padding:18px 20px; margin-bottom:14px; box-shadow: 0 10px 30px rgba(0,0,0,0.22); }
+    .eyebrow { font-size:12px; letter-spacing:0.14em; text-transform:uppercase; color:#8bb8ff; font-weight:700; }
+    .hero-title { font-size:30px; line-height:1.1; font-weight:850; margin-top:10px; }
+    .hero-sub { font-size:15px; line-height:1.6; color:rgba(255,255,255,0.78); margin-top:10px; max-width:760px; }
+    .slogan { margin-top:8px; font-size:12px; letter-spacing:0.12em; text-transform:uppercase; color:rgba(255,255,255,0.58); }
     """
 
     script_html = """<script>
@@ -309,8 +315,8 @@ pre { white-space: pre-wrap; word-break: break-word; }
           <div class="muted">Android kamera -> tak:// -> ATAK auto-enroll med användarnamn/lösenord.</div>
           <div style="margin-top:10px;"><img class="qrimg" src="{h(atak_qr_quick_connect_png)}" alt="ATAK quick-connect QR"/></div>
           <div class="dlrow">
-            <a class="btn" href="{h(atak_qr_quick_connect_png)}">Open QR</a>
-            <a class="btn" href="{h(atak_qr_quick_connect_txt)}">Open text</a>
+            <a class="btn" href="{h(atak_qr_quick_connect_png)}">{h(t(l, "soldier.open_qr"))}</a>
+            <a class="btn" href="{h(atak_qr_quick_connect_txt)}">{h(t(l, "soldier.open_text"))}</a>
           </div>
         </div>
         """)
@@ -323,8 +329,8 @@ pre { white-space: pre-wrap; word-break: break-word; }
           <div style="margin-top:10px;"><img class="qrimg" src="{h(atak_qr_auto_enroll_png)}" alt="ATAK auto-enroll zip QR"/></div>
           <div class="dlrow">
             <a class="btn" href="{h(atak_auto_enroll_zip)}">Download zip</a>
-            <a class="btn" href="{h(atak_qr_auto_enroll_png)}">Open QR</a>
-            <a class="btn" href="{h(atak_qr_auto_enroll_txt)}">Open text</a>
+            <a class="btn" href="{h(atak_qr_auto_enroll_png)}">{h(t(l, "soldier.open_qr"))}</a>
+            <a class="btn" href="{h(atak_qr_auto_enroll_txt)}">{h(t(l, "soldier.open_text"))}</a>
           </div>
         </div>
         """)
@@ -337,8 +343,8 @@ pre { white-space: pre-wrap; word-break: break-word; }
           <div style="margin-top:10px;"><img class="qrimg" src="{h(atak_qr_soft_cert_png)}" alt="ATAK soft-cert zip QR"/></div>
           <div class="dlrow">
             <a class="btn" href="{h(atak_soft_cert_zip)}">Download zip</a>
-            <a class="btn" href="{h(atak_qr_soft_cert_png)}">Open QR</a>
-            <a class="btn" href="{h(atak_qr_soft_cert_txt)}">Open text</a>
+            <a class="btn" href="{h(atak_qr_soft_cert_png)}">{h(t(l, "soldier.open_qr"))}</a>
+            <a class="btn" href="{h(atak_qr_soft_cert_txt)}">{h(t(l, "soldier.open_text"))}</a>
           </div>
         </div>
         """)
@@ -362,8 +368,8 @@ pre { white-space: pre-wrap; word-break: break-word; }
           <div class="muted">iTAK:s enda QR-spår. Behålls för felsökning, men manuell zip-install rekommenderas just nu.</div>
           <div style="margin-top:10px;"><img class="qrimg" src="{h(itak_qr_quick_connect_png)}" alt="iTAK quick-connect QR"/></div>
           <div class="dlrow">
-            <a class="btn" href="{h(itak_qr_quick_connect_png)}">Open QR</a>
-            <a class="btn" href="{h(itak_qr_quick_connect_txt)}">Open text</a>
+            <a class="btn" href="{h(itak_qr_quick_connect_png)}">{h(t(l, "soldier.open_qr"))}</a>
+            <a class="btn" href="{h(itak_qr_quick_connect_txt)}">{h(t(l, "soldier.open_text"))}</a>
           </div>
           {warn}
         </div>
@@ -386,24 +392,35 @@ pre { white-space: pre-wrap; word-break: break-word; }
     browser_html = f"""
     <div class="choicegrid">
       <div class="stepcard">
-        <h4>Browser / print / send card</h4>
-        <div class="muted">Direktlänk till soldatkortet.</div>
+        <h4>{h(t(l, "soldier.browser_card"))}</h4>
+        <div class="muted">{h(t(l, "soldier.browser_card_desc"))}</div>
         <div style="margin-top:10px;"><img class="qrimg" src="{h(browser_card_qr)}" alt="Card URL QR"/></div>
         <div class="dlrow">
-          <a class="btn" href="{h(token_url)}">Open card</a>
-          <a class="btn" href="{h(browser_card_qr)}">Open QR</a>
-          <a class="btn" href="{h(browser_card_txt)}">Open text</a>
+          <a class="btn" href="{h(token_url)}">{h(t(l, "soldier.open_card"))}</a>
+          <a class="btn" href="{h(browser_card_qr)}">{h(t(l, "soldier.open_qr"))}</a>
+          <a class="btn" href="{h(browser_card_txt)}">{h(t(l, "soldier.open_text"))}</a>
         </div>
       </div>
     </div>
     """
+
+    brand_slogan = ""
+    try:
+        brand_slogan = _cfg_str(cfg, "site_slogan", "")
+    except Exception:
+        brand_slogan = ""
+    if not brand_slogan:
+        try:
+            brand_slogan = json.loads(Path("/opt/tak/tools/takctl/web/assets/brand.json").read_text(encoding="utf-8")).get("slogan") or ""
+        except Exception:
+            brand_slogan = ""
 
     return f"""<!doctype html>
 <html lang="{h(l)}">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Soldier card - {h(username)}</title>
+  <title>{h(t(l, "soldier.title_for", username=username))}</title>
   {style_html}
   <style>{btn_css}</style>
 </head>
@@ -419,27 +436,27 @@ pre { white-space: pre-wrap; word-break: break-word; }
     </div>
   </div>
 
-  <div class="hdr">
-    <div>
-      <div class="title">Soldier card</div>
-      <div class="meta">Single landing page for ATAK / iTAK / browser onboarding.</div>
-      {mode_summary_html}
-    </div>
+  <div class="hero">
+    <div class="eyebrow">TAKS ONBOARDING</div>
+    <div class="hero-title">{h(t(l, "soldier.welcome"))}</div>
+    <div class="hero-sub">{h(t(l, "soldier.subtitle"))}</div>
+    {f'<div class="slogan">{h(brand_slogan)}</div>' if brand_slogan else ''}
+    {mode_summary_html}
   </div>
 
   <div class="row two">
     <div class="card">
       <div class="tabs">
-        <button id="tabbtn_start" class="choicebtn" onclick="showMainTab('start')">Start</button>
-        <button id="tabbtn_guide" class="choicebtn" onclick="showMainTab('guide')">Guide</button>
-        <button id="tabbtn_advanced" class="choicebtn" onclick="showMainTab('advanced')">Advanced</button>
+        <button id="tabbtn_start" class="choicebtn" onclick="showMainTab('start')">{h(t(l, "soldier.start"))}</button>
+        <button id="tabbtn_guide" class="choicebtn" onclick="showMainTab('guide')">{h(t(l, "soldier.guide"))}</button>
+        <button id="tabbtn_advanced" class="choicebtn" onclick="showMainTab('advanced')">{h(t(l, "soldier.advanced_tab"))}</button>
       </div>
 
       <div id="tab_start">
         <div class="tabs" style="margin-top:6px;">
-          <button id="btn_android" class="choicebtn" onclick="showFlow('android')">ATAK / Android</button>
-          <button id="btn_iphone" class="choicebtn" onclick="showFlow('iphone')">iTAK / iPhone</button>
-          <button id="btn_browser" class="choicebtn" onclick="showFlow('browser')">Browser</button>
+          <button id="btn_android" class="choicebtn" onclick="showFlow('android')">{h(t(l, "soldier.android"))}</button>
+          <button id="btn_iphone" class="choicebtn" onclick="showFlow('iphone')">{h(t(l, "soldier.iphone"))}</button>
+          <button id="btn_browser" class="choicebtn" onclick="showFlow('browser')">{h(t(l, "soldier.browser"))}</button>
         </div>
 
         <div id="flow_android" style="margin-top:12px;">{android_html}</div>
@@ -449,24 +466,24 @@ pre { white-space: pre-wrap; word-break: break-word; }
 
       <div id="tab_guide" style="display:none;">
         <div class="stepcard">
-          <h4>What each path means</h4>
+          <h4>{h(t(l, "soldier.what_each_path_means"))}</h4>
           <div class="muted">
-            <strong>ATAK quick-connect QR</strong>: Android camera opens a <code class="inline">tak://</code> link and ATAK performs username/password auto-enroll.<br/>
-            <strong>ATAK auto-enroll zip</strong>: QR downloads an ATAK package for enrollment flow.<br/>
-            <strong>ATAK soft-cert zip</strong>: QR downloads an ATAK package carrying soft certificates.<br/>
-            <strong>iTAK quick-connect QR</strong>: only QR format iTAK supports here.<br/>
-            <strong>iTAK soft-cert zip</strong>: manual install via Upload server package.
+            <strong>ATAK quick-connect QR</strong>: {h(t(l, "soldier.path.atak_qr"))}<br/>
+            <strong>ATAK auto-enroll zip</strong>: {h(t(l, "soldier.path.atak_auto_zip"))}<br/>
+            <strong>ATAK soft-cert zip</strong>: {h(t(l, "soldier.path.atak_soft_zip"))}<br/>
+            <strong>iTAK quick-connect QR</strong>: {h(t(l, "soldier.path.itak_qr"))}<br/>
+            <strong>iTAK soft-cert zip</strong>: {h(t(l, "soldier.path.itak_soft_zip"))}
           </div>
         </div>
       </div>
 
       <div id="tab_advanced" style="display:none;">
         <div class="stepcard">
-          <h4>Card URL</h4>
+          <h4>{h(t(l, "soldier.card_url"))}</h4>
           <div class="muted" id="card_url_txt">{h(token_url)}</div>
           <div class="dlrow">
-            <button class="btn" onclick="copyId('card_url_txt')">Copy URL</button>
-            <a class="btn" href="{h(token_url)}">Open</a>
+            <button class="btn" onclick="copyId('card_url_txt')">{h(t(l, "soldier.copy"))}</button>
+            <a class="btn" href="{h(token_url)}">{h(t(l, "soldier.open_card"))}</a>
           </div>
         </div>
       </div>

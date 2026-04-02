@@ -31,6 +31,12 @@
       "doc": "Default Martine agent loop max tool calls",
       "secret": false
     },
+    "martine_default_max_output_tokens": {
+      "type": "string",
+      "default": "2000",
+      "doc": "Default Martine agent loop max output tokens per turn",
+      "secret": false
+    },
     "martine_default_allow_repair_turn": {
       "type": "string",
       "default": "true",
@@ -47,6 +53,12 @@
       "type": "string",
       "default": "8",
       "doc": "LLM3 default max turns",
+      "secret": false
+    },
+    "martine.client.llm3.timeline.phase2.max_output_tokens": {
+      "type": "string",
+      "default": "8000",
+      "doc": "LLM3 timeline phase2 max output tokens",
       "secret": false
     },
     "martine.client.replay.max_turns": {

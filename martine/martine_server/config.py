@@ -15,6 +15,7 @@ class MartineServerConfig:
     mcp_bind_port: int
     default_max_turns: int
     default_max_tool_calls: int
+    default_max_output_tokens: int
     default_allow_repair_turn: bool
     loaded_from: str
     raw: KVView
@@ -41,6 +42,7 @@ def load_config() -> MartineServerConfig:
         mcp_bind_port=int(cfg.get('martine_mcp_bind_port', '8765')),
         default_max_turns=int(cfg.get('martine_default_max_turns', '6')),
         default_max_tool_calls=int(cfg.get('martine_default_max_tool_calls', '10')),
+        default_max_output_tokens=int(cfg.get('martine_default_max_output_tokens', '2000')),
         default_allow_repair_turn=_truthy(cfg.get('martine_default_allow_repair_turn', 'true'), True),
         loaded_from=str(cfg._loaded_from),
         raw=cfg,
@@ -60,16 +62,20 @@ def resolve_profile(client: str, workload: str = '', overrides: dict[str, Any] |
     resolved = {
         'max_turns': cfg.default_max_turns,
         'max_tool_calls': cfg.default_max_tool_calls,
+        'max_output_tokens': cfg.default_max_output_tokens,
         'allow_repair_turn': cfg.default_allow_repair_turn,
     }
     for prefix in keys:
         mt = raw.get(prefix + 'max_turns', '')
         mc = raw.get(prefix + 'max_tool_calls', '')
+        mo = raw.get(prefix + 'max_output_tokens', '')
         ar = raw.get(prefix + 'allow_repair_turn', '')
         if mt.strip():
             resolved['max_turns'] = int(mt)
         if mc.strip():
             resolved['max_tool_calls'] = int(mc)
+        if mo.strip():
+            resolved['max_output_tokens'] = int(mo)
         if ar.strip():
             resolved['allow_repair_turn'] = _truthy(ar, resolved['allow_repair_turn'])
     for k, v in (overrides or {}).items():
