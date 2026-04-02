@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -60,7 +59,7 @@ def _wkb_point_hex_to_latlon(hex_wkb: str) -> Optional[Tuple[float, float]]:
         b = bytes.fromhex(s)
     except Exception:
         return None
-    if len(b) < 1 + 4 + 16:
+    if len(b) < 21:
         return None
 
     endian = b[0]
@@ -86,13 +85,10 @@ def _wkb_point_hex_to_latlon(hex_wkb: str) -> Optional[Tuple[float, float]]:
     import struct
     fmt = "<dd" if little else ">dd"
     x, y = struct.unpack(fmt, b[pos:pos + 16])
-    return (float(y), float(x))  # lat, lon
+    return (float(y), float(x))
 
 
 def _tnr_from_iso(ts: str) -> str:
-    # Accept both:
-    #  - 2026-03-12T17:14:44+00:00
-    #  - 2026-03-12 17:14:44+00:00   (str(datetime))
     s = _s(ts)
     if len(s) < 16:
         return ""
@@ -109,10 +105,6 @@ def _tnr_from_iso(ts: str) -> str:
 
 
 def _fal_parse_callsign(cs: str) -> Optional[Dict[str, Any]]:
-    """
-    Use fal.py as the single authority for doctrinal parsing.
-    policy_cfg is optional; for presence we pass None (no hvbat mapping needed).
-    """
     callsign = _upper(cs)
     if not callsign:
         return None
@@ -124,10 +116,6 @@ def _fal_parse_callsign(cs: str) -> Optional[Dict[str, Any]]:
 
 
 def _unit_key_from_fal(parsed: Dict[str, Any]) -> str:
-    """
-    Conservative: group by the most specific callsign-like key fal provides.
-    No guessing.
-    """
     for k in (
         "group_callsign",
         "platoon_callsign",
@@ -142,7 +130,6 @@ def _unit_key_from_fal(parsed: Dict[str, Any]) -> str:
 
 
 def _group_non_doctrinal(rows: List[Dict[str, Any]], threshold_deg: float = 0.01) -> List[Dict[str, Any]]:
-    # coarse spatial clustering to avoid dumping individual spam
     clusters: List[Dict[str, Any]] = []
     for r in rows:
         lat = r.get("lat")
@@ -236,11 +223,9 @@ def enrich(evidence: Dict[str, Any]) -> Dict[str, Any]:
             rec["lat"], rec["lon"] = latlon[0], latlon[1]
         parsed_rows.append(rec)
 
-    # doctrinal vs non-doctrinal split
     doctrinal_rows = [r for r in parsed_rows if r.get("doctrinal") and _s(r.get("unit"))]
     non_doctrinal_rows = [r for r in parsed_rows if not r.get("doctrinal")]
 
-    # doctrinal aggregation by unit key
     by_unit: Dict[str, Dict[str, Any]] = {}
     for r in doctrinal_rows:
         unit = _s(r.get("unit"))
@@ -269,31 +254,34 @@ def enrich(evidence: Dict[str, Any]) -> Dict[str, Any]:
         doctrinal_units.append(item)
     doctrinal_units.sort(key=lambda x: (-int(x["observations"]), x["unit"]))
 
-    # non-doctrinal clustering
     nd_clusters = _group_non_doctrinal(non_doctrinal_rows)
     largest = nd_clusters[0] if nd_clusters else None
     others = nd_clusters[1:4] if len(nd_clusters) > 1 else []
 
-    # picture_time from metadata
     picture_time = ""
     if meta_rows and isinstance(meta_rows[0], list) and len(meta_rows[0]) >= 1:
         picture_time = _tnr_from_iso(_s(meta_rows[0][0]))
 
-    # stale_time = max stale_tnr across rows
     stale_time = ""
     for r in parsed_rows:
         st = _s(r.get("stale_tnr"))
         if st and (not stale_time or st > stale_time):
             stale_time = st
 
-    # quick visibility/debug: which callsigns were considered doctrinal?
     doctrinal_callsigns = sorted({_upper(r.get("callsign")) for r in doctrinal_rows if _s(r.get("callsign"))})
 
     return {
-        "picture_time": picture_time,
-        "stale_time": stale_time,
-        "doctrinal_units": doctrinal_units,
-        "doctrinal_callsigns": doctrinal_callsigns,
-        "largest_non_doctrinal_cluster": largest,
-        "other_non_doctrinal_contacts": others,
+        "domain": "presence",
+        "generated_utc": evidence.get("generated_utc"),
+        "ok": True,
+        "phase": "phase1",
+        "queries": evidence.get("queries", []),
+        "presence": {
+            "picture_time": picture_time,
+            "stale_time": stale_time,
+            "doctrinal_units": doctrinal_units,
+            "doctrinal_callsigns": doctrinal_callsigns,
+            "largest_non_doctrinal_cluster": largest,
+            "other_non_doctrinal_contacts": others,
+        },
     }
