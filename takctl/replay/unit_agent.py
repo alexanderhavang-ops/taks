@@ -454,7 +454,6 @@ def _complete_root(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) ->
 def _execute_move_unit(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
     params = dict(root.get("params") or {})
     own = st.setdefault("own_state", {})
-    pos = dict(own.get("position") or {})
 
     lat = params.get("lat", params.get("destination_lat"))
     lon = params.get("lon", params.get("destination_lon"))
@@ -462,18 +461,21 @@ def _execute_move_unit(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int
         return
 
     try:
-        pos["lat"] = float(lat)
-        pos["lon"] = float(lon)
+        lat = float(lat)
+        lon = float(lon)
     except Exception:
         return
 
-    own["position"] = pos
     urgency = str(params.get("urgency") or params.get("movement_type") or "").strip()
-    if urgency:
-        own["last_movement"] = {
-            "sim_time_s": int(sim_time_s),
-            "urgency": urgency,
-        }
+
+    own["planned_movement"] = {
+        "started_sim_time_s": int(sim_time_s),
+        "destination": {
+            "lat": lat,
+            "lon": lon,
+        },
+        "urgency": urgency,
+    }
 
 
 def _execute_change_posture(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
@@ -574,8 +576,23 @@ def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
         action = str(root.get("action") or "")
         status = str(root.get("status") or "")
         deadline = int(root.get("deadline_sim_time_s") or 0)
+        started = root.get("started_sim_time_s")
 
-        if status == "pending":
+        runtime_state_actions = {
+            "move_unit",
+            "change_posture",
+            "observe_area",
+            "hold_position",
+        }
+
+        should_start_now = False
+        if action in runtime_state_actions:
+            if status == "pending":
+                should_start_now = True
+            elif status == "active" and started is None:
+                should_start_now = True
+
+        if should_start_now:
             root["status"] = "active"
             root["started_sim_time_s"] = int(sim_time_s)
             if not root.get("deadline_sim_time_s"):
@@ -590,6 +607,13 @@ def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
                 _execute_observe_area(st, root, sim_time_s)
             elif action == "hold_position":
                 _execute_hold_position(st, root, sim_time_s)
+
+        elif status == "pending":
+            root["status"] = "active"
+            root["started_sim_time_s"] = int(sim_time_s)
+            if not root.get("deadline_sim_time_s"):
+                root["deadline_sim_time_s"] = int(sim_time_s) + int(root.get("duration_s") or 0)
+            deadline = int(root.get("deadline_sim_time_s") or 0)
 
         completed_now = False
 
@@ -616,6 +640,29 @@ def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
             "hold_position",
         }:
             if deadline and int(sim_time_s) >= deadline:
+                if action == "move_unit":
+                    own = st.setdefault("own_state", {})
+                    planned = dict(own.get("planned_movement") or {})
+                    dest = dict(planned.get("destination") or {})
+                    try:
+                        lat = dest.get("lat")
+                        lon = dest.get("lon")
+                        if lat is not None and lon is not None:
+                            own["position"] = {
+                                "lat": float(lat),
+                                "lon": float(lon),
+                            }
+                    except Exception:
+                        pass
+
+                    urgency = str(planned.get("urgency") or "").strip()
+                    own["last_movement"] = {
+                        "sim_time_s": int(sim_time_s),
+                        "urgency": urgency,
+                    }
+                    if "planned_movement" in own:
+                        del own["planned_movement"]
+
                 _complete_root(st, root, sim_time_s)
                 completed_now = True
 
@@ -626,6 +673,8 @@ def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
                     nxt["status"] = "pending"
                 if nxt.get("created_sim_time_s") is None:
                     nxt["created_sim_time_s"] = int(sim_time_s)
+                if nxt.get("started_sim_time_s") is not None and str(nxt.get("status")) != "completed":
+                    nxt["started_sim_time_s"] = None
                 new_work.append([nxt] + rest[1:])
         else:
             new_work.append([root] + rest)

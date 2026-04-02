@@ -138,6 +138,14 @@ def _branding(card_url: str) -> dict[str, str]:
     }
 
 
+def _card_qr_url(card_url: str) -> str:
+    base = _base_from_card_url(card_url)
+    token = str(card_url.rstrip("/").rsplit("/", 1)[-1] or "").strip()
+    if not token:
+        raise RuntimeError(f"invalid card_url token: {card_url!r}")
+    return f"{base}/api/onboarding/cards/{token}/card-url/qr.png"
+
+
 def _lang_copy(lang: str) -> dict[str, str]:
     if (lang or "").lower().startswith("en"):
         return {
@@ -148,6 +156,9 @@ def _lang_copy(lang: str) -> dict[str, str]:
             "cta": "Open soldier card",
             "expires": "This link may expire, so use it soon.",
             "username": "User",
+            "qr_title": "Scan QR",
+            "qr_help": "Open the same soldier card on another device.",
+            "manual_link": "Direct link",
             "closing": "Stay ready.",
             "footer": "This message was sent by TAKS onboarding.",
         }
@@ -159,6 +170,9 @@ def _lang_copy(lang: str) -> dict[str, str]:
         "cta": "Öppna soldatkort",
         "expires": "Länken kan gå ut, så använd den så snart som möjligt.",
         "username": "Användare",
+        "qr_title": "Skanna QR",
+        "qr_help": "Öppna samma soldatkort på en annan enhet.",
+        "manual_link": "Direktlänk",
         "closing": "Var redo.",
         "footer": "Detta meddelande skickades av TAKS onboarding.",
     }
@@ -189,6 +203,7 @@ def _text_body(*, username: str, card_url: str, lang: str) -> str:
 def _html_body(*, username: str, card_url: str, lang: str) -> str:
     c = _lang_copy(lang)
     b = _branding(card_url)
+    qr_url = _card_qr_url(card_url)
 
     slogan_html = (
         f'<div style="margin-top:8px;font-size:12px;letter-spacing:0.12em;'
@@ -266,8 +281,28 @@ def _html_body(*, username: str, card_url: str, lang: str) -> str:
                 </tr>
               </table>
 
-              <div style="margin-top:16px;font-size:13px;line-height:1.6;color:#aeb8c8;word-break:break-all;">
-                {h(card_url)}
+              <div style="margin-top:22px;padding:18px;background:#0c1117;border:1px solid #202835;border-radius:16px;">
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                  <tr>
+                    <td valign="top" style="width:220px;padding-right:18px;">
+                      <div style="font-size:13px;font-weight:700;color:#f5f7fb;padding-bottom:10px;">
+                        {h(c["qr_title"])}
+                      </div>
+                      <img src="{h(qr_url)}" alt="{h(c["qr_title"])}" style="display:block;width:180px;max-width:100%;height:auto;background:#ffffff;padding:8px;border-radius:12px;border:0;">
+                      <div style="margin-top:10px;font-size:12px;line-height:1.6;color:#aeb8c8;">
+                        {h(c["qr_help"])}
+                      </div>
+                    </td>
+                    <td valign="top" style="padding-left:6px;">
+                      <div style="font-size:13px;font-weight:700;color:#f5f7fb;padding-bottom:10px;">
+                        {h(c["manual_link"])}
+                      </div>
+                      <div style="font-size:13px;line-height:1.7;color:#aeb8c8;word-break:break-all;">
+                        {h(card_url)}
+                      </div>
+                    </td>
+                  </tr>
+                </table>
               </div>
 
               <div style="margin-top:18px;padding:14px 16px;background:#0c1117;border:1px solid #202835;border-radius:14px;font-size:13px;line-height:1.6;color:#c7d0de;">

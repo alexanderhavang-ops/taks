@@ -75,6 +75,17 @@ def normalize_runtime_work_item(item: Dict[str, Any], sim_time_s: int) -> Dict[s
     out["params"] = params
 
     status = str(out.get("status") or "pending").strip() or "pending"
+
+    runtime_state_actions = {
+        "move_unit",
+        "change_posture",
+        "observe_area",
+        "hold_position",
+    }
+
+    if action in runtime_state_actions and status == "active":
+        status = "pending"
+
     out["status"] = status
 
     title = str(out.get("title") or "").strip()
@@ -93,14 +104,14 @@ def normalize_runtime_work_item(item: Dict[str, Any], sim_time_s: int) -> Dict[s
     out["created_sim_time_s"] = int(out.get("created_sim_time_s") or sim_time_s)
 
     started = out.get("started_sim_time_s")
-    if status == "active":
+    if out["status"] == "active":
         out["started_sim_time_s"] = int(started if started is not None else sim_time_s)
     else:
-        out["started_sim_time_s"] = int(started) if started is not None else None
+        out["started_sim_time_s"] = None
 
     deadline = out.get("deadline_sim_time_s")
     if deadline is None:
-        base = out["started_sim_time_s"] if out["started_sim_time_s"] is not None else sim_time_s
+        base = sim_time_s
         deadline = int(base) + int(out["duration_s"])
     out["deadline_sim_time_s"] = int(deadline)
 

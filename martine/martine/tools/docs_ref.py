@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from martine.tools.docs_vectors import semantic_search_doc, ensure_doc_vector_index
+
 DOCS_ROOT = Path("/opt/tak/tools/takctl/state/docs")
 REGISTRY_PATH = DOCS_ROOT / "registry" / "docs.json"
 DERIVED_ROOT = DOCS_ROOT / "derived"
@@ -324,4 +326,54 @@ def get_reference_section(
             "end_offset": end,
         },
         "text": body,
+    }
+
+
+def search_reference_docs_semantic(
+    *,
+    query: str,
+    limit: int = 8,
+    doc_id: str = "",
+) -> dict[str, Any]:
+    q = str(query or "").strip()
+    if not q:
+        return {"ok": False, "error": "query required"}
+
+    lim = max(1, min(int(limit or 8), 20))
+    wanted_doc = str(doc_id or "").strip()
+
+    reg_items = _load_registry()
+    reg_by_id = {str(x.get("doc_id") or ""): x for x in reg_items if isinstance(x, dict)}
+
+    doc_ids: list[str] = []
+    for cur_doc_id, reg in reg_by_id.items():
+        if wanted_doc and cur_doc_id != wanted_doc:
+            continue
+        if not bool(reg.get("active", True)):
+            continue
+        if str(reg.get("status") or "") != "ready":
+            continue
+        doc_ids.append(cur_doc_id)
+
+    hits: list[dict[str, Any]] = []
+    for d in doc_ids:
+        ensure_doc_vector_index(d)
+        sr = semantic_search_doc(doc_id=d, query=q, limit=lim)
+        if not sr.get("ok"):
+            continue
+        title = str((reg_by_id.get(d) or {}).get("title") or d)
+        for item in list(sr.get("items") or []):
+            x = dict(item or {})
+            x["doc_id"] = d
+            x["title"] = title
+            hits.append(x)
+
+    hits.sort(key=lambda x: (-float(x.get("score") or 0.0), str(x.get("doc_id") or ""), str(x.get("chunk_id") or "")))
+    hits = hits[:lim]
+
+    return {
+        "ok": True,
+        "query": q,
+        "count": len(hits),
+        "items": hits,
     }

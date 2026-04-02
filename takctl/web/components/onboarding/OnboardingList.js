@@ -60,6 +60,28 @@
     }
   }
 
+  async function _submitEmailPack(usernames, printMode) {
+    const list = Array.isArray(usernames) ? usernames.filter(Boolean).map(String) : [];
+    if (!list.length) {
+      throw new Error("No users selected for email");
+    }
+
+    const resp = await fetch("/api/onboarding/email-pack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        usernames: list,
+        print_mode: String(printMode || "cards"),
+      }),
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error((data && data.detail) || ("HTTP " + resp.status));
+    }
+    return data || {};
+  }
+
   function PrintToolbar({
     rows,
     selectedMap,
@@ -129,7 +151,43 @@
         onClick: function () {
           _submitPrintPack(usernames, printMode);
         }
-      }, _t("list.print_all"))
+      }, _t("list.print_all")),
+
+      h("button", {
+        className: "btn",
+        type: "button",
+        disabled: selectedUsernames.length === 0,
+        onClick: async function () {
+          try {
+            const out = await _submitEmailPack(selectedUsernames, printMode);
+            window.alert(_t("list.email_result", {
+              sent: _colText(out.sent),
+              failed: _colText(out.failed),
+              missing: _colText(out.missing_email)
+            }));
+          } catch (e) {
+            window.alert(String((e && e.message) || e));
+          }
+        }
+      }, _t("list.email_selected")),
+
+      h("button", {
+        className: "btn",
+        type: "button",
+        disabled: usernames.length === 0,
+        onClick: async function () {
+          try {
+            const out = await _submitEmailPack(usernames, printMode);
+            window.alert(_t("list.email_result", {
+              sent: _colText(out.sent),
+              failed: _colText(out.failed),
+              missing: _colText(out.missing_email)
+            }));
+          } catch (e) {
+            window.alert(String((e && e.message) || e));
+          }
+        }
+      }, _t("list.email_all"))
     );
   }
 

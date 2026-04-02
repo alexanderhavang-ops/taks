@@ -65,6 +65,10 @@ def main() -> None:
     for cs in blue_callsigns:
         run([py, str(ROOT / "agent_cot_chat_emit.py"), "--from-agent", cs], f"emit {cs}")
 
+    # 5. Poll once more so same-tick emitted orders/reports become visible in agent inboxes
+    for cs in blue_callsigns:
+        run([py, str(ROOT / "agent_cot_chat_poll.py"), "--callsign", cs], f"post-emit poll {cs}")
+
     print(f"\nDONE sim_time={args.sim_time}")
 
 

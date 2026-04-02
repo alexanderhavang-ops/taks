@@ -505,8 +505,21 @@ def email_link(req: Request, username: str, body: EmailLinkIn):
             to_addr=email,
             username=username,
             card_url=str(card_info.get("card_url") or ""),
-        lang=str(load_config().get("language", "sv") or "sv"),
+            lang=str(load_config().get("language", "sv") or "sv"),
         )
+
+        sel = load_selection(username) or {}
+        if not isinstance(sel, dict):
+            sel = {}
+        sel["last_onboarding_email"] = {
+            "sent_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "email": email,
+            "card_url": str(card_info.get("card_url") or ""),
+            "print_mode": "cards",
+            "reveal_password": bool(body.reveal_password),
+            "delivery": str((email_status or {}).get("delivery") or ""),
+        }
+        save_selection(username, sel)
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:

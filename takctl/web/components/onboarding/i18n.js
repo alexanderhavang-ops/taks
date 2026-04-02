@@ -60,6 +60,9 @@
       "list.print_mode": "Print mode",
       "list.print_selected": "Print selected",
       "list.print_all": "Print all",
+      "list.email_selected": "Email selected",
+      "list.email_all": "Email all",
+      "list.email_result": "Emails sent={sent} failed={failed} missing email={missing}",
       "list.summary": "Users={users}  Seen={seen}  Never={never}  Unknown={unknown}  DB={db} ({source})",
 
       "btn.create_user": "Create user",
@@ -152,6 +155,9 @@
       "list.print_mode": "Utskriftsläge",
       "list.print_selected": "Skriv ut valda",
       "list.print_all": "Skriv ut alla",
+      "list.email_selected": "Maila valda",
+      "list.email_all": "Maila alla",
+      "list.email_result": "Mail skickade={sent} fel={failed} saknar e-post={missing}",
       "list.summary": "Användare={users}  Sedda={seen}  Aldrig={never}  Okända={unknown}  DB={db} ({source})",
 
       "btn.create_user": "Skapa användare",

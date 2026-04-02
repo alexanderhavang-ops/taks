@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import json
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Form, HTTPException, Query, Request
@@ -11,6 +12,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from takctl.onboarding.http import external_base
 from takctl.onboarding.onboarding_db import maybe_db
 from takctl.onboarding.service_builder import build_service
+from takctl.onboarding.emailer import send_onboarding_email
+from takctl.onboarding.selection import load_selection, save_selection
 from takctl.config import load_config
 
 router = APIRouter(tags=["onboarding"])
@@ -60,6 +63,38 @@ def _logo_html(base: str) -> str:
         f'onerror="this.onerror=null;this.src=\'{_esc(svg_url)}\';" '
         f'alt="Unit logo"/>'
     )
+
+
+def _reveal_password_for_print_mode(print_mode: str) -> bool:
+    return str(print_mode or "").strip() in ("passwords", "cards_inline_passwords", "cards_then_passwords")
+
+
+def _email_from_identity(ident) -> str:
+    try:
+        ctx = getattr(ident, "ctx", {}) or {}
+    except Exception:
+        ctx = {}
+    if not isinstance(ctx, dict):
+        ctx = {}
+    return str(ctx.get("email") or "").strip()
+
+
+def _record_onboarding_email(username: str, *, email: str, card_url: str, print_mode: str, reveal_password: bool, delivery: str) -> None:
+    try:
+        sel = load_selection(username) or {}
+        if not isinstance(sel, dict):
+            sel = {}
+        sel["last_onboarding_email"] = {
+            "sent_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "email": str(email or "").strip(),
+            "card_url": str(card_url or "").strip(),
+            "print_mode": str(print_mode or "").strip(),
+            "reveal_password": bool(reveal_password),
+            "delivery": str(delivery or "").strip(),
+        }
+        save_selection(username, sel)
+    except Exception:
+        pass
 
 
 def _issue_card_link_base(base: str, svc, *, username: str, ttl_sec: int, reveal_password: bool) -> dict[str, Any]:
@@ -474,6 +509,90 @@ def onboarding_user_card(username: str, recent_minutes: int = Query(120, ge=1, l
         raise HTTPException(status_code=404, detail="Unknown user")
 
     return JSONResponse({"card": card})
+
+
+
+@router.post("/onboarding/email-pack")
+async def onboarding_email_pack(req: Request):
+    body = await req.json()
+    usernames = body.get("usernames") or []
+    print_mode = str(body.get("print_mode") or "cards")
+    reveal_password = _reveal_password_for_print_mode(print_mode)
+
+    svc = build_service()
+    base = external_base(req).rstrip("/")
+    cfg = load_config()
+    lang = str(cfg.get("language", "sv") or "sv").strip().lower()
+    ttl_sec = int(cfg.get("onboarding_print_card_ttl_sec", 600) or 600)
+
+    sent = 0
+    failed = 0
+    missing_email = 0
+    results = []
+
+    for username in usernames:
+        username = str(username or "").strip()
+        if not username:
+            continue
+
+        ident = svc.store.get_identity(username)
+        email = _email_from_identity(ident)
+        if not email:
+            missing_email += 1
+            results.append({
+                "username": username,
+                "status": "missing_email",
+            })
+            continue
+
+        try:
+            card_info = _issue_card_link_base(
+                base,
+                svc,
+                username=username,
+                ttl_sec=ttl_sec,
+                reveal_password=reveal_password,
+            )
+            email_status = send_onboarding_email(
+                to_addr=email,
+                username=username,
+                card_url=str(card_info.get("card_url") or ""),
+                lang=lang,
+            )
+            _record_onboarding_email(
+                username,
+                email=email,
+                card_url=str(card_info.get("card_url") or ""),
+                print_mode=print_mode,
+                reveal_password=reveal_password,
+                delivery=str((email_status or {}).get("delivery") or ""),
+            )
+            sent += 1
+            results.append({
+                "username": username,
+                "email": email,
+                "status": "sent",
+                "email_status": email_status,
+                **card_info,
+            })
+        except Exception as e:
+            failed += 1
+            results.append({
+                "username": username,
+                "email": email,
+                "status": "failed",
+                "error": str(e),
+            })
+
+    return JSONResponse({
+        "ok": True,
+        "print_mode": print_mode,
+        "reveal_password": reveal_password,
+        "sent": sent,
+        "failed": failed,
+        "missing_email": missing_email,
+        "results": results,
+    })
 
 
 @router.post("/onboarding/print-pack")
