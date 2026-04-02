@@ -329,12 +329,12 @@
     const badgePrimary = _norm(callsignEdit) || "—";
     const row2Fallback = [
       _norm(ident && ident.battalion_fal),
-      _norm(ident && ident.battalion),
-      _norm(ident && ident.company),
-      _norm(ident && ident.platoon),
-      _norm(ident && ident.group),
+      (_norm(ident && ident.battalion) ? (_norm(ident && ident.battalion) + " HVBAT") : ""),
+      (_norm(ident && ident.company) ? ("Kompani " + _norm(ident && ident.company)) : ""),
+      (_norm(ident && ident.platoon) ? ("Pluton " + _norm(ident && ident.platoon)) : ""),
+      (_norm(ident && ident.group) ? ("Grupp " + _norm(ident && ident.group)) : ""),
       (_norm(ident && ident.n) ? ("EN " + _norm(ident && ident.n)) : "")
-    ].filter(Boolean).join(" ");
+    ].filter(Boolean).join(" · ");
     const row2 = _norm(emailAddr) || row2Fallback;
 
     const activePolicyName =

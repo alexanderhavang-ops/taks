@@ -165,6 +165,8 @@ def render_soldier_card_page(
     .stepcard h4 { margin:0 0 8px 0; font-size:15px; }
     .qrimg { width:220px; max-width:100%; height:auto; border-radius:12px; background:#fff; padding:8px; }
     .choicegrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px; }
+    .guidegrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px; }
+    .infogrid { display:grid; grid-template-columns: 1fr; gap:14px; }
     .dlrow { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
     code.inline { font-size:12px; }
     .hero { background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03)); border:1px solid rgba(255,255,255,0.10); border-radius:18px; padding:18px 20px; margin-bottom:14px; box-shadow: 0 10px 30px rgba(0,0,0,0.22); }
@@ -184,7 +186,7 @@ def render_soldier_card_page(
       copyText(el.textContent || el.innerText || '');
     }
     function showMainTab(id) {
-      var ids = ["start", "guide", "advanced"];
+      var ids = ["start", "guide", "info", "advanced"];
       for (var i = 0; i < ids.length; i++) {
         var panel = document.getElementById("tab_" + ids[i]);
         var btn = document.getElementById("tabbtn_" + ids[i]);
@@ -292,13 +294,9 @@ body {
 .taksmark img { height: 26px; width: auto; display:block; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.55)); }
 .brandchain-row { display:flex; align-items:center; gap: 10px; flex-wrap:wrap; }
 .brandchain-row img { height: 24px; width: auto; max-width: 260px; object-fit: contain; display:block; filter: drop-shadow(0 2px 10px rgba(0,0,0,0.45)); }
-.title { font-size: 20px; font-weight: 850; letter-spacing: 0.2px; }
-.hdr { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom: 12px; }
 .meta { font-size: 12px; color: var(--muted); line-height: 1.35; }
 .muted { color: var(--muted); font-size: 12px; }
 .card { background: var(--card); border: 1px solid var(--bd); border-radius: 16px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.22); }
-.row { display:grid; grid-template-columns: 1fr; gap: 14px; }
-@media (min-width: 1100px) { .row.two { grid-template-columns: 1.1fr 0.9fr; } }
 .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
 .choicebtn { border:1px solid var(--bd); background:var(--card2); color:var(--txt); padding:8px 12px; border-radius:999px; cursor:pointer; font-size:13px; }
 .choicebtn-active { outline:2px solid rgba(139,184,255,0.45); }
@@ -404,6 +402,41 @@ pre { white-space: pre-wrap; word-break: break-word; }
     </div>
     """
 
+    guide_html = f"""
+    <div class="stepcard" style="margin-bottom:14px;">
+      <div class="muted">{h(t(l, "soldier.guide_intro"))}</div>
+    </div>
+    <div class="guidegrid">
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.guide.step1.title"))}</h4>
+        <div class="muted">{h(t(l, "soldier.guide.step1.body"))}</div>
+      </div>
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.guide.step2.title"))}</h4>
+        <div class="muted">{h(t(l, "soldier.guide.step2.body"))}</div>
+      </div>
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.guide.step3.title"))}</h4>
+        <div class="muted">{h(t(l, "soldier.guide.step3.body"))}</div>
+      </div>
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.guide.step4.title"))}</h4>
+        <div class="muted">{h(t(l, "soldier.guide.step4.body"))}</div>
+      </div>
+    </div>
+    """
+
+    info_html = f"""
+    <div class="infogrid">
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.info_title"))}</h4>
+        <div style="margin-top:12px;">{profile_html}</div>
+      </div>
+      <div class="stepcard">{creds_html}</div>
+      <div class="stepcard">{lifecycle_html}</div>
+    </div>
+    """
+
     brand_slogan = ""
     try:
         brand_slogan = _cfg_str(cfg, "site_slogan", "")
@@ -444,55 +477,43 @@ pre { white-space: pre-wrap; word-break: break-word; }
     {mode_summary_html}
   </div>
 
-  <div class="row two">
-    <div class="card">
-      <div class="tabs">
-        <button id="tabbtn_start" class="choicebtn" onclick="showMainTab('start')">{h(t(l, "soldier.start"))}</button>
-        <button id="tabbtn_guide" class="choicebtn" onclick="showMainTab('guide')">{h(t(l, "soldier.guide"))}</button>
-        <button id="tabbtn_advanced" class="choicebtn" onclick="showMainTab('advanced')">{h(t(l, "soldier.advanced_tab"))}</button>
-      </div>
-
-      <div id="tab_start">
-        <div class="tabs" style="margin-top:6px;">
-          <button id="btn_android" class="choicebtn" onclick="showFlow('android')">{h(t(l, "soldier.android"))}</button>
-          <button id="btn_iphone" class="choicebtn" onclick="showFlow('iphone')">{h(t(l, "soldier.iphone"))}</button>
-          <button id="btn_browser" class="choicebtn" onclick="showFlow('browser')">{h(t(l, "soldier.browser"))}</button>
-        </div>
-
-        <div id="flow_android" style="margin-top:12px;">{android_html}</div>
-        <div id="flow_iphone" style="margin-top:12px; display:none;">{iphone_html}</div>
-        <div id="flow_browser" style="margin-top:12px; display:none;">{browser_html}</div>
-      </div>
-
-      <div id="tab_guide" style="display:none;">
-        <div class="stepcard">
-          <h4>{h(t(l, "soldier.what_each_path_means"))}</h4>
-          <div class="muted">
-            <strong>ATAK quick-connect QR</strong>: {h(t(l, "soldier.path.atak_qr"))}<br/>
-            <strong>ATAK auto-enroll zip</strong>: {h(t(l, "soldier.path.atak_auto_zip"))}<br/>
-            <strong>ATAK soft-cert zip</strong>: {h(t(l, "soldier.path.atak_soft_zip"))}<br/>
-            <strong>iTAK quick-connect QR</strong>: {h(t(l, "soldier.path.itak_qr"))}<br/>
-            <strong>iTAK soft-cert zip</strong>: {h(t(l, "soldier.path.itak_soft_zip"))}
-          </div>
-        </div>
-      </div>
-
-      <div id="tab_advanced" style="display:none;">
-        <div class="stepcard">
-          <h4>{h(t(l, "soldier.card_url"))}</h4>
-          <div class="muted" id="card_url_txt">{h(token_url)}</div>
-          <div class="dlrow">
-            <button class="btn" onclick="copyId('card_url_txt')">{h(t(l, "soldier.copy"))}</button>
-            <a class="btn" href="{h(token_url)}">{h(t(l, "soldier.open_card"))}</a>
-          </div>
-        </div>
-      </div>
+  <div class="card">
+    <div class="tabs">
+      <button id="tabbtn_start" class="choicebtn" onclick="showMainTab('start')">{h(t(l, "soldier.start"))}</button>
+      <button id="tabbtn_guide" class="choicebtn" onclick="showMainTab('guide')">{h(t(l, "soldier.guide"))}</button>
+      <button id="tabbtn_info" class="choicebtn" onclick="showMainTab('info')">{h(t(l, "soldier.info_tab"))}</button>
+      <button id="tabbtn_advanced" class="choicebtn" onclick="showMainTab('advanced')">{h(t(l, "soldier.advanced_tab"))}</button>
     </div>
 
-    <div class="row">
-      <div class="card">{profile_html}</div>
-      <div class="card">{creds_html}</div>
-      <div class="card">{lifecycle_html}</div>
+    <div id="tab_start">
+      <div class="tabs" style="margin-top:6px;">
+        <button id="btn_android" class="choicebtn" onclick="showFlow('android')">{h(t(l, "soldier.android"))}</button>
+        <button id="btn_iphone" class="choicebtn" onclick="showFlow('iphone')">{h(t(l, "soldier.iphone"))}</button>
+        <button id="btn_browser" class="choicebtn" onclick="showFlow('browser')">{h(t(l, "soldier.browser"))}</button>
+      </div>
+
+      <div id="flow_android" style="margin-top:12px;">{android_html}</div>
+      <div id="flow_iphone" style="margin-top:12px; display:none;">{iphone_html}</div>
+      <div id="flow_browser" style="margin-top:12px; display:none;">{browser_html}</div>
+    </div>
+
+    <div id="tab_guide" style="display:none; margin-top:12px;">
+      {guide_html}
+    </div>
+
+    <div id="tab_info" style="display:none; margin-top:12px;">
+      {info_html}
+    </div>
+
+    <div id="tab_advanced" style="display:none; margin-top:12px;">
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.card_url"))}</h4>
+        <div class="muted" id="card_url_txt">{h(token_url)}</div>
+        <div class="dlrow">
+          <button class="btn" onclick="copyId('card_url_txt')">{h(t(l, "soldier.copy"))}</button>
+          <a class="btn" href="{h(token_url)}">{h(t(l, "soldier.open_card"))}</a>
+        </div>
+      </div>
     </div>
   </div>
 
