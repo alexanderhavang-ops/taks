@@ -45,7 +45,7 @@ def _bundle_secret() -> str:
     s = str(secrets.auth.session_secret).strip()
     if s:
         return s
-    raise RuntimeError("Missing auth.session_secret in /etc/taks/secrets.conf")
+    raise RuntimeError("Missing session_secret in runtime secrets.d")
 
 
 def _resolve_bundle_path(bundle_name: str) -> Path:
@@ -143,11 +143,11 @@ def api_status() -> Dict[str, Any]:
         "bundle_secret": bool(str(secrets.auth.session_secret).strip()),
     }
     out["hints"] = {
-        "aws_key_name": "Set aws.ssh_key_name in /etc/taks/tak_orch.conf",
-        "sg_id": "Set aws.default_security_group_id in /etc/taks/tak_orch.conf",
-        "subnet_id": "Set aws.default_subnet_id in /etc/taks/tak_orch.conf",
-        "image_id": "Set aws.default_ami in /etc/taks/tak_orch.conf",
-        "bundle_secret": "Set auth.session_secret in /etc/taks/secrets.conf",
+        "aws_key_name": "Set aws_default_key_name in runtime conf.d",
+        "sg_id": "Set aws_default_security_group_id in runtime conf.d",
+        "subnet_id": "Set aws_default_subnet_id in runtime conf.d",
+        "image_id": "Set aws_default_ami in runtime conf.d",
+        "bundle_secret": "Set session_secret in runtime secrets.d",
     }
     return out
 

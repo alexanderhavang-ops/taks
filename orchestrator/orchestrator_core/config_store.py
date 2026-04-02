@@ -81,13 +81,21 @@ def _load_meta() -> dict[str, dict[str, Any]]:
         for key, spec in fields.items():
             if not isinstance(spec, dict):
                 continue
-            meta[str(key)] = {
+            entry = {
                 "component": component,
                 "secret": bool(spec.get("secret", False)),
                 "default": "" if spec.get("default") is None else str(spec.get("default")),
                 "type": str(spec.get("type") or "string"),
                 "doc": str(spec.get("doc") or ""),
+                "level": str(spec.get("level") or "basic"),
             }
+            if "enum" in spec and isinstance(spec.get("enum"), list):
+                entry["enum"] = [str(x) for x in (spec.get("enum") or [])]
+            if "min" in spec:
+                entry["min"] = spec.get("min")
+            if "max" in spec:
+                entry["max"] = spec.get("max")
+            meta[str(key)] = entry
     return meta
 
 
@@ -111,18 +119,20 @@ def _legacy_public_values() -> dict[str, str]:
 
         "aws_region": str(aws.get("region", "") or ""),
         "aws_default_ami": str(aws.get("default_ami", "") or ""),
+        "aws_default_vpc_id": str(aws.get("default_vpc_id", "") or ""),
         "aws_default_subnet_id": str(aws.get("default_subnet_id", "") or ""),
         "aws_default_security_group_id": str(aws.get("default_security_group_id", "") or ""),
         "aws_default_instance_profile": str(aws.get("default_instance_profile", "") or ""),
         "aws_default_instance_type": str(aws.get("default_instance_type", "") or ""),
+        "aws_default_key_name": str(aws.get("default_key_name", "") or ""),
         "aws_ssh_key_name": str(aws.get("ssh_key_name", "") or ""),
         "aws_route53_zone_id": str(aws.get("route53_zone_id", "") or ""),
         "aws_launch_enabled": "true" if bool(aws.get("launch_enabled", False)) else "false",
 
-        "le_mode": str(letsencrypt.get("mode", "") or ""),
-        "le_email": str(letsencrypt.get("email", "") or ""),
-        "le_wildcard_zone": str(letsencrypt.get("wildcard_zone", "") or ""),
-        "le_artifact_cert_dir": str(letsencrypt.get("artifact_cert_dir", "") or ""),
+        "letsencrypt_mode": str(letsencrypt.get("mode", "") or ""),
+        "letsencrypt_email": str(letsencrypt.get("email", "") or ""),
+        "letsencrypt_wildcard_zone": str(letsencrypt.get("wildcard_zone", "") or ""),
+        "letsencrypt_artifact_cert_dir": str(letsencrypt.get("artifact_cert_dir", "") or ""),
 
         "bundles_source_repo_root": str(bundles.get("source_repo_root", "") or ""),
         "bundles_default_bundle_kind": str(bundles.get("default_bundle_kind", "") or ""),
@@ -238,13 +248,21 @@ def runtime_public_state() -> dict[str, Any]:
     for key, spec in meta.items():
         component = str(spec["component"])
         components.setdefault(component, {"component": component, "fields": {}})
-        components[component]["fields"][key] = {
+        field_payload = {
             "type": spec.get("type", "string"),
             "doc": spec.get("doc", ""),
             "secret": bool(spec.get("secret", False)),
             "default": spec.get("default", ""),
             "value": "" if spec.get("secret", False) else public_values.get(key, ""),
+            "level": spec.get("level", "basic"),
         }
+        if "enum" in spec:
+            field_payload["enum"] = spec.get("enum") or []
+        if "min" in spec:
+            field_payload["min"] = spec.get("min")
+        if "max" in spec:
+            field_payload["max"] = spec.get("max")
+        components[component]["fields"][key] = field_payload
         if spec.get("secret", False):
             secret_keys.append(key)
 

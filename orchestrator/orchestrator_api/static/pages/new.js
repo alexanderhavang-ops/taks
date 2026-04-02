@@ -73,17 +73,17 @@
 
     container.innerHTML = `
       <div id="banner_launch_disabled" class="banner banner--warn" style="display:none">
-        <b>Launch disabled</b>
+        <b>${CORE.t('nav.spawn_node')}</b>
       </div>
 
       <section class="card">
         <div class="card__head">
-          <h3>Skapa nod${unit ? ` för ${unit}` : ''}</h3>
+          <h3>${CORE.t('new_node.title')}${unit ? ` ${CORE.t('new_node.for_unit', { unit })}` : ''}</h3>
           <div class="card__actions">
-            <a class="btn btn--secondary" href="${unit ? '#/units/' + encodeURIComponent(unit) : '#/nodes'}">Tillbaka</a>
-            <button id="btn_preview" class="btn">Preview</button>
-            <button id="btn_dryrun" class="btn btn--secondary">Dry-run</button>
-            <button id="btn_launch" class="btn btn--danger">Launch</button>
+            <a class="btn btn--secondary" href="${unit ? '#/units/' + encodeURIComponent(unit) : '#/nodes'}">${CORE.t(unit ? 'new_node.back_to_unit' : 'new_node.back_to_nodes')}</a>
+            <button id="btn_preview" class="btn">${CORE.t('common.preview')}</button>
+            <button id="btn_dryrun" class="btn btn--secondary">${CORE.t('common.dry_run')}</button>
+            <button id="btn_launch" class="btn btn--danger">${CORE.t('common.launch')}</button>
           </div>
         </div>
 
@@ -96,9 +96,9 @@
           <div><label class="label">instance_type</label><input id="instance_type" value="t3.small"></div>
         </div>
 
-        <details open><summary>Plan</summary><pre id="out_plan">—</pre></details>
-        <details><summary>Cloud-init</summary><pre id="out_cloudinit">—</pre></details>
-        <details><summary>Raw</summary><pre id="out_raw">—</pre></details>
+        <details open><summary>${CORE.t('common.plan')}</summary><pre id="out_plan">—</pre></details>
+        <details><summary>${CORE.t('common.cloud_init')}</summary><pre id="out_cloudinit">—</pre></details>
+        <details><summary>${CORE.t('common.raw')}</summary><pre id="out_raw">—</pre></details>
       </section>
     `;
 

@@ -1,84 +1,215 @@
 {
   "component": "core",
   "fields": {
+    "system_language": {
+      "type": "string",
+      "default": "sv",
+      "doc": "Systemspråk för orchestratorns UI och doktrinnära systemtexter",
+      "secret": false,
+      "enum": ["sv", "en"],
+      "level": "basic"
+    },
+
+    "orchestrator_fqdn": {
+      "type": "string",
+      "default": "",
+      "doc": "Publik FQDN för orchestratorn",
+      "secret": false,
+      "level": "basic"
+    },
+    "public_base_url": {
+      "type": "string",
+      "default": "",
+      "doc": "Publik bas-URL för orchestratorns UI/API, till exempel https://master.example.com",
+      "secret": false,
+      "level": "basic"
+    },
+    "unit_bundle_base_url": {
+      "type": "string",
+      "default": "",
+      "doc": "Valfri explicit publik bas-URL för nedladdning av bundle-endpoints",
+      "secret": false,
+      "level": "advanced"
+    },
+
     "aws_region": {
       "type": "string",
       "default": "",
-      "doc": "AWS region for node launch operations",
-      "secret": false
+      "doc": "AWS-region för nodstart",
+      "secret": false,
+      "level": "basic"
     },
     "aws_default_ami": {
       "type": "string",
       "default": "",
-      "doc": "Default AMI used when launching nodes",
-      "secret": false
+      "doc": "Standard-AMI som används vid start av noder",
+      "secret": false,
+      "level": "basic"
     },
     "aws_default_vpc_id": {
       "type": "string",
       "default": "",
-      "doc": "Default VPC for launched nodes",
-      "secret": false
+      "doc": "Standard-VPC för startade noder; behövs oftast inte om subnet redan är satt",
+      "secret": false,
+      "level": "advanced"
     },
     "aws_default_subnet_id": {
       "type": "string",
       "default": "",
-      "doc": "Default subnet for launched nodes",
-      "secret": false
+      "doc": "Standard-subnet för startade noder",
+      "secret": false,
+      "level": "basic"
     },
     "aws_default_security_group_id": {
       "type": "string",
       "default": "",
-      "doc": "Default security group for launched nodes",
-      "secret": false
+      "doc": "Standard security group för startade noder",
+      "secret": false,
+      "level": "basic"
     },
     "aws_default_key_name": {
       "type": "string",
       "default": "",
-      "doc": "Default EC2 key pair name for launched nodes",
-      "secret": false
+      "doc": "Standardnamn på EC2-nyckelpar för startade noder; valfritt i rollbaserade upplägg",
+      "secret": false,
+      "level": "advanced"
     },
     "aws_default_instance_type": {
       "type": "string",
       "default": "t3.medium",
-      "doc": "Default instance type for launched nodes",
-      "secret": false
+      "doc": "Standard instanstyp för startade noder",
+      "secret": false,
+      "enum": ["t3.small", "t3.medium", "t3.large"],
+      "level": "basic"
     },
+
     "nodes_default_node_domain": {
       "type": "string",
       "default": "aws.tak-hv-sandbox.se",
-      "doc": "Default DNS suffix for node FQDN canonicalization",
-      "secret": false
+      "doc": "Standard DNS-suffix för kanonisering av noders FQDN",
+      "secret": false,
+      "level": "basic"
     },
+    "nodes_default_cert_model": {
+      "type": "string",
+      "default": "letsencrypt",
+      "doc": "Standard certifikatmodell för noder",
+      "secret": false,
+      "enum": ["letsencrypt"],
+      "level": "basic"
+    },
+
     "launch_enabled": {
       "type": "bool",
       "default": "true",
-      "doc": "Enable AWS node launch from orchestrator",
-      "secret": false
+      "doc": "Aktivera start av AWS-noder från orchestratorn",
+      "secret": false,
+      "level": "basic"
     },
     "launch_default_bundle_ttl": {
       "type": "int",
       "default": "3600",
-      "doc": "Default signed/public bundle TTL in seconds",
+      "doc": "Standard-TTL i sekunder för bundle",
       "secret": false,
-      "min": 60
+      "min": 60,
+      "level": "advanced"
     },
+
+    "letsencrypt_mode": {
+      "type": "string",
+      "default": "dns-route53",
+      "doc": "Let's Encrypt-läge för orchestratorns front door",
+      "secret": false,
+      "enum": ["dns-route53", "http-01"],
+      "level": "basic"
+    },
+    "letsencrypt_email": {
+      "type": "string",
+      "default": "",
+      "doc": "Registreringsadress för Let's Encrypt",
+      "secret": false,
+      "level": "basic"
+    },
+    "letsencrypt_wildcard_zone": {
+      "type": "string",
+      "default": "",
+      "doc": "Wildcard-/baszon för Route53 DNS-01",
+      "secret": false,
+      "level": "basic"
+    },
+    "letsencrypt_artifact_cert_dir": {
+      "type": "string",
+      "default": "/opt/tak-orch/state/artifacts/letsencrypt/aws.tak-hv-sandbox.se",
+      "doc": "Artifact-katalog dit LE-certifikatmaterial kopieras",
+      "secret": false,
+      "level": "advanced"
+    },
+
+    "bundles_source_repo_root": {
+      "type": "string",
+      "default": "/opt/taks",
+      "doc": "Källrotskatalog för repo som används när bundle bygger repo-snapshot",
+      "secret": false,
+      "level": "advanced"
+    },
+    "bundles_default_bundle_kind": {
+      "type": "string",
+      "default": "tak-node",
+      "doc": "Standard bundle-typ för renderade bundles",
+      "secret": false,
+      "enum": ["tak-node"],
+      "level": "advanced"
+    },
+    "bundles_include_taks_source": {
+      "type": "bool",
+      "default": "true",
+      "doc": "Om bundle ska innehålla snapshot av taks-source",
+      "secret": false,
+      "level": "advanced"
+    },
+
+    "state_dir": {
+      "type": "string",
+      "default": "/opt/tak-orch/state",
+      "doc": "Rotkatalog för runtime-state",
+      "secret": false,
+      "level": "advanced"
+    },
+    "artifacts_dir": {
+      "type": "string",
+      "default": "/opt/tak-orch/state/artifacts",
+      "doc": "Rotkatalog för runtime-artifacts",
+      "secret": false,
+      "level": "advanced"
+    },
+    "rendered_bundles_dir": {
+      "type": "string",
+      "default": "/opt/tak-orch/state/bundles/rendered",
+      "doc": "Utkatalog för renderade bundles",
+      "secret": false,
+      "level": "advanced"
+    },
+
     "aws_access_key_id": {
       "type": "string",
       "default": "",
-      "doc": "AWS access key ID",
-      "secret": true
+      "doc": "AWS access key ID; lämnas tom vid användning av instance role",
+      "secret": true,
+      "level": "advanced"
     },
     "aws_secret_access_key": {
       "type": "string",
       "default": "",
-      "doc": "AWS secret access key",
-      "secret": true
+      "doc": "AWS secret access key; lämnas tom vid användning av instance role",
+      "secret": true,
+      "level": "advanced"
     },
     "aws_session_token": {
       "type": "string",
       "default": "",
-      "doc": "AWS session token for temporary credentials",
-      "secret": true
+      "doc": "AWS session token för temporära credentials; lämnas tom vid användning av instance role",
+      "secret": true,
+      "level": "advanced"
     }
   }
 }

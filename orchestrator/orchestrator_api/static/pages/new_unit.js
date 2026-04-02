@@ -71,15 +71,15 @@
     container.innerHTML = `
       <section class="card">
         <div class="card__head">
-          <h3>New unit</h3>
+          <h3>${CORE.t('new_unit.title')}</h3>
           <div class="card__actions">
-            <a class="btn btn--secondary" href="#/nodes">Back</a>
-            <button id="btn_create_unit" class="btn">Create</button>
+            <a class="btn btn--secondary" href="#/nodes">${CORE.t('new_unit.back')}</a>
+            <button id="btn_create_unit" class="btn">${CORE.t('common.create')}</button>
           </div>
         </div>
 
         <div class="muted">
-          Creates <code>unit.json</code> under <code>/opt/tak-orch/state/units/&lt;unit_path&gt;/unit.json</code>.
+          ${CORE.t('new_unit.created_hint')}
         </div>
 
         <div class="spacer"></div>
@@ -100,7 +100,7 @@
         </div>
 
         <details open style="margin-top:12px">
-          <summary>Raw response</summary>
+          <summary>${CORE.t('new_unit.raw_response')}</summary>
           <pre id="out_raw">—</pre>
         </details>
       </section>

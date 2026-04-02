@@ -16,21 +16,21 @@
     </div>
   </div>
   <div class="topbar__right">
-    <a class="link" href="/logout">logout</a>
+    <a class="link" id="nav_logout_link" href="/logout">logout</a>
   </div>
 </header>
 
 <main class="wrap">
   <div class="shell">
     <nav class="nav" aria-label="Primary">
-      <a class="nav__item" href="#/units" data-route="/units">Units</a>
-      <a class="nav__item" href="#/nodes" data-route="/nodes">Nodes</a>
-      <a class="nav__item" href="#/settings" data-route="/settings">Global settings</a>
+      <a class="nav__item" id="nav_units_link" href="#/units" data-route="/units">Units</a>
+      <a class="nav__item" id="nav_nodes_link" href="#/nodes" data-route="/nodes">Nodes</a>
+      <a class="nav__item" id="nav_settings_link" href="#/settings" data-route="/settings">Global settings</a>
 
       <div class="nav__sep"></div>
 
       <div class="nav__meta">
-        <div class="nav__metaTitle">Status</div>
+        <div class="nav__metaTitle" id="nav_status_title">Status</div>
         <div id="nav_status" class="nav__metaValue muted">loading…</div>
       </div>
     </nav>

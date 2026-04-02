@@ -30,20 +30,20 @@
   }
 
   async function deleteNode(id){
-    if(!confirm(`Delete state for ${id}?`)) return;
+    if(!confirm(CORE.t('nodes.delete_state.confirm', { id }))) return;
     await CORE.api('DELETE', `/api/v2/nodes/${encodeURIComponent(id)}`);
     load();
   }
 
   async function terminateNode(id){
-    if(!confirm(`Terminate AWS instance for ${id}?`)) return;
+    if(!confirm(CORE.t('nodes.terminate.confirm', { id }))) return;
     try{
       const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/terminate`, {});
-      alert(`Terminate requested for ${id}\n\n${JSON.stringify(j.terminate || j || {}, null, 2)}`);
+      alert(`${CORE.t('nodes.terminate.requested', { id })}\n\n${JSON.stringify(j.terminate || j || {}, null, 2)}`);
       load();
     }catch(e){
       const d = CORE.errorDetails ? CORE.errorDetails(e) : { msg: String((e && e.message) ? e.message : e), detail: '' };
-      alert(`Terminate failed for ${id}\n\n${d.msg || 'Error'}${d.detail ? '\n\n' + d.detail : ''}`);
+      alert(`${CORE.t('nodes.terminate.failed', { id })}\n\n${d.msg || CORE.t('common.error')}${d.detail ? '\n\n' + d.detail : ''}`);
       throw e;
     }
   }
@@ -65,11 +65,11 @@
     if(hasInstance && st !== 'terminated' && st !== 'untracked'){
       const term = document.createElement('button');
       term.className = 'btn btn--danger';
-      term.textContent = 'Terminate';
+      term.textContent = CORE.t('nodes.terminate');
       term.onclick = () => terminateNode(n.node_id);
       td.appendChild(term);
     }else{
-      td.textContent = '—';
+      td.textContent = CORE.t('common.none');
     }
 
     return td;
@@ -77,7 +77,7 @@
 
   function renderMainTable(tbody, nodes){
     if(!nodes?.length){
-      tbody.innerHTML = `<tr><td colspan="9" class="muted">—</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="9" class="muted">${CORE.t('common.none')}</td></tr>`;
       return;
     }
     tbody.innerHTML = '';
@@ -107,7 +107,7 @@
 
   function renderOrphaned(tbody, nodes){
     if(!nodes?.length){
-      tbody.innerHTML = `<tr><td colspan="5" class="muted">—</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" class="muted">${CORE.t('common.none')}</td></tr>`;
       return;
     }
     tbody.innerHTML = '';
@@ -175,8 +175,8 @@
           <table class="table">
             <thead>
               <tr>
-                <th>unit</th><th>role</th><th>fqdn</th><th>instance</th>
-                <th>public</th><th>private</th><th>activity</th><th>status</th><th>action</th>
+                <th>${CORE.t('nodes.table.unit')}</th><th>${CORE.t('nodes.table.role')}</th><th>${CORE.t('nodes.table.fqdn')}</th><th>${CORE.t('nodes.table.instance')}</th>
+                <th>${CORE.t('nodes.table.public')}</th><th>${CORE.t('nodes.table.private')}</th><th>${CORE.t('nodes.table.activity')}</th><th>${CORE.t('nodes.table.status')}</th><th>${CORE.t('nodes.table.action')}</th>
               </tr>
             </thead>
             <tbody id="nodes_active_tbody"></tbody>
@@ -186,15 +186,15 @@
 
       <section class="card" style="margin-top:20px">
         <div class="card__head">
-          <h3>Untracked nodes</h3>
+          <h3>${CORE.t('nodes.untracked')}</h3>
         </div>
 
         <div class="tablewrap">
           <table class="table">
             <thead>
               <tr>
-                <th>unit</th><th>role</th><th>fqdn</th><th>instance</th>
-                <th>public</th><th>private</th><th>activity</th><th>status</th><th>action</th>
+                <th>${CORE.t('nodes.table.unit')}</th><th>${CORE.t('nodes.table.role')}</th><th>${CORE.t('nodes.table.fqdn')}</th><th>${CORE.t('nodes.table.instance')}</th>
+                <th>${CORE.t('nodes.table.public')}</th><th>${CORE.t('nodes.table.private')}</th><th>${CORE.t('nodes.table.activity')}</th><th>${CORE.t('nodes.table.status')}</th><th>${CORE.t('nodes.table.action')}</th>
               </tr>
             </thead>
             <tbody id="nodes_untracked_tbody"></tbody>
@@ -211,7 +211,7 @@
           <table class="table">
             <thead>
               <tr>
-                <th>node</th><th>last seen</th><th>aws</th><th>status</th><th></th>
+                <th>${CORE.t('nodes.table.node')}</th><th>${CORE.t('nodes.table.last_seen')}</th><th>aws</th><th>${CORE.t('nodes.table.status')}</th><th></th>
               </tr>
             </thead>
             <tbody id="nodes_orphaned_tbody"></tbody>

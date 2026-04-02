@@ -1,48 +1,26 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ORCH_CONF_FILE="${ORCH_CONF_FILE:-/etc/taks/tak_orch.conf}"
-
-_conf_py(){
+_orch_cfg_py(){
   local expr="${1:?missing python expr}"
-  python3 - "$ORCH_CONF_FILE" "$expr" <<'PY'
-from pathlib import Path
+  PYTHONPATH="${BASE_DIR}/../orchestrator" python3 - "$expr" <<'PY'
 import sys
-try:
-    import tomllib
-except ModuleNotFoundError:
-    import tomli as tomllib
+from orchestrator_core.config import load_orch_config
 
-conf_path = Path(sys.argv[1])
-expr = sys.argv[2]
-
-if not conf_path.exists():
-    raise SystemExit(f"missing config file: {conf_path}")
-
-raw = tomllib.loads(conf_path.read_text(encoding="utf-8"))
-
-def req(section, key):
-    sec = raw.get(section)
-    if not isinstance(sec, dict):
-        raise SystemExit(f"missing section: {section}")
-    val = sec.get(key)
-    if not isinstance(val, str) or not val.strip():
-        raise SystemExit(f"missing required string: {section}.{key}")
-    return val.strip()
+expr = sys.argv[1]
+cfg = load_orch_config()
 
 mapping = {
-    "identity.orchestrator_fqdn": ("identity", "orchestrator_fqdn"),
-    "letsencrypt.email": ("letsencrypt", "email"),
-    "letsencrypt.mode": ("letsencrypt", "mode"),
-    "letsencrypt.wildcard_zone": ("letsencrypt", "wildcard_zone"),
-    "letsencrypt.artifact_cert_dir": ("letsencrypt", "artifact_cert_dir"),
+    "identity.orchestrator_fqdn": cfg.identity.orchestrator_fqdn,
+    "letsencrypt.email": cfg.letsencrypt.email,
+    "letsencrypt.mode": cfg.letsencrypt.mode,
+    "letsencrypt.wildcard_zone": cfg.letsencrypt.wildcard_zone,
+    "letsencrypt.artifact_cert_dir": cfg.letsencrypt.artifact_cert_dir,
 }
-
-if expr not in mapping:
-    raise SystemExit(f"unsupported expr: {expr}")
-
-section, key = mapping[expr]
-print(req(section, key))
+v = mapping.get(expr, "")
+if v is None:
+    v = ""
+print(str(v).strip())
 PY
 }
 
@@ -51,8 +29,8 @@ ensure_webroot(){
   chown -R www-data:www-data /var/www/html || true
 }
 
-le_mode(){ _conf_py "letsencrypt.mode"; }
-le_domain(){ _conf_py "letsencrypt.wildcard_zone"; }
+le_mode(){ _orch_cfg_py "letsencrypt.mode"; }
+le_domain(){ _orch_cfg_py "letsencrypt.wildcard_zone"; }
 le_wildcard(){ local d; d="$(le_domain)"; printf '*.%s' "${d}"; }
 
 public_cert_path(){ printf '%s' "/etc/letsencrypt/live/${FQDN}/fullchain.pem"; }
@@ -60,7 +38,7 @@ public_key_path(){ printf '%s' "/etc/letsencrypt/live/${FQDN}/privkey.pem"; }
 
 artifact_source_cert_path(){ local d; d="$(le_domain)"; printf '%s' "/etc/letsencrypt/live/${d}/fullchain.pem"; }
 artifact_source_key_path(){ local d; d="$(le_domain)"; printf '%s' "/etc/letsencrypt/live/${d}/privkey.pem"; }
-artifact_tls_dir(){ _conf_py "letsencrypt.artifact_cert_dir"; }
+artifact_tls_dir(){ _orch_cfg_py "letsencrypt.artifact_cert_dir"; }
 
 sync_le_cert_to_artifacts(){
   local src_cert src_key dst_dir
@@ -260,12 +238,13 @@ le_cert_obtain(){
       le_cert_obtain_http01
       ;;
     *)
-      die "unsupported letsencrypt.mode: $mode"
+      die "unsupported letsencrypt.mode: ${mode}"
       ;;
   esac
 }
 
 nginx_reload_safe(){
   nginx -t || die "nginx config invalid"
+  systemctl enable --now nginx
   systemctl reload nginx
 }

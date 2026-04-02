@@ -70,29 +70,29 @@
   function symbolHelp(sym){
     const s = String(sym || '').trim();
     const m = {
-      'HQ': 'Headquarters',
-      '•': 'Team',
-      '••': 'Squad',
-      '•••': 'Platoon',
-      'I': 'Company',
-      'II': 'Battalion',
-      'III': 'Regiment',
-      'X': 'Brigade',
-      'XX': 'Division',
-      'XXX': 'Corps',
-      '⚑': 'Flag / command'
+      'HQ': CORE.t('symbol.help.headquarters'),
+      '•': CORE.t('symbol.help.team'),
+      '••': CORE.t('symbol.help.squad'),
+      '•••': CORE.t('symbol.help.platoon'),
+      'I': CORE.t('symbol.help.company'),
+      'II': CORE.t('symbol.help.battalion'),
+      'III': CORE.t('symbol.help.regiment'),
+      'X': CORE.t('symbol.help.brigade'),
+      'XX': CORE.t('symbol.help.division'),
+      'XXX': CORE.t('symbol.help.corps'),
+      '⚑': CORE.t('symbol.help.flag')
     };
     if(!s) return '';
-    return m[s] || 'Custom';
+    return m[s] || CORE.t('symbol.help.custom');
   }
 
   function fmtAge(sec){
     if(sec == null) return '—';
     sec = Number(sec);
-    if(sec < 60) return sec + 's ago';
-    if(sec < 3600) return Math.floor(sec / 60) + 'm ago';
-    if(sec < 86400) return Math.floor(sec / 3600) + 'h ago';
-    return Math.floor(sec / 86400) + 'd ago';
+    if(sec < 60) return sec + CORE.t('time.seconds_ago');
+    if(sec < 3600) return Math.floor(sec / 60) + CORE.t('time.minutes_ago');
+    if(sec < 86400) return Math.floor(sec / 3600) + CORE.t('time.hours_ago');
+    return Math.floor(sec / 86400) + CORE.t('time.days_ago');
   }
 
   function heartbeatState(node){
@@ -112,7 +112,7 @@
     return el('button', {
       className: 'btn btn--secondary',
       type: 'button',
-      text: 'Copy',
+      text: CORE.t('common.copy'),
       onclick: function(){
         if(navigator.clipboard && value) navigator.clipboard.writeText(String(value));
       }
