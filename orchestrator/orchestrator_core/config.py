@@ -213,10 +213,10 @@ def load_orch_config(path: Optional[str] = None, *, secrets_path: Optional[str] 
             launch_enabled=_b(cfg.get("launch_enabled"), _b(cfg.get("aws_launch_enabled"), True)),
         ),
         letsencrypt=LetsEncryptConfig(
-            mode=_s(cfg.get("le_mode"), "dns-route53"),
-            email=_s(cfg.get("le_email")),
-            wildcard_zone=_s(cfg.get("le_wildcard_zone")),
-            artifact_cert_dir=_s(cfg.get("le_artifact_cert_dir"), f"{artifacts_dir}/taks/tls"),
+            mode=_s(cfg.get("letsencrypt_mode"), "dns-route53"),
+            email=_s(cfg.get("letsencrypt_email")),
+            wildcard_zone=_s(cfg.get("letsencrypt_wildcard_zone")),
+            artifact_cert_dir=_s(cfg.get("letsencrypt_artifact_cert_dir"), f"{artifacts_dir}/letsencrypt/aws.tak-hv-sandbox.se"),
         ),
         bundles=BundlesConfig(
             source_repo_root=_s(cfg.get("bundles_source_repo_root"), "/opt/taks"),
@@ -226,7 +226,7 @@ def load_orch_config(path: Optional[str] = None, *, secrets_path: Optional[str] 
         ),
         nodes=NodesConfig(
             default_node_domain=_s(cfg.get("nodes_default_node_domain"), "aws.tak-hv-sandbox.se"),
-            default_cert_model=_s(cfg.get("nodes_default_cert_model"), "WILDCARD_DNS_01"),
+            default_cert_model=_s(cfg.get("nodes_default_cert_model"), "letsencrypt"),
         ),
     )
 

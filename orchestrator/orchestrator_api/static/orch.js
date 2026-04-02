@@ -51,35 +51,36 @@
 
     if (r === '/units') {
       if(window.TAKS_PAGES?.units?.render) window.TAKS_PAGES.units.render(page);
-      else page.innerHTML = missing('Units', 'Missing page module: TAKS_PAGES.units');
+      else page.innerHTML = missing(CORE.t('nav.units'), 'Missing page module: TAKS_PAGES.units');
     }
     else if (r.startsWith('/units/')) {
       const unitPath = decodeURIComponent(r.slice('/units/'.length) || '');
       if(window.TAKS_PAGES?.unit?.render) window.TAKS_PAGES.unit.render(page, { unit_path: unitPath });
-      else page.innerHTML = missing('Unit', 'Missing page module: TAKS_PAGES.unit');
+      else page.innerHTML = missing(CORE.t('unit.title'), 'Missing page module: TAKS_PAGES.unit');
     }
     else if (r === '/nodes') {
       if(window.TAKS_PAGES?.nodes?.render) window.TAKS_PAGES.nodes.render(page);
       else if(window.PAGES?.nodes) window.PAGES.nodes(page);
-      else page.innerHTML = missing('Nodes', 'Missing nodes page module');
+      else page.innerHTML = missing(CORE.t('nav.nodes'), 'Missing nodes page module');
     }
     else if (r === '/nodes/spawn') {
       if(window.PAGES?.new) window.PAGES.new(page);
-      else page.innerHTML = missing('Spawn node', 'Missing page module: PAGES.new (legacy spawn)');
+      else page.innerHTML = missing(CORE.t('nav.spawn_node'), 'Missing page module: PAGES.new (legacy spawn)');
     }
     else if (r === '/settings') {
       if(window.TAKS_PAGES?.settings?.render) window.TAKS_PAGES.settings.render(page);
       else if(window.PAGES?.settings) window.PAGES.settings(page);
-      else page.innerHTML = missing('Settings', 'Missing settings page module');
+      else page.innerHTML = missing(CORE.t('nav.settings'), 'Missing settings page module');
     }
     else {
-      page.innerHTML = missing('Not found', 'No route: ' + r);
+      page.innerHTML = missing(CORE.t('common.error'), 'No route: ' + r);
     }
 
     refreshStatus();
   }
 
   window.addEventListener('hashchange', render);
+  window.addEventListener('taks:lang', render);
   window.addEventListener('load', function(){
     if(!location.hash) location.hash = '#/units';
     render();

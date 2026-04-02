@@ -73,7 +73,7 @@
       <div class="treeRow" style="padding-left:${indent}px">
         <div class="treeRow__left">
           <button class="treeToggle ${hasKids ? '' : 'is-hidden'}"
-                  title="${hasKids ? (isOpen ? 'Fäll ihop' : 'Fäll ut') : ''}"
+                  title="${hasKids ? (isOpen ? CORE.t('units.close') : CORE.t('units.add_duc')) : ''}"
                   data-action="toggle-open"
                   data-unit="${esc(u.unit_path)}">${isOpen ? '▾' : '▸'}</button>
           ${
@@ -86,25 +86,25 @@
 
         <div class="treeRow__right">
           <div class="muted" style="margin-right:10px">${count} noder</div>
-          <button class="btn btn--secondary" data-action="toggle-duc" data-unit="${esc(u.unit_path)}">Lägg till DUC</button>
-          <button class="btn btn--danger" data-action="delete-unit" data-unit="${esc(u.unit_path)}">Ta bort</button>
+          <button class="btn btn--secondary" data-action="toggle-duc" data-unit="${esc(u.unit_path)}">${CORE.t('units.add_duc')}</button>
+          <button class="btn btn--danger" data-action="delete-unit" data-unit="${esc(u.unit_path)}">${CORE.t('units.delete')}</button>
         </div>
       </div>
 
       <div id="duc_form_${esc(u.unit_path)}" class="ducForm" style="display:none; margin-left:${indent}px">
-        <div class="muted" style="margin-bottom:8px">Skapa DUC under <b>${esc(u.title)}</b></div>
+        <div class="muted" style="margin-bottom:8px">${CORE.t('units.create_duc.title', { hc: u.title })}</div>
         <div class="grid grid--6">
           <div>
-            <label class="label">Enhets-ID (DUC)</label>
+            <label class="label">${CORE.t('units.create_duc.id')}</label>
             <input id="duc_id_${esc(u.unit_path)}" placeholder="t.ex. mrs" value="">
           </div>
           <div style="grid-column: span 2;">
-            <label class="label">Namn (valfritt)</label>
+            <label class="label">${CORE.t('units.create_duc.name')}</label>
             <input id="duc_title_${esc(u.unit_path)}" placeholder="t.ex. Militärregion Syd" value="">
           </div>
           <div style="grid-column: span 2; display:flex; align-items:flex-end; gap:8px;">
-            <button class="btn" data-action="create-duc" data-hc="${esc(u.unit_path)}">Skapa DUC</button>
-            <button class="btn btn--secondary" data-action="toggle-duc" data-unit="${esc(u.unit_path)}">Stäng</button>
+            <button class="btn" data-action="create-duc" data-hc="${esc(u.unit_path)}">${CORE.t('units.create_duc.btn')}</button>
+            <button class="btn btn--secondary" data-action="toggle-duc" data-unit="${esc(u.unit_path)}">${CORE.t('units.close')}</button>
           </div>
         </div>
       </div>
@@ -121,9 +121,9 @@
     container.innerHTML = `
       <section class="card">
         <div class="card__head">
-          <h3>Enheter</h3>
+          <h3>${CORE.t('units.title')}</h3>
           <div class="card__actions">
-            <button id="btn_units_refresh" class="btn btn--secondary">Uppdatera</button>
+            <button id="btn_units_refresh" class="btn btn--secondary">${CORE.t('common.refresh')}</button>
           </div>
         </div>
         <div class="muted" id="units_summary">loading…</div>
@@ -131,25 +131,25 @@
         <div id="units_tree"></div>
 
         <details style="margin-top:12px">
-          <summary>Skapa rot-enhet</summary>
+          <summary>${CORE.t('units.create_root.title')}</summary>
           <div class="spacer"></div>
           <div class="grid grid--6">
             <div>
-              <label class="label">Enhets-ID</label>
+              <label class="label">${CORE.t('units.create_root.id')}</label>
               <input id="root_id" placeholder="t.ex. forsvarsmakten" value="">
             </div>
             <div style="grid-column: span 2;">
-              <label class="label">Namn (valfritt)</label>
+              <label class="label">${CORE.t('units.create_duc.name')}</label>
               <input id="root_title" placeholder="t.ex. Försvarsmakten" value="">
             </div>
             <div style="grid-column: span 2; display:flex; align-items:flex-end; gap:8px;">
-              <button id="btn_create_root" class="btn">Skapa</button>
+              <button id="btn_create_root" class="btn">${CORE.t('units.create_root.btn')}</button>
             </div>
           </div>
         </details>
 
         <details style="margin-top:10px">
-          <summary>Övrigt</summary>
+          <summary>${CORE.t('units.secondary.title')}</summary>
           <div class="spacer"></div>
           <div class="muted">Här kan vi senare visa orphaned/untracked, import/export, etc.</div>
         </details>
@@ -249,7 +249,7 @@
           return st !== 'terminated' && st !== 'untracked';
         }).length;
 
-        summary.textContent = `Enheter: ${units.length} · Noder: ${liveNodeCount}`;
+        summary.textContent = CORE.t('units.summary', { units: units.length, nodes: liveNodeCount, duc: Math.max(0, units.length - 1) });
 
         const tree = buildTree(units);
         const rows = [];
@@ -257,7 +257,7 @@
           openSet.add(top.u.unit_path);
           renderTreeRow(top, 0, openSet, unitToNodes, unitToSymbol, rows);
         }
-        treeBox.innerHTML = rows.join('') || `<div class="muted">No units.</div>`;
+        treeBox.innerHTML = rows.join('') || `<div class="muted">${CORE.t('common.none')}</div>`;
       }catch(e){
         alert(String(e && e.message ? e.message : e));
       }

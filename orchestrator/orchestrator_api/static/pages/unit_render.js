@@ -17,10 +17,10 @@
         href: '#/units/' + encodeURIComponent(ctx.parent),
         className: 'muted',
         style: 'text-decoration:none',
-        text: 'HC: ' + ctx.parent
+        text: CORE.t('unit.parent', { parent: ctx.parent })
       }));
     }else{
-      leftTop.appendChild(S.el('span', { className: 'muted', text: 'HC saknas' }));
+      leftTop.appendChild(S.el('span', { className: 'muted', text: CORE.t('unit.parent.missing') }));
     }
 
     const rightTop = S.el('div',
@@ -29,7 +29,7 @@
         href: '#/units',
         className: 'muted',
         style: 'text-decoration:none',
-        text: '← Tillbaka till enheter'
+        text: CORE.t('unit.back_to_units')
       })
     );
 
@@ -53,7 +53,7 @@
     row.appendChild(logoBox);
 
     const body = S.el('div', { style: 'min-width:0;flex:1 1 auto' });
-    body.appendChild(S.el('div', { className: 'muted', style: 'margin-bottom:8px', text: 'Enhet' }));
+    body.appendChild(S.el('div', { className: 'muted', style: 'margin-bottom:8px', text: CORE.t('unit.title') }));
     body.appendChild(S.el('div', {
       className: 'card__title',
       style: 'font-size:34px;line-height:1.1',
@@ -74,7 +74,7 @@
     }
 
     const details = S.el('details', { style: 'margin-top:18px' });
-    details.appendChild(S.el('summary', { text: 'Redigera identitet' }));
+    details.appendChild(S.el('summary', { text: CORE.t('unit.identity.edit') }));
 
     const grid = S.el('div', { className: 'grid grid--6', style: 'margin-top:12px' });
 
@@ -83,7 +83,7 @@
       id: 'brand_logo_btn',
       className: 'btn btn--secondary',
       type: 'button',
-      text: 'Byt logotyp'
+      text: CORE.t('unit.logo.change')
     }));
     logoCol.appendChild(S.el('input', {
       id: 'brand_logo_file',
@@ -98,7 +98,7 @@
     }));
 
     const sloganCol = S.el('div', { style: 'grid-column: span 3;' });
-    sloganCol.appendChild(S.el('label', { className: 'label', text: 'Slogan' }));
+    sloganCol.appendChild(S.el('label', { className: 'label', text: CORE.t('unit.slogan') }));
     sloganCol.appendChild(S.el('input', {
       id: 'brand_slogan',
       value: ctx.slogan || '',
@@ -106,7 +106,7 @@
     }));
 
     const symbolCol = S.el('div', { style: 'grid-column: span 1;' });
-    symbolCol.appendChild(S.el('label', { className: 'label', text: 'Symbol' }));
+    symbolCol.appendChild(S.el('label', { className: 'label', text: CORE.t('unit.symbol') }));
     symbolCol.appendChild(S.el('input', {
       id: 'brand_symbol',
       value: ctx.symbol || '',
@@ -125,7 +125,7 @@
     details.appendChild(grid);
 
     const actions = S.el('div', { className: 'card__actions', style: 'margin-top:12px' });
-    actions.appendChild(S.el('button', { id: 'brand_save_btn', className: 'btn', text: 'Spara' }));
+    actions.appendChild(S.el('button', { id: 'brand_save_btn', className: 'btn', text: CORE.t('common.save') }));
     details.appendChild(actions);
     details.appendChild(S.el('div', { id: 'brand_save_status', className: 'muted', style: 'margin-top:8px' }));
 
@@ -149,7 +149,7 @@
       wrap.appendChild(S.el('div', {
         className: 'muted',
         style: 'margin-top:14px',
-        text: 'Ingen aktiv eller känd servernod kopplad till denna enhet just nu.'
+        text: CORE.t('unit.no_active_node')
       }));
       return wrap;
     }
@@ -161,56 +161,56 @@
     const fqdn = String(node.fqdn || '').trim();
 
     const row1 = S.el('div', { className: 'grid grid--6' });
-    row1.appendChild(S.field('Node', S.el('div', { style: 'font-weight:700;word-break:break-all', text: node.node_id || node.fqdn || node.instance_id || '—' }), 2));
+    row1.appendChild(S.field(CORE.t('unit.field.node'), S.el('div', { style: 'font-weight:700;word-break:break-all', text: node.node_id || node.fqdn || node.instance_id || '—' }), 2));
     row1.appendChild(S.field('FQDN', S.el('div', { style: 'word-break:break-all', text: fqdn || '—' }), 2));
     row1.appendChild(S.field('AWS', S.el('div', null, S.badge(aws, awsKind))));
     row1.appendChild(S.field('Heartbeat', S.el('div', null, S.badge(hb, hbKind))));
     wrap.appendChild(row1);
 
     const row2 = S.el('div', { className: 'grid grid--6' });
-    row2.appendChild(S.field('Last seen', S.el('div', { text: S.fmtAge(node.heartbeat_age_sec) })));
+    row2.appendChild(S.field(CORE.t('unit.field.last_seen'), S.el('div', { text: S.fmtAge(node.heartbeat_age_sec) })));
     row2.appendChild(S.field('Instance', S.el('div', { style: 'word-break:break-all', text: node.instance_id || node.aws_instance_id || '—' }), 2));
 
     const privWrap = S.el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' });
     const priv = String(node.private_ip || node.aws_private_ip || '—');
     privWrap.appendChild(S.el('code', { text: priv }));
     if(priv && priv !== '—') privWrap.appendChild(S.copyBtn(priv));
-    row2.appendChild(S.field('Private IP', privWrap));
+    row2.appendChild(S.field(CORE.t('unit.field.private_ip'), privWrap));
 
     const pubWrap = S.el('div', { style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' });
     const pub = String(node.public_ip || node.aws_public_ip || '—');
     pubWrap.appendChild(S.el('code', { text: pub }));
     if(pub && pub !== '—') pubWrap.appendChild(S.copyBtn(pub));
-    row2.appendChild(S.field('Public IP', pubWrap));
+    row2.appendChild(S.field(CORE.t('unit.field.public_ip'), pubWrap));
     wrap.appendChild(row2);
 
     const details = S.el('details', { style: 'margin-top:4px' });
-    details.appendChild(S.el('summary', { text: 'Advanced node details' }));
+    details.appendChild(S.el('summary', { text: CORE.t('unit.advanced_node_details') }));
 
     const grid = S.el('div', { className: 'grid grid--6', style: 'margin-top:12px' });
     grid.appendChild(S.field('FQDN', S.el('div', { style: 'word-break:break-all', text: node.fqdn || '—' }), 3));
-    grid.appendChild(S.field('Display name', S.el('div', { text: node.display_name || ((node.meta || {}).name) || node.fqdn || '—' }), 2));
-    grid.appendChild(S.field('Region', S.el('div', { text: node.region || '—' })));
+    grid.appendChild(S.field(CORE.t('unit.field.display_name'), S.el('div', { text: node.display_name || ((node.meta || {}).name) || node.fqdn || '—' }), 2));
+    grid.appendChild(S.field(CORE.t('unit.field.region'), S.el('div', { text: node.region || '—' })));
     grid.appendChild(S.field('AZ', S.el('div', { text: node.availability_zone || '—' })));
 
-    grid.appendChild(S.field('Instance type', S.el('div', { text: node.instance_type || ((node.meta || {}).instance_type) || '—' }), 2));
+    grid.appendChild(S.field(CORE.t('unit.field.instance_type'), S.el('div', { text: node.instance_type || ((node.meta || {}).instance_type) || '—' }), 2));
     grid.appendChild(S.field('AMI', S.el('div', { style: 'word-break:break-all', text: node.image_id || '—' }), 2));
     grid.appendChild(S.field('Subnet', S.el('div', { text: node.subnet_id || ((node.meta || {}).subnet_id) || '—' })));
     grid.appendChild(S.field('VPC', S.el('div', { text: node.vpc_id || '—' })));
 
-    grid.appendChild(S.field('IAM profile', S.el('div', { style: 'word-break:break-all', text: node.iam_instance_profile_arn || 'No instance profile attached' }), 3));
-    grid.appendChild(S.field('Launch source', S.el('div', { text: ((node.meta || {}).launch_source) || '—' })));
-    grid.appendChild(S.field('Launch time', S.el('div', { text: node.launch_time || '—' }), 2));
+    grid.appendChild(S.field(CORE.t('unit.field.iam_profile'), S.el('div', { style: 'word-break:break-all', text: node.iam_instance_profile_arn || CORE.t('unit.field.no_iam_profile') }), 3));
+    grid.appendChild(S.field(CORE.t('unit.field.launch_source'), S.el('div', { text: ((node.meta || {}).launch_source) || '—' })));
+    grid.appendChild(S.field(CORE.t('unit.field.launch_time'), S.el('div', { text: node.launch_time || '—' }), 2));
 
     const sgs = Array.isArray(node.security_groups) ? node.security_groups : [];
     const sgText = sgs.length ? sgs.map(function(g){
       return (g.group_name || 'sg') + ' (' + (g.group_id || '—') + ')';
     }).join(', ') : '—';
-    grid.appendChild(S.field('Security groups', S.el('div', { style: 'word-break:break-word', text: sgText }), 3));
+    grid.appendChild(S.field(CORE.t('unit.field.security_groups'), S.el('div', { style: 'word-break:break-word', text: sgText }), 3));
 
     const tags = node.aws_tags || {};
     const tagText = Object.keys(tags).sort().map(function(k){ return k + '=' + tags[k]; }).join(', ') || '—';
-    grid.appendChild(S.field('Tags', S.el('div', { style: 'word-break:break-word', text: tagText }), 6));
+    grid.appendChild(S.field(CORE.t('unit.field.tags'), S.el('div', { style: 'word-break:break-word', text: tagText }), 6));
 
     details.appendChild(grid);
     wrap.appendChild(details);
@@ -219,7 +219,7 @@
   }
 
   function renderNodeCard(node){
-    const c = S.card('TAK-servernod');
+    const c = S.card(CORE.t('unit.server_node'));
 
     c.appendChild(renderNodeSummary(node));
 
@@ -239,7 +239,7 @@
 
     if(fqdn){
       const linksWrap = S.el('div', { style: 'margin-top:12px' });
-      linksWrap.appendChild(S.el('div', { className: 'label', text: 'Snabblänkar' }));
+      linksWrap.appendChild(S.el('div', { className: 'label', text: CORE.t('unit.quick_links') }));
 
       const links = S.el('div', { className: 'card__actions', style: 'margin-top:8px' });
       links.appendChild(S.el('a', {
@@ -355,11 +355,11 @@
     advanced.appendChild(advGrid);
 
     const defaultsGrid = S.el('div', { className: 'grid grid--6', style: 'margin-top:12px' });
-    defaultsGrid.appendChild(S.field('Region', S.el('div', { id: 'node_default_region', text: '—' })));
+    defaultsGrid.appendChild(S.field(CORE.t('unit.field.region'), S.el('div', { id: 'node_default_region', text: '—' })));
     defaultsGrid.appendChild(S.field('AMI', S.el('div', { id: 'node_default_ami', style: 'word-break:break-all', text: '—' }), 2));
     defaultsGrid.appendChild(S.field('Subnet', S.el('div', { id: 'node_default_subnet', text: '—' }), 2));
     defaultsGrid.appendChild(S.field('Security group', S.el('div', { id: 'node_default_sg', text: '—' }), 2));
-    defaultsGrid.appendChild(S.field('IAM profile', S.el('div', { id: 'node_default_profile', style: 'word-break:break-all', text: '—' }), 3));
+    defaultsGrid.appendChild(S.field(CORE.t('unit.field.iam_profile'), S.el('div', { id: 'node_default_profile', style: 'word-break:break-all', text: '—' }), 3));
     defaultsGrid.appendChild(S.field('Key pair', S.el('div', { id: 'node_default_key', text: '—' })));
     advanced.appendChild(defaultsGrid);
 
@@ -611,7 +611,7 @@
       saveBtn.onclick = async function(){
         const statusEl = S.byId('brand_save_status');
         if(statusEl){
-          statusEl.textContent = 'Sparar…';
+          statusEl.textContent = CORE.t('common.saving');
           statusEl.className = 'muted';
         }
         try{
@@ -621,7 +621,7 @@
             S.byId('brand_symbol') ? S.byId('brand_symbol').value : ''
           );
           if(statusEl){
-            statusEl.textContent = 'Sparat.';
+            statusEl.textContent = CORE.t('common.saved');
             statusEl.className = 'ok';
           }
         }catch(e){

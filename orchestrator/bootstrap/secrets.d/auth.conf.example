@@ -1,0 +1,7 @@
+# Copy to /etc/taks-bootstrap.d/secrets.d/auth.conf before first orch-install apply
+
+session_secret = change-me-long-random-string
+operator_user = admin
+operator_password = change-me
+node_api_user = node
+node_api_password = change-me

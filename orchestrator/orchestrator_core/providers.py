@@ -55,10 +55,10 @@ def status_nodes() -> Dict[str, Any]:
                 "image_id": bool(str(cfg.aws.default_ami).strip()),
             }
             out["hints"] = {
-                "aws_key_name": "Set aws.ssh_key_name in /etc/taks/tak_orch.conf or pass aws_key_name in /nodes/launch request",
-                "sg_id": "Set aws.default_security_group_id in /etc/taks/tak_orch.conf or pass aws_sg_id in /nodes/launch request",
-                "subnet_id": "Set aws.default_subnet_id in /etc/taks/tak_orch.conf",
-                "image_id": "Set aws.default_ami in /etc/taks/tak_orch.conf",
+                "aws_key_name": "Set aws_default_key_name in runtime conf.d or pass aws_key_name in /nodes/launch request",
+                "sg_id": "Set aws_default_security_group_id in runtime conf.d or pass aws_sg_id in /nodes/launch request",
+                "subnet_id": "Set aws_default_subnet_id in runtime conf.d",
+                "image_id": "Set aws_default_ami in runtime conf.d",
             }
 
         return out
