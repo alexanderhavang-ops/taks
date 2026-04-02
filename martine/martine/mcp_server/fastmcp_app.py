@@ -10,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from martine.config import load_config
 from martine.state.paths import ensure_state_dirs
 from martine.tools.taks_state import get_taks_state_summary
-from martine.tools.docs_ref import list_reference_docs, search_reference_docs, get_reference_doc_context, list_reference_doc_sections, get_reference_section
+from martine.tools.docs_ref import list_reference_docs, search_reference_docs, search_reference_docs_semantic, get_reference_doc_context, list_reference_doc_sections, get_reference_section
 from martine.tools.cot_sa import (
     get_contact_status,
     get_current_time,
@@ -100,6 +100,12 @@ def list_reference_docs_tool(only_active: bool = True) -> dict:
 def search_reference_docs_tool(query: str, limit: int = 8, doc_id: str = "") -> dict:
     """Search uploaded runtime reference documents by keyword over chunked extracted text."""
     return search_reference_docs(query=query, limit=limit, doc_id=doc_id)
+
+
+@mcp.tool(name="search_reference_docs_semantic")
+def search_reference_docs_semantic_tool(query: str, limit: int = 8, doc_id: str = "") -> dict:
+    """Search uploaded runtime reference documents semantically over vectorized chunk text."""
+    return search_reference_docs_semantic(query=query, limit=limit, doc_id=doc_id)
 
 
 @mcp.tool(name="get_reference_doc_context")
@@ -256,3 +262,7 @@ def run_stdio() -> None:
 
 def run_streamable_http() -> None:
     mcp.run(transport="streamable-http")
+
+logging.getLogger("mcp.server.lowlevel.server").setLevel(logging.WARNING)
+
+logging.getLogger("onnxruntime").setLevel(logging.ERROR)

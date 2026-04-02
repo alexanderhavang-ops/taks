@@ -14,3 +14,7 @@ martine.client.llm3.max_tool_calls = 12
 martine.client.llm3.timeline.phase2.max_output_tokens = 8000
 martine.client.replay.max_turns = 4
 martine.client.replay.max_tool_calls = 6
+martine.client.llm3.timeline.phase3.detail.max_output_tokens = 8000
+martine.client.llm3.timeline.phase3.card.max_output_tokens = 4000
+martine.client.llm3.weather.phase3.detail.max_output_tokens = 6000
+martine.client.llm3.weather.phase3.card.max_output_tokens = 4000

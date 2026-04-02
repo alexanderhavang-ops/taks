@@ -11,13 +11,14 @@ fi
 
 export PYTHONPATH="/opt/tak/tools/takctl:/opt/tak/tools/martine:/opt/taks/takctl:/opt/taks/martine"
 
-sudo -u tak env   PYTHONPATH="$PYTHONPATH"   /opt/tak/tools/takctl/.venv/bin/python3 - "$PHASE" "$DOMAIN" <<'PY'
+sudo -u tak env PYTHONPATH="$PYTHONPATH" /opt/tak/tools/takctl/.venv/bin/python3 - "$PHASE" "$DOMAIN" <<'PY'
 from __future__ import annotations
 
 import json
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from takctl.config import load_config as load_takctl_config
 from takctl.services.llm3.domain_config import discover_enabled_domains, load_domain_config, phase_enabled
@@ -26,8 +27,77 @@ from takctl.services.llm3.runner import run_phase2, run_phase3
 phase = sys.argv[1]
 domain_arg = sys.argv[2]
 
-def jdump(x):
+
+def jdump(x: Any) -> str:
     return json.dumps(x, ensure_ascii=False, indent=2, sort_keys=True)
+
+
+def _json_one_line(x: Any, limit: int = 220) -> str:
+    try:
+        s = json.dumps(x, ensure_ascii=False, sort_keys=True)
+    except Exception:
+        s = str(x)
+    s = " ".join(str(s).split())
+    if len(s) > limit:
+        s = s[: limit - 3] + "..."
+    return s
+
+
+def _tool_result_summary(tool_name: str, obj: dict[str, Any]) -> str:
+    resp = obj.get("tool_response")
+    if not isinstance(resp, dict):
+        return "no-response"
+
+    structured = resp.get("structured")
+    is_error = bool(resp.get("is_error"))
+
+    if is_error:
+        err = structured if structured is not None else resp.get("raw_text_parts") or resp
+        return f"error={_json_one_line(err, 180)}"
+
+    if tool_name == "get_current_time" and isinstance(structured, dict):
+        return (
+            f"ok={structured.get('ok')} "
+            f"utc={structured.get('utc_time')} "
+            f"tz={structured.get('timezone')}"
+        )
+
+    if tool_name == "list_reference_docs":
+        if isinstance(structured, dict):
+            items = structured.get("items")
+            if isinstance(items, list):
+                names = []
+                for item in items[:3]:
+                    if isinstance(item, dict):
+                        n = item.get("title") or item.get("name") or item.get("doc_title") or item.get("doc_name") or item.get("doc_id")
+                        if n:
+                            names.append(str(n))
+                return f"ok={structured.get('ok', True)} items={len(items)} names={_json_one_line(names, 140)}"
+        if isinstance(structured, list):
+            return f"items={len(structured)}"
+        return _json_one_line(structured, 180)
+
+    if tool_name == "search_reference_docs":
+        if isinstance(structured, dict):
+            items = structured.get("items")
+            if isinstance(items, list):
+                hits = []
+                for item in items[:3]:
+                    if isinstance(item, dict):
+                        n = item.get("title") or item.get("name") or item.get("doc_title") or item.get("doc_name") or item.get("doc_id") or item.get("chunk_id")
+                        if n:
+                            hits.append(str(n))
+                return f"ok={structured.get('ok', True)} hits={len(items)} top={_json_one_line(hits, 140)}"
+        if isinstance(structured, list):
+            return f"hits={len(structured)}"
+        return _json_one_line(structured, 180)
+
+    if isinstance(structured, dict):
+        keys = list(structured.keys())[:6]
+        return f"ok={structured.get('ok', True)} keys={','.join(str(k) for k in keys)}"
+
+    return _json_one_line(structured, 180)
+
 
 cfg = load_takctl_config()
 infra_dir = Path(str(cfg.get("llm_infra_dir", "/opt/tak/tools/takctl/llm-infra")))
@@ -92,7 +162,6 @@ for idx, dom in enumerate(domains, start=1):
     run_id = str(out.get("run_id") or "")
     print(f"run_id: {run_id}")
 
-    # Inspect trace dir(s) for this domain/phase and summarize iterations/tools.
     trace_root = Path("/opt/tak/tools/martine/state/logs")
     traces = sorted(trace_root.glob(f"{run_id}-{dom}-{phase}*"))
     if traces:
@@ -104,12 +173,15 @@ for idx, dom in enumerate(domains, start=1):
             print(f"trace: {td}")
             print(f"  prompts={prompt_n} llm={llm_n} parsed={parsed_n} tools={tool_n}")
             tool_files = sorted(td.glob("*_tool.json"))
-            for tf in tool_files:
+            for i, tf in enumerate(tool_files, start=1):
                 try:
                     obj = json.loads(tf.read_text(encoding="utf-8"))
-                    print(f"  tool: {obj.get('tool_name')}")
+                    tool_name = str(obj.get("tool_name") or "")
+                    tool_args = obj.get("tool_args") if isinstance(obj.get("tool_args"), dict) else {}
+                    summary = _tool_result_summary(tool_name, obj)
+                    print(f"  tool[{i}]: {tool_name} args={_json_one_line(tool_args, 180)} -> {summary}")
                 except Exception as e:
-                    print(f"  tool: <parse-failed {type(e).__name__}: {e}>")
+                    print(f"  tool[{i}]: <parse-failed {type(e).__name__}: {e}>")
     else:
         print("trace: <none found>")
 
