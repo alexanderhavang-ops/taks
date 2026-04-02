@@ -148,7 +148,7 @@ def password_block(
 <div class="note">
   {h(t(lang, "field.username"))}: <code id="taks_username2">{h(safe(username))}</code>
   <button class="btn" onclick="copyId('taks_username2')">{h(t(lang, "soldier.copy"))}</button><br/>
-  Password: <code id="taks_password">{h(safe(pw_val))}</code>
+  {h(t(lang, "pw.password"))}: <code id="taks_password">{h(safe(pw_val))}</code>
   <button class="btn" onclick="copyId('taks_password')">{h(t(lang, "soldier.copy"))}</button>{extra}
 </div>
 """

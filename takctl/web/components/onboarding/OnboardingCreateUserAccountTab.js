@@ -5,6 +5,15 @@
   const LP = { "data-lpignore": "true", autoComplete: "off" };
   const t = (window.t && typeof window.t === "function") ? window.t : (k) => String(k || "");
 
+  function _lang() {
+    const v = String(window.currentLang || window.TAKS_RUNTIME_LANGUAGE || "sv").trim().toLowerCase();
+    return v.startsWith("en") ? "en" : "sv";
+  }
+
+  function _L(sv, en) {
+    return _lang() === "en" ? String(en) : String(sv);
+  }
+
   function OnboardingCreateUserAccountTab(props) {
     const Field = props.Field;
     const RenderField = props.RenderField;
@@ -31,15 +40,16 @@
       h("div", { style: { fontWeight: 700, marginBottom: "10px" } }, t("tab.account")),
 
       h("div", { className: "grid", style: { gridTemplateColumns: "1fr", gap: "12px" } },
-        h(Field, { label: "Username *" },
+        h(Field, { label: _L("Användarnamn *", "Username *") },
           h("input", Object.assign({}, LP, {
             type: "text",
             value: username,
-            placeholder: "e.g. admin.46hvbat",
+            placeholder: _L("t.ex. admin.46hvbat", "e.g. admin.46hvbat"),
             onChange: function (e) { setUsername(e.target.value); }
           }))
         ),
-        h(Field, { label: "Email" },
+
+        h(Field, { label: _L("E-post", "Email") },
           h("input", Object.assign({}, LP, {
             type: "email",
             value: emailAddr,
@@ -47,13 +57,20 @@
             onChange: function (e) { setEmailAddr(e.target.value); }
           }))
         ),
-        h(Field, { label: isEdit ? "Password (leave blank to keep unchanged)" : "Password (optional)" },
+
+        h(Field, {
+          label: isEdit
+            ? _L("Lösenord (lämna tomt för att behålla nuvarande)", "Password (leave blank to keep unchanged)")
+            : _L("Lösenord (valfritt)", "Password (optional)")
+        },
           h("input", {
             "data-lpignore": "true",
             autoComplete: "new-password",
             type: "text",
             value: password,
-            placeholder: isEdit ? "leave blank to keep current" : "leave blank for TAKS-generated",
+            placeholder: isEdit
+              ? _L("lämna tomt för att behålla nuvarande", "leave blank to keep current")
+              : _L("lämna tomt för TAKS-genererat", "leave blank for TAKS-generated"),
             onChange: function (e) { setPassword(e.target.value); }
           })
         )
@@ -66,13 +83,14 @@
             checked: admin,
             onChange: function (e) { setAdmin(e.target.checked); }
           })),
-          " Admin"
+          " ",
+          _L("Admin", "Admin")
         )
       ),
 
       h("div", { style: { height: "14px" } }),
 
-      h("div", { style: { fontWeight: 700, marginBottom: "10px" } }, "Groups"),
+      h("div", { style: { fontWeight: 700, marginBottom: "10px" } }, _L("Grupper", "Groups")),
       h("div", { className: "grid", style: { gridTemplateColumns: "1fr", gap: "12px" } },
         ((policy && policy.group_fields) || []).map(function (f) {
           return h(RenderField, {

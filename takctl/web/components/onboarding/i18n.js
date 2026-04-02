@@ -1,22 +1,25 @@
 // takctl/web/components/onboarding/i18n.js
 // Simple deterministic i18n helper for takctl frontend
-// Usage: t("nav.create_user") => localized string
-// Put this file under takctl/web/components/onboarding/ and include it before your onboarding scripts.
 
 (function () {
-  if (window.TAKS_I18N) return; // don't re-init in HMR/dev double-load
+  if (window.TAKS_I18N) return;
 
   const DICTS = {
     en: {
-      // nav / layout
       "nav.onboarding": "Onboarding",
       "nav.list": "List",
       "nav.create_user": "Create user",
       "nav.import_users": "Import users file",
       "nav.import_jobs": "Import jobs",
       "nav.section": "Section",
+      "nav.ai": "AI",
+      "nav.ai3": "AI3",
+      "nav.ai_costs": "AI Costs",
+      "nav.martine": "Martine",
+      "nav.simulate": "Simulate",
+      "nav.documents": "Documents",
+      "nav.settings": "Settings",
 
-      // header / policy
       "page.onboarding_create": "Onboarding — Create user",
       "page.onboarding_edit": "Onboarding — Edit user",
       "page.onboarding_list": "Onboarding — List",
@@ -26,15 +29,13 @@
       "policy.node_global": "Policy is node-global.",
       "policy.up_to_date": "Up to date",
 
-      // tabs
       "tab.identity": "Identity",
       "tab.account": "Account",
       "tab.advanced": "Advanced",
 
-      // identity fields (source)
       "field.callsign": "Callsign",
       "field.team": "Team",
-      "field.team_color": "Team color", // legacy key (older UI)
+      "field.team_color": "Team color",
       "field.battalion": "Battalion",
       "field.battalion_fal": "FALA Battalion",
       "field.company": "Company",
@@ -43,7 +44,6 @@
       "field.number": "Number",
       "field.n": "Number",
 
-      // list table
       "list.live_view": "Live view from /api/onboarding/status",
       "list.loading": "Loading…",
       "list.username": "Username",
@@ -62,23 +62,26 @@
       "list.print_all": "Print all",
       "list.summary": "Users={users}  Seen={seen}  Never={never}  Unknown={unknown}  DB={db} ({source})",
 
-      // buttons
       "btn.create_user": "Create user",
       "btn.save_changes": "Save changes",
       "btn.edit": "Edit",
       "btn.card": "Card",
+      "btn.working": "Working...",
+      "btn.sending": "Sending...",
+      "btn.email_card_link": "Email card link",
+      "page.onboarding_create_title": "Create user",
+      "page.onboarding_edit_title": "Edit user",
+      "page.onboarding_subtitle": "Identity and artifacts are now controlled by global onboarding config.",
+      "btn.logout": "Logout",
 
-      // advanced / client-profile
       "field.atak_role_type": "ATAK Role (My Role)",
-      "field.atak_role": "ATAK Role (My Role)", // legacy key (older UI)
+      "field.atak_role": "ATAK Role (My Role)",
       "field.remarks": "Remarks",
       "hint.remarks": "Use hashtags, e.g. #soldier",
 
-      // presets (display values)
       "role.soldier": "Soldier",
       "role.team_lead": "Team Lead",
 
-      // soldier card (server-rendered page)
       "soldier.title": "Soldier Card",
       "soldier.atak_import": "ATAK — Import package",
       "soldier.step1": "Scan QR to import server + identity defaults",
@@ -95,15 +98,20 @@
     },
 
     sv: {
-      // nav / layout
       "nav.onboarding": "Onboarding",
       "nav.list": "Lista",
       "nav.create_user": "Skapa användare",
       "nav.import_users": "Importera användarfil",
       "nav.import_jobs": "Importjobb",
       "nav.section": "Sektion",
+      "nav.ai": "AI",
+      "nav.ai3": "AI3",
+      "nav.ai_costs": "AI-kostnader",
+      "nav.martine": "Martine",
+      "nav.simulate": "Simulera",
+      "nav.documents": "Dokument",
+      "nav.settings": "Inställningar",
 
-      // header / policy
       "page.onboarding_create": "Onboarding — Skapa användare",
       "page.onboarding_edit": "Onboarding — Redigera användare",
       "page.onboarding_list": "Onboarding — Lista",
@@ -113,15 +121,13 @@
       "policy.node_global": "Policyn är nodglobal.",
       "policy.up_to_date": "Uppdaterad",
 
-      // tabs
       "tab.identity": "Identitet",
       "tab.account": "Konto",
       "tab.advanced": "Avancerat",
 
-      // identity fields (source)
       "field.callsign": "Anropssignal",
       "field.team": "Lag",
-      "field.team_color": "Lagfärg", // legacy key (older UI)
+      "field.team_color": "Lagfärg",
       "field.battalion": "Bataljon",
       "field.battalion_fal": "FALA bataljon",
       "field.company": "Kompani",
@@ -130,7 +136,6 @@
       "field.number": "Nummer",
       "field.n": "Nummer",
 
-      // list table
       "list.live_view": "Live vy från /api/onboarding/status",
       "list.loading": "Laddar…",
       "list.username": "Användarnamn",
@@ -149,23 +154,26 @@
       "list.print_all": "Skriv ut alla",
       "list.summary": "Användare={users}  Sedda={seen}  Aldrig={never}  Okända={unknown}  DB={db} ({source})",
 
-      // buttons
       "btn.create_user": "Skapa användare",
       "btn.save_changes": "Spara ändringar",
       "btn.edit": "Redigera",
       "btn.card": "Kort",
+      "btn.working": "Arbetar...",
+      "btn.sending": "Skickar...",
+      "btn.email_card_link": "Maila kortlänk",
+      "page.onboarding_create_title": "Skapa användare",
+      "page.onboarding_edit_title": "Redigera användare",
+      "page.onboarding_subtitle": "Identitet och artefakter styrs nu av global onboarding-konfig.",
+      "btn.logout": "Logga ut",
 
-      // advanced / client-profile
       "field.atak_role_type": "ATAK-roll (Min roll)",
-      "field.atak_role": "ATAK-roll (Min roll)", // legacy key (older UI)
+      "field.atak_role": "ATAK-roll (Min roll)",
       "field.remarks": "Kommentarer",
       "hint.remarks": "Använd hashtags, t.ex. #soldat",
 
-      // presets (display values)
       "role.soldier": "Soldat",
       "role.team_lead": "Gruppchef",
 
-      // soldier card (server-rendered page)
       "soldier.title": "Soldatkort",
       "soldier.atak_import": "ATAK — Importpaket",
       "soldier.step1": "Skanna QR för att importera server + identitet",
@@ -182,7 +190,6 @@
     }
   };
 
-  // runtime language is authoritative; no browser/localStorage language selection
   const DEFAULT = "sv";
 
   function readRuntimeLang() {
@@ -207,10 +214,8 @@
     const dict = DICTS[current] || DICTS[DEFAULT];
     let str = dict && dict[key];
     if (str == null) {
-      // fallback to english then to key
       str = (DICTS["en"] && DICTS["en"][key]) || key;
     }
-    // simple interpolation support, opts = {name:"x"}
     if (opts && typeof opts === "object") {
       Object.keys(opts).forEach(k => {
         str = str.split(`{${k}}`).join(String(opts[k]));
@@ -227,14 +232,12 @@
     return fallback;
   }
 
-  // Expose
   window.TAKS_I18N = DICTS;
   window.setTaksLang = setLang;
   window.t = t;
   window.tOr = tOr;
   window.currentLang = current;
 
-  // small helper: auto-translate DOM nodes with data-i18n attribute (if used)
   function applyToDOM(root = document) {
     const nodes = root.querySelectorAll("[data-i18n]");
     nodes.forEach(n => {
@@ -254,54 +257,6 @@
   window.taksI18nApply = applyToDOM;
 
   window.addEventListener("TAKS_LANG_CHANGED", () => {
-    try { applyToDOM(document); } catch (e) { /* ignore */ }
+    try { applyToDOM(document); } catch (e) {}
   });
-
 })();
-
-/* --- Import users page --------------------------------------------------- */
-
-window.TaksI18N = window.TaksI18N || {};
-const I = window.TaksI18N;
-
-(I.en = I.en || {}).page_onboarding_import = "Onboarding — Import users";
-
-Object.assign(I.en, {
-  "page.onboarding_import": "Onboarding — Import users",
-  "import.how_it_works": "How it works",
-  "import.how_it_works_body": "Upload Excel/CSV → preview mapping → confirm → bulk create",
-
-  "import.step1": "Step 1 — Choose file",
-  "import.selected": "Selected file",
-  "import.sample_rows": "Sample rows",
-  "import.preview": "Preview",
-  "import.working": "Working…",
-
-  "import.step2": "Step 2 — Preview",
-  "import.mapping": "Header mapping",
-  "import.sample_users": "Sample users",
-
-  "import.col_idx": "Col",
-  "import.header": "Header",
-  "import.header_norm": "Normalized",
-  "import.maps_to": "Maps to",
-
-  "import.row": "Row",
-  "import.username": "Username",
-  "import.password": "Password",
-  "import.is_admin": "Admin",
-  "import.groups": "Groups",
-
-  "import.apply": "Apply import",
-  "import.apply_dry_run": "Apply (dry-run)",
-
-  "import.update_existing": "Update existing users",
-
-  "import.preview_ok": "Preview OK — ready to import",
-  "import.preview_not_ok": "Preview shows issues — fix file first",
-
-  "import.result": "Import result",
-  "import.error": "Error",
-  "import.raw_preview": "Raw preview JSON"
-});
-

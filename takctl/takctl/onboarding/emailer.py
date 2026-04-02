@@ -70,7 +70,7 @@ def _reply_to() -> str:
 
 
 def _default_lang() -> str:
-    raw = _cfg_get("onboarding_email_lang", "sv").strip().lower()
+    raw = _cfg_get("language", "sv").strip().lower()
     if raw.startswith("en"):
         return "en"
     return "sv"

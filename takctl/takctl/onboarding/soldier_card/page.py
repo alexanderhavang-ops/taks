@@ -139,17 +139,17 @@ def render_soldier_card_page(
         mode_label = "soft-cert / cert-creation"
         mode_summary_html = (
             f'<div class="meta" style="margin-top:8px;">'
-            f'Mode: <code>{h(mode_label)}</code> · '
-            f'client password embedded: <code>{"yes" if soft_cert_include_client_password else "no"}</code> · '
-            f'trust password embedded: <code>{"yes" if soft_cert_include_truststore_password else "no"}</code>'
+            f'{h(t(l, "soldier.mode_label"))}: <code>{h(mode_label)}</code> · '
+            f'{h(t(l, "soldier.mode.client_pw_embedded"))}: <code>{"yes" if soft_cert_include_client_password else "no"}</code> · '
+            f'{h(t(l, "soldier.mode.trust_pw_embedded"))}: <code>{"yes" if soft_cert_include_truststore_password else "no"}</code>'
             f"</div>"
         )
     else:
         mode_label = "auto-enroll / quick connect"
         mode_summary_html = (
             f'<div class="meta" style="margin-top:8px;">'
-            f'Mode: <code>{h(mode_label)}</code> · '
-            f'user/password onboarding'
+            f'{h(t(l, "soldier.mode_label"))}: <code>{h(mode_label)}</code> · '
+            f'{h(t(l, "soldier.mode.userpass_short"))}'
             f"</div>"
         )
 
@@ -310,7 +310,7 @@ pre { white-space: pre-wrap; word-break: break-word; }
         android_cards.append(f"""
         <div class="stepcard">
           <h4>ATAK quick-connect QR</h4>
-          <div class="muted">Android kamera -> tak:// -> ATAK auto-enroll med användarnamn/lösenord.</div>
+          <div class="muted">{h(t(l, "soldier.path.atak_qr"))}</div>
           <div style="margin-top:10px;"><img class="qrimg" src="{h(atak_qr_quick_connect_png)}" alt="ATAK quick-connect QR"/></div>
           <div class="dlrow">
             <a class="btn" href="{h(atak_qr_quick_connect_png)}">{h(t(l, "soldier.open_qr"))}</a>
@@ -323,10 +323,10 @@ pre { white-space: pre-wrap; word-break: break-word; }
         android_cards.append(f"""
         <div class="stepcard">
           <h4>ATAK auto-enroll zip</h4>
-          <div class="muted">QR -> ladda ner ATAK-paket för auto-enroll.</div>
+          <div class="muted">{h(t(l, "soldier.path.atak_auto_zip"))}</div>
           <div style="margin-top:10px;"><img class="qrimg" src="{h(atak_qr_auto_enroll_png)}" alt="ATAK auto-enroll zip QR"/></div>
           <div class="dlrow">
-            <a class="btn" href="{h(atak_auto_enroll_zip)}">Download zip</a>
+            <a class="btn" href="{h(atak_auto_enroll_zip)}">{h(t(l, "soldier.download_zip"))}</a>
             <a class="btn" href="{h(atak_qr_auto_enroll_png)}">{h(t(l, "soldier.open_qr"))}</a>
             <a class="btn" href="{h(atak_qr_auto_enroll_txt)}">{h(t(l, "soldier.open_text"))}</a>
           </div>
@@ -337,10 +337,10 @@ pre { white-space: pre-wrap; word-break: break-word; }
         android_cards.append(f"""
         <div class="stepcard">
           <h4>ATAK soft-cert zip</h4>
-          <div class="muted">QR -> ladda ner ATAK-paket med certifikat.</div>
+          <div class="muted">{h(t(l, "soldier.path.atak_soft_zip"))}</div>
           <div style="margin-top:10px;"><img class="qrimg" src="{h(atak_qr_soft_cert_png)}" alt="ATAK soft-cert zip QR"/></div>
           <div class="dlrow">
-            <a class="btn" href="{h(atak_soft_cert_zip)}">Download zip</a>
+            <a class="btn" href="{h(atak_soft_cert_zip)}">{h(t(l, "soldier.download_zip"))}</a>
             <a class="btn" href="{h(atak_qr_soft_cert_png)}">{h(t(l, "soldier.open_qr"))}</a>
             <a class="btn" href="{h(atak_qr_soft_cert_txt)}">{h(t(l, "soldier.open_text"))}</a>
           </div>
@@ -363,7 +363,7 @@ pre { white-space: pre-wrap; word-break: break-word; }
         iphone_cards.append(f"""
         <div class="stepcard">
           <h4>iTAK quick-connect QR</h4>
-          <div class="muted">iTAK:s enda QR-spår. Behålls för felsökning, men manuell zip-install rekommenderas just nu.</div>
+          <div class="muted">{h(t(l, "soldier.path.itak_qr"))}</div>
           <div style="margin-top:10px;"><img class="qrimg" src="{h(itak_qr_quick_connect_png)}" alt="iTAK quick-connect QR"/></div>
           <div class="dlrow">
             <a class="btn" href="{h(itak_qr_quick_connect_png)}">{h(t(l, "soldier.open_qr"))}</a>
@@ -377,9 +377,9 @@ pre { white-space: pre-wrap; word-break: break-word; }
         iphone_cards.append(f"""
         <div class="stepcard">
           <h4>iTAK soft-cert zip</h4>
-          <div class="muted">Ladda ner zip-filen manuellt och installera via Upload server package.</div>
+          <div class="muted">{h(t(l, "soldier.path.itak_soft_zip"))}</div>
           <div class="dlrow" style="margin-top:12px;">
-            <a class="btn" href="{h(itak_soft_cert_zip)}">Download zip</a>
+            <a class="btn" href="{h(itak_soft_cert_zip)}">{h(t(l, "soldier.download_zip"))}</a>
           </div>
         </div>
         """)
@@ -464,8 +464,8 @@ pre { white-space: pre-wrap; word-break: break-word; }
       <div class="brandchain-row" id="__brand_logos"></div>
     </div>
     <div class="meta">
-      <div>User: <strong>{h(username)}</strong></div>
-      <div>Token expires: <code>{h(exp)}</code></div>
+      <div>{h(t(l, "soldier.user_label"))}: <strong>{h(username)}</strong></div>
+      <div>{h(t(l, "soldier.token_expires_label"))}: <code>{h(exp)}</code></div>
     </div>
   </div>
 

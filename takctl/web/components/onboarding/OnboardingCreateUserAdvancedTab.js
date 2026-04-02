@@ -5,6 +5,15 @@
   const t = (window.t && typeof window.t === "function") ? window.t : (k) => String(k || "");
   const LP = { "data-lpignore": "true", autoComplete: "off" };
 
+  function _lang() {
+    const v = String(window.currentLang || window.TAKS_RUNTIME_LANGUAGE || "sv").trim().toLowerCase();
+    return v.startsWith("en") ? "en" : "sv";
+  }
+
+  function _L(sv, en) {
+    return _lang() === "en" ? String(en) : String(sv);
+  }
+
   function OnboardingCreateUserAdvancedTab(props) {
     const Field = props.Field;
     const RenderField = props.RenderField;
@@ -35,7 +44,7 @@
 
       h("div", { className: "grid", style: { gridTemplateColumns: "1fr", gap: "12px" } },
 
-        h(Field, { label: "Callsign policy (global default)" },
+        h(Field, { label: _L("Anropssignalspolicy (global standard)", "Callsign policy (global default)") },
           h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } },
             h(PolicySelect, {
               value: callsignPolicyDefault,
@@ -46,11 +55,13 @@
               },
               includeDefaultOption: false
             }),
-            h("span", { className: "muted", style: { fontSize: "12px" } }, "Stored in browser (local)")
+            h("span", { className: "muted", style: { fontSize: "12px" } },
+              _L("Lagrad i webbläsaren (lokalt)", "Stored in browser (local)")
+            )
           )
         ),
 
-        h(Field, { label: "Callsign policy override (this user)" },
+        h(Field, { label: _L("Anropssignalspolicy override (denna användare)", "Callsign policy override (this user)") },
           h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } },
             h(PolicySelect, {
               value: callsignPolicyOverride,
@@ -58,12 +69,14 @@
               includeDefaultOption: true
             }),
             h("span", { className: "muted", style: { fontSize: "12px" } },
-              callsignPolicyOverride ? "Overrides global" : "Uses global"
+              callsignPolicyOverride
+                ? _L("Överskriver global", "Overrides global")
+                : _L("Använder global", "Uses global")
             )
           )
         ),
 
-        h(Field, { label: "TTL (sec)" },
+        h(Field, { label: _L("TTL (sek)", "TTL (sec)") },
           h("input", Object.assign({}, LP, {
             type: "number",
             value: ttlSec,
@@ -88,7 +101,8 @@
             checked: revealPassword,
             onChange: function (e) { setRevealPassword(e.target.checked); }
           })),
-          " Reveal password on card"
+          " ",
+          _L("Visa lösenord på kort", "Reveal password on card")
         )
       )
     );

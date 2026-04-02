@@ -37,8 +37,6 @@
       throw new Error("No users selected for print");
     }
 
-    const lang = (window.currentLang || "").toString().trim().toLowerCase() || "";
-
     const form = document.createElement("form");
     form.method = "POST";
     form.action = "/api/onboarding/print-pack";
@@ -51,7 +49,6 @@
     input.value = JSON.stringify({
       usernames: list,
       print_mode: String(printMode || "cards"),
-      lang: lang || null,
     });
     form.appendChild(input);
 
@@ -233,9 +230,7 @@
                     className: "btn",
                     href: (function(){
                       try {
-                        var lang = (window.currentLang || '').toString();
-                        if (!lang) return urls.card;
-                        return urls.card + (urls.card.indexOf('?') >= 0 ? '&' : '?') + 'lang=' + encodeURIComponent(lang);
+                        return urls.card;
                       } catch (e) { return urls.card; }
                     })(),
                     target: "_blank",

@@ -505,6 +505,7 @@ def email_link(req: Request, username: str, body: EmailLinkIn):
             to_addr=email,
             username=username,
             card_url=str(card_info.get("card_url") or ""),
+        lang=str(load_config().get("language", "sv") or "sv"),
         )
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -610,9 +611,9 @@ def onboarding_card_html(req: Request, token: str):
     reveal = bool(getattr(ct, "reveal_password", False))
 
     try:
-        lang = str(load_config().get("language", "") or "").strip().lower()
+        lang = str(load_config().get("language", "sv") or "sv").strip().lower()
     except Exception:
-        lang = ""
+        lang = "sv"
 
     html = render_soldier_card_page(
         lang=lang,

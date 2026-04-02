@@ -346,9 +346,9 @@
     return h("div", { className: "page page-onboarding-create-user" },
       h("div", { className: "page-header" },
         h("div", null,
-          h("h1", null, isEdit ? "Edit onboarded user" : "Create onboarded user"),
+          h("h1", null, isEdit ? (t("page.onboarding_edit_title") || "Redigera användare") : (t("page.onboarding_create_title") || "Skapa användare")),
           h("div", { className: "muted" },
-            "Identity and artifacts are now controlled by global onboarding config."
+            t("page.onboarding_subtitle") || "Identitet och artefakter styrs nu av global onboarding-konfig."
           )
         )
       ),
@@ -445,13 +445,13 @@
             className: "btn btn-primary",
             disabled: !!busy,
             onClick: function () { doCreate(); }
-          }, busy ? "Working..." : (isEdit ? "Save" : "Create")),
+          }, busy ? (t("btn.working") || "Arbetar...") : (isEdit ? (t("btn.save_changes") || "Spara ändringar") : (t("btn.create_user") || "Skapa användare"))),
 
           h("button", {
             className: "btn",
             disabled: !!emailBusy,
             onClick: function () { doEmailLink(); }
-          }, emailBusy ? "Sending..." : "Email card link")
+          }, emailBusy ? (t("btn.sending") || "Skickar...") : (t("btn.email_card_link") || "Maila kortlänk"))
         ),
 
         result ? h("pre", { style: { marginTop: "14px", whiteSpace: "pre-wrap" } }, JSON.stringify(result, null, 2)) : null,
