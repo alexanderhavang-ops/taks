@@ -77,12 +77,6 @@
     const [revealPassword, setRevealPassword] = useState(true);
     const [ttlSec, setTtlSec] = useState(600);
 
-    const [artifactAtakAutoEnroll, setArtifactAtakAutoEnroll] = useState(false);
-    const [artifactAtakSoftCertNoPassword, setArtifactAtakSoftCertNoPassword] = useState(false);
-    const [artifactAtakSoftCertWithPassword, setArtifactAtakSoftCertWithPassword] = useState(false);
-    const [artifactItakSoftCertNoPassword, setArtifactItakSoftCertNoPassword] = useState(true);
-    const [artifactItakSoftCertWithPassword, setArtifactItakSoftCertWithPassword] = useState(false);
-
     const [callsignPolicyDefault, setCallsignPolicyDefault] = useState("FAL_TAK");
     const [callsignPolicyOverride, setCallsignPolicyOverride] = useState("");
 
@@ -141,16 +135,6 @@
 
           const cp = (ctx && ctx.callsign_policy) ? _normalizePolicyId(ctx.callsign_policy) : "";
           setCallsignPolicyOverride(cp || "");
-
-          const sel = (j && j.selection) ? j.selection : {};
-          const ar = (sel && sel.artifacts_requested) ? sel.artifacts_requested : {};
-          if (ar && typeof ar === "object" && Object.keys(ar).length) {
-            setArtifactAtakAutoEnroll(!!ar.atak_auto_enroll);
-            setArtifactAtakSoftCertNoPassword(!!ar.atak_soft_cert_no_password);
-            setArtifactAtakSoftCertWithPassword(!!ar.atak_soft_cert_with_password);
-            setArtifactItakSoftCertNoPassword(!!ar.itak_soft_cert_no_password);
-            setArtifactItakSoftCertWithPassword(!!ar.itak_soft_cert_with_password);
-          }
 
           setIdent(prev => Object.assign({}, prev, ctx || {}));
 
@@ -315,16 +299,10 @@
         revealPassword: revealPassword,
         callsignPolicyOverride: callsignPolicyOverride,
         callsignPolicyDefault: callsignPolicyDefault,
-        artifactAtakAutoEnroll: artifactAtakAutoEnroll,
-        artifactAtakSoftCertNoPassword: artifactAtakSoftCertNoPassword,
-        artifactAtakSoftCertWithPassword: artifactAtakSoftCertWithPassword,
-        artifactItakSoftCertNoPassword: artifactItakSoftCertNoPassword,
-        artifactItakSoftCertWithPassword: artifactItakSoftCertWithPassword,
+        cfg: cfg,
+        setBusy: setBusy,
         setErr: setErr,
-        setResult: setResult,
-        setEmailErr: setEmailErr,
-        setEmailResult: setEmailResult,
-        setBusy: setBusy
+        setResult: setResult
       });
     }
 
@@ -335,175 +313,150 @@
         emailAddr: emailAddr,
         ttlSec: ttlSec,
         revealPassword: revealPassword,
-        setEmailErr: setEmailErr,
-        setEmailResult: setEmailResult,
         setEmailBusy: setEmailBusy,
-        setResult: setResult
+        setEmailErr: setEmailErr,
+        setEmailResult: setEmailResult
       });
     }
 
-    const activePolicyName = policy ? `${policy.name} (${policyId})` : (policyId ? policyId : "—");
+    const badgeMod = _needBadge();
+    const DerivedBadge = badgeMod.DerivedBadge;
+    const NameBadge = badgeMod.NameBadge;
+    const IdentityTabComp = _needIdentityTab();
+    const AccountTabComp = _needAccountTab();
+    const AdvancedTabComp = _needAdvancedTab();
 
     const badgePrimary = _norm(callsignEdit) || "—";
-    const battalion = _norm(ctxForDerive && ctxForDerive.battalion);
-    const row2 = battalion ? `${battalion} HVBAT` : "—";
+    const row2Fallback = [
+      _norm(ident && ident.battalion_fal),
+      (_norm(ident && ident.battalion) ? (_norm(ident && ident.battalion) + " HVBAT") : ""),
+      (_norm(ident && ident.company) ? ("Kompani " + _norm(ident && ident.company)) : ""),
+      (_norm(ident && ident.platoon) ? ("Pluton " + _norm(ident && ident.platoon)) : ""),
+      (_norm(ident && ident.group) ? ("Grupp " + _norm(ident && ident.group)) : ""),
+      (_norm(ident && ident.n) ? ("EN " + _norm(ident && ident.n)) : "")
+    ].filter(Boolean).join(" · ");
+    const row2 = _norm(emailAddr) || row2Fallback;
 
-    const identityFieldsToRender = (((policy && policy.identity_fields) || [])).filter(f => String((f && f.key) || "") !== "callsign");
+    const activePolicyName =
+      (policy && (policy.name || policy.policy_id)) ? String(policy.name || policy.policy_id) :
+      (policyId ? String(policyId) : "Loading policy…");
 
-    const cardUrl = (result && result.card_url) || "";
-    const pwValue = (result && result.taks_identity && result.taks_identity.password && result.taks_identity.password.value) || "";
     const effectivePolicyUi = _effectiveCallsignPolicy(callsignPolicyOverride, callsignPolicyDefault);
 
-    return h("div", { className: "ob-create-root" },
-      h("div", { className: "card-title" }, isEdit ? ("Onboarding — Edit user") : t("page.onboarding_create")),
+    return h("div", { className: "page page-onboarding-create-user" },
+      h("div", { className: "page-header" },
+        h("div", null,
+          h("h1", null, isEdit ? (t("page.onboarding_edit_title") || "Redigera användare") : (t("page.onboarding_create_title") || "Skapa användare")),
+          h("div", { className: "muted" },
+            t("page.onboarding_subtitle") || "Identitet och artefakter styrs nu av global onboarding-konfig."
+          )
+        )
+      ),
 
       err ? h("div", { className: "note", style: { marginBottom: "12px" } }, "ERR: ", err) : null,
 
       h("div", { className: "muted", style: { fontSize: "12px", marginBottom: "10px" } },
         "Policy: ",
-        policy ? (`${activePolicyName} • v${_colText(policy.version)} • source=${_colText(policy._meta && policy._meta.source)}`) : (policyId ? activePolicyName : "Loading policy…")
+        policy
+          ? (activePolicyName + " • v" + _colText(policy.version) + " • source=" + _colText(policy._meta && policy._meta.source))
+          : (policyId ? activePolicyName : "Loading policy…")
       ),
 
-      h(_needBadge().NameBadge, {
+      NameBadge ? h(NameBadge, {
         callsign: badgePrimary,
         row2: row2,
-        teamColor: _norm(ctxForDerive && ctxForDerive.team),
+        teamColor: _norm((ctxForDerive && ctxForDerive.team) || ""),
         statusText: ""
-      }),
+      }) : null,
 
       h("div", { className: "box" },
         h(Tabs, {
           value: tab,
           onChange: setTab,
           tabs: [
-            { id: "identity", label: t("tab.identity") },
-            { id: "account", label: t("tab.account") },
-            { id: "advanced", label: t("tab.advanced") }
+            { id: "identity", label: t("tab.identity") || "Identity" },
+            { id: "account", label: t("tab.account") || "Account" },
+            { id: "advanced", label: t("tab.advanced") || "Advanced" }
           ]
         }),
 
-        (tab === "identity") ? h(_needIdentityTab(), {
-          Field: Field,
-          RenderField: RenderField,
-          t: t,
-          policy: policy,
-          labelForKey: _labelForKey,
-          identityFieldsToRender: identityFieldsToRender,
-          ident: ident,
-          setIdent: _setIdent,
-          callsignEdit: callsignEdit,
-          setCallsignEdit: setCallsignEdit,
-          callsignDirtyRef: callsignDirtyRef,
-          effectivePolicyUi: effectivePolicyUi,
-          derivedErr: derivedErr
-        }) : null,
+        h("div", { style: { marginTop: "14px" } },
+          tab === "identity" ? h(IdentityTabComp, {
+            Field: Field,
+            RenderField: RenderField,
+            derived: derived,
+            derivedErr: derivedErr,
+            deriveBusy: deriveBusy,
+            DerivedBadge: DerivedBadge,
+            policy: policy,
+            ident: ident,
+            setIdent: _setIdent,
+            callsignEdit: callsignEdit,
+            setCallsignEdit: function (v) {
+              callsignDirtyRef.current = true;
+              setCallsignEdit(v);
+            },
+            callsignDirtyRef: callsignDirtyRef,
+            labelForKey: _labelForKey,
+            effectivePolicyUi: effectivePolicyUi,
+            colText: _colText
+          }) : null,
 
-        (tab === "account") ? h(_needAccountTab(), {
-          Field: Field,
-          RenderField: RenderField,
-          t: t,
-          policy: policy,
-          isEdit: isEdit,
-          username: username,
-          setUsername: setUsername,
-          emailAddr: emailAddr,
-          setEmailAddr: setEmailAddr,
-          password: password,
-          setPassword: setPassword,
-          admin: admin,
-          setAdmin: setAdmin,
-          groups: groups,
-          setGroups: _setGroups
-        }) : null,
+          tab === "account" ? h(AccountTabComp, {
+            Field: Field,
+            RenderField: RenderField,
+            policy: policy,
+            username: username,
+            setUsername: setUsername,
+            password: password,
+            setPassword: setPassword,
+            admin: admin,
+            setAdmin: setAdmin,
+            emailAddr: emailAddr,
+            setEmailAddr: setEmailAddr,
+            groups: groups,
+            setGroups: _setGroups,
+            isEdit: isEdit
+          }) : null,
 
-        (tab === "advanced") ? h(_needAdvancedTab(), {
-          Field: Field,
-          RenderField: RenderField,
-          PolicySelect: PolicySelect,
-          policy: policy,
-          cfg: cfg,
-          callsignPolicyDefault: callsignPolicyDefault,
-          setCallsignPolicyDefault: setCallsignPolicyDefault,
-          callsignPolicyOverride: callsignPolicyOverride,
-          setCallsignPolicyOverride: setCallsignPolicyOverride,
-          normalizePolicyId: _normalizePolicyId,
-          lsSet: _lsSet,
-          lsKeyDefaultCallsignPolicy: LS_KEY_DEFAULT_CALLSIGN_POLICY,
-          ttlSec: ttlSec,
-          setTtlSec: setTtlSec,
-          revealPassword: revealPassword,
-          setRevealPassword: setRevealPassword,
-          setCfg: _setCfg,
-          artifactAtakAutoEnroll: artifactAtakAutoEnroll,
-          setArtifactAtakAutoEnroll: setArtifactAtakAutoEnroll,
-          artifactAtakSoftCertNoPassword: artifactAtakSoftCertNoPassword,
-          setArtifactAtakSoftCertNoPassword: setArtifactAtakSoftCertNoPassword,
-          artifactAtakSoftCertWithPassword: artifactAtakSoftCertWithPassword,
-          setArtifactAtakSoftCertWithPassword: setArtifactAtakSoftCertWithPassword,
-          artifactItakSoftCertNoPassword: artifactItakSoftCertNoPassword,
-          setArtifactItakSoftCertNoPassword: setArtifactItakSoftCertNoPassword,
-          artifactItakSoftCertWithPassword: artifactItakSoftCertWithPassword,
-          setArtifactItakSoftCertWithPassword: setArtifactItakSoftCertWithPassword
-        }) : null,
-
-        h("div", { style: { height: "12px" } }),
-
-        h("button", {
-          type: "button",
-          onClick: doCreate,
-          disabled: busy,
-          style: {
-            appearance: "none",
-            WebkitAppearance: "none",
-            MozAppearance: "none",
-            width: "100%",
-            padding: "14px 16px",
-            borderRadius: "12px",
-            border: "1px solid rgba(255,255,255,0.18)",
-            background: "rgba(255,255,255,0.08)",
-            color: "#fff",
-            boxShadow: "0 10px 24px rgba(0,0,0,0.35)",
-            fontWeight: 900,
-            fontSize: "13px",
-            letterSpacing: "0.10em",
-            textTransform: "uppercase",
-            cursor: busy ? "not-allowed" : "pointer",
-            opacity: busy ? 0.65 : 1
-          }
-        }, busy ? "Saving…" : (isEdit ? "Save user" : t("btn.create_user"))),
-
-        h("div", {
-          style: { display: "flex", justifyContent: "flex-end", marginTop: "10px" }
-        },
-          result ? h("span", { className: "muted", style: { fontSize: "12px" } }, isEdit ? "Saved." : "User created.") : null
+          tab === "advanced" ? h(AdvancedTabComp, {
+            Field: Field,
+            RenderField: RenderField,
+            PolicySelect: PolicySelect,
+            policy: policy,
+            cfg: cfg,
+            setCfg: _setCfg,
+            callsignPolicyDefault: callsignPolicyDefault,
+            setCallsignPolicyDefault: setCallsignPolicyDefault,
+            callsignPolicyOverride: callsignPolicyOverride,
+            setCallsignPolicyOverride: setCallsignPolicyOverride,
+            normalizePolicyId: _normalizePolicyId,
+            lsSet: _lsSet,
+            lsKeyDefaultCallsignPolicy: LS_KEY_DEFAULT_CALLSIGN_POLICY,
+            ttlSec: ttlSec,
+            setTtlSec: setTtlSec,
+            revealPassword: revealPassword,
+            setRevealPassword: setRevealPassword
+          }) : null
         ),
 
-        result ? h("div", { className: "note", style: { marginTop: "12px" } },
-          h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } },
-            h("b", null, "Card URL:"),
-            cardUrl ? h("a", { href: cardUrl, target: "_blank", rel: "noopener noreferrer" }, cardUrl) : "—"
-          ),
-          h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", marginTop: "8px" } },
-            h("b", null, "Password:"),
-            pwValue || "—"
-          ),
-          h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", marginTop: "8px" } },
-            h("b", null, "Email:"),
-            _norm(emailAddr) || "—"
-          ),
-          h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap", marginTop: "10px" } },
-            h("button", {
-              type: "button",
-              className: "btn",
-              disabled: emailBusy || !_norm(username) || !_norm(emailAddr),
-              onClick: doEmailLink
-            }, emailBusy ? "Emailing…" : "Email link")
-          ),
-          emailErr ? h("div", { className: "muted", style: { marginTop: "8px", whiteSpace: "pre-wrap" } }, "Email error: " + String(emailErr)) : null,
-          emailResult ? h("div", { className: "muted", style: { marginTop: "8px", whiteSpace: "pre-wrap" } },
-            "Email sent to " + _colText(emailResult.email || emailAddr)
-          ) : null
-        ) : null
+        h("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "18px" } },
+          h("button", {
+            className: "btn btn-primary",
+            disabled: !!busy,
+            onClick: function () { doCreate(); }
+          }, busy ? (t("btn.working") || "Arbetar...") : (isEdit ? (t("btn.save_changes") || "Spara ändringar") : (t("btn.create_user") || "Skapa användare"))),
+
+          h("button", {
+            className: "btn",
+            disabled: !!emailBusy,
+            onClick: function () { doEmailLink(); }
+          }, emailBusy ? (t("btn.sending") || "Skickar...") : (t("btn.email_card_link") || "Maila kortlänk"))
+        ),
+
+        result ? h("pre", { style: { marginTop: "14px", whiteSpace: "pre-wrap" } }, JSON.stringify(result, null, 2)) : null,
+        emailErr ? h("div", { className: "alert alert-error", style: { marginTop: "14px" } }, String(emailErr)) : null,
+        emailResult ? h("pre", { style: { marginTop: "14px", whiteSpace: "pre-wrap" } }, JSON.stringify(emailResult, null, 2)) : null
       )
     );
   }

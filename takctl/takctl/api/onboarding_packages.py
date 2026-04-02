@@ -16,12 +16,10 @@ from takctl.onboarding.selection import artifact_root, load_selection, save_sele
 from takctl.onboarding.atak import (
     atak_enroll_payload,
     atak_enroll_creds_payload,
-    atak_package_creds_url,
-    atak_package_url,
-    itak_package_url,
     qr_payload,
-    write_atak_package_zip,
-    write_itak_package_zip,
+    write_atak_auto_enroll_zip,
+    write_atak_soft_cert_zip,
+    write_itak_soft_cert_zip,
     now_utc_iso,
 )
 from takctl.onboarding.pages import render_generate_page, render_card_page
@@ -274,34 +272,214 @@ def _pw_embed_label(key: str, short: str) -> str:
     return f"{short}-in" if on else f"{short}-out"
 
 
-def _package_filename(username: str, client: str) -> str:
+def _package_filename(username: str, client: str, flavor: str | None = None) -> str:
     mode = _onboarding_mode_label()
-    trust = _pw_embed_label("include_truststore_password_in_package", "trustpw")
-    clientpw = _pw_embed_label("include_client_password_in_package", "clientpw")
+    trust = _pw_embed_label("soft_cert_include_truststore_password", "trustpw")
+    clientpw = _pw_embed_label("soft_cert_include_client_password", "clientpw")
     u = (username or "").strip() or "user"
     c = (client or "").strip().lower() or "client"
-    return f"{u}.{c}.{mode}.{trust}.{clientpw}.zip"
+    f = ((flavor or "").strip().lower())
+    parts = [u, c]
+    if f:
+        parts.append(f)
+    parts.extend([mode, trust, clientpw])
+    return ".".join(parts) + ".zip"
 
 
-@router.get("/onboarding/cards/{token}/packages/atak/package.zip")
-def token_atak_package_zip(req: Request, token: str):
+
+
+
+def _zip_kind(req: Request, default_kind: str) -> str:
+    v = (req.query_params.get("kind") or "").strip().lower()
+    if v in ("auto-enroll", "soft-cert"):
+        return v
+    return default_kind
+
+
+def _write_atak_package_by_kind(out, username: str, req: Request, base: str, kind: str) -> None:
+    if kind == "auto-enroll":
+        write_atak_auto_enroll_zip(out, username, req, base=base)
+        return
+    if kind == "soft-cert":
+        write_atak_soft_cert_zip(out, username, req, base=base)
+        return
+    raise HTTPException(status_code=400, detail=f"unknown ATAK package kind: {kind}")
+
+
+def _write_itak_package_by_kind(out, username: str, req: Request, base: str, kind: str) -> None:
+    if kind != "soft-cert":
+        raise HTTPException(status_code=400, detail=f"unsupported iTAK package kind: {kind}")
+    write_itak_soft_cert_zip(out, username, req, base=base)
+
+
+@router.get("/onboarding/cards/{token}/packages/atak/quick-connect/qr.txt")
+def token_atak_quick_connect_qr_txt(req: Request, token: str):
     svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+    payload = atak_enroll_payload(req)
+    return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 
-    out = artifact_root(username) / "atak" / "package.zip"
+
+@router.get("/onboarding/cards/{token}/packages/atak/quick-connect/qr.png")
+def token_atak_quick_connect_qr_png(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+    payload = atak_enroll_payload(req)
+    out = artifact_root(username) / f"{username}.atak.quick-connect.qr.png"
+    write_qr_png(payload, out, size=8)
+    return FileResponse(
+        str(out),
+        media_type="image/png",
+        filename=f"{username}.atak.quick-connect.qr.png",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/itak/quick-connect/qr.txt")
+def token_itak_quick_connect_qr_txt(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+    base = _resolve_public_base(req, username)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/itak/soft-cert/package.zip"
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
+    host, port, use_ssl = _resolve_qr_endpoint(req, username, "itak")
+    payload = qr_payload("itak", package_url, host, port=port, use_ssl=use_ssl)
+    return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+
+
+@router.get("/onboarding/cards/{token}/packages/itak/quick-connect/qr.png")
+def token_itak_quick_connect_qr_png(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+    base = _resolve_public_base(req, username)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/itak/soft-cert/package.zip"
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
+    host, port, use_ssl = _resolve_qr_endpoint(req, username, "itak")
+    payload = qr_payload("itak", package_url, host, port=port, use_ssl=use_ssl)
+    out = artifact_root(username) / f"{username}.itak.quick-connect.qr.png"
+    write_qr_png(payload, out, size=8)
+    return FileResponse(
+        str(out),
+        media_type="image/png",
+        filename=f"{username}.itak.quick-connect.qr.png",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/atak/auto-enroll/qr.txt")
+def token_atak_auto_enroll_qr_txt(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+    base = _resolve_public_base(req, username)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/atak/auto-enroll/package.zip"
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
+    payload = qr_payload("atak", package_url, forwarded_host_only(req))
+    return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+
+
+@router.get("/onboarding/cards/{token}/packages/atak/auto-enroll/qr.png")
+def token_atak_auto_enroll_qr_png(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+    base = _resolve_public_base(req, username)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/atak/auto-enroll/package.zip"
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
+    payload = qr_payload("atak", package_url, forwarded_host_only(req))
+    out = artifact_root(username) / f"{username}.atak.auto-enroll.qr.png"
+    write_qr_png(payload, out, size=8)
+    return FileResponse(
+        str(out),
+        media_type="image/png",
+        filename=f"{username}.atak.auto-enroll.qr.png",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/atak/soft-cert/qr.txt")
+def token_atak_soft_cert_qr_txt(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+    base = _resolve_public_base(req, username)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/atak/soft-cert/package.zip"
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
+    payload = qr_payload("atak", package_url, forwarded_host_only(req))
+    return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+
+
+@router.get("/onboarding/cards/{token}/packages/atak/soft-cert/qr.png")
+def token_atak_soft_cert_qr_png(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+    base = _resolve_public_base(req, username)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/atak/soft-cert/package.zip"
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
+    payload = qr_payload("atak", package_url, forwarded_host_only(req))
+    out = artifact_root(username) / f"{username}.atak.soft-cert.qr.png"
+    write_qr_png(payload, out, size=8)
+    return FileResponse(
+        str(out),
+        media_type="image/png",
+        filename=f"{username}.atak.soft-cert.qr.png",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/atak/auto-enroll/package.zip")
+def token_atak_auto_enroll_package_zip(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    kind = "auto-enroll"
+    out = artifact_root(username) / "atak" / "auto-enroll.package.zip"
     regen = (req.query_params.get("regen") or "").strip().lower() in ("1", "true", "yes", "y", "on")
-
     base = external_base(req)
     if regen or (not out.exists()):
-        write_itak_package_zip(out, username, req, base=base)
-        _mark_package_generated(svc, username, package_type="atak", sel=(load_selection(username) or {}))
-
+        _write_atak_package_by_kind(out, username, req, base=base, kind=kind)
+        _mark_package_generated(svc, username, package_type="atak-auto-enroll", sel=(load_selection(username) or {}))
     via = (req.query_params.get("via") or "").strip()
     _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
-
     return FileResponse(
         str(out),
         media_type="application/zip",
-        filename=_package_filename(username, "atak"),
+        filename=_package_filename(username, "atak", "auto-enroll"),
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/atak/soft-cert/package.zip")
+def token_atak_soft_cert_package_zip(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    kind = "soft-cert"
+    out = artifact_root(username) / "atak" / "soft-cert.package.zip"
+    regen = (req.query_params.get("regen") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    base = external_base(req)
+    if regen or (not out.exists()):
+        _write_atak_package_by_kind(out, username, req, base=base, kind=kind)
+        _mark_package_generated(svc, username, package_type="atak-soft-cert", sel=(load_selection(username) or {}))
+    via = (req.query_params.get("via") or "").strip()
+    _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
+    return FileResponse(
+        str(out),
+        media_type="application/zip",
+        filename=_package_filename(username, "atak", "soft-cert"),
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/itak/soft-cert/package.zip")
+def token_itak_soft_cert_package_zip(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    kind = "soft-cert"
+    out = artifact_root(username) / "itak" / "soft-cert.package.zip"
+    regen = (req.query_params.get("regen") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    base = external_base(req)
+    if regen or (not out.exists()):
+        _write_itak_package_by_kind(out, username, req, base=base, kind=kind)
+        _mark_package_generated(svc, username, package_type="itak-soft-cert", sel=(load_selection(username) or {}))
+    via = (req.query_params.get("via") or "").strip()
+    _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
+    return FileResponse(
+        str(out),
+        media_type="application/zip",
+        filename=_package_filename(username, "itak", "soft-cert"),
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
 
@@ -358,52 +536,6 @@ def _resolve_qr_endpoint(req: Request, username: str, client: str) -> tuple[str,
         use_ssl = str(ep.get("enroll_ssl") or "true").strip().lower() in ("1", "true", "yes", "y", "on")
 
     return host, port, use_ssl
-
-
-@router.get("/onboarding/cards/{token}/packages/itak/package.zip")
-def token_itak_package_zip(req: Request, token: str):
-    svc, _, username, _ = _require_token(token)
-
-    out = artifact_root(username) / "itak" / "package.zip"
-    regen = (req.query_params.get("regen") or "").strip().lower() in ("1", "true", "yes", "y", "on")
-
-    base = _resolve_public_base(req, username)
-    if regen or (not out.exists()):
-        write_itak_package_zip(out, username, req, base=base)
-        _mark_package_generated(svc, username, package_type="itak", sel=(load_selection(username) or {}))
-
-    via = (req.query_params.get("via") or "").strip()
-    _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
-
-    return FileResponse(
-        str(out),
-        media_type="application/zip",
-        filename=_package_filename(username, "itak"),
-        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
-    )
-
-
-@router.get("/onboarding/users/{username}/packages/itak/package.zip")
-def itak_package_zip(req: Request, username: str):
-    svc, _, username = _require_user(username)
-
-    out = artifact_root(username) / "itak" / "package.zip"
-    regen = (req.query_params.get("regen") or "").strip().lower() in ("1", "true", "yes", "y", "on")
-
-    base = _resolve_public_base(req, username)
-    if regen or (not out.exists()):
-        write_itak_package_zip(out, username, req, base=base)
-        _mark_package_generated(svc, username, package_type="itak", sel=(load_selection(username) or {}))
-
-    via = (req.query_params.get("via") or "").strip()
-    _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
-
-    return FileResponse(
-        str(out),
-        media_type="application/zip",
-        filename=_package_filename(username, "itak"),
-        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
-    )
 
 
 # -----------------------------------------------------------------------------

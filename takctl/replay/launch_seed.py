@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import shutil
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -49,6 +50,14 @@ def clear_agent_dir(callsign: str) -> None:
             p.unlink()
 
 
+
+def clear_all_agent_dirs() -> None:
+    root = agent_dir("__dummy__").parent
+    if not root.exists():
+        return
+    for child in root.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
 def build_children(units: List[Dict[str, Any]]) -> Dict[str, List[str]]:
     out: Dict[str, List[str]] = {}
     for u in units:
@@ -263,6 +272,7 @@ def render_tnr_tokens(value: Any) -> Any:
 
 def seed_agent_states(seed_dir: Path) -> None:
     ensure_runtime_dirs()
+    clear_all_agent_dirs()
 
     global_cfg = read_json(seed_dir / "global.json")
     forces_path = select_forces_path(seed_dir)

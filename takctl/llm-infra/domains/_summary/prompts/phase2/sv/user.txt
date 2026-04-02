@@ -1,9 +1,0 @@
-Du får strukturerade domänfynd (JSON) från Phase2.
-Ta fram en samlad operativ bedömning med:
-- summary
-- priority_actions
-- risks
-- signals
-
-Indata följer som JSON:
-{{EVIDENCE_JSON}}

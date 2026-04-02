@@ -1,3 +1,6 @@
 coreconfig_path = /opt/tak/CoreConfig.xml
 language = sv
-chatter_history_days = 7
+enemy_history_days = 2
+presence_history_hours = 24
+chatter_history_days = 2
+nginx_takctl_client_max_body_size = 64m

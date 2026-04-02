@@ -93,6 +93,11 @@ def render_prompts(packet: Dict[str, object]) -> Dict[str, str]:
     own = dict(packet.get("own_state") or {})
     constraints = dict(packet.get("constraints") or {})
 
+    geo = dict(packet.get("geo") or {})
+    geo_brief = dict(geo.get("local_area_brief") or {})
+    geo_text = str(geo_brief.get("summary_text") or "").strip()
+    geo_lang = str(geo_brief.get("language") or agent.get("language_profile") or "")
+
     mapping = {
         "{{CALLSIGN}}": str(agent.get("callsign") or "UNKNOWN"),
         "{{ROLE}}": str(agent.get("role") or "unit"),
@@ -110,12 +115,21 @@ def render_prompts(packet: Dict[str, object]) -> Dict[str, str]:
         "{{READINESS}}": str(own.get("readiness") or ""),
         "{{COMBAT_VALUE}}": str(own.get("combat_value") or ""),
         "{{DECISION_HORIZON_S}}": str(constraints.get("decision_horizon_sec") or ""),
+        "{{GEO_LANGUAGE}}": geo_lang,
+        "{{GEO_AREA_BRIEF}}": geo_text,
         "{{SITUATION_JSON}}": json.dumps(packet, ensure_ascii=False, indent=2),
     }
 
     system_prompt = _compose_system_prompt(packet)
     user_prompt_template = _read_text(_user_prompt_path(packet))
     user_prompt = _render_template(user_prompt_template, mapping)
+
+    if "{{GEO_AREA_BRIEF}}" not in user_prompt_template:
+        if geo_text:
+            if str(geo_lang).lower().startswith("sv"):
+                user_prompt = user_prompt.rstrip() + "\n\nTerrängbedömning i närområdet:\n" + geo_text + "\n"
+            else:
+                user_prompt = user_prompt.rstrip() + "\n\nLocal terrain assessment:\n" + geo_text + "\n"
 
     return {
         "system_prompt": system_prompt,

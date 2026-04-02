@@ -1,0 +1,71 @@
+{
+  "component": "martine-server",
+  "fields": {
+    "martine_state_dir": {
+      "type": "string",
+      "default": "/opt/tak/tools/martine/state",
+      "doc": "Martine Server runtime state root",
+      "secret": false
+    },
+    "martine_trace_dir": {
+      "type": "string",
+      "default": "/opt/tak/tools/martine/state/logs",
+      "doc": "Martine Server trace directory",
+      "secret": false
+    },
+    "martine_log_level": {
+      "type": "string",
+      "default": "INFO",
+      "doc": "Martine Server log level",
+      "secret": false
+    },
+    "martine_default_max_turns": {
+      "type": "string",
+      "default": "6",
+      "doc": "Default Martine agent loop max turns",
+      "secret": false
+    },
+    "martine_default_max_tool_calls": {
+      "type": "string",
+      "default": "10",
+      "doc": "Default Martine agent loop max tool calls",
+      "secret": false
+    },
+    "martine_default_max_output_tokens": {
+      "type": "string",
+      "default": "2000",
+      "doc": "Default Martine agent loop max output tokens per turn",
+      "secret": false
+    },
+    "martine_default_allow_repair_turn": {
+      "type": "string",
+      "default": "true",
+      "doc": "Allow one or more repair turns after invalid loop output",
+      "secret": false
+    },
+    "martine.client.martine_chat.max_turns": {
+      "type": "string",
+      "default": "6",
+      "doc": "Martine Chat max turns",
+      "secret": false
+    },
+    "martine.client.llm3.max_turns": {
+      "type": "string",
+      "default": "8",
+      "doc": "LLM3 default max turns",
+      "secret": false
+    },
+    "martine.client.llm3.timeline.phase2.max_output_tokens": {
+      "type": "string",
+      "default": "8000",
+      "doc": "LLM3 timeline phase2 max output tokens",
+      "secret": false
+    },
+    "martine.client.replay.max_turns": {
+      "type": "string",
+      "default": "4",
+      "doc": "Replay default max turns",
+      "secret": false
+    }
+  }
+}

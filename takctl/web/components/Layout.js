@@ -80,9 +80,7 @@ function TakServerLinks() {
 }
 
 function LangAndSessionControls() {
-  const current = String(window.currentLang || window.TAKS_RUNTIME_LANGUAGE || "sv");
-
-  function L(sv, en) { return (current === "en") ? String(en) : String(sv); }
+  const t = (window.t && typeof window.t === "function") ? window.t : (k => String(k || ""));
 
   function logout() {
     const next = encodeURIComponent("/");
@@ -94,17 +92,13 @@ function LangAndSessionControls() {
       type: "button",
       className: "btn",
       onClick: logout,
-      title: L("Logga ut", "Logout")
-    }, L("Logga ut", "Logout"))
+      title: t("btn.logout")
+    }, t("btn.logout"))
   );
 }
 
 function Layout({ tab, setTab, health, brand, children }) {
-  const current = String(window.currentLang || window.TAKS_RUNTIME_LANGUAGE || "sv");
-
-  function L(sv, en) {
-    return (current === "en") ? String(en) : String(sv);
-  }
+  const t = (window.t && typeof window.t === "function") ? window.t : (k => String(k || ""));
 
   // Prefer the square-derived icon first (unit-current.png),
   // then fall back to svg and other extensions.
@@ -126,19 +120,21 @@ function Layout({ tab, setTab, health, brand, children }) {
 
       h("div", { className: "tabs" },
 
-        h(TabButton, { id: "onboarding", tab, setTab, label: "Onboarding" }),
+        h(TabButton, { id: "onboarding", tab, setTab, label: t("nav.onboarding") }),
 
-        h(TabButton, { id: "llm", tab, setTab, label: "AI" }),
+        h(TabButton, { id: "llm", tab, setTab, label: t("nav.ai") }),
 
-        h(TabButton, { id: "usage", tab, setTab, label: L("AI-Kostnader", "AI Costs") }),
+        h(TabButton, { id: "llm3", tab, setTab, label: t("nav.ai3") }),
 
-        h(TabButton, { id: "martine", tab, setTab, label: "Martine" }),
+        h(TabButton, { id: "usage", tab, setTab, label: t("nav.ai_costs") }),
 
-        h(TabButton, { id: "replay", tab, setTab, label: L("Simulera", "Simulate") }),
+        h(TabButton, { id: "martine", tab, setTab, label: t("nav.martine") }),
 
-        h(TabButton, { id: "documents", tab, setTab, label: L("Dokument", "Documents") }),
+        h(TabButton, { id: "replay", tab, setTab, label: t("nav.simulate") }),
 
-        h(TabButton, { id: "config", tab, setTab, label: L("Inställningar", "Settings") })
+        h(TabButton, { id: "documents", tab, setTab, label: t("nav.documents") }),
+
+        h(TabButton, { id: "config", tab, setTab, label: t("nav.settings") })
       ),
 
       h("div", { className: "spacer" }),

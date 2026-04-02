@@ -23,54 +23,73 @@ def profile_block(*, lang: str | None, username: str, groups: list[str], sel: di
 
     groups_txt = ", ".join(groups or [])
 
-    top = []
-    top.append(
-        f'<div class="profile-top">'
-        f'<div class="callsign">{h(callsign)}</div>'
-        f'<div class="profile-right">'
-        f'{pill(team, "team") if team else ""}'
-        f'</div>'
-        f'</div>'
-    )
-
-    chips = []
-    if battalion_fal and battalion:
-        chips.append(pill(f"{battalion_fal} ({battalion})", "unit"))
-    elif battalion_fal:
-        chips.append(pill(battalion_fal, "unit"))
-    elif battalion:
-        chips.append(pill(f"{battalion} HVBAT", "unit"))
-
+    unit_bits = []
+    if battalion_fal:
+        unit_bits.append(battalion_fal)
+    if battalion:
+        unit_bits.append(f"{battalion} HVBAT")
     if company:
-        chips.append(pill(t(lang, "unit.company", n=company), "unit"))
+        unit_bits.append(t(lang, "unit.company", n=company))
     if platoon:
-        chips.append(pill(t(lang, "unit.platoon", n=platoon), "unit"))
+        unit_bits.append(t(lang, "unit.platoon", n=platoon))
     if group:
-        chips.append(pill(t(lang, "unit.group", n=group), "unit"))
+        unit_bits.append(t(lang, "unit.group", n=group))
     if n:
-        chips.append(pill(t(lang, "unit.n", n=n), "meta"))
+        unit_bits.append(f"EN {n}")
 
-    if chips:
-        top.append(f'<div class="chips">{"".join(chips)}</div>')
+    header_right = []
+    if team:
+        header_right.append(pill(team, "team"))
+    if atak_role:
+        header_right.append(pill(atak_role, "meta"))
 
     rows = []
     rows.append(
-        f'<div class="row"><b>{h(t(lang, "field.username"))}</b>: '
-        f'<code id="taks_username">{h(safe(username))}</code> '
-        f'<button class="btn" onclick="copyId(\'taks_username\')">{h(t(lang, "soldier.copy"))}</button></div>'
+        f'<div class="kvrow"><div class="kvlabel">{h(t(lang, "field.username"))}</div>'
+        f'<div class="kvvalue"><code id="taks_username">{h(safe(username))}</code> '
+        f'<button class="btn" onclick="copyId(\'taks_username\')">{h(t(lang, "soldier.copy"))}</button></div></div>'
     )
 
-    if atak_role:
-        rows.append(f'<div class="row"><b>{h(t(lang, "field.role"))}</b>: <code>{h(atak_role)}</code></div>')
-
     if remarks:
-        rows.append(f'<div class="row"><b>{h(t(lang, "field.remarks"))}</b>: <code>{h(remarks)}</code></div>')
+        rows.append(
+            f'<div class="kvrow"><div class="kvlabel">{h(t(lang, "field.remarks"))}</div>'
+            f'<div class="kvvalue"><code>{h(remarks)}</code></div></div>'
+        )
 
     if groups_txt:
-        rows.append(f'<div class="row"><b>{h(t(lang, "field.groups"))}</b>: <code>{h(groups_txt)}</code></div>')
+        rows.append(
+            f'<div class="kvrow"><div class="kvlabel">{h(t(lang, "field.groups"))}</div>'
+            f'<div class="kvvalue"><code>{h(groups_txt)}</code></div></div>'
+        )
 
-    rows = [r for r in rows if r]
-    return '<div class="note">' + "".join(top) + "<hr/>" + "".join(rows) + "</div>"
+    return (
+        '<div class="profile-card">'
+        '<style>'
+        '.profile-card{display:flex;flex-direction:column;gap:14px;}'
+        '.profile-hero{background:linear-gradient(135deg, rgba(42,84,144,0.88), rgba(20,55,104,0.88));'
+        'border:1px solid rgba(139,184,255,0.18);border-radius:14px;padding:14px 16px;box-shadow:0 10px 24px rgba(0,0,0,0.20);}'
+        '.profile-hero-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;}'
+        '.profile-callsign{font-size:28px;font-weight:850;line-height:1.0;letter-spacing:0.5px;}'
+        '.profile-unitline{margin-top:6px;font-size:13px;color:rgba(255,255,255,0.92);font-weight:600;}'
+        '.profile-pills{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;}'
+        '.profile-body{display:flex;flex-direction:column;gap:10px;}'
+        '.kvrow{display:grid;grid-template-columns:140px 1fr;gap:12px;align-items:start;}'
+        '.kvlabel{font-size:12px;color:rgba(255,255,255,0.68);font-weight:700;text-transform:uppercase;letter-spacing:0.04em;}'
+        '.kvvalue{font-size:14px;color:rgba(255,255,255,0.94);line-height:1.45;word-break:break-word;}'
+        '@media (max-width: 640px){.kvrow{grid-template-columns:1fr;gap:4px;}}'
+        '</style>'
+        f'<div class="profile-hero">'
+        f'  <div class="profile-hero-top">'
+        f'    <div>'
+        f'      <div class="profile-callsign">{h(callsign)}</div>'
+        f'      <div class="profile-unitline">{h(" · ".join(unit_bits) if unit_bits else safe(username))}</div>'
+        f'    </div>'
+        f'    <div class="profile-pills">{"".join(header_right)}</div>'
+        f'  </div>'
+        f'</div>'
+        f'<div class="profile-body">{"".join(rows)}</div>'
+        '</div>'
+    )
 
 
 def password_block(
@@ -129,7 +148,7 @@ def password_block(
 <div class="note">
   {h(t(lang, "field.username"))}: <code id="taks_username2">{h(safe(username))}</code>
   <button class="btn" onclick="copyId('taks_username2')">{h(t(lang, "soldier.copy"))}</button><br/>
-  Password: <code id="taks_password">{h(safe(pw_val))}</code>
+  {h(t(lang, "pw.password"))}: <code id="taks_password">{h(safe(pw_val))}</code>
   <button class="btn" onclick="copyId('taks_password')">{h(t(lang, "soldier.copy"))}</button>{extra}
 </div>
 """

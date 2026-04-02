@@ -1,16 +1,14 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from html import escape as h
 
 from takctl.onboarding.soldier_card.blocks import lifecycle_block, password_block, profile_block
 from takctl.onboarding.soldier_card.i18n import lang_norm, t
-from takctl.onboarding.soldier_card.common import safe
 from takctl.config import load_config
 from takctl.onboarding.atak import _read_runtime_ca_password, _read_runtime_user_cert_password
-
-
 
 
 def _cfg_bool(cfg, key: str, default: bool = False) -> bool:
@@ -63,6 +61,10 @@ def _read_user_client_password(username: str) -> str:
     return ""
 
 
+def _card_bool(cfg, key: str, default: bool) -> bool:
+    return _cfg_bool(cfg, key, default)
+
+
 def render_soldier_card_page(
     *,
     lang: str | None,
@@ -79,34 +81,49 @@ def render_soldier_card_page(
     bump = int(datetime.now(timezone.utc).timestamp())
     l = lang_norm(lang)
 
-    atak_import_qr = f"{base}/api/onboarding/cards/{token}/packages/atak/qr.png?b={bump}"
-    atak_import_txt = f"{base}/api/onboarding/cards/{token}/packages/atak/qr.txt?b={bump}"
-    atak_pkg = f"{base}/api/onboarding/cards/{token}/packages/atak/package.zip"
+    cfg = load_config()
+    onboarding_mode = _onboarding_mode(cfg)
+    create_cert_with_user = (onboarding_mode == "cert-creation")
 
-    itak_qr = f"{base}/api/onboarding/cards/{token}/packages/itak/qr.png?b={bump}"
-    itak_txt = f"{base}/api/onboarding/cards/{token}/packages/itak/qr.txt?b={bump}"
-    itak_pkg = f"{base}/api/onboarding/cards/{token}/packages/itak/package.zip"
+    soft_cert_include_client_password = _cfg_bool(cfg, "soft_cert_include_client_password", False)
+    soft_cert_include_truststore_password = _cfg_bool(cfg, "soft_cert_include_truststore_password", False)
+    reveal_truststore_password_on_soldier_card = _cfg_bool(cfg, "reveal_truststore_password_on_soldier_card", False)
+    reveal_client_password_on_soldier_card = _cfg_bool(cfg, "reveal_client_password_on_soldier_card", False)
+
+    atak_qr_quick_connect_enabled = _card_bool(cfg, "atak_qr_quick_connect_enabled", True)
+    atak_qr_auto_enroll_zip_enabled = _card_bool(cfg, "atak_qr_auto_enroll_zip_enabled", True)
+    atak_qr_soft_cert_zip_enabled = _card_bool(cfg, "atak_qr_soft_cert_zip_enabled", True)
+
+    itak_qr_quick_connect_enabled = _card_bool(cfg, "itak_qr_quick_connect_enabled", True)
+    itak_soft_cert_zip_enabled = _card_bool(cfg, "itak_soft_cert_zip_enabled", True)
+    itak_manual_import_warning_enabled = _card_bool(cfg, "itak_manual_import_warning_enabled", True)
+
+    atak_qr_quick_connect_png = f"{base}/api/onboarding/cards/{token}/packages/atak/quick-connect/qr.png?b={bump}"
+    atak_qr_quick_connect_txt = f"{base}/api/onboarding/cards/{token}/packages/atak/quick-connect/qr.txt?b={bump}"
+
+    atak_qr_auto_enroll_png = f"{base}/api/onboarding/cards/{token}/packages/atak/auto-enroll/qr.png?b={bump}"
+    atak_qr_auto_enroll_txt = f"{base}/api/onboarding/cards/{token}/packages/atak/auto-enroll/qr.txt?b={bump}"
+    atak_auto_enroll_zip = f"{base}/api/onboarding/cards/{token}/packages/atak/auto-enroll/package.zip"
+
+    atak_qr_soft_cert_png = f"{base}/api/onboarding/cards/{token}/packages/atak/soft-cert/qr.png?b={bump}"
+    atak_qr_soft_cert_txt = f"{base}/api/onboarding/cards/{token}/packages/atak/soft-cert/qr.txt?b={bump}"
+    atak_soft_cert_zip = f"{base}/api/onboarding/cards/{token}/packages/atak/soft-cert/package.zip"
+
+    itak_qr_quick_connect_png = f"{base}/api/onboarding/cards/{token}/packages/itak/quick-connect/qr.png?b={bump}"
+    itak_qr_quick_connect_txt = f"{base}/api/onboarding/cards/{token}/packages/itak/quick-connect/qr.txt?b={bump}"
+    itak_soft_cert_zip = f"{base}/api/onboarding/cards/{token}/packages/itak/soft-cert/package.zip"
 
     browser_card_qr = f"{base}/api/onboarding/cards/{token}/card-url/qr.png?b={bump}"
     browser_card_txt = f"{base}/api/onboarding/cards/{token}/card-url/qr.txt?b={bump}"
 
-    creds_html = ""
     profile_html = profile_block(lang=l, username=username, groups=groups, sel=sel, ident=ident)
     lifecycle_html = lifecycle_block(l, lifecycle)
 
-    cfg = load_config()
-    onboarding_mode = _onboarding_mode(cfg)
-    create_cert_with_user = (onboarding_mode == "cert-creation")
-    include_client_password_in_package = _cfg_bool(cfg, "include_client_password_in_package", False)
-    include_truststore_password_in_package = _cfg_bool(cfg, "include_truststore_password_in_package", False)
-    reveal_truststore_password_on_soldier_card = _cfg_bool(cfg, "reveal_truststore_password_on_soldier_card", False)
-    reveal_client_password_on_soldier_card = _cfg_bool(cfg, "reveal_client_password_on_soldier_card", False)
-
     truststore_password = None
     client_password = None
-    if create_cert_with_user and (not include_truststore_password_in_package) and reveal_truststore_password_on_soldier_card:
+    if create_cert_with_user and (not soft_cert_include_truststore_password) and reveal_truststore_password_on_soldier_card:
         truststore_password = _read_runtime_ca_password() or None
-    if create_cert_with_user and (not include_client_password_in_package) and reveal_client_password_on_soldier_card:
+    if create_cert_with_user and (not soft_cert_include_client_password) and reveal_client_password_on_soldier_card:
         client_password = _read_user_client_password(username) or _read_runtime_user_cert_password() or None
 
     creds_html = password_block(
@@ -118,68 +135,45 @@ def render_soldier_card_page(
         client_password=client_password,
     )
 
-    needs_manual_import_passwords = create_cert_with_user and (
-        (not include_client_password_in_package) or (not include_truststore_password_in_package)
-    )
-    needs_user_password = not create_cert_with_user
-
     if create_cert_with_user:
-        mode_label = t(l, "soldier.mode.cert_import")
-        atak_pw_label = t(l, "soldier.mode.client_pw_embedded_yes") if include_client_password_in_package else t(l, "soldier.mode.client_pw_embedded_no")
-        trust_pw_label = t(l, "soldier.mode.trust_pw_embedded_yes") if include_truststore_password_in_package else t(l, "soldier.mode.trust_pw_embedded_no")
-        mode_summary_html = f'<div class="meta" style="margin-top:8px;">{h(t(l, "soldier.mode"))}: <code>{h(mode_label)}</code> · {h(atak_pw_label)} · {h(trust_pw_label)}</div>'
-        atak_start_note = """
-        1. Öppna telefonens kamera.
-        <br/>2. Skanna QR-koden med kameran.
-        <br/>3. Öppna länken i ATAK.
-        <br/>4. Om det inte fungerar, ladda ned paketet manuellt.
-        """
-        if needs_manual_import_passwords:
-            itak_start_note = """
-            1. Öppna iTAK på telefonen.
-            <br/>2. Öppna QR-skanning i iTAK.
-            <br/>3. Skanna QR-koden i appen, eller ladda ned paketet.
-            <br/>4. Om iTAK frågar efter importlösen använder du uppgifterna nedan.
-            """
-            guide_step4 = """
-            Om appen frågar efter importlösen eller certifikat-lösen använder du uppgifterna på detta kort.
-            <br/>Om inget lösenord visas här, kontakta instruktör.
-            """
-        else:
-            itak_start_note = """
-            1. Öppna iTAK på telefonen.
-            <br/>2. Öppna QR-skanning i iTAK.
-            <br/>3. Skanna QR-koden i appen, eller ladda ned paketet.
-            <br/>4. Följ importen i iTAK.
-            """
-            guide_step4 = """
-            Om appen frågar efter uppgifter använder du uppgifterna på detta kort.
-            <br/>Om inget lösenord visas här, kontakta instruktör.
-            """
+        mode_label = "soft-cert / cert-creation"
+        mode_summary_html = (
+            f'<div class="meta" style="margin-top:8px;">'
+            f'{h(t(l, "soldier.mode_label"))}: <code>{h(mode_label)}</code> · '
+            f'{h(t(l, "soldier.mode.client_pw_embedded"))}: <code>{"yes" if soft_cert_include_client_password else "no"}</code> · '
+            f'{h(t(l, "soldier.mode.trust_pw_embedded"))}: <code>{"yes" if soft_cert_include_truststore_password else "no"}</code>'
+            f"</div>"
+        )
     else:
-        mode_label = t(l, "soldier.mode.auto_enroll")
-        mode_summary_html = f'<div class="meta" style="margin-top:8px;">{h(t(l, "soldier.mode"))}: <code>{h(mode_label)}</code> · {h(t(l, "soldier.mode.userpass"))}</div>'
-        atak_start_note = """
-        1. Öppna telefonens kamera.
-        <br/>2. Skanna QR-koden med kameran.
-        <br/>3. Öppna länken i ATAK.
-        <br/>4. När ATAK frågar efter användarnamn och lösenord använder du uppgifterna nedan.
-        """
-        itak_start_note = """
-        Denna onboardingmodell är byggd för Android / ATAK auto-enroll.
-        <br/>Om du har iPhone behöver du hjälp av instruktör eller annan väg.
-        """
-        guide_step4 = """
-        Om ATAK frågar efter användarnamn och lösenord använder du uppgifterna på detta kort.
-        <br/>Om inget lösenord visas här, kontakta instruktör.
-        """
+        mode_label = "auto-enroll / quick connect"
+        mode_summary_html = (
+            f'<div class="meta" style="margin-top:8px;">'
+            f'{h(t(l, "soldier.mode_label"))}: <code>{h(mode_label)}</code> · '
+            f'{h(t(l, "soldier.mode.userpass_short"))}'
+            f"</div>"
+        )
 
     token_url = f"{base}/api/onboarding/cards/{token}"
     exp = expires_at_utc.replace(microsecond=0).isoformat()
 
     btn_css = """
-    .btn { font-size: 12px; padding: 3px 8px; border: 1px solid rgba(255,255,255,0.20); border-radius: 10px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.90); cursor: pointer; }
+    .btn { font-size: 12px; padding: 7px 11px; border: 1px solid rgba(255,255,255,0.20); border-radius: 12px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.92); cursor: pointer; text-decoration:none; display:inline-block; font-weight:600; }
     .btn:hover { background: rgba(255,255,255,0.10); }
+    .warn { color:#ffd27a; }
+    .danger-note { margin-top:8px; padding:10px 12px; border-radius:10px; background:rgba(255,210,122,0.08); border:1px solid rgba(255,210,122,0.18); color:#ffe3ac; font-size:13px; line-height:1.45; }
+    .stepcard { background: rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:16px; }
+    .stepcard h4 { margin:0 0 8px 0; font-size:15px; }
+    .qrimg { width:220px; max-width:100%; height:auto; border-radius:12px; background:#fff; padding:8px; }
+    .choicegrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:14px; }
+    .guidegrid { display:grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap:14px; }
+    .infogrid { display:grid; grid-template-columns: 1fr; gap:14px; }
+    .dlrow { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    code.inline { font-size:12px; }
+    .hero { background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.03)); border:1px solid rgba(255,255,255,0.10); border-radius:18px; padding:18px 20px; margin-bottom:14px; box-shadow: 0 10px 30px rgba(0,0,0,0.22); }
+    .eyebrow { font-size:12px; letter-spacing:0.14em; text-transform:uppercase; color:#8bb8ff; font-weight:700; }
+    .hero-title { font-size:30px; line-height:1.1; font-weight:850; margin-top:10px; }
+    .hero-sub { font-size:15px; line-height:1.6; color:rgba(255,255,255,0.78); margin-top:10px; max-width:760px; }
+    .slogan { margin-top:8px; font-size:12px; letter-spacing:0.12em; text-transform:uppercase; color:rgba(255,255,255,0.58); }
     """
 
     script_html = """<script>
@@ -192,7 +186,7 @@ def render_soldier_card_page(
       copyText(el.textContent || el.innerText || '');
     }
     function showMainTab(id) {
-      var ids = ["start", "guide", "advanced"];
+      var ids = ["start", "guide", "info", "advanced"];
       for (var i = 0; i < ids.length; i++) {
         var panel = document.getElementById("tab_" + ids[i]);
         var btn = document.getElementById("tabbtn_" + ids[i]);
@@ -226,34 +220,26 @@ def render_soldier_card_page(
     brand_js_html = """<script>
 (function () {
   "use strict";
-
   var BUMP = "__BUMP__";
   var BRAND = "/assets/brand.json?b=" + encodeURIComponent(BUMP);
-
   function renderBrandLogos() {
     var host = document.getElementById("__brand_logos");
     if (!host) return;
     host.innerHTML = "";
-
     fetch(BRAND, { cache: "no-store" })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (b) {
         if (!b || !b.logos || !b.logos.length) return;
-
         b.logos.forEach(function (it) {
           if (!it || it.uploaded !== true) return;
           var n = it.n;
           if (!(n >= 1 && n <= 4)) return;
-
           var img = document.createElement("img");
           img.alt = "logo" + n;
-
           var ext = (it && it.ext) ? String(it.ext).toLowerCase() : "";
           if (!ext) ext = "svg";
-
           var base = "/assets/logo" + n + ".";
           img.src = base + ext + "?b=" + encodeURIComponent(BUMP);
-
           var all = ["svg", "png", "webp", "jpg", "jpeg"];
           var fb = [];
           for (var i = 0; i < all.length; i++) {
@@ -269,13 +255,11 @@ def render_soldier_card_page(
               this.style.display = "none";
             }
           };
-
           host.appendChild(img);
         });
       })
-      .catch(function () { /* ignore */ });
+      .catch(function () {});
   }
-
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", renderBrandLogos);
   } else {
@@ -295,7 +279,6 @@ def render_soldier_card_page(
   --muted: rgba(255,255,255,0.65);
   --link: #8bb8ff;
 }
-
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
   margin: 22px;
@@ -306,217 +289,239 @@ body {
     linear-gradient(180deg, var(--bg0), var(--bg1));
   min-height: 100vh;
 }
-
 .topbar { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; margin-bottom: 12px; gap: 14px; }
 .brand { display:flex; align-items:center; gap: 10px; flex-wrap:wrap; }
 .taksmark img { height: 26px; width: auto; display:block; filter: drop-shadow(0 6px 18px rgba(0,0,0,0.55)); }
 .brandchain-row { display:flex; align-items:center; gap: 10px; flex-wrap:wrap; }
 .brandchain-row img { height: 24px; width: auto; max-width: 260px; object-fit: contain; display:block; filter: drop-shadow(0 2px 10px rgba(0,0,0,0.45)); }
-
-.title { font-size: 20px; font-weight: 850; letter-spacing: 0.2px; }
-.hdr { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom: 12px; }
 .meta { font-size: 12px; color: var(--muted); line-height: 1.35; }
 .muted { color: var(--muted); font-size: 12px; }
-
-.grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 12px; }
-
-.card {
-  border: 1px solid var(--bd);
-  background: var(--card);
-  border-radius: 16px;
-  padding: 14px;
-  box-shadow: 0 18px 40px rgba(0,0,0,0.35);
-}
-
-.note {
-  border: 1px solid var(--bd);
-  background: var(--card2);
-  border-radius: 14px;
-  padding: 12px;
-  line-height: 1.5;
-}
-
-.note hr { border: none; border-top: 1px solid rgba(255,255,255,0.10); margin: 10px 0; }
-
-a { color: var(--link); text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-.qr { display:flex; justify-content:center; align-items:center; padding: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; }
-.qr img { width: 100%; max-width: 360px; height: auto; display:block; border-radius: 10px; background: #fff; }
-
-code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; padding: 2px 6px; }
-
-.choicebar { display:flex; gap:8px; flex-wrap:wrap; margin: 0 0 12px 0; }
-.choicebtn {
-  appearance:none; -webkit-appearance:none; -moz-appearance:none;
-  padding: 8px 12px; border-radius: 10px; cursor: pointer;
-  border: 1px solid rgba(255,255,255,0.16);
-  background: rgba(255,255,255,0.05); color: var(--txt);
-  font-size: 13px; font-weight: 800;
-}
-.choicebtn-active { background: rgba(255,255,255,0.14); }
-.maintabs { display:flex; gap:8px; flex-wrap:wrap; margin: 0 0 12px 0; }
-.maintab { display:none; }
-.flow { display:none; }
-.flow h3 { margin-top: 0; }
+.card { background: var(--card); border: 1px solid var(--bd); border-radius: 16px; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.22); }
+.tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+.choicebtn { border:1px solid var(--bd); background:var(--card2); color:var(--txt); padding:8px 12px; border-radius:999px; cursor:pointer; font-size:13px; }
+.choicebtn-active { outline:2px solid rgba(139,184,255,0.45); }
+a { color: var(--link); }
+pre { white-space: pre-wrap; word-break: break-word; }
 </style>"""
 
+    android_cards = []
+
+    if atak_qr_quick_connect_enabled:
+        android_cards.append(f"""
+        <div class="stepcard">
+          <h4>ATAK quick-connect QR</h4>
+          <div class="muted">{h(t(l, "soldier.path.atak_qr"))}</div>
+          <div style="margin-top:10px;"><img class="qrimg" src="{h(atak_qr_quick_connect_png)}" alt="ATAK quick-connect QR"/></div>
+          <div class="dlrow">
+            <a class="btn" href="{h(atak_qr_quick_connect_png)}">{h(t(l, "soldier.open_qr"))}</a>
+            <a class="btn" href="{h(atak_qr_quick_connect_txt)}">{h(t(l, "soldier.open_text"))}</a>
+          </div>
+        </div>
+        """)
+
+    if atak_qr_auto_enroll_zip_enabled:
+        android_cards.append(f"""
+        <div class="stepcard">
+          <h4>ATAK auto-enroll zip</h4>
+          <div class="muted">{h(t(l, "soldier.path.atak_auto_zip"))}</div>
+          <div style="margin-top:10px;"><img class="qrimg" src="{h(atak_qr_auto_enroll_png)}" alt="ATAK auto-enroll zip QR"/></div>
+          <div class="dlrow">
+            <a class="btn" href="{h(atak_auto_enroll_zip)}">{h(t(l, "soldier.download_zip"))}</a>
+            <a class="btn" href="{h(atak_qr_auto_enroll_png)}">{h(t(l, "soldier.open_qr"))}</a>
+            <a class="btn" href="{h(atak_qr_auto_enroll_txt)}">{h(t(l, "soldier.open_text"))}</a>
+          </div>
+        </div>
+        """)
+
+    if atak_qr_soft_cert_zip_enabled:
+        android_cards.append(f"""
+        <div class="stepcard">
+          <h4>ATAK soft-cert zip</h4>
+          <div class="muted">{h(t(l, "soldier.path.atak_soft_zip"))}</div>
+          <div style="margin-top:10px;"><img class="qrimg" src="{h(atak_qr_soft_cert_png)}" alt="ATAK soft-cert zip QR"/></div>
+          <div class="dlrow">
+            <a class="btn" href="{h(atak_soft_cert_zip)}">{h(t(l, "soldier.download_zip"))}</a>
+            <a class="btn" href="{h(atak_qr_soft_cert_png)}">{h(t(l, "soldier.open_qr"))}</a>
+            <a class="btn" href="{h(atak_qr_soft_cert_txt)}">{h(t(l, "soldier.open_text"))}</a>
+          </div>
+        </div>
+        """)
+
+    iphone_cards = []
+
+    if itak_qr_quick_connect_enabled:
+        warn = ""
+        if itak_manual_import_warning_enabled:
+            warn = """
+            <div class="danger-note">
+              This is currently not working reliably.
+              Download the zip-file manually and install it using
+              <strong>Upload server package</strong> in the iTAK config menu
+              (<strong>Networking -&gt; Servers -&gt; +</strong>).
+            </div>
+            """
+        iphone_cards.append(f"""
+        <div class="stepcard">
+          <h4>iTAK quick-connect QR</h4>
+          <div class="muted">{h(t(l, "soldier.path.itak_qr"))}</div>
+          <div style="margin-top:10px;"><img class="qrimg" src="{h(itak_qr_quick_connect_png)}" alt="iTAK quick-connect QR"/></div>
+          <div class="dlrow">
+            <a class="btn" href="{h(itak_qr_quick_connect_png)}">{h(t(l, "soldier.open_qr"))}</a>
+            <a class="btn" href="{h(itak_qr_quick_connect_txt)}">{h(t(l, "soldier.open_text"))}</a>
+          </div>
+          {warn}
+        </div>
+        """)
+
+    if itak_soft_cert_zip_enabled:
+        iphone_cards.append(f"""
+        <div class="stepcard">
+          <h4>iTAK soft-cert zip</h4>
+          <div class="muted">{h(t(l, "soldier.path.itak_soft_zip"))}</div>
+          <div class="dlrow" style="margin-top:12px;">
+            <a class="btn" href="{h(itak_soft_cert_zip)}">{h(t(l, "soldier.download_zip"))}</a>
+          </div>
+        </div>
+        """)
+
+    android_html = '<div class="choicegrid">' + "".join(android_cards or ['<div class="muted">ATAK artifacts disabled in config.</div>']) + '</div>'
+    iphone_html = '<div class="choicegrid">' + "".join(iphone_cards or ['<div class="muted">iTAK artifacts disabled in config.</div>']) + '</div>'
+
+    browser_html = f"""
+    <div class="choicegrid">
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.browser_card"))}</h4>
+        <div class="muted">{h(t(l, "soldier.browser_card_desc"))}</div>
+        <div style="margin-top:10px;"><img class="qrimg" src="{h(browser_card_qr)}" alt="Card URL QR"/></div>
+        <div class="dlrow">
+          <a class="btn" href="{h(token_url)}">{h(t(l, "soldier.open_card"))}</a>
+          <a class="btn" href="{h(browser_card_qr)}">{h(t(l, "soldier.open_qr"))}</a>
+          <a class="btn" href="{h(browser_card_txt)}">{h(t(l, "soldier.open_text"))}</a>
+        </div>
+      </div>
+    </div>
+    """
+
+    guide_html = f"""
+    <div class="stepcard" style="margin-bottom:14px;">
+      <div class="muted">{h(t(l, "soldier.guide_intro"))}</div>
+    </div>
+    <div class="guidegrid">
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.guide.step1.title"))}</h4>
+        <div class="muted">{h(t(l, "soldier.guide.step1.body"))}</div>
+      </div>
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.guide.step2.title"))}</h4>
+        <div class="muted">{h(t(l, "soldier.guide.step2.body"))}</div>
+      </div>
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.guide.step3.title"))}</h4>
+        <div class="muted">{h(t(l, "soldier.guide.step3.body"))}</div>
+      </div>
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.guide.step4.title"))}</h4>
+        <div class="muted">{h(t(l, "soldier.guide.step4.body"))}</div>
+      </div>
+    </div>
+    """
+
+    info_html = f"""
+    <div class="infogrid">
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.info_title"))}</h4>
+        <div style="margin-top:12px;">{profile_html}</div>
+      </div>
+      <div class="stepcard">{creds_html}</div>
+      <div class="stepcard">{lifecycle_html}</div>
+    </div>
+    """
+
+    brand_slogan = ""
+    try:
+        brand_slogan = _cfg_str(cfg, "site_slogan", "")
+    except Exception:
+        brand_slogan = ""
+    if not brand_slogan:
+        try:
+            brand_slogan = json.loads(Path("/opt/tak/tools/takctl/web/assets/brand.json").read_text(encoding="utf-8")).get("slogan") or ""
+        except Exception:
+            brand_slogan = ""
+
     return f"""<!doctype html>
-<html lang="{h(t(l, "soldier.html_lang"))}"><head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>{h(t(l, "soldier.title_for", username=safe(username)))}</title>
-{style_html}
-<style>{btn_css}</style>
+<html lang="{h(l)}">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>{h(t(l, "soldier.title_for", username=username))}</title>
+  {style_html}
+  <style>{btn_css}</style>
 </head>
 <body>
   <div class="topbar">
     <div class="brand">
-      <span class="taksmark"><img alt="TAKS" src="/assets/taks-logo.svg?b={bump}"/></span>
-      <span class="brandchain-row" id="__brand_logos"></span>
+      <div class="taksmark"><img src="/assets/taks-logo.png?b={bump}" alt="TAKS"/></div>
+      <div class="brandchain-row" id="__brand_logos"></div>
     </div>
     <div class="meta">
-      {h(t(l, "soldier.expires"))}: <code>{h(safe(exp))}</code><br/>
-      {h(t(l, "soldier.token_url"))}: <code id="taks_token_url">{h(safe(token_url))}</code>
-      <button class="btn" onclick="copyId('taks_token_url')">{h(t(l, "soldier.copy"))}</button>
+      <div>{h(t(l, "soldier.user_label"))}: <strong>{h(username)}</strong></div>
+      <div>{h(t(l, "soldier.token_expires_label"))}: <code>{h(exp)}</code></div>
     </div>
   </div>
 
-  <div class="hdr">
-    <div class="title">{h(t(l, "soldier.title"))}</div>
+  <div class="hero">
+    <div class="eyebrow">TAKS ONBOARDING</div>
+    <div class="hero-title">{h(t(l, "soldier.welcome"))}</div>
+    <div class="hero-sub">{h(t(l, "soldier.subtitle"))}</div>
+    {f'<div class="slogan">{h(brand_slogan)}</div>' if brand_slogan else ''}
+    {mode_summary_html}
   </div>
 
-  <div class="maintabs">
-    <button id="tabbtn_start" class="choicebtn" type="button" onclick="showMainTab('start')">Start</button>
-    <button id="tabbtn_guide" class="choicebtn" type="button" onclick="showMainTab('guide')">Guide</button>
-    <button id="tabbtn_advanced" class="choicebtn" type="button" onclick="showMainTab('advanced')">Avancerat</button>
-  </div>
-
-  <div id="tab_start" class="maintab">
-    <div class="note" style="margin-bottom:12px;">
-      Börja här. Välj den telefon eller väg som passar dig bäst.
-      {mode_summary_html}
+  <div class="card">
+    <div class="tabs">
+      <button id="tabbtn_start" class="choicebtn" onclick="showMainTab('start')">{h(t(l, "soldier.start"))}</button>
+      <button id="tabbtn_guide" class="choicebtn" onclick="showMainTab('guide')">{h(t(l, "soldier.guide"))}</button>
+      <button id="tabbtn_info" class="choicebtn" onclick="showMainTab('info')">{h(t(l, "soldier.info_tab"))}</button>
+      <button id="tabbtn_advanced" class="choicebtn" onclick="showMainTab('advanced')">{h(t(l, "soldier.advanced_tab"))}</button>
     </div>
 
-    <div class="choicebar">
-      <button id="btn_android" class="choicebtn" type="button" onclick="showFlow('android')">Android / ATAK</button>
-      <button id="btn_iphone" class="choicebtn" type="button" onclick="showFlow('iphone')">iPhone / iTAK</button>
-      <button id="btn_browser" class="choicebtn" type="button" onclick="showFlow('browser')">Öppna i browser</button>
+    <div id="tab_start">
+      <div class="tabs" style="margin-top:6px;">
+        <button id="btn_android" class="choicebtn" onclick="showFlow('android')">{h(t(l, "soldier.android"))}</button>
+        <button id="btn_iphone" class="choicebtn" onclick="showFlow('iphone')">{h(t(l, "soldier.iphone"))}</button>
+        <button id="btn_browser" class="choicebtn" onclick="showFlow('browser')">{h(t(l, "soldier.browser"))}</button>
+      </div>
+
+      <div id="flow_android" style="margin-top:12px;">{android_html}</div>
+      <div id="flow_iphone" style="margin-top:12px; display:none;">{iphone_html}</div>
+      <div id="flow_browser" style="margin-top:12px; display:none;">{browser_html}</div>
     </div>
 
-    <div id="flow_android" class="card flow">
-      <h3>Android / ATAK</h3>
-      <div class="note">
-        {atak_start_note}
-      </div>
-      <div class="qr"><img alt="ATAK Import QR" src="{atak_import_qr}" /></div>
-      <div class="meta" style="margin-top:10px;">
-        Ladda ned paket: <a href="{atak_pkg}">{h(safe(atak_pkg))}</a>
-      </div>
+    <div id="tab_guide" style="display:none; margin-top:12px;">
+      {guide_html}
     </div>
 
-    <div id="flow_iphone" class="card flow">
-      <h3>iPhone / iTAK</h3>
-      <div class="note">
-        {itak_start_note}
-      </div>
-      <div class="qr"><img alt="iTAK QR" src="{itak_qr}" /></div>
-      <div class="meta" style="margin-top:10px;">
-        Ladda ned paket: <a href="{itak_pkg}">{h(safe(itak_pkg))}</a>
-      </div>
+    <div id="tab_info" style="display:none; margin-top:12px;">
+      {info_html}
     </div>
 
-    <div id="flow_browser" class="card flow">
-      <h3>Öppna i browser</h3>
-      <div class="note">
-        Använd detta om du först vill öppna soldatkortet i telefonens browser.
-        <br/>Bra som fallback om QR-import i appen inte fungerar direkt.
-      </div>
-      <div class="qr"><img alt="Soldier Card URL QR" src="{browser_card_qr}" /></div>
-      <div class="meta" style="margin-top:10px;">
-        Direktlänk: <code>{h(safe(token_url))}</code>
-      </div>
-    </div>
-
-    <div class="grid" style="margin-top:12px;">
-      <div class="card">
-        <h3>{h(t(l, "soldier.credentials"))}</h3>
-        {creds_html}
-      </div>
-    </div>
-  </div>
-
-  <div id="tab_guide" class="maintab">
-    <div class="grid">
-      <div class="card">
-        <h3>Steg 1 — Välj rätt väg</h3>
-        <div class="note">
-          Har du Android väljer du Android / ATAK.
-          <br/>Har du iPhone väljer du iPhone / iTAK.
-          <br/>Fungerar inget annat kan du öppna kortet i browsern först.
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Steg 2 — Öppna rätt app</h3>
-        <div class="note">
-          Android / ATAK: använd telefonens kamera för att öppna QR-koden i ATAK.
-          <br/>iPhone / iTAK: öppna iTAK och använd QR-skanning i appen.
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Steg 3 — Skanna koden</h3>
-        <div class="note">
-          ATAK: skanna med telefonens kamera.
-          <br/>iTAK: skanna i iTAK-appen.
-          <br/>Om det inte fungerar, använd nedladdningslänken i Start-fliken.
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Steg 4 — Använd uppgifterna om appen frågar</h3>
-        <div class="note">
-          {guide_step4}
+    <div id="tab_advanced" style="display:none; margin-top:12px;">
+      <div class="stepcard">
+        <h4>{h(t(l, "soldier.card_url"))}</h4>
+        <div class="muted" id="card_url_txt">{h(token_url)}</div>
+        <div class="dlrow">
+          <button class="btn" onclick="copyId('card_url_txt')">{h(t(l, "soldier.copy"))}</button>
+          <a class="btn" href="{h(token_url)}">{h(t(l, "soldier.open_card"))}</a>
         </div>
       </div>
     </div>
   </div>
 
-  <div id="tab_advanced" class="maintab">
-    <div class="grid">
-      <div class="card">
-        <h3>{h(t(l, "soldier.profile"))}</h3>
-        {profile_html}
-      </div>
+  {script_html}
+  {brand_js_html}
+</body>
+</html>
+"""
 
-      <div class="card">
-        <h3>{h(t(l, "soldier.lifecycle"))}</h3>
-        {lifecycle_html}
-      </div>
 
-      <div class="card">
-        <h3>{h(t(l, "soldier.mode.advanced"))}</h3>
-        <div class="meta">
-          onboarding_mode: <code>{h("cert-creation" if create_cert_with_user else "auto-enroll")}</code><br/>
-          include_client_password_in_package: <code>{h("true" if include_client_password_in_package else "false")}</code><br/>
-          include_truststore_password_in_package: <code>{h("true" if include_truststore_password_in_package else "false")}</code><br/>
-          reveal_password: <code>{h("true" if reveal_password else "false")}</code>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Direktlänkar</h3>
-        <div class="meta">
-          ATAK QR payload: <a href="{atak_import_txt}">qr.txt</a><br/>
-          iTAK QR payload: <a href="{itak_txt}">qr.txt</a><br/>
-          Browser QR payload: <a href="{browser_card_txt}">qr.txt</a><br/>
-          Token URL: <code>{h(safe(token_url))}</code>
-        </div>
-      </div>
-    </div>
-  </div>
-
-{script_html}
-{brand_js_html}
-</body></html>"""
+__all__ = ["render_soldier_card_page"]

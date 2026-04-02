@@ -6,6 +6,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from takctl.config import load_config
+
 from tak_installer.engine import Context
 from tak_installer.util import sha256_path, diff_text
 from tak_installer.runtime_state import get_fqdn
@@ -36,6 +38,17 @@ def _sudo_symlink(link_path: Path, target: Path) -> None:
     _run(["sudo", "ln", "-sfn", str(target), str(link_path)])
 
 
+
+def takctl_client_max_body_size() -> str:
+    try:
+        cfg = load_config()
+        v = str(getattr(cfg, "nginx_takctl_client_max_body_size", "") or "").strip()
+        return v or "64m"
+    except Exception:
+        return "64m"
+
+
+
 @dataclass(frozen=True)
 class Nginx443TakctlAction:
     ID = "nginx.443.takctl"
@@ -60,6 +73,9 @@ class Nginx443TakctlAction:
 
     include /etc/nginx/snippets/ssl-common.conf;
     include /etc/nginx/snippets/deny-dotfiles.conf;
+
+    # takctl uploads/documents may exceed the global default
+    client_max_body_size {takctl_client_max_body_size()};
 
     # TAKS web is not meant to be framed
     add_header X-Frame-Options DENY always;

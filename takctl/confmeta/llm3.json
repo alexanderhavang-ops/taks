@@ -1,0 +1,35 @@
+{
+  "component": "llm3",
+  "fields": {
+    "llm3_enabled": {
+      "type": "string",
+      "default": "true",
+      "doc": "Enable parallel LLM3 pipeline and UI",
+      "secret": false
+    },
+    "llm3_state_dir": {
+      "type": "string",
+      "default": "/opt/tak/tools/takctl/state/llm3",
+      "doc": "LLM3 state root",
+      "secret": false
+    },
+    "llm3_use_martine_server": {
+      "type": "string",
+      "default": "true",
+      "doc": "Run LLM3 phases through Martine Server agent loop",
+      "secret": false
+    },
+    "llm3_default_max_turns": {
+      "type": "string",
+      "default": "8",
+      "doc": "Default max turns for LLM3 workloads",
+      "secret": false
+    },
+    "llm3_default_max_tool_calls": {
+      "type": "string",
+      "default": "12",
+      "doc": "Default max tool calls for LLM3 workloads",
+      "secret": false
+    }
+  }
+}

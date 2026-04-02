@@ -5,6 +5,15 @@
   const t = (window.t && typeof window.t === "function") ? window.t : (k) => String(k || "");
   const LP = { "data-lpignore": "true", autoComplete: "off" };
 
+  function _lang() {
+    const v = String(window.currentLang || window.TAKS_RUNTIME_LANGUAGE || "sv").trim().toLowerCase();
+    return v.startsWith("en") ? "en" : "sv";
+  }
+
+  function _L(sv, en) {
+    return _lang() === "en" ? String(en) : String(sv);
+  }
+
   function OnboardingCreateUserAdvancedTab(props) {
     const Field = props.Field;
     const RenderField = props.RenderField;
@@ -30,27 +39,12 @@
 
     const setCfg = props.setCfg;
 
-    const artifactAtakAutoEnroll = !!props.artifactAtakAutoEnroll;
-    const setArtifactAtakAutoEnroll = props.setArtifactAtakAutoEnroll;
-
-    const artifactAtakSoftCertNoPassword = !!props.artifactAtakSoftCertNoPassword;
-    const setArtifactAtakSoftCertNoPassword = props.setArtifactAtakSoftCertNoPassword;
-
-    const artifactAtakSoftCertWithPassword = !!props.artifactAtakSoftCertWithPassword;
-    const setArtifactAtakSoftCertWithPassword = props.setArtifactAtakSoftCertWithPassword;
-
-    const artifactItakSoftCertNoPassword = !!props.artifactItakSoftCertNoPassword;
-    const setArtifactItakSoftCertNoPassword = props.setArtifactItakSoftCertNoPassword;
-
-    const artifactItakSoftCertWithPassword = !!props.artifactItakSoftCertWithPassword;
-    const setArtifactItakSoftCertWithPassword = props.setArtifactItakSoftCertWithPassword;
-
     return h("div", null,
       h("div", { style: { fontWeight: 700, marginBottom: "10px" } }, t("tab.advanced")),
 
       h("div", { className: "grid", style: { gridTemplateColumns: "1fr", gap: "12px" } },
 
-        h(Field, { label: "Callsign policy (global default)" },
+        h(Field, { label: _L("Anropssignalspolicy (global standard)", "Callsign policy (global default)") },
           h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } },
             h(PolicySelect, {
               value: callsignPolicyDefault,
@@ -61,11 +55,13 @@
               },
               includeDefaultOption: false
             }),
-            h("span", { className: "muted", style: { fontSize: "12px" } }, "Stored in browser (local)")
+            h("span", { className: "muted", style: { fontSize: "12px" } },
+              _L("Lagrad i webbläsaren (lokalt)", "Stored in browser (local)")
+            )
           )
         ),
 
-        h(Field, { label: "Callsign policy override (this user)" },
+        h(Field, { label: _L("Anropssignalspolicy override (denna användare)", "Callsign policy override (this user)") },
           h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } },
             h(PolicySelect, {
               value: callsignPolicyOverride,
@@ -73,81 +69,19 @@
               includeDefaultOption: true
             }),
             h("span", { className: "muted", style: { fontSize: "12px" } },
-              callsignPolicyOverride ? "Overrides global" : "Uses global"
+              callsignPolicyOverride
+                ? _L("Överskriver global", "Overrides global")
+                : _L("Använder global", "Uses global")
             )
           )
         ),
 
-        h(Field, { label: "TTL (sec)" },
+        h(Field, { label: _L("TTL (sek)", "TTL (sec)") },
           h("input", Object.assign({}, LP, {
             type: "number",
             value: ttlSec,
             onChange: function (e) { setTtlSec(e.target.value); }
           }))
-        ),
-
-        h(Field, { label: "Generated onboarding artifacts" },
-          h("div", { style: { display: "grid", gap: "8px" } },
-            h("label", null,
-              h("input", Object.assign({}, LP, {
-                type: "checkbox",
-                checked: artifactAtakAutoEnroll,
-                onChange: function (e) { setArtifactAtakAutoEnroll(e.target.checked); }
-              })),
-              " ATAK auto-enroll"
-            ),
-            h("label", null,
-              h("input", Object.assign({}, LP, {
-                type: "checkbox",
-                checked: artifactAtakSoftCertNoPassword,
-                onChange: function (e) {
-                  const checked = !!e.target.checked;
-                  setArtifactAtakSoftCertNoPassword(checked);
-                  if (checked) setArtifactAtakSoftCertWithPassword(false);
-                }
-              })),
-              " ATAK soft-cert zip (no password)"
-            ),
-            h("label", null,
-              h("input", Object.assign({}, LP, {
-                type: "checkbox",
-                checked: artifactAtakSoftCertWithPassword,
-                onChange: function (e) {
-                  const checked = !!e.target.checked;
-                  setArtifactAtakSoftCertWithPassword(checked);
-                  if (checked) setArtifactAtakSoftCertNoPassword(false);
-                }
-              })),
-              " ATAK soft-cert zip (with password)"
-            ),
-            h("label", null,
-              h("input", Object.assign({}, LP, {
-                type: "checkbox",
-                checked: artifactItakSoftCertNoPassword,
-                onChange: function (e) {
-                  const checked = !!e.target.checked;
-                  setArtifactItakSoftCertNoPassword(checked);
-                  if (checked) setArtifactItakSoftCertWithPassword(false);
-                }
-              })),
-              " iTAK zip (no password)"
-            ),
-            h("label", null,
-              h("input", Object.assign({}, LP, {
-                type: "checkbox",
-                checked: artifactItakSoftCertWithPassword,
-                onChange: function (e) {
-                  const checked = !!e.target.checked;
-                  setArtifactItakSoftCertWithPassword(checked);
-                  if (checked) setArtifactItakSoftCertNoPassword(false);
-                }
-              })),
-              " iTAK zip (with password)"
-            ),
-            h("div", { className: "muted", style: { fontSize: "12px" } },
-              "ATAK/iTAK no-password vs with-password are mutually exclusive per client."
-            )
-          )
         ),
 
         ((policy && policy.config_fields) || []).map(function (f) {
@@ -167,7 +101,8 @@
             checked: revealPassword,
             onChange: function (e) { setRevealPassword(e.target.checked); }
           })),
-          " Reveal password on card"
+          " ",
+          _L("Visa lösenord på kort", "Reveal password on card")
         )
       )
     );

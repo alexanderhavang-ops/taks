@@ -521,7 +521,7 @@ def write_atak_auto_enroll_package_zip(out_zip: Path, username: str, req: Reques
     raise HTTPException(status_code=501, detail="ATAK auto-enroll package writer not split out yet")
 
 
-def write_atak_package_zip(out_zip: Path, username: str, req: Request, include_creds: bool, base: str) -> None:
+def write_atak_auto_enroll_zip(out_zip: Path, username: str, req: Request, base: str) -> None:
     cfg = load_config()
     raw_mode = str(cfg.get("onboarding_mode", "") or "").strip().lower()
     if raw_mode not in ("auto-enroll", "cert-creation"):
@@ -548,7 +548,7 @@ def write_atak_package_zip(out_zip: Path, username: str, req: Request, include_c
 
 
 
-def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str) -> None:
+def write_itak_soft_cert_zip(out_zip: Path, username: str, req: Request, base: str) -> None:
     """
     iTAK package, but intentionally shaped like the currently working ATAK
     soft-cert mission package format:
@@ -776,3 +776,16 @@ def write_itak_package_zip(out_zip: Path, username: str, req: Request, base: str
         z.writestr(ca_zip_rel, ca_bytes)
         z.writestr(client_zip_rel, client_p12_bytes)
         z.writestr("meta.json", json.dumps(meta, indent=2, sort_keys=True) + "\n")
+
+
+def write_atak_soft_cert_zip(out_zip: Path, username: str, req: Request, base: str) -> None:
+    # IMPORTANT: ATAK soft-cert package must stay on the known-good soft-cert path.
+    write_atak_cert_package_zip(out_zip, username, req, include_creds=False, base=base)
+
+# -----------------------------------------------------------------------------
+# Backward-compatibility aliases
+# -----------------------------------------------------------------------------
+
+def write_atak_package_zip(out_zip: Path, username: str, req: Request, base: str) -> None:
+    # Legacy ambiguous name -> ATAK auto-enroll zip
+    write_atak_auto_enroll_zip(out_zip, username, req, base)

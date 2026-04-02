@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -143,6 +144,47 @@ def ingest_inbox_into_state(callsign: str) -> Dict[str, Any]:
 
 
 
+
+def _geo_cache_path(st: Dict[str, Any]) -> Path | None:
+    agent = dict(st.get("agent") or {})
+    callsign = str(agent.get("callsign") or "").strip()
+    if not callsign:
+        return None
+    return agent_dir(callsign) / "geo_cache.json"
+
+
+def _read_geo_cache(st: Dict[str, Any], max_age_s: int = 3600) -> Dict[str, Any] | None:
+    p = _geo_cache_path(st)
+    if p is None or not p.exists():
+        return None
+    try:
+        obj = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    ts = float(obj.get("_cached_at") or 0)
+    if ts <= 0 or (time.time() - ts) > max_age_s:
+        return None
+    data = obj.get("data")
+    if isinstance(data, dict):
+        data = dict(data)
+        data.setdefault("source", {})
+        if isinstance(data["source"], dict):
+            data["source"]["cache"] = "hit"
+        return data
+    return None
+
+
+def _write_geo_cache(st: Dict[str, Any], data: Dict[str, Any]) -> None:
+    p = _geo_cache_path(st)
+    if p is None:
+        return
+    payload = {
+        "_cached_at": time.time(),
+        "data": data,
+    }
+    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def _geo_area_summary_for_state(st: Dict[str, Any]) -> Dict[str, Any]:
     own = dict(st.get("own_state") or {})
     pos = dict(own.get("position") or {})
@@ -159,13 +201,24 @@ def _geo_area_summary_for_state(st: Dict[str, Any]) -> Dict[str, Any]:
     url = f"http://127.0.0.1:8080/api/geo/area_summary?{params}"
 
     try:
-        with urllib.request.urlopen(url, timeout=8.0) as r:
+        with urllib.request.urlopen(url, timeout=3.0) as r:
             raw = (r.read() or b"").decode("utf-8", "replace")
         data = json.loads(raw)
+        if isinstance(data, dict) and data.get("ok"):
+            _write_geo_cache(st, data)
+            return data
+        cached = _read_geo_cache(st)
+        if cached is not None:
+            return cached
         if isinstance(data, dict):
             return data
         return {"ok": False, "error": "invalid_geo_payload"}
     except Exception as e:
+        cached = _read_geo_cache(st)
+        if cached is not None:
+            cached = dict(cached)
+            cached["warning"] = f"live_geo_failed_using_cache: {e}"
+            return cached
         return {"ok": False, "error": f"geo_lookup_failed: {e}"}
 
 
@@ -392,6 +445,88 @@ def emit_report_up(
     append_jsonl(outbox_path, msg)
 
 
+def _complete_root(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
+    root["status"] = "completed"
+    root["completed_sim_time_s"] = int(sim_time_s)
+    append_completed_work(st, root)
+
+
+def _execute_move_unit(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
+    params = dict(root.get("params") or {})
+    own = st.setdefault("own_state", {})
+    pos = dict(own.get("position") or {})
+
+    lat = params.get("lat", params.get("destination_lat"))
+    lon = params.get("lon", params.get("destination_lon"))
+    if lat is None or lon is None:
+        return
+
+    try:
+        pos["lat"] = float(lat)
+        pos["lon"] = float(lon)
+    except Exception:
+        return
+
+    own["position"] = pos
+    urgency = str(params.get("urgency") or params.get("movement_type") or "").strip()
+    if urgency:
+        own["last_movement"] = {
+            "sim_time_s": int(sim_time_s),
+            "urgency": urgency,
+        }
+
+
+def _execute_change_posture(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
+    params = dict(root.get("params") or {})
+    posture = str(params.get("posture") or "").strip()
+    if not posture:
+        return
+    own = st.setdefault("own_state", {})
+    own["posture"] = posture
+    own["posture_updated_sim_time_s"] = int(sim_time_s)
+
+
+def _execute_hold_position(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
+    params = dict(root.get("params") or {})
+    own = st.setdefault("own_state", {})
+    pos = dict(own.get("position") or {})
+    lat = params.get("lat")
+    lon = params.get("lon")
+    try:
+        if lat is not None:
+            pos["lat"] = float(lat)
+        if lon is not None:
+            pos["lon"] = float(lon)
+    except Exception:
+        pass
+    own["position"] = pos
+    own["holding_since_sim_time_s"] = int(sim_time_s)
+
+
+def _execute_observe_area(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
+    params = dict(root.get("params") or {})
+    obs = list(st.get("observations") or [])
+    center_lat = params.get("center_lat", params.get("lat"))
+    center_lon = params.get("center_lon", params.get("lon"))
+    radius_km = params.get("radius_km", params.get("radius"))
+    focus = params.get("focus") or []
+
+    row = {
+        "kind": "area_observation_task",
+        "sim_time_s": int(sim_time_s),
+        "from": str((st.get("agent") or {}).get("callsign") or ""),
+        "center": {
+            "lat": center_lat,
+            "lon": center_lon,
+        },
+        "radius_km": radius_km,
+        "focus": focus,
+        "summary": str(root.get("description") or root.get("title") or "observe_area"),
+    }
+    obs.append(row)
+    st["observations"] = obs[-200:]
+
+
 def inbox_count_for_callsign(callsign: str) -> int:
     d = ensure_agent_layout(callsign)
     inbox = read_jsonl(d / "inbox.jsonl")
@@ -429,29 +564,47 @@ def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
         if not isinstance(chain, list) or not chain:
             continue
 
-        root = dict(chain[0] or {})
+        chain = [dict(x or {}) for x in chain if isinstance(x, dict)]
+        if not chain:
+            continue
+
+        root = chain[0]
+        rest = chain[1:]
+
         action = str(root.get("action") or "")
         status = str(root.get("status") or "")
         deadline = int(root.get("deadline_sim_time_s") or 0)
 
-        keep_chain = True
+        if status == "pending":
+            root["status"] = "active"
+            root["started_sim_time_s"] = int(sim_time_s)
+            if not root.get("deadline_sim_time_s"):
+                root["deadline_sim_time_s"] = int(sim_time_s) + int(root.get("duration_s") or 0)
+            deadline = int(root.get("deadline_sim_time_s") or 0)
+
+            if action == "move_unit":
+                _execute_move_unit(st, root, sim_time_s)
+            elif action == "change_posture":
+                _execute_change_posture(st, root, sim_time_s)
+            elif action == "observe_area":
+                _execute_observe_area(st, root, sim_time_s)
+            elif action == "hold_position":
+                _execute_hold_position(st, root, sim_time_s)
+
+        completed_now = False
 
         if action == "send_message":
             emit_message_action(callsign, root, sim_time_s, outbox_path, st)
-            root["status"] = "completed"
-            root["completed_sim_time_s"] = int(sim_time_s)
-            append_completed_work(st, root)
-            keep_chain = False
+            _complete_root(st, root, sim_time_s)
+            completed_now = True
 
         elif action == "report_status":
             params = dict(root.get("params") or {})
             recipient = str(params.get("recipient") or superior).strip()
             root["message"] = str(params.get("message") or "")
             emit_report_up(callsign, recipient, root, sim_time_s, outbox_path, st)
-            root["status"] = "completed"
-            root["completed_sim_time_s"] = int(sim_time_s)
-            append_completed_work(st, root)
-            keep_chain = False
+            _complete_root(st, root, sim_time_s)
+            completed_now = True
 
         elif action in {
             "llm_replan_from_inbox",
@@ -462,18 +615,23 @@ def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
             "observe_area",
             "hold_position",
         }:
-            if status == "active" and deadline and int(sim_time_s) >= deadline:
-                root["status"] = "completed"
-                root["completed_sim_time_s"] = int(sim_time_s)
-                append_completed_work(st, root)
-                keep_chain = False
+            if deadline and int(sim_time_s) >= deadline:
+                _complete_root(st, root, sim_time_s)
+                completed_now = True
 
-        if keep_chain:
-            new_work.append(chain)
+        if completed_now:
+            if rest:
+                nxt = dict(rest[0] or {})
+                if not nxt.get("status") or str(nxt.get("status")) == "completed":
+                    nxt["status"] = "pending"
+                if nxt.get("created_sim_time_s") is None:
+                    nxt["created_sim_time_s"] = int(sim_time_s)
+                new_work.append([nxt] + rest[1:])
+        else:
+            new_work.append([root] + rest)
 
     st["work"] = new_work
     return len(list(st.get("completed_work") or []))
-
 
 def main() -> None:
     ap = argparse.ArgumentParser()
