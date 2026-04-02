@@ -762,6 +762,15 @@ def main() -> None:
 
     st["work"] = new_work
 
+    # new_messages are consumed by a successful LLM cycle and moved to read_messages
+    pending_messages = list(st.get("new_messages") or [])
+    if pending_messages:
+        read_hist = list(st.get("read_messages") or [])
+        read_hist.extend(pending_messages)
+        st["read_messages"] = read_hist[-500:]
+        st["new_messages"] = []
+        st["inbox"] = []
+
     write_json(d / "state.json", st)
 
     append_jsonl(d / "decisions.jsonl", {
@@ -794,6 +803,90 @@ def main() -> None:
     print("WROTE", d / "last_llm_response.txt")
     print("WROTE", d / "llm_trace.log")
 
+
+
+# --- replay message semantics override ---
+_original_ensure_memory_fields = ensure_memory_fields
+_original_ingest_inbox_into_state = ingest_inbox_into_state
+
+def _msg_token(row: Dict[str, Any]) -> str:
+    row = dict(row or {})
+    uid = str(row.get("uid") or "").strip()
+    if uid:
+        return uid
+    return "|".join([
+        str(row.get("kind") or ""),
+        str(row.get("from") or ""),
+        str(row.get("to") or ""),
+        str(row.get("sim_time_s") or ""),
+        str(row.get("message") or ""),
+    ])
+
+def ensure_memory_fields(st: Dict[str, Any]) -> Dict[str, Any]:
+    st = _original_ensure_memory_fields(st)
+    if not isinstance(st.get("new_messages"), list):
+        st["new_messages"] = []
+    if not isinstance(st.get("read_messages"), list):
+        st["read_messages"] = []
+    if not isinstance(st.get("inbox"), list):
+        st["inbox"] = []
+    if not isinstance(st.get("seen_chat_uids"), list):
+        st["seen_chat_uids"] = []
+    return st
+
+def ingest_inbox_into_state(callsign: str) -> Dict[str, Any]:
+    st = ensure_memory_fields(read_json(agent_dir(callsign) / "state.json", {}))
+    d = ensure_agent_layout(callsign)
+    inbox_path = d / "inbox.jsonl"
+
+    # Runtime inbox.jsonl is only a transport queue. Consume it into new_messages.
+    rows = read_jsonl(inbox_path)
+    if inbox_path.exists():
+        inbox_path.write_text("", encoding="utf-8")
+
+    existing_seen = [str(x) for x in list(st.get("seen_chat_uids") or [])]
+    seen = set(existing_seen)
+
+    existing_new = list(st.get("new_messages") or [])
+    existing_new_tokens = {_msg_token(x) for x in existing_new if isinstance(x, dict)}
+
+    existing_read = list(st.get("read_messages") or [])
+    existing_read_tokens = {_msg_token(x) for x in existing_read if isinstance(x, dict)}
+
+    appended = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        tok = _msg_token(row)
+        if tok in existing_new_tokens or tok in existing_read_tokens:
+            continue
+        msg = dict(row)
+        msg["_message_token"] = tok
+        appended.append(msg)
+        if tok not in seen:
+            existing_seen.append(tok)
+            seen.add(tok)
+
+    st["new_messages"] = existing_new + appended
+    # Keep inbox only as compatibility mirror for packet/rendering. It represents unread only.
+    st["inbox"] = list(st.get("new_messages") or [])
+    st["seen_chat_uids"] = existing_seen[-2000:]
+    return st
+
+def llm_trigger_reason(
+    st: Dict[str, Any],
+    callsign: str,
+    sim_time_s: int,
+    completed_before: int,
+    completed_after: int,
+) -> str:
+    if list(st.get("new_messages") or []):
+        return "new_messages"
+    if completed_after > completed_before:
+        return "deadline"
+    if world_changed(st, sim_time_s):
+        return "world_change"
+    return ""
 
 if __name__ == "__main__":
     main()

@@ -1,0 +1,4 @@
+Sektionskort: S1 – Bortfall / frånvaro.
+Lyft indikationer på frånvaro, sena rapporter, potentiellt bortfall, sjukdom, hemskickning eller oklar status. Gissa inte.
+
+Skriv nu ut JSON-objektet.

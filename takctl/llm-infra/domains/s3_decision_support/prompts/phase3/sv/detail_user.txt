@@ -1,0 +1,1 @@
+Skapa en detaljvy för S3 – Chefens beslutspunkter utifrån INPUT_FINDINGS_JSON. Börja med samlad bedömning, fortsätt med viktigaste osäkerheter och vad som bör följas upp.

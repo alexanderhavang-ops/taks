@@ -1,0 +1,4 @@
+Sektionskort: S6 – Sambandsdisciplin.
+Bedöm om trafiken verkar disciplinerat operativ eller störs av testtrafik, brus, publik informationsyta eller annat som påverkar sambandstjänsten.
+
+Skriv nu ut JSON-objektet.

@@ -1,0 +1,4 @@
+Sektionskort: S6 – Tystnad / luckor.
+Lyft rapportluckor, tystnad, enheter utan ny chatter/presence, möjliga sambandsproblem och var uppföljning behövs.
+
+Skriv nu ut JSON-objektet.

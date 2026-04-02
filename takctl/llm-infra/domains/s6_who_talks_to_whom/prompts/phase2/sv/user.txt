@@ -1,0 +1,4 @@
+Sektionskort: S6 – Vem pratar med vem.
+Sammanfatta sambandsmönster och trafikflöden på hög nivå: vilka relationer är aktiva, chef->underlydande, intern trafik, testtrafik. Inte innehållsanalys utöver strukturell nivå.
+
+Skriv nu ut JSON-objektet.

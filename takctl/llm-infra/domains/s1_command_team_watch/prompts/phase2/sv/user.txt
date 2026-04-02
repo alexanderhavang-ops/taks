@@ -1,0 +1,4 @@
+Sektionskort: S1 – Chef / nyckelroller.
+Fokusera på nyckelroller, chefslag, team leads, rapportluckor och om viktiga funktioner verkar sakna aktuell status.
+
+Skriv nu ut JSON-objektet.

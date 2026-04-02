@@ -1,0 +1,26 @@
+{
+  "enabled": true,
+  "domain": "s1_absence_and_attrition",
+  "mode": "synthesizer",
+  "section": "S1",
+  "card_title": "Bortfall / frånvaro",
+  "phases": {
+    "phase1": {
+      "enabled": false
+    },
+    "phase2": {
+      "enabled": true,
+      "input": "upstream_phase2_findings",
+      "upstream_domains": [
+        "presence",
+        "chatter"
+      ],
+      "prompt_dir": "prompts/phase2",
+      "output_schema": "standard.summary.v1"
+    },
+    "phase3": {
+      "enabled": true,
+      "prompt_dir": "prompts/phase3"
+    }
+  }
+}

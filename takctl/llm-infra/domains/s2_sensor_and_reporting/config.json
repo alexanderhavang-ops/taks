@@ -1,0 +1,27 @@
+{
+  "enabled": true,
+  "domain": "s2_sensor_and_reporting",
+  "mode": "synthesizer",
+  "section": "S2",
+  "card_title": "Sensorer / rapportering",
+  "phases": {
+    "phase1": {
+      "enabled": false
+    },
+    "phase2": {
+      "enabled": true,
+      "input": "upstream_phase2_findings",
+      "upstream_domains": [
+        "enemy",
+        "presence",
+        "chatter"
+      ],
+      "prompt_dir": "prompts/phase2",
+      "output_schema": "standard.summary.v1"
+    },
+    "phase3": {
+      "enabled": true,
+      "prompt_dir": "prompts/phase3"
+    }
+  }
+}

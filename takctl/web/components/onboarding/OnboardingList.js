@@ -31,6 +31,24 @@
     return String(hdr.username || u.username || "");
   }
 
+  async function _openFreshCard(username) {
+    const u = String(username || "").trim();
+    if (!u) throw new Error("username required");
+
+    const resp = await fetch("/api/onboarding/users/" + encodeURIComponent(u) + "/card-token", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    const j = await resp.json().catch(() => ({}));
+    if (!resp.ok) throw new Error(j.detail || ("HTTP " + resp.status));
+
+    const cardUrl = String((j && j.card_url) || "").trim();
+    if (!cardUrl) throw new Error("missing card_url from card-token response");
+
+    window.open(cardUrl, "_blank", "noopener,noreferrer");
+  }
+
   function _submitPrintPack(usernames, printMode) {
     const list = Array.isArray(usernames) ? usernames.filter(Boolean).map(String) : [];
     if (!list.length) {
@@ -58,28 +76,6 @@
     } finally {
       document.body.removeChild(form);
     }
-  }
-
-  async function _submitEmailPack(usernames, printMode) {
-    const list = Array.isArray(usernames) ? usernames.filter(Boolean).map(String) : [];
-    if (!list.length) {
-      throw new Error("No users selected for email");
-    }
-
-    const resp = await fetch("/api/onboarding/email-pack", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        usernames: list,
-        print_mode: String(printMode || "cards"),
-      }),
-    });
-
-    const data = await resp.json().catch(() => ({}));
-    if (!resp.ok) {
-      throw new Error((data && data.detail) || ("HTTP " + resp.status));
-    }
-    return data || {};
   }
 
   function PrintToolbar({
@@ -151,43 +147,7 @@
         onClick: function () {
           _submitPrintPack(usernames, printMode);
         }
-      }, _t("list.print_all")),
-
-      h("button", {
-        className: "btn",
-        type: "button",
-        disabled: selectedUsernames.length === 0,
-        onClick: async function () {
-          try {
-            const out = await _submitEmailPack(selectedUsernames, printMode);
-            window.alert(_t("list.email_result", {
-              sent: _colText(out.sent),
-              failed: _colText(out.failed),
-              missing: _colText(out.missing_email)
-            }));
-          } catch (e) {
-            window.alert(String((e && e.message) || e));
-          }
-        }
-      }, _t("list.email_selected")),
-
-      h("button", {
-        className: "btn",
-        type: "button",
-        disabled: usernames.length === 0,
-        onClick: async function () {
-          try {
-            const out = await _submitEmailPack(usernames, printMode);
-            window.alert(_t("list.email_result", {
-              sent: _colText(out.sent),
-              failed: _colText(out.failed),
-              missing: _colText(out.missing_email)
-            }));
-          } catch (e) {
-            window.alert(String((e && e.message) || e));
-          }
-        }
-      }, _t("list.email_all"))
+      }, _t("list.print_all"))
     );
   }
 
@@ -283,17 +243,18 @@
                 "div",
                 { style: { display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" } },
                 h(
-                  "a",
+                  "button",
                   {
                     className: "btn",
-                    href: (function(){
+                    type: "button",
+                    title: "Create fresh onboarding card token and open card",
+                    onClick: async function () {
                       try {
-                        return urls.card;
-                      } catch (e) { return urls.card; }
-                    })(),
-                    target: "_blank",
-                    rel: "noopener noreferrer",
-                    title: "Open the onboarding card (QR codes + links)",
+                        await _openFreshCard(username);
+                      } catch (e) {
+                        window.alert(String((e && e.message) || e || "Failed to open fresh card"));
+                      }
+                    }
                   },
                   _t("btn.card")
                 ),

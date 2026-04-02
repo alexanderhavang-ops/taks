@@ -1,0 +1,4 @@
+Sektionskort: S3 – Orderläge / verkställighet.
+Beskriv orderläge, pågående verkställighet, bekräftelser, uteblivna svar, genomförda grupperingar och vad som verkar vara nästa steg.
+
+Skriv nu ut JSON-objektet.

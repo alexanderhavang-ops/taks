@@ -1,0 +1,4 @@
+Sektionskort: S1 – Besökande / ej ordinarie.
+Lyft besökande, icke-doktrinära kontakter, främmande plattformar och personal som inte tydligt hör till ordinarie struktur.
+
+Skriv nu ut JSON-objektet.

@@ -1,0 +1,4 @@
+Sektionskort: S3 – Eget läge.
+Bedöm eget taktiskt läge, gruppering, spridning, aktuella positioner och vad som är operativt relevant just nu.
+
+Skriv nu ut JSON-objektet.

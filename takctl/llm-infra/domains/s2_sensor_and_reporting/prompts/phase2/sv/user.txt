@@ -1,0 +1,4 @@
+Sektionskort: S2 – Sensorer / rapportering.
+Bedöm rapporteringskedja och sensortäckning indirekt från vem som ser vad, rapportluckor, stale positioner och täckningsluckor.
+
+Skriv nu ut JSON-objektet.

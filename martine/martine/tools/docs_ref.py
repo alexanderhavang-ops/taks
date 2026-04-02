@@ -44,6 +44,95 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "").strip().lower())
 
 
+
+
+def _query_terms(query: str) -> list[str]:
+    q = _norm(query)
+    terms = [x for x in re.split(r"\s+", q) if x]
+    stop = {
+        "vad", "säger", "om", "och", "att", "den", "det", "de", "en", "ett",
+        "som", "är", "hur", "på", "i", "av", "för", "med", "till", "från",
+        "handboken", "manualen", "beskrivs"
+    }
+    return [t for t in terms if t not in stop and len(t) >= 3]
+
+
+def _keyword_score_text(query: str, text: str) -> float:
+    q_terms = _query_terms(query)
+    t = _norm(text)
+    if not q_terms or not t:
+        return 0.0
+
+    score = 0.0
+    matches = 0
+    for term in q_terms:
+        if term in t:
+            matches += 1
+            score += 0.05
+
+    if q_terms and matches == len(q_terms):
+        score += 0.08
+    elif matches >= 2:
+        score += 0.04
+
+    return score
+
+
+def _section_quality_bonus(section_path: list[str]) -> float:
+    if not isinstance(section_path, list) or not section_path:
+        return -0.03
+
+    bonus = 0.0
+    for s in section_path[:3]:
+        t = str(s or "").strip()
+        if not t:
+            continue
+        if re.match(r"^\d+(?:\.\d+)*\s+[A-ZÅÄÖA-Za-z]", t):
+            bonus += 0.05
+        elif re.match(r"^\d+(?:\.\d+)*$", t):
+            bonus += 0.01
+        elif len(t) <= 80 and "/" not in t and '"' not in t:
+            bonus += 0.01
+        else:
+            bonus -= 0.03
+    return bonus
+
+
+def _section_title_match_bonus(query: str, section_path: list[str]) -> float:
+    if not isinstance(section_path, list) or not section_path:
+        return 0.0
+
+    sec_text = " / ".join(str(x or "") for x in section_path)
+    sec_norm = _norm(sec_text)
+    q_terms = _query_terms(query)
+    if not q_terms or not sec_norm:
+        return 0.0
+
+    hits = sum(1 for t in q_terms if t in sec_norm)
+    if hits == 0:
+        return 0.0
+    if hits >= 2:
+        return 0.22
+    return 0.10
+
+
+def _hybrid_rank_item(query: str, title: str, section_path: list[str], text: str, semantic_score: float) -> float:
+    title_kw = _keyword_score_text(query, title or "")
+    section_kw = _keyword_score_text(query, " / ".join(section_path or []))
+    body_kw = _keyword_score_text(query, text or "")
+    section_bonus = _section_quality_bonus(section_path or [])
+    title_section_bonus = _section_title_match_bonus(query, section_path or [])
+
+    return (
+        float(semantic_score)
+        + title_kw * 0.8
+        + section_kw * 1.4
+        + body_kw * 0.6
+        + section_bonus
+        + title_section_bonus
+    )
+
+
 def _score(query: str, text: str) -> int:
     q = _norm(query)
     t = _norm(text)
@@ -366,9 +455,27 @@ def search_reference_docs_semantic(
             x = dict(item or {})
             x["doc_id"] = d
             x["title"] = title
+            x["semantic_score"] = float(x.get("score") or 0.0)
+            x["hybrid_score"] = round(
+                _hybrid_rank_item(
+                    q,
+                    title,
+                    list(x.get("section_path") or []),
+                    str(x.get("text") or ""),
+                    float(x.get("score") or 0.0),
+                ),
+                6,
+            )
             hits.append(x)
 
-    hits.sort(key=lambda x: (-float(x.get("score") or 0.0), str(x.get("doc_id") or ""), str(x.get("chunk_id") or "")))
+    hits.sort(
+        key=lambda x: (
+            -float(x.get("hybrid_score") or 0.0),
+            -float(x.get("semantic_score") or 0.0),
+            str(x.get("doc_id") or ""),
+            str(x.get("chunk_id") or ""),
+        )
+    )
     hits = hits[:lim]
 
     return {

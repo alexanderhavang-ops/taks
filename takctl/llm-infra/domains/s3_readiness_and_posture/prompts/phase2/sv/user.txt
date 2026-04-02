@@ -1,0 +1,4 @@
+Sektionskort: S3 – Stridsberedskap.
+Bedöm stridsberedskap och posture utifrån chatter/presence/enemy/weather. Var försiktig och redovisa osäkerhet.
+
+Skriv nu ut JSON-objektet.

@@ -1,0 +1,4 @@
+Sektionskort: S6 – Sambandsläge.
+Bedöm sambandsläge från metadata: aktivitet, tystnad, om nätet verkar fungera, vilka som nyligen kommunicerat.
+
+Skriv nu ut JSON-objektet.

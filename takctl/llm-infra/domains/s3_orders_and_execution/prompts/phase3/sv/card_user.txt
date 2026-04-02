@@ -1,0 +1,1 @@
+Skapa ett kompakt kort för S3 – Orderläge / verkställighet utifrån INPUT_FINDINGS_JSON. Lyft bara det mest användbara nu.

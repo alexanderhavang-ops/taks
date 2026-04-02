@@ -1,0 +1,4 @@
+Sektionskort: S2 – Kontraspionage / avvikelser.
+Lyft avvikande kontakter, icke-doktrinära plattformar, konstiga mönster, publik mission-åtkomst och annat som kan vara säkerhets- eller kontraspionageintressant.
+
+Skriv nu ut JSON-objektet.

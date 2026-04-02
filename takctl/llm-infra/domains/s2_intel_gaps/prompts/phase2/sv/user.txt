@@ -1,0 +1,4 @@
+Sektionskort: S2 – Underrättelseluckor.
+Beskriv vad vi inte vet men borde veta nu: luckor i fiendeläge, luckor i egen observation, påverkan av väder på spaning, gamla rapporter.
+
+Skriv nu ut JSON-objektet.

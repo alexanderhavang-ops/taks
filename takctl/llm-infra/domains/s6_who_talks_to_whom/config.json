@@ -1,0 +1,25 @@
+{
+  "enabled": true,
+  "domain": "s6_who_talks_to_whom",
+  "mode": "synthesizer",
+  "section": "S6",
+  "card_title": "Vem pratar med vem",
+  "phases": {
+    "phase1": {
+      "enabled": false
+    },
+    "phase2": {
+      "enabled": true,
+      "input": "upstream_phase2_findings",
+      "upstream_domains": [
+        "chatter"
+      ],
+      "prompt_dir": "prompts/phase2",
+      "output_schema": "standard.summary.v1"
+    },
+    "phase3": {
+      "enabled": true,
+      "prompt_dir": "prompts/phase3"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+Sektionskort: S3 – Chefens beslutspunkter.
+Ge kort beslutsstöd för operationsledning: vad kräver omedelbar uppföljning, vilka risker, vilka samordningsfrågor.
+
+Skriv nu ut JSON-objektet.

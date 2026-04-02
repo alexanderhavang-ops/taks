@@ -1,0 +1,4 @@
+Sektionskort: S1 – Personalläge.
+Bedöm bemanning, närvaro, bortfall och personalläge från presence/chatter/missions. Var tydlig med osäkerhet.
+
+Skriv nu ut JSON-objektet.

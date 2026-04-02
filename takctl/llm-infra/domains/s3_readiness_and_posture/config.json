@@ -1,0 +1,28 @@
+{
+  "enabled": true,
+  "domain": "s3_readiness_and_posture",
+  "mode": "synthesizer",
+  "section": "S3",
+  "card_title": "Stridsberedskap",
+  "phases": {
+    "phase1": {
+      "enabled": false
+    },
+    "phase2": {
+      "enabled": true,
+      "input": "upstream_phase2_findings",
+      "upstream_domains": [
+        "chatter",
+        "presence",
+        "enemy",
+        "weather"
+      ],
+      "prompt_dir": "prompts/phase2",
+      "output_schema": "standard.summary.v1"
+    },
+    "phase3": {
+      "enabled": true,
+      "prompt_dir": "prompts/phase3"
+    }
+  }
+}
