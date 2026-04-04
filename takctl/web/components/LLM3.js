@@ -44,7 +44,9 @@
       title:onClick ? "Open detail page" : undefined,
       style:{
         padding:18,
-        cursor:onClick ? "pointer" : "default"
+        cursor:onClick ? "pointer" : "default",
+        width:"100%",
+        boxSizing:"border-box"
       }
     }, [
       e("div", {style:{fontWeight:700, marginBottom:10}}, title),
@@ -53,7 +55,10 @@
   }
 
   function renderHtml(html){
-    return e("div", {dangerouslySetInnerHTML:{__html:String(html||"")}});
+    return e("div", {
+      style:{width:"100%", minWidth:0},
+      dangerouslySetInnerHTML:{__html:String(html||"")}
+    });
   }
 
   window.LLM3View = function LLM3View(){
@@ -118,7 +123,7 @@
       else if (cardHtml) body = renderHtml(cardHtml);
       else body = e("pre", {style:{whiteSpace:"pre-wrap", overflow:"auto"}}, JSON.stringify(findings, null, 2));
 
-      return e("div", {className:"llm-page", style:{overflowX:"hidden"}}, [
+      return e("div", {className:"llm-page", style:{overflowX:"hidden", width:"100%", minWidth:0}}, [
         e("div", {style:{display:"flex", gap:10, alignItems:"center", marginBottom:14}}, [
           e("h2", {style:{margin:0}}, "LLM3 Tactical Ops"),
           e("div", {style:{marginLeft:"auto", display:"flex", gap:10}}, [
@@ -131,7 +136,7 @@
       ]);
     }
 
-    return e("div", {className:"llm-page", style:{overflowX:"hidden"}}, [
+    return e("div", {className:"llm-page", style:{overflowX:"hidden", width:"100%", minWidth:0}}, [
       e("div", {style:{display:"flex", gap:10, alignItems:"center", marginBottom:14}}, [
         e("h2", {style:{margin:0}}, "LLM3 Tactical Ops"),
         e("div", {style:{marginLeft:"auto", display:"flex", gap:10}}, [

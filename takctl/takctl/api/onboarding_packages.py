@@ -16,6 +16,7 @@ from takctl.onboarding.selection import artifact_root, load_selection, save_sele
 from takctl.onboarding.atak import (
     atak_enroll_payload,
     atak_enroll_creds_payload,
+    atak_enroll_payload_values,
     qr_payload,
     write_atak_auto_enroll_zip,
     write_atak_soft_cert_zip,
@@ -35,6 +36,31 @@ def _external_req_url(req) -> str:
     path = str(req.url.path)
     q = (str(req.url.query) or "").strip()
     return f"{base}{path}" + (f"?{q}" if q else "")
+
+
+def _known_taks_password(svc, username: str) -> str:
+    try:
+        ident = svc.store.get_identity(username)
+    except Exception:
+        ident = None
+    if ident is None:
+        return ""
+    if bool(getattr(ident, "password_known", False)):
+        return str(getattr(ident, "password", "") or "").strip()
+    return ""
+
+
+def _enroll_params_from_req(req: Request) -> tuple[str, int | None, bool]:
+    host = (req.query_params.get("enroll_host") or forwarded_host_only(req)).strip()
+    raw_port = (req.query_params.get("enroll_port") or "").strip()
+    port = None
+    if raw_port:
+        try:
+            port = int(raw_port)
+        except Exception:
+            port = None
+    use_ssl = bool_q(req, "enroll_ssl", True)
+    return host, port, use_ssl
 
 
 # --- TAKS onboarding stage-gates helpers ---
@@ -185,15 +211,21 @@ def token_qr_payload_txt(req: Request, token: str, client: str):
     _mark_qr_generated(svc, username)
 
     c = (client or "").strip().lower()
-    if c not in ("atak", "itak", "wintak"):
+    if c not in ("atak", "itak", "wintak", "vx"):
         raise HTTPException(status_code=400, detail=f"unknown client: {client}")
 
     base = _resolve_public_base(req, username)
-    package_url = f"{base}/api/onboarding/cards/{token}/packages/{c}/package.zip"
-    package_url = _url_with_qs(package_url, regen="1", via="qr")
 
-    host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
-    payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
+    if c == "vx":
+        package_url = f"{base}/api/onboarding/cards/{token}/packages/vx/package.zip"
+        package_url = _url_with_qs(package_url, regen="1", via="qr")
+        host, port, use_ssl = _resolve_qr_endpoint(req, username, "atak")
+        payload = qr_payload("atak", package_url, host, port=port, use_ssl=use_ssl)
+    else:
+        package_url = f"{base}/api/onboarding/cards/{token}/packages/{c}/package.zip"
+        package_url = _url_with_qs(package_url, regen="1", via="qr")
+        host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
+        payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
     return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 
@@ -227,15 +259,21 @@ def token_qr_png(req: Request, token: str, client: str):
     _mark_qr_generated(svc, username)
 
     c = (client or "").strip().lower()
-    if c not in ("atak", "itak", "wintak"):
+    if c not in ("atak", "itak", "wintak", "vx"):
         raise HTTPException(status_code=400, detail=f"unknown client: {client}")
 
     base = _resolve_public_base(req, username)
-    package_url = f"{base}/api/onboarding/cards/{token}/packages/{c}/package.zip"
-    package_url = _url_with_qs(package_url, regen="1", via="qr")
 
-    host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
-    payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
+    if c == "vx":
+        package_url = f"{base}/api/onboarding/cards/{token}/packages/vx/package.zip"
+        package_url = _url_with_qs(package_url, regen="1", via="qr")
+        host, port, use_ssl = _resolve_qr_endpoint(req, username, "atak")
+        payload = qr_payload("atak", package_url, host, port=port, use_ssl=use_ssl)
+    else:
+        package_url = f"{base}/api/onboarding/cards/{token}/packages/{c}/package.zip"
+        package_url = _url_with_qs(package_url, regen="1", via="qr")
+        host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
+        payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
     out = artifact_root(username) / f"{username}.{c}.token.qr.png"
     write_qr_png(payload, out, size=8)
@@ -317,7 +355,25 @@ def _write_itak_package_by_kind(out, username: str, req: Request, base: str, kin
 def token_atak_quick_connect_qr_txt(req: Request, token: str):
     svc, _, username, _ = _require_token(token)
     _mark_qr_generated(svc, username)
-    payload = atak_enroll_payload(req)
+
+    host, port, use_ssl = _enroll_params_from_req(req)
+    pw = (req.query_params.get("password") or "").strip() or _known_taks_password(svc, username)
+
+    if pw:
+        payload = atak_enroll_payload_values(
+            host=host,
+            port=port,
+            use_ssl=use_ssl,
+            username=username,
+            password=pw,
+        )
+    else:
+        payload = atak_enroll_payload_values(
+            host=host,
+            port=port,
+            use_ssl=use_ssl,
+        )
+
     return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 
 
@@ -325,7 +381,25 @@ def token_atak_quick_connect_qr_txt(req: Request, token: str):
 def token_atak_quick_connect_qr_png(req: Request, token: str):
     svc, _, username, _ = _require_token(token)
     _mark_qr_generated(svc, username)
-    payload = atak_enroll_payload(req)
+
+    host, port, use_ssl = _enroll_params_from_req(req)
+    pw = (req.query_params.get("password") or "").strip() or _known_taks_password(svc, username)
+
+    if pw:
+        payload = atak_enroll_payload_values(
+            host=host,
+            port=port,
+            use_ssl=use_ssl,
+            username=username,
+            password=pw,
+        )
+    else:
+        payload = atak_enroll_payload_values(
+            host=host,
+            port=port,
+            use_ssl=use_ssl,
+        )
+
     out = artifact_root(username) / f"{username}.atak.quick-connect.qr.png"
     write_qr_png(payload, out, size=8)
     return FileResponse(

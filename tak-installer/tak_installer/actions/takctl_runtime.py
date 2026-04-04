@@ -142,12 +142,18 @@ def _fix_runtime_perms() -> None:
         DST_ROOT / "secrets.conf",
     ]
 
+    writable_cfg_dirs = {
+        str(DST_ROOT / "conf.d"),
+        str(DST_ROOT / "secrets.d"),
+    }
+
     for d in managed_dirs:
         if not d.exists():
             continue
         subprocess.run(["chown", "-R", "tak:tak", str(d)], check=False)
+        dir_mode = "2770" if str(d) in writable_cfg_dirs else "2750"
         subprocess.run(
-            ["bash", "-lc", f'find "{d}" -type d -exec chmod 2750 {{}} \\; 2>/dev/null || true'],
+            ["bash", "-lc", f'find "{d}" -type d -exec chmod {dir_mode} {{}} \\; 2>/dev/null || true'],
             check=False,
         )
         subprocess.run(

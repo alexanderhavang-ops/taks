@@ -6,31 +6,31 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent = `
-      .taks-logs-root { display:flex; gap:16px; height:calc(100vh - 160px); min-height:540px; }
-      .taks-logs-pane { background:#fff; border:1px solid #d9d9d9; border-radius:10px; overflow:hidden; display:flex; flex-direction:column; }
+      .taks-logs-root { display:flex; gap:16px; height:calc(100vh - 160px); min-height:540px; background:transparent; color:#111827; }
+      .taks-logs-pane { background:#f7f9fc; color:#111827; border:1px solid #d7dee8; border-radius:12px; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 1px 2px rgba(16,24,40,.04); }
       .taks-logs-nav { width:360px; min-width:320px; }
       .taks-logs-view { flex:1; min-width:0; }
-      .taks-logs-toolbar { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid #e7e7e7; flex-wrap:wrap; }
-      .taks-logs-toolbar h2 { margin:0; font-size:16px; }
+      .taks-logs-toolbar { display:flex; align-items:center; gap:8px; padding:12px 14px; border-bottom:1px solid #e6ebf2; flex-wrap:wrap; background:#eef3f8; color:#111827; }
+      .taks-logs-toolbar h2 { margin:0; font-size:16px; color:#111827; }
       .taks-logs-spacer { flex:1; }
-      .taks-logs-btn { border:1px solid #cfcfcf; background:#fafafa; border-radius:8px; padding:6px 10px; cursor:pointer; }
-      .taks-logs-btn:hover { background:#f0f0f0; }
+      .taks-logs-btn { border:1px solid #c8d2df; background:#fff; color:#111827; border-radius:8px; padding:6px 10px; cursor:pointer; }
+      .taks-logs-btn:hover { background:#f7f9fc; }
       .taks-logs-btn[disabled] { opacity:.5; cursor:default; }
-      .taks-logs-btn.active { background:#eaf3ff; border-color:#b7d1ff; }
-      .taks-logs-breadcrumbs { display:flex; gap:6px; flex-wrap:wrap; font-size:13px; }
-      .taks-logs-breadcrumbs a { color:#1f5fbf; text-decoration:none; }
+      .taks-logs-btn.active { background:#e7f0ff; border-color:#b7d1ff; color:#0f3d91; }
+      .taks-logs-breadcrumbs { display:flex; gap:6px; flex-wrap:wrap; font-size:13px; color:#475467; }
+      .taks-logs-breadcrumbs a { color:#175cd3; text-decoration:none; }
       .taks-logs-breadcrumbs a:hover { text-decoration:underline; }
-      .taks-logs-list { overflow:auto; }
-      .taks-logs-item { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #f1f1f1; cursor:pointer; }
-      .taks-logs-item:hover { background:#fafcff; }
-      .taks-logs-item.active { background:#eef5ff; }
-      .taks-logs-item-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-      .taks-logs-item-meta { color:#777; font-size:12px; }
-      .taks-logs-empty, .taks-logs-error, .taks-logs-loading { padding:14px; color:#666; }
-      .taks-logs-error { color:#9b1c1c; }
-      .taks-logs-pre-wrap { overflow:auto; margin:0; padding:14px; font:12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space:pre-wrap; word-break:break-word; background:#fcfcfc; height:100%; }
-      .taks-logs-meta { font-size:12px; color:#666; }
-      .taks-logs-title { font:600 14px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:48vw; }
+      .taks-logs-list { overflow:auto; background:#fdfefe; }
+      .taks-logs-item { display:flex; align-items:center; gap:8px; padding:10px 14px; border-bottom:1px solid #eef2f6; cursor:pointer; color:#111827; }
+      .taks-logs-item:hover { background:#f5f9ff; }
+      .taks-logs-item.active { background:#eaf2ff; }
+      .taks-logs-item-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#111827; font-size:13px; }
+      .taks-logs-item-meta { color:#667085; font-size:12px; }
+      .taks-logs-empty, .taks-logs-error, .taks-logs-loading { padding:14px; color:#475467; }
+      .taks-logs-error { color:#b42318; }
+      .taks-logs-pre-wrap { overflow:auto; margin:0; padding:14px; font:12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space:pre-wrap; word-break:break-word; background:#f8fafc; color:#0f172a; height:100%; }
+      .taks-logs-meta { font-size:12px; color:#667085; }
+      .taks-logs-title { font:600 14px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:48vw; color:#0f172a; }
     `;
     document.head.appendChild(style);
   }

@@ -85,6 +85,18 @@ def now_utc_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def _cfg_bool_with_fallback(cfg, primary: str, legacy: str, default: bool = False) -> bool:
+    truthy = ("1", "true", "yes", "y", "on")
+    for key in (primary, legacy):
+        try:
+            raw = str(cfg.get(key, "") or "").strip().lower()
+        except Exception:
+            raw = ""
+        if raw:
+            return raw in truthy
+    return default
+
+
 def _user_cert_dir(username: str) -> Path:
     return Path("/opt/tak/certs/files/04_USERS") / username
 
@@ -244,17 +256,31 @@ def qr_payload(
 # Path A/C enroll payloads (experimental)
 # -----------------------------------------------------------------------------
 
+def atak_enroll_payload_values(
+    *,
+    host: str,
+    port: int | None = None,
+    use_ssl: bool = True,
+    username: str | None = None,
+    password: str | None = None,
+) -> str:
+    qs: list[tuple[str, str]] = [("host", host)]
+    if port is not None:
+        qs.append(("port", str(port)))
+    if username is not None and str(username).strip():
+        qs.append(("username", str(username)))
+    if password is not None and str(password).strip():
+        qs.append(("password", str(password)))
+    qs.append(("ssl", "true" if use_ssl else "false"))
+    qstr = "&".join(f"{k}={quote(str(v), safe='')}" for k, v in qs)
+    return "tak://com.atakmap.app/enroll?" + qstr
+
+
 def atak_enroll_payload(req: Request) -> str:
     host = q(req, "enroll_host", None) or forwarded_host_only(req)
     port = qi(req, "enroll_port")
     use_ssl = bool_q(req, "enroll_ssl", True)
-
-    qs: list[tuple[str, str]] = [("host", host)]
-    if port is not None:
-        qs.append(("port", str(port)))
-    qs.append(("ssl", "true" if use_ssl else "false"))
-    qstr = "&".join(f"{k}={quote(v, safe='')}" for k, v in qs)
-    return "tak://com.atakmap.app/enroll?" + qstr
+    return atak_enroll_payload_values(host=host, port=port, use_ssl=use_ssl)
 
 
 def atak_enroll_creds_payload(req: Request, username: str) -> str:
@@ -266,17 +292,13 @@ def atak_enroll_creds_payload(req: Request, username: str) -> str:
     if not pw:
         raise HTTPException(status_code=400, detail="password required (x-taks-password header or ?password=...)")
 
-    qs: list[tuple[str, str]] = [
-        ("host", host),
-        ("username", username),
-        ("password", pw),
-        ("ssl", "true" if use_ssl else "false"),
-    ]
-    if port is not None:
-        qs.insert(1, ("port", str(port)))
-
-    qstr = "&".join(f"{k}={quote(str(v), safe='')}" for k, v in qs)
-    return "tak://com.atakmap.app/enroll?" + qstr
+    return atak_enroll_payload_values(
+        host=host,
+        port=port,
+        use_ssl=use_ssl,
+        username=username,
+        password=pw,
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -397,8 +419,18 @@ def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, incl
         raise HTTPException(status_code=400, detail="missing CA password for ATAK cert package")
 
     cfg = load_config()
-    include_client_pw = str(cfg.get("include_client_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
-    include_trust_pw = str(cfg.get("include_truststore_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    include_client_pw = _cfg_bool_with_fallback(
+        cfg,
+        "soft_cert_include_client_password",
+        "include_client_password_in_package",
+        default=False,
+    )
+    include_trust_pw = _cfg_bool_with_fallback(
+        cfg,
+        "soft_cert_include_truststore_password",
+        "include_truststore_password_in_package",
+        default=False,
+    )
 
     client_name = "clientCert.p12"
     client_zip_rel = f"certs/{client_name}"
@@ -658,8 +690,18 @@ def write_itak_soft_cert_zip(out_zip: Path, username: str, req: Request, base: s
         raise HTTPException(status_code=400, detail="missing CA password for iTAK package")
 
     cfg = load_config()
-    include_client_pw = str(cfg.get("include_client_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
-    include_trust_pw = str(cfg.get("include_truststore_password_in_package", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    include_client_pw = _cfg_bool_with_fallback(
+        cfg,
+        "soft_cert_include_client_password",
+        "include_client_password_in_package",
+        default=False,
+    )
+    include_trust_pw = _cfg_bool_with_fallback(
+        cfg,
+        "soft_cert_include_truststore_password",
+        "include_truststore_password_in_package",
+        default=False,
+    )
 
     client_name = "clientCert.p12"
     client_zip_rel = f"certs/{client_name}"

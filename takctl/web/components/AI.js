@@ -71,7 +71,9 @@
       style: {
         display: "flex",
         gap: 12,
-        alignItems: "flex-start"
+        alignItems: "flex-start",
+        width: "100%",
+        minWidth: 0
       }
     }, [
       e("div", {
@@ -102,7 +104,7 @@
           label: tr("nav.ai_costs", "AI-kostnader")
         })
       ]),
-      e("div", { style: { flex: 1, minWidth: 0 } }, body)
+      e("div", { style: { flex: "1 1 0%", minWidth: 0, width: "100%" } }, body)
     ]);
   };
 })();
