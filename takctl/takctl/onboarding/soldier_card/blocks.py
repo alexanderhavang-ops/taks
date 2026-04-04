@@ -47,7 +47,7 @@ def profile_block(*, lang: str | None, username: str, groups: list[str], sel: di
     rows.append(
         f'<div class="kvrow"><div class="kvlabel">{h(t(lang, "field.username"))}</div>'
         f'<div class="kvvalue"><code id="taks_username">{h(safe(username))}</code> '
-        f'<button class="btn" onclick="copyId(\'taks_username\')">{h(t(lang, "soldier.copy"))}</button></div></div>'
+        f'<button class="btn interactive-only" onclick="copyId(\'taks_username\')">{h(t(lang, "soldier.copy"))}</button></div></div>'
     )
 
     if remarks:
@@ -125,7 +125,7 @@ def password_block(
         return f"""
 <div class="note">
   {h(t(lang, "field.username"))}: <code id="taks_username2">{h(safe(username))}</code>
-  <button class="btn" onclick="copyId('taks_username2')">{h(t(lang, "soldier.copy"))}</button><br/>
+  <button class="btn interactive-only" onclick="copyId('taks_username2')">{h(t(lang, "soldier.copy"))}</button><br/>
   {h(t(lang, "pw.hidden"))}
 </div>
 """
@@ -135,21 +135,21 @@ def password_block(
         extra += (
             f'<br/>{h(t(lang, "pw.truststore_password"))}: '
             f'<code id="taks_truststore_password">{h(safe(truststore_password))}</code> '
-            f'<button class="btn" onclick="copyId(\'taks_truststore_password\')">{h(t(lang, "soldier.copy"))}</button>'
+            f'<button class="btn interactive-only" onclick="copyId(\'taks_truststore_password\')">{h(t(lang, "soldier.copy"))}</button>'
         )
     if client_password:
         extra += (
             f'<br/>{h(t(lang, "pw.client_password"))}: '
             f'<code id="taks_client_password">{h(safe(client_password))}</code> '
-            f'<button class="btn" onclick="copyId(\'taks_client_password\')">{h(t(lang, "soldier.copy"))}</button>'
+            f'<button class="btn interactive-only" onclick="copyId(\'taks_client_password\')">{h(t(lang, "soldier.copy"))}</button>'
         )
 
     return f"""
 <div class="note">
   {h(t(lang, "field.username"))}: <code id="taks_username2">{h(safe(username))}</code>
-  <button class="btn" onclick="copyId('taks_username2')">{h(t(lang, "soldier.copy"))}</button><br/>
+  <button class="btn interactive-only" onclick="copyId('taks_username2')">{h(t(lang, "soldier.copy"))}</button><br/>
   {h(t(lang, "pw.password"))}: <code id="taks_password">{h(safe(pw_val))}</code>
-  <button class="btn" onclick="copyId('taks_password')">{h(t(lang, "soldier.copy"))}</button>{extra}
+  <button class="btn interactive-only" onclick="copyId('taks_password')">{h(t(lang, "soldier.copy"))}</button>{extra}
 </div>
 """
 

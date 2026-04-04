@@ -1,1 +1,8 @@
-Skapa ett kompakt kort för S1 – Personalläge utifrån INPUT_FINDINGS_JSON. Lyft bara det mest användbara nu.
+Skapa ett kompakt kort för S1 – Personalläge som en personaltablå utifrån INPUT_FINDINGS_JSON.
+
+Mål:
+- visa vilka enheter/personer som kan utläsas ur underlaget
+- visa "Från", "Till" och "Status"
+- använd TNR/tidsnummer i format DDHHMM
+- håll kortet kompakt och tabellbaserat
+- ingen fri längre brödtext

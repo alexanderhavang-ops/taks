@@ -78,6 +78,36 @@
     }
   }
 
+  async function _submitEmailPack(usernames, printMode) {
+    const list = Array.isArray(usernames) ? usernames.filter(Boolean).map(String) : [];
+    if (!list.length) {
+      throw new Error("No users selected for email");
+    }
+
+    const resp = await fetch("/api/onboarding/email-pack", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        usernames: list,
+        print_mode: String(printMode || "cards"),
+      }),
+    });
+
+    let data = {};
+    try {
+      data = await resp.json();
+    } catch (e) {
+      data = {};
+    }
+
+    if (!resp.ok || data.ok === false) {
+      const msg = (data && (data.detail || data.error)) ? String(data.detail || data.error) : ("HTTP " + resp.status);
+      throw new Error(msg);
+    }
+
+    return data || {};
+  }
+
   function PrintToolbar({
     rows,
     selectedMap,
@@ -147,7 +177,43 @@
         onClick: function () {
           _submitPrintPack(usernames, printMode);
         }
-      }, _t("list.print_all"))
+      }, _t("list.print_all")),
+
+      h("button", {
+        className: "btn",
+        type: "button",
+        disabled: selectedUsernames.length === 0,
+        onClick: async function () {
+          try {
+            const out = await _submitEmailPack(selectedUsernames, printMode);
+            window.alert(_t("list.email_result", {
+              sent: _colText(out.sent),
+              failed: _colText(out.failed),
+              missing: _colText(out.missing_email),
+            }));
+          } catch (e) {
+            window.alert(String((e && e.message) || e || "Email failed"));
+          }
+        }
+      }, _t("list.email_selected")),
+
+      h("button", {
+        className: "btn",
+        type: "button",
+        disabled: usernames.length === 0,
+        onClick: async function () {
+          try {
+            const out = await _submitEmailPack(usernames, printMode);
+            window.alert(_t("list.email_result", {
+              sent: _colText(out.sent),
+              failed: _colText(out.failed),
+              missing: _colText(out.missing_email),
+            }));
+          } catch (e) {
+            window.alert(String((e && e.message) || e || "Email failed"));
+          }
+        }
+      }, _t("list.email_all"))
     );
   }
 

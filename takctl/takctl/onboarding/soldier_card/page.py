@@ -4,8 +4,10 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 from html import escape as h
+from urllib.parse import urlparse
 
 from takctl.onboarding.soldier_card.blocks import lifecycle_block, password_block, profile_block
+from takctl.onboarding.soldier_card.post_onboarding import post_onboarding_block
 from takctl.onboarding.soldier_card.i18n import lang_norm, t
 from takctl.config import load_config
 from takctl.onboarding.atak import _read_runtime_ca_password, _read_runtime_user_cert_password
@@ -65,18 +67,216 @@ def _card_bool(cfg, key: str, default: bool) -> bool:
     return _cfg_bool(cfg, key, default)
 
 
-def render_soldier_card_page(
+def _print_pack_style_html() -> str:
+    return """<style>
+@page {
+  size: A4 portrait;
+  margin: 10mm;
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #ffffff;
+  color: #111111;
+}
+body.print-pack {
+  background: #ffffff;
+  color: #111111;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+}
+.print-pack-wrap {
+  width: 100%;
+}
+.print-page {
+  page-break-after: always;
+  break-after: page;
+  padding: 0;
+  margin: 0;
+}
+.print-page:last-child {
+  page-break-after: auto;
+  break-after: auto;
+}
+.print-password-page {
+  page-break-after: always;
+  break-after: page;
+  padding: 0;
+  margin: 0;
+}
+.print-password-page:last-child {
+  page-break-after: auto;
+  break-after: auto;
+}
+.print-card-shell {
+  padding: 0;
+}
+.print-password-shell {
+  border: 1px solid #cfcfcf;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #fff;
+}
+.print-password-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: linear-gradient(180deg, #1f2328 0%, #111418 100%);
+  color: #fff;
+  border-bottom: 3px solid #b08d2f;
+}
+.print-password-title {
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1.05;
+}
+.print-password-subtitle {
+  font-size: 15px;
+  color: rgba(255,255,255,0.82);
+  margin-top: 3px;
+}
+.print-password-box {
+  border: 1px solid #d8d8d8;
+  border-radius: 10px;
+  padding: 14px;
+  margin-top: 14px;
+  background: #fff;
+}
+.print-row {
+  display: grid;
+  grid-template-columns: 160px minmax(0,1fr);
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.print-label {
+  font-size: 11px;
+  color: #6d7278;
+  font-weight: 800;
+  text-transform: uppercase;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+}
+.print-value {
+  font-size: 15px;
+  line-height: 1.25;
+}
+.print-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.print-big {
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 800;
+  word-break: break-all;
+}
+@media screen {
+  body.print-pack {
+    background: #e9e9e9;
+  }
+  .print-page,
+  .print-password-page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto 8mm auto;
+    background: #fff;
+    padding: 10mm;
+    box-sizing: border-box;
+  }
+}
+@media print {
+  .interactive-only {
+    display: none !important;
+  }
+}
+</style>"""
+
+
+def render_soldier_card_print_pack(*, title: str, sections: list[str]) -> str:
+    body = "\n".join(sections) if sections else """
+<div class="print-page">
+  <div class="print-card-shell">
+    <div style="font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; padding: 24px;">
+      <h1 style="margin:0 0 12px 0; font-size:28px;">TAKS</h1>
+      <div>No users selected.</div>
+    </div>
+  </div>
+</div>
+"""
+    return f"""<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>{h(title)}</title>
+  {_print_pack_style_html()}
+</head>
+<body class="print-pack">
+  <div class="print-pack-wrap">
+    {body}
+  </div>
+</body>
+</html>
+"""
+
+
+def _render_password_only_section(
     *,
-    lang: str | None,
+    lang: str,
+    username: str,
+    groups: list[str],
+    sel: dict,
+    ident,
+) -> str:
+    profile_html = profile_block(lang=lang, username=username, groups=groups, sel=sel, ident=ident)
+    creds_html = password_block(
+        lang=lang,
+        username=username,
+        ident=ident,
+        reveal_password=True,
+        truststore_password=None,
+        client_password=None,
+    )
+
+    return f"""
+<div class="print-password-page">
+  <div class="print-password-shell">
+    <div class="print-password-topbar">
+      <div>
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:rgba(255,255,255,0.72);font-weight:700;">TAKS</div>
+        <div class="print-password-title">{h(t(lang, "soldier.title_for", username=username))}</div>
+        <div class="print-password-subtitle">{h(t(lang, "soldier.credentials"))}</div>
+      </div>
+    </div>
+    <div style="padding:14px;">
+      <div class="print-password-box">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.09em;color:#6d7278;font-weight:800;margin-bottom:12px;">{h(t(lang, "soldier.profile"))}</div>
+        {profile_html}
+      </div>
+      <div class="print-password-box">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.09em;color:#6d7278;font-weight:800;margin-bottom:12px;">{h(t(lang, "soldier.credentials"))}</div>
+        {creds_html}
+      </div>
+    </div>
+  </div>
+</div>
+"""
+
+
+def _render_full_card_section(
+    *,
+    lang: str,
     username: str,
     groups: list[str],
     base: str,
     sel: dict,
-    ident=None,
+    ident,
     token: str,
     expires_at_utc: datetime,
     reveal_password: bool,
-    lifecycle: dict | None = None,
+    lifecycle: dict | None,
+    interactive: bool,
 ) -> str:
     bump = int(datetime.now(timezone.utc).timestamp())
     l = lang_norm(lang)
@@ -118,6 +318,7 @@ def render_soldier_card_page(
 
     profile_html = profile_block(lang=l, username=username, groups=groups, sel=sel, ident=ident)
     lifecycle_html = lifecycle_block(l, lifecycle)
+    post_onboarding_html = post_onboarding_block(lang=l, base=base)
 
     truststore_password = None
     client_password = None
@@ -186,7 +387,7 @@ def render_soldier_card_page(
       copyText(el.textContent || el.innerText || '');
     }
     function showMainTab(id) {
-      var ids = ["start", "guide", "info", "advanced"];
+      var ids = ["start", "guide", "info", "post", "advanced"];
       for (var i = 0; i < ids.length; i++) {
         var panel = document.getElementById("tab_" + ids[i]);
         var btn = document.getElementById("tabbtn_" + ids[i]);
@@ -302,6 +503,142 @@ body {
 .choicebtn-active { outline:2px solid rgba(139,184,255,0.45); }
 a { color: var(--link); }
 pre { white-space: pre-wrap; word-break: break-word; }
+.print-page > div[id^="tab_"],
+.print-page > div[id^="flow_"] { display:block !important; }
+.print-page .tabs.interactive-only,
+.print-page .choicebtn.interactive-only,
+.print-page .interactive-only,
+.print-page .dlrow,
+.print-page .btn,
+.print-page a.btn { display:none !important; }
+.print-page #tab_info { display:none !important; }
+
+.print-page .card,
+.print-page .stepcard,
+.print-page .guidegrid > .stepcard,
+.print-page .infogrid > .stepcard {
+  background: #ffffff !important;
+  color: #111111 !important;
+  border-color: #d8d8d8 !important;
+  box-shadow: none !important;
+}
+
+.print-page .hero {
+  background: #f3f5f8 !important;
+  color: #111111 !important;
+  border: 1px solid #d8d8d8 !important;
+  box-shadow: none !important;
+}
+
+.print-page .hero * {
+  text-shadow: none !important;
+}
+
+.print-page .hero-title,
+.print-page .hero-title * {
+  color: #111111 !important;
+}
+
+.print-page .hero-sub,
+.print-page .hero-sub * {
+  color: #555555 !important;
+}
+
+.print-page .muted,
+.print-page .muted * {
+  color: #555555 !important;
+}
+
+.print-page .slogan,
+.print-page .slogan * {
+  color: #555555 !important;
+}
+
+.print-page .hero .meta,
+.print-page .hero .meta * {
+  color: #555555 !important;
+}
+
+.print-page .eyebrow,
+.print-page .eyebrow * {
+  color: #355d9a !important;
+}
+
+.print-page .hero code,
+.print-page .hero code * {
+  background: #eef2f7 !important;
+  color: #111111 !important;
+  border: 1px solid #d8d8d8 !important;
+}
+
+.print-page code,
+.print-page code.inline {
+  background: #f3f5f8 !important;
+  color: #111111 !important;
+  border: 1px solid #d8d8d8 !important;
+  padding: 1px 4px !important;
+  border-radius: 4px !important;
+}
+
+.print-page strong,
+.print-page b {
+  color: #111111 !important;
+}
+
+.print-page ::selection {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+.print-page a,
+.print-page a:visited {
+  color: #111111 !important;
+}
+
+.print-page .danger-note {
+  background: #fff8e8 !important;
+  color: #6a4b00 !important;
+  border: 1px solid #e6cf95 !important;
+}
+
+.print-page .qrimg {
+  background: #ffffff !important;
+  border: 1px solid #d8d8d8 !important;
+}
+
+.print-nameplate {
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid #d8d8d8;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #1f4b87 0%, #183b6b 100%);
+  color: #ffffff !important;
+  box-shadow: none !important;
+}
+.print-nameplate .print-nameplate-callsign {
+  font-size: 22px;
+  font-weight: 900;
+  line-height: 1.05;
+  margin: 0 0 4px 0;
+  color: #ffffff !important;
+}
+.print-nameplate .print-nameplate-meta {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.88) !important;
+  font-weight: 700;
+}
+
+.print-page .topbar,
+.print-page .topbar * {
+  color: #555555 !important;
+}
+
+.print-page .topbar strong,
+.print-page .topbar code {
+  color: #111111 !important;
+}
 </style>"""
 
     android_cards = []
@@ -448,16 +785,71 @@ pre { white-space: pre-wrap; word-break: break-word; }
         except Exception:
             brand_slogan = ""
 
-    return f"""<!doctype html>
-<html lang="{h(l)}">
-<head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>{h(t(l, "soldier.title_for", username=username))}</title>
-  {style_html}
-  <style>{btn_css}</style>
-</head>
-<body>
+    root_cls = "card"
+    if not interactive:
+        root_cls += " print-expanded"
+
+    tabs_top = ""
+    if interactive:
+        tabs_top = f"""
+    <div class="tabs interactive-only">
+      <button id="tabbtn_start" class="choicebtn" onclick="showMainTab('start')">{h(t(l, "soldier.start"))}</button>
+      <button id="tabbtn_guide" class="choicebtn" onclick="showMainTab('guide')">{h(t(l, "soldier.guide"))}</button>
+      \1
+    <button class="choicebtn interactive-only" id="tabbtn_post" onclick="showMainTab('post')">Post Onboarding</button>
+      <button id="tabbtn_advanced" class="choicebtn" onclick="showMainTab('advanced')">{h(t(l, "soldier.advanced_tab"))}</button>
+    </div>
+"""
+
+    flow_tabs = ""
+    if interactive:
+        flow_tabs = f"""
+      <div class="tabs interactive-only" style="margin-top:6px;">
+        <button id="btn_android" class="choicebtn" onclick="showFlow('android')">{h(t(l, "soldier.android"))}</button>
+        <button id="btn_iphone" class="choicebtn" onclick="showFlow('iphone')">{h(t(l, "soldier.iphone"))}</button>
+        <button id="btn_browser" class="choicebtn" onclick="showFlow('browser')">{h(t(l, "soldier.browser"))}</button>
+      </div>
+"""
+
+    info_section = ""
+    if interactive:
+        info_section = f"""
+    <div id="tab_info" style="display:none; margin-top:12px;">
+      {info_html}
+    </div>
+"""
+
+    print_nameplate_html = ""
+    if not interactive:
+        callsign = ""
+        try:
+            callsign = str(((getattr(ident, "identity", None) or {}).get("callsign")) or username)
+        except Exception:
+            callsign = username
+        meta_bits = []
+        if groups:
+            meta_bits.append(" / ".join([h(str(x)) for x in groups if str(x).strip()]))
+        if token:
+            meta_bits.append(h(t(l, "soldier.mode_label")) + ": " + h(mode_label))
+        print_nameplate_html = f"""
+  <div class="print-nameplate">
+    <div class="print-nameplate-callsign">{h(callsign or username)}</div>
+    <div class="print-nameplate-meta">{' • '.join(meta_bits) if meta_bits else h(username)}</div>
+  </div>
+"""
+
+    hero_logo_html = f"""
+    <div style="margin:12px 0 10px 0;">
+      <img
+        src="/assets/unit-current.png?b={bump}"
+        alt="Unit"
+        style="display:block;width:auto;height:56px;max-width:220px;"
+        onerror="this.onerror=null;this.src='/assets/unit-current.svg?b={bump}';"
+      />
+    </div>
+    """
+
+    body = f"""
   <div class="topbar">
     <div class="brand">
       <div class="taksmark"><img src="/assets/taks-logo.png?b={bump}" alt="TAKS"/></div>
@@ -471,57 +863,123 @@ pre { white-space: pre-wrap; word-break: break-word; }
 
   <div class="hero">
     <div class="eyebrow">TAKS ONBOARDING</div>
+    {hero_logo_html}
     <div class="hero-title">{h(t(l, "soldier.welcome"))}</div>
     <div class="hero-sub">{h(t(l, "soldier.subtitle"))}</div>
     {f'<div class="slogan">{h(brand_slogan)}</div>' if brand_slogan else ''}
     {mode_summary_html}
   </div>
 
-  <div class="card">
-    <div class="tabs">
-      <button id="tabbtn_start" class="choicebtn" onclick="showMainTab('start')">{h(t(l, "soldier.start"))}</button>
-      <button id="tabbtn_guide" class="choicebtn" onclick="showMainTab('guide')">{h(t(l, "soldier.guide"))}</button>
-      <button id="tabbtn_info" class="choicebtn" onclick="showMainTab('info')">{h(t(l, "soldier.info_tab"))}</button>
-      <button id="tabbtn_advanced" class="choicebtn" onclick="showMainTab('advanced')">{h(t(l, "soldier.advanced_tab"))}</button>
-    </div>
+  <div class="{root_cls}">
+    {print_nameplate_html}
+    {tabs_top}
 
     <div id="tab_start">
-      <div class="tabs" style="margin-top:6px;">
-        <button id="btn_android" class="choicebtn" onclick="showFlow('android')">{h(t(l, "soldier.android"))}</button>
-        <button id="btn_iphone" class="choicebtn" onclick="showFlow('iphone')">{h(t(l, "soldier.iphone"))}</button>
-        <button id="btn_browser" class="choicebtn" onclick="showFlow('browser')">{h(t(l, "soldier.browser"))}</button>
-      </div>
-
+      {flow_tabs}
       <div id="flow_android" style="margin-top:12px;">{android_html}</div>
-      <div id="flow_iphone" style="margin-top:12px; display:none;">{iphone_html}</div>
-      <div id="flow_browser" style="margin-top:12px; display:none;">{browser_html}</div>
+      <div id="flow_iphone" style="margin-top:12px; {'display:none;' if interactive else ''}">{iphone_html}</div>
+      <div id="flow_browser" style="margin-top:12px; {'display:none;' if interactive else ''}">{browser_html}</div>
     </div>
 
-    <div id="tab_guide" style="display:none; margin-top:12px;">
+    <div id="tab_guide" style="{'display:none;' if interactive else ''} margin-top:12px;">
       {guide_html}
     </div>
 
-    <div id="tab_info" style="display:none; margin-top:12px;">
-      {info_html}
+    {info_section}
+
+    {f'''
+    <div id="tab_post" style="display:none; margin-top:12px;">
+      <div class="stepcard">
+        <h4>Post Onboarding</h4>
+        <div class="muted">Setup that happens after TAK import and account activation.</div>
+        <div style="margin-top:12px;">{post_onboarding_html}</div>
+      </div>
     </div>
+
 
     <div id="tab_advanced" style="display:none; margin-top:12px;">
       <div class="stepcard">
         <h4>{h(t(l, "soldier.card_url"))}</h4>
         <div class="muted" id="card_url_txt">{h(token_url)}</div>
         <div class="dlrow">
-          <button class="btn" onclick="copyId('card_url_txt')">{h(t(l, "soldier.copy"))}</button>
+          <button class="btn interactive-only" onclick="copyId('card_url_txt')">{h(t(l, "soldier.copy"))}</button>
           <a class="btn" href="{h(token_url)}">{h(t(l, "soldier.open_card"))}</a>
         </div>
       </div>
     </div>
+    ''' if interactive else ''}
   </div>
+"""
 
+    if interactive:
+        return f"""<!doctype html>
+<html lang="{h(l)}">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>{h(t(l, "soldier.title_for", username=username))}</title>
+  {style_html}
+  <style>{btn_css}</style>
+</head>
+<body>
+  {body}
   {script_html}
   {brand_js_html}
 </body>
 </html>
 """
 
+    return f"""
+<div class="print-page">
+  <div class="print-card-shell">
+    {style_html}
+    <style>{btn_css}</style>
+    {body}
+  </div>
+</div>
+"""
 
-__all__ = ["render_soldier_card_page"]
+
+def render_soldier_card_page(
+    *,
+    lang: str | None,
+    username: str,
+    groups: list[str],
+    base: str,
+    sel: dict,
+    ident=None,
+    token: str,
+    expires_at_utc: datetime,
+    reveal_password: bool,
+    lifecycle: dict | None = None,
+    render_mode: str = "interactive",
+) -> str:
+    l = lang_norm(lang)
+    mode = str(render_mode or "interactive").strip().lower()
+
+    if mode == "print_password":
+        return _render_password_only_section(
+            lang=l,
+            username=username,
+            groups=groups,
+            sel=sel,
+            ident=ident,
+        )
+
+    interactive = (mode == "interactive")
+    return _render_full_card_section(
+        lang=l,
+        username=username,
+        groups=groups,
+        base=base,
+        sel=sel,
+        ident=ident,
+        token=token,
+        expires_at_utc=expires_at_utc,
+        reveal_password=reveal_password,
+        lifecycle=lifecycle,
+        interactive=interactive,
+    )
+
+
+__all__ = ["render_soldier_card_page", "render_soldier_card_print_pack"]

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -67,6 +68,33 @@ def api_get_doc(doc_id: str):
     }
 
 
+def _ingest_one_pdf_bytes(
+    *,
+    data: bytes,
+    filename: str,
+    content_type: str,
+    uploaded_by: str,
+    title: str,
+) -> dict:
+    fd, tmp_name = tempfile.mkstemp(prefix="takctl-doc-upload-", suffix=".pdf")
+    os.close(fd)
+    tmp_path = Path(tmp_name)
+    try:
+        tmp_path.write_bytes(data)
+        return ingest_uploaded_pdf(
+            temp_upload_path=tmp_path,
+            original_filename=filename,
+            content_type=content_type,
+            uploaded_by=uploaded_by,
+            title=title,
+        )
+    finally:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
 @router.post("/upload")
 async def api_upload_doc(
     file: UploadFile = File(...),
@@ -76,33 +104,97 @@ async def api_upload_doc(
 
     filename = str(file.filename or "").strip()
     content_type = str(file.content_type or "application/octet-stream")
-
     if not filename:
         raise HTTPException(status_code=400, detail="missing filename")
-    if not filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="only PDF upload is supported in v1")
 
-    fd, tmp_name = tempfile.mkstemp(prefix="takctl-doc-upload-", suffix=".pdf")
-    os.close(fd)
-    tmp_path = Path(tmp_name)
+    data = await file.read()
+    lower = filename.lower()
 
-    try:
-        data = await file.read()
-        tmp_path.write_bytes(data)
-
-        result = ingest_uploaded_pdf(
-            temp_upload_path=tmp_path,
-            original_filename=filename,
-            content_type=content_type,
+    if lower.endswith(".pdf"):
+        out = _ingest_one_pdf_bytes(
+            data=data,
+            filename=filename,
+            content_type=content_type or "application/pdf",
             uploaded_by="admin",
             title=title,
         )
-        return result
-    finally:
-        try:
-            tmp_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        out["mode"] = "pdf"
+        return out
+
+    if not lower.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="only PDF or ZIP upload is supported")
+
+    try:
+        zf = zipfile.ZipFile(Path(filename), mode="r")
+    except Exception:
+        pass
+
+    items = []
+    skipped = []
+    pdf_members = []
+
+    try:
+        from io import BytesIO
+        with zipfile.ZipFile(BytesIO(data), mode="r") as z:
+            for info in z.infolist():
+                if info.is_dir():
+                    continue
+                member_name = str(info.filename or "")
+                member_base = Path(member_name).name
+                if not member_base:
+                    continue
+                if member_base.startswith("._"):
+                    skipped.append({"name": member_name, "reason": "macos_sidecar"})
+                    continue
+                if not member_base.lower().endswith(".pdf"):
+                    skipped.append({"name": member_name, "reason": "not_pdf"})
+                    continue
+                pdf_members.append((info, member_base))
+
+            if not pdf_members:
+                raise HTTPException(status_code=400, detail="zip contained no PDF files")
+
+            single_title = title if len(pdf_members) == 1 else ""
+
+            for info, member_base in pdf_members:
+                try:
+                    member_data = z.read(info)
+                    result = _ingest_one_pdf_bytes(
+                        data=member_data,
+                        filename=member_base,
+                        content_type="application/pdf",
+                        uploaded_by="admin",
+                        title=single_title,
+                    )
+                    result["source_name"] = str(info.filename or member_base)
+                    items.append(result)
+                except Exception as e:
+                    items.append({
+                        "ok": False,
+                        "status": "failed",
+                        "source_name": str(info.filename or member_base),
+                        "filename": member_base,
+                        "error": str(e),
+                    })
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid zip: {e}")
+
+    ok_count = sum(1 for x in items if x.get("ok"))
+    fail_count = sum(1 for x in items if not x.get("ok"))
+
+    return {
+        "ok": fail_count == 0,
+        "mode": "zip",
+        "filename": filename,
+        "count_total": len(items),
+        "count_ok": ok_count,
+        "count_failed": fail_count,
+        "count_skipped": len(skipped),
+        "items": items,
+        "skipped": skipped[:200],
+    }
 
 
 @router.delete("/{doc_id}")

@@ -45,14 +45,18 @@ Installern ansvarar för att skapa runtime-kataloger med rätt ägare och rätt 
 Replay använder en enkel tick-baserad modell.
 
 ### Varje tick
-Varje LLM-agent körs varje tick.
+Varje agent körs varje tick, men LLM anropas inte per automatik varje tick.
 
 Varje tick gäller:
 
-1. inbox pollas / ingestas
-2. roten i varje arbetskedja exekveras
-3. om ingen arbetskedja finns kvar kan agenten fråga LLM för nytt beslut
-4. nytt beslut översätts till nya arbetskedjor
+1. transportkön `inbox.jsonl` pollas och konsumeras till `new_messages`
+2. roten i varje arbetskedja exekveras exakt en gång
+3. LLM körs bara om något av följande är sant:
+   - `new_messages` är icke-tom
+   - minst ett arbete blev klart detta tick
+   - referee/world-state har markerat `world_changed_this_tick`
+4. efter lyckat LLM-anrop skrivs `work` helt över av det nya beslutet
+5. de `new_messages` som låg till grund för beslutet flyttas till `read_messages`
 
 Det finns ingen separat smart scheduler som försöker återskapa state machine-logik ovanpå agentens state.
 
@@ -123,9 +127,13 @@ Varje agent har:
 - `outbox.jsonl`
 
 ### Inbox
-Inbox innehåller inkommande order och rapporter.
+`inbox.jsonl` är en transportkö för inkommande order och rapporter.
 
-Om inbox är icke-tom pollas/ingestas den vid tick.
+Vid ingest konsumeras `inbox.jsonl` till statefälten:
+
+- `new_messages` = olästa meddelanden som kan trigga LLM
+- `read_messages` = historik över meddelanden som redan har konsumerats av ett lyckat LLM-anrop
+- `inbox` = kompatibilitetsspegel av `new_messages`
 
 ### Outbox
 Outbox innehåller naturligt språk som ska skickas vidare via CoT/chat.

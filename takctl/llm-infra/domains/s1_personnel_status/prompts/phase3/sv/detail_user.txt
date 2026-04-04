@@ -1,1 +1,8 @@
-Skapa en detaljvy för S1 – Personalläge utifrån INPUT_FINDINGS_JSON. Börja med samlad bedömning, fortsätt med viktigaste osäkerheter och vad som bör följas upp.
+Skapa en detaljvy för S1 – Personalläge som en tydlig personaltablå utifrån INPUT_FINDINGS_JSON.
+
+Mål:
+- tabell först
+- kolumner: Enhet, Tidigast, Senast, Status, Kommentar
+- använd TNR/tidsnummer DDHHMM
+- kort inledande bedömning om hur aktuell personalbilden är
+- inga onödiga listor eller lång brödtext

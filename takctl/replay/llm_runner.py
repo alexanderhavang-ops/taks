@@ -6,7 +6,10 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-REPO_ROOT = Path("/opt/tak/tools/takctl")
+SCRIPT_ROOT = Path(__file__).resolve().parent
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
+REPO_ROOT = SCRIPT_ROOT.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 

@@ -122,11 +122,7 @@ function Layout({ tab, setTab, health, brand, children }) {
 
         h(TabButton, { id: "onboarding", tab, setTab, label: t("nav.onboarding") }),
 
-        h(TabButton, { id: "llm", tab, setTab, label: t("nav.ai") }),
-
-        h(TabButton, { id: "llm3", tab, setTab, label: t("nav.ai3") }),
-
-        h(TabButton, { id: "usage", tab, setTab, label: t("nav.ai_costs") }),
+        h(TabButton, { id: "ai", tab, setTab, label: t("nav.ai") }),
 
         h(TabButton, { id: "martine", tab, setTab, label: t("nav.martine") }),
 

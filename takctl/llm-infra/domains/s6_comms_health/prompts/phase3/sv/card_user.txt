@@ -1,1 +1,7 @@
-Skapa ett kompakt kort för S6 – Sambandsläge utifrån INPUT_FINDINGS_JSON. Lyft bara det mest användbara nu.
+Skapa ett kompakt kort för S6 – Sambandsläge som en sambandstablå utifrån INPUT_FINDINGS_JSON.
+
+Mål:
+- visa enheter och när de senast hördes
+- använd TNR/tidsnummer DDHHMM
+- kort tabell, inte fri textmassa
+- fokusera på aktuell/inaktuell sambandsbild

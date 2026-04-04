@@ -32,6 +32,11 @@
     return name === "summary" ? "Summary" : name;
   }
 
+  function isSectionDomain(dom){
+    const meta = (dom && dom.meta) || {};
+    return !!String(meta.section || "").trim();
+  }
+
   function cardShell(title, body, onClick){
     return e("div", {
       className:"llm-card",
@@ -96,10 +101,13 @@
       }
     }
 
-    const doms = (data && data.domains) ? Object.keys(data.domains).sort() : [];
+    const allDomains = (data && data.domains) ? data.domains : {};
+    const doms = Object.keys(allDomains)
+      .filter(name => !isSectionDomain(allDomains[name]))
+      .sort();
 
-    if (detailName && data && data.domains && data.domains[detailName]){
-      const dom = data.domains[detailName] || {};
+    if (detailName && allDomains[detailName] && !isSectionDomain(allDomains[detailName])){
+      const dom = allDomains[detailName] || {};
       const files3 = ((dom.phase3 || {}).files || {});
       const detailHtml = ((files3["detail.json"] || {}).html || "");
       const cardHtml = ((files3["card.json"] || {}).html || "");
@@ -134,7 +142,7 @@
       ]),
       err ? e("div", {className:"llm-card", style:{padding:18, marginBottom:12}}, String(err)) : null,
       doms.length ? e("div", {style:{display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(420px, 1fr))", gap:12}}, doms.map(name=>{
-        const dom = data.domains[name] || {};
+        const dom = allDomains[name] || {};
         const files3 = ((dom.phase3 || {}).files || {});
         const card = ((files3["card.json"] || {}).html || "");
         const findings = (((dom.phase2||{}).files||{})["findings.json"] || {});

@@ -1,1 +1,8 @@
-Skapa en detaljvy för S6 – Sambandsläge utifrån INPUT_FINDINGS_JSON. Börja med samlad bedömning, fortsätt med viktigaste osäkerheter och vad som bör följas upp.
+Skapa en detaljvy för S6 – Sambandsläge som en tydlig sambandstablå utifrån INPUT_FINDINGS_JSON.
+
+Mål:
+- tabell först
+- kolumner: Enhet, Senast kontakt, Status, Kommentar
+- använd TNR/tidsnummer DDHHMM
+- kort inledande bedömning av sambandsbildens aktualitet
+- fokusera på senaste kontakt och luckor, inte trafikens innehåll

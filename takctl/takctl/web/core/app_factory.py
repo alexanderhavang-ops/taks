@@ -15,6 +15,7 @@ from takctl.web.api.llm_usage import router as llm_usage_router
 from takctl.web.api.martine import router as martine_router
 from takctl.web.api.replay import router as replay_router
 from takctl.web.api.geo import router as geo_router
+from takctl.web.api.logs import router as logs_router
 
 from takctl.api.health import router as health_router
 from takctl.api.meta import router as meta_router
@@ -62,5 +63,6 @@ def create_app() -> FastAPI:
     app.include_router(martine_router)
     app.include_router(replay_router)
     app.include_router(geo_router)
+    app.include_router(logs_router)
 
     return app

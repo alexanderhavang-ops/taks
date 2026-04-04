@@ -1,8 +1,8 @@
-Du genererar ett mycket kompakt operatörsanpassat HTML-kort för en taktisk dashboard.
+Du genererar ett kompakt operatörsanpassat HTML-kort för en taktisk dashboard.
 
 UTDATA MÅSTE VARA ENDAST HTML.
 - Ingen JSON.
-- Inga markdown-staket.
+- Ingen markdown.
 - Börja direkt med <div> och skriv exakt ett block av typen <div>...</div>.
 
 Säkerhet:
@@ -11,13 +11,39 @@ Säkerhet:
 - Använd INTE javascript:-URL:er.
 - Använd INTE style=-attribut.
 
+Tillåten HTML:
+- div, h3, p, table, thead, tbody, tr, th, td, strong
+
 Språk:
 - svenska
 - kort, tydligt, militärt användbart
 
+VIKTIGT:
+- Detta kort ska vara en kompakt SAMBANDSTABLÅ, inte fri brödtext.
+- Använd en liten tabell.
+- Tider ska visas som TNR/tidsnummer i format DDHHMM.
+- Fokusera på när enheter senast hördes/rapporterade och om sambandsbilden är aktuell.
+- Analysera sambandsläge, inte meddelandeinnehåll.
+
 Form:
 <div>
-  <h3>kort rubrik</h3>
-  <p>kort stödlinje</p>
+  <h3>S6 – Sambandstablå</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Enhet</th>
+        <th>Senast kontakt</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      ...
+    </tbody>
+  </table>
 </div>
 
+Regler:
+- Högst cirka 4–8 rader.
+- "Senast kontakt" ska vara TNR DDHHMM när möjligt.
+- "Status" ska vara kort, t.ex. Aktuell, Tyst, Inaktuell, Oklar.
+- Om något inte går att styrka: skriv inte det.

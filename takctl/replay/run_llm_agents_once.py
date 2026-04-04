@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
+
+SCRIPT_ROOT = Path(__file__).resolve().parent
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
+if str(SCRIPT_ROOT.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT.parent))
 from typing import Any, Dict, List
 
-from replay_paths import SOURCE_ROOT, STATE_ROOT, ensure_runtime_dirs
+from replay_paths import STATE_ROOT, ensure_runtime_dirs
 from takctl.config import load_config
-from unit_agent import ingest_inbox_into_state
 
 
 def role_rank(role: str) -> int:
@@ -53,9 +59,10 @@ def main() -> None:
 
     for d in iter_agents():
         callsign = d.name.upper()
-
-        # ingest first, every tick
-        st = ingest_inbox_into_state(callsign)
+        state_path = d / "state.json"
+        if not state_path.exists():
+            continue
+        st = json.loads(state_path.read_text(encoding="utf-8"))
         agent = dict(st.get("agent") or {})
         callsign = str(agent.get("callsign") or d.name).upper()
 
@@ -81,7 +88,7 @@ def main() -> None:
 
         cmd = [
             sys.executable,
-            str(SOURCE_ROOT / "unit_agent.py"),
+            str(SCRIPT_ROOT / "unit_agent.py"),
             "--callsign", callsign,
             "--role", role,
             "--mission", mission,

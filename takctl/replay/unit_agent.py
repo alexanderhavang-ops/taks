@@ -6,68 +6,58 @@ import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
+import sys
+
+SCRIPT_ROOT = Path(__file__).resolve().parent
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
+if str(SCRIPT_ROOT.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT.parent))
 from typing import Any, Dict, List
 
 from llm_decision import build_agent_packet, parse_and_validate
 from llm_runner import run_model
 from prompting import write_prompt_log
 from replay_paths import agent_dir, ensure_runtime_dirs
+from state_store import (
+    append_jsonl as store_append_jsonl,
+    consume_transport_inbox,
+    ensure_agent_layout as store_ensure_agent_layout,
+    ensure_state_schema,
+    load_state,
+    message_token as store_message_token,
+    move_new_messages_to_read,
+    overwrite_jsonl as store_overwrite_jsonl,
+    read_json as store_read_json,
+    read_jsonl as store_read_jsonl,
+    save_state,
+    write_json as store_write_json,
+)
 from tasking import decision_to_work
 
 
 def ensure_agent_layout(callsign: str) -> Path:
-    d = agent_dir(callsign)
-    d.mkdir(parents=True, exist_ok=True)
-    for name, default in [
-        ("state.json", {}),
-        ("inbox.jsonl", None),
-        ("outbox.jsonl", None),
-        ("decisions.jsonl", None),
-        ("tasks.jsonl", None),
-    ]:
-        p = d / name
-        if not p.exists():
-            if name.endswith(".json"):
-                p.write_text(json.dumps(default, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-            else:
-                p.write_text("", encoding="utf-8")
-    return d
+    return store_ensure_agent_layout(callsign)
 
 
 def read_json(path: Path) -> Dict[str, Any]:
-    if not path.exists():
-        return {}
-    txt = path.read_text(encoding="utf-8").strip()
-    if not txt:
-        return {}
-    return json.loads(txt)
+    return store_read_json(path, {})
 
 
 def write_json(path: Path, obj: Dict[str, Any]) -> None:
-    path.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    store_write_json(path, obj)
 
 
 def append_jsonl(path: Path, obj: Dict[str, Any]) -> None:
-    with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(obj, ensure_ascii=False) + "\n")
+    store_append_jsonl(path, obj)
 
 
 def read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    if not path.exists():
-        return []
-    out: List[Dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        out.append(json.loads(line))
-    return out
+    return store_read_jsonl(path)
 
 
 def overwrite_jsonl(path: Path, rows: List[Dict[str, Any]]) -> None:
-    with path.open("w", encoding="utf-8") as f:
-        for row in rows:
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    store_overwrite_jsonl(path, rows)
 
 
 def tail_list(rows: List[Dict[str, Any]], n: int = 20) -> List[Dict[str, Any]]:
@@ -85,16 +75,7 @@ def has_work(st: Dict[str, Any]) -> bool:
 
 
 def ensure_memory_fields(st: Dict[str, Any]) -> Dict[str, Any]:
-    if not isinstance(st, dict):
-        st = {}
-    st.setdefault("agent", {})
-    st.setdefault("own_state", {})
-    st.setdefault("subordinates", [])
-    st.setdefault("observations", [])
-    st.setdefault("constraints", {})
-    st.setdefault("work", [])
-    st.setdefault("completed_work", [])
-    return st
+    return ensure_state_schema(st)
 
 
 
@@ -129,15 +110,56 @@ def seed_state_if_empty(callsign: str, role: str, superior: str, mission: str) -
         },
         "work": [],
         "completed_work": [],
+        "new_messages": [],
+        "read_messages": [],
+        "inbox": [],
+        "seen_chat_uids": [],
+        "private_referee": [],
+        "pending_report_items": [],
+        "world_changed_this_tick": False,
     }
     write_json(p, st)
+
+
+def _msg_token(row: Dict[str, Any]) -> str:
+    return store_message_token(row)
 
 
 def ingest_inbox_into_state(callsign: str) -> Dict[str, Any]:
     d = ensure_agent_layout(callsign)
     state_path = d / "state.json"
     st = ensure_memory_fields(read_json(state_path))
-    write_json(state_path, st)
+
+    inbox_path = d / "inbox.jsonl"
+    rows = read_jsonl(inbox_path)
+    if inbox_path.exists():
+        inbox_path.write_text("", encoding="utf-8")
+
+    existing_new = list(st.get("new_messages") or [])
+    existing_read = list(st.get("read_messages") or [])
+    existing_seen = [str(x) for x in list(st.get("seen_chat_uids") or [])]
+    seen = set(existing_seen)
+
+    existing_new_tokens = {_msg_token(x) for x in existing_new if isinstance(x, dict)}
+    existing_read_tokens = {_msg_token(x) for x in existing_read if isinstance(x, dict)}
+
+    appended = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        tok = _msg_token(row)
+        if tok in existing_new_tokens or tok in existing_read_tokens:
+            continue
+        msg = dict(row)
+        msg["_message_token"] = tok
+        appended.append(msg)
+        if tok not in seen:
+            existing_seen.append(tok)
+            seen.add(tok)
+
+    st["new_messages"] = (existing_new + appended)[-500:]
+    st["inbox"] = list(st.get("new_messages") or [])
+    st["seen_chat_uids"] = existing_seen[-2000:]
     return st
 
 
@@ -355,10 +377,7 @@ def _geo_area_brief(local_area: Dict[str, Any], language_profile: str) -> Dict[s
 
 def build_packet_from_state(st: Dict[str, Any], sim_time_s: int) -> Dict[str, Any]:
     agent = dict(st.get("agent") or {})
-    callsign = str(agent.get("callsign") or "").strip()
-    inbox_rows = []
-    if callsign:
-        inbox_rows = read_jsonl(agent_dir(callsign) / "inbox.jsonl")
+    inbox_rows = list(st.get("new_messages") or [])
 
     packet = build_agent_packet(
         sim_time_s=sim_time_s,
@@ -369,6 +388,8 @@ def build_packet_from_state(st: Dict[str, Any], sim_time_s: int) -> Dict[str, An
         constraints=dict(st.get("constraints") or {}),
     )
     packet["inbox"] = inbox_rows
+    packet["new_messages"] = list(st.get("new_messages") or [])
+    packet["read_messages"] = list(st.get("read_messages") or [])[-50:]
     packet["work"] = list(st.get("work") or [])
     packet["completed_work"] = list(st.get("completed_work") or [])
     local_area = _geo_area_summary_for_state(st)
@@ -476,6 +497,16 @@ def _execute_move_unit(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int
         },
         "urgency": urgency,
     }
+    st["current_activity"] = {
+        "type": "move_unit",
+        "status": "active",
+        "intent": str(root.get("title") or root.get("description") or "move_unit"),
+        "from": dict(own.get("position") or {}),
+        "to": {"lat": lat, "lon": lon},
+        "tempo": urgency,
+        "started_sim_time_s": int(sim_time_s),
+        "last_progress_sim_time_s": int(sim_time_s),
+    }
 
 
 def _execute_change_posture(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
@@ -486,6 +517,15 @@ def _execute_change_posture(st: Dict[str, Any], root: Dict[str, Any], sim_time_s
     own = st.setdefault("own_state", {})
     own["posture"] = posture
     own["posture_updated_sim_time_s"] = int(sim_time_s)
+    st["current_activity"] = {
+        "type": "change_posture",
+        "status": "active",
+        "intent": str(root.get("title") or root.get("description") or posture),
+        "from": dict(own.get("position") or {}),
+        "to": dict(own.get("position") or {}),
+        "started_sim_time_s": int(sim_time_s),
+        "last_progress_sim_time_s": int(sim_time_s),
+    }
 
 
 def _execute_hold_position(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
@@ -503,6 +543,15 @@ def _execute_hold_position(st: Dict[str, Any], root: Dict[str, Any], sim_time_s:
         pass
     own["position"] = pos
     own["holding_since_sim_time_s"] = int(sim_time_s)
+    st["current_activity"] = {
+        "type": "hold_position",
+        "status": "active",
+        "intent": str(root.get("title") or root.get("description") or "hold_position"),
+        "from": dict(pos),
+        "to": dict(pos),
+        "started_sim_time_s": int(sim_time_s),
+        "last_progress_sim_time_s": int(sim_time_s),
+    }
 
 
 def _execute_observe_area(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
@@ -527,18 +576,23 @@ def _execute_observe_area(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: 
     }
     obs.append(row)
     st["observations"] = obs[-200:]
-
-
-def inbox_count_for_callsign(callsign: str) -> int:
-    d = ensure_agent_layout(callsign)
-    inbox = read_jsonl(d / "inbox.jsonl")
-    return len(inbox)
+    st["current_activity"] = {
+        "type": "observe_area",
+        "status": "active",
+        "intent": str(root.get("title") or root.get("description") or "observe_area"),
+        "from": dict((st.get("own_state") or {}).get("position") or {}),
+        "to": {
+            "lat": center_lat,
+            "lon": center_lon,
+        },
+        "started_sim_time_s": int(sim_time_s),
+        "last_progress_sim_time_s": int(sim_time_s),
+    }
 
 
 def world_changed(st: Dict[str, Any], sim_time_s: int) -> bool:
-    del st
     del sim_time_s
-    return False
+    return bool(st.get("world_changed_this_tick"))
 
 
 def llm_trigger_reason(
@@ -548,8 +602,9 @@ def llm_trigger_reason(
     completed_before: int,
     completed_after: int,
 ) -> str:
-    if inbox_count_for_callsign(callsign) > 0:
-        return "inbox"
+    del callsign
+    if list(st.get("new_messages") or []):
+        return "new_messages"
     if completed_after > completed_before:
         return "deadline"
     if world_changed(st, sim_time_s):
@@ -663,6 +718,10 @@ def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
                     if "planned_movement" in own:
                         del own["planned_movement"]
 
+                current_activity = st.setdefault("current_activity", {})
+                if action in {"move_unit", "change_posture", "observe_area", "hold_position"}:
+                    current_activity["status"] = "inactive"
+                    current_activity["last_progress_sim_time_s"] = int(sim_time_s)
                 _complete_root(st, root, sim_time_s)
                 completed_now = True
 
@@ -701,8 +760,7 @@ def main() -> None:
     d = ensure_agent_layout(args.callsign)
     seed_state_if_empty(args.callsign, args.role, args.superior, args.mission)
 
-    st = ingest_inbox_into_state(args.callsign)
-    st = ensure_memory_fields(st)
+    st = ensure_memory_fields(ingest_inbox_into_state(args.callsign))
 
     outbox_path = d / "outbox.jsonl"
 
@@ -720,7 +778,8 @@ def main() -> None:
     )
 
     if not trigger:
-        write_json(d / "state.json", st)
+        st["world_changed_this_tick"] = False
+        save_state(args.callsign, st)
         return
 
     packet = build_packet_from_state(st, args.sim_time)
@@ -771,6 +830,7 @@ def main() -> None:
         st["new_messages"] = []
         st["inbox"] = []
 
+    st["world_changed_this_tick"] = False
     write_json(d / "state.json", st)
 
     append_jsonl(d / "decisions.jsonl", {
@@ -803,90 +863,6 @@ def main() -> None:
     print("WROTE", d / "last_llm_response.txt")
     print("WROTE", d / "llm_trace.log")
 
-
-
-# --- replay message semantics override ---
-_original_ensure_memory_fields = ensure_memory_fields
-_original_ingest_inbox_into_state = ingest_inbox_into_state
-
-def _msg_token(row: Dict[str, Any]) -> str:
-    row = dict(row or {})
-    uid = str(row.get("uid") or "").strip()
-    if uid:
-        return uid
-    return "|".join([
-        str(row.get("kind") or ""),
-        str(row.get("from") or ""),
-        str(row.get("to") or ""),
-        str(row.get("sim_time_s") or ""),
-        str(row.get("message") or ""),
-    ])
-
-def ensure_memory_fields(st: Dict[str, Any]) -> Dict[str, Any]:
-    st = _original_ensure_memory_fields(st)
-    if not isinstance(st.get("new_messages"), list):
-        st["new_messages"] = []
-    if not isinstance(st.get("read_messages"), list):
-        st["read_messages"] = []
-    if not isinstance(st.get("inbox"), list):
-        st["inbox"] = []
-    if not isinstance(st.get("seen_chat_uids"), list):
-        st["seen_chat_uids"] = []
-    return st
-
-def ingest_inbox_into_state(callsign: str) -> Dict[str, Any]:
-    st = ensure_memory_fields(read_json(agent_dir(callsign) / "state.json", {}))
-    d = ensure_agent_layout(callsign)
-    inbox_path = d / "inbox.jsonl"
-
-    # Runtime inbox.jsonl is only a transport queue. Consume it into new_messages.
-    rows = read_jsonl(inbox_path)
-    if inbox_path.exists():
-        inbox_path.write_text("", encoding="utf-8")
-
-    existing_seen = [str(x) for x in list(st.get("seen_chat_uids") or [])]
-    seen = set(existing_seen)
-
-    existing_new = list(st.get("new_messages") or [])
-    existing_new_tokens = {_msg_token(x) for x in existing_new if isinstance(x, dict)}
-
-    existing_read = list(st.get("read_messages") or [])
-    existing_read_tokens = {_msg_token(x) for x in existing_read if isinstance(x, dict)}
-
-    appended = []
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        tok = _msg_token(row)
-        if tok in existing_new_tokens or tok in existing_read_tokens:
-            continue
-        msg = dict(row)
-        msg["_message_token"] = tok
-        appended.append(msg)
-        if tok not in seen:
-            existing_seen.append(tok)
-            seen.add(tok)
-
-    st["new_messages"] = existing_new + appended
-    # Keep inbox only as compatibility mirror for packet/rendering. It represents unread only.
-    st["inbox"] = list(st.get("new_messages") or [])
-    st["seen_chat_uids"] = existing_seen[-2000:]
-    return st
-
-def llm_trigger_reason(
-    st: Dict[str, Any],
-    callsign: str,
-    sim_time_s: int,
-    completed_before: int,
-    completed_after: int,
-) -> str:
-    if list(st.get("new_messages") or []):
-        return "new_messages"
-    if completed_after > completed_before:
-        return "deadline"
-    if world_changed(st, sim_time_s):
-        return "world_change"
-    return ""
 
 if __name__ == "__main__":
     main()

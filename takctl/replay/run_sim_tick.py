@@ -5,6 +5,14 @@ import subprocess
 import sys
 from pathlib import Path
 
+SCRIPT_ROOT = Path(__file__).resolve().parent
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
+if str(SCRIPT_ROOT.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT.parent))
+
+from replay_paths import STATE_ROOT
+
 ROOT = Path("/opt/tak/tools/takctl/replay")
 
 
@@ -27,14 +35,23 @@ def main() -> None:
 
     py = sys.executable
 
-    default_blue = ["AT1", "EAT1", "FAT1", "GAT1", "HAT1"]
-    blue_callsigns = default_blue[:]
+    all_callsigns = []
+    if STATE_ROOT.exists():
+        for d in sorted(STATE_ROOT.iterdir()):
+            if d.is_dir() and (d / "state.json").exists():
+                all_callsigns.append(d.name.upper())
 
     if args.blue_callsigns.strip():
-        blue_callsigns = [x.strip().upper() for x in args.blue_callsigns.split(",") if x.strip()]
+        selected_blue = [x.strip().upper() for x in args.blue_callsigns.split(",") if x.strip()]
+    else:
+        selected_blue = []
 
-    # 1. Poll blue inbox from real CoT
-    for cs in blue_callsigns:
+    if not all_callsigns:
+        print("No replay agents found under runtime state")
+        return
+
+    # 1. Poll inbox from real CoT for all seeded agents
+    for cs in all_callsigns:
         run([py, str(ROOT / "agent_cot_chat_poll.py"), "--callsign", cs], f"poll {cs}")
 
     # 2. Referee for blue/red pairs inside observation range
@@ -45,8 +62,8 @@ def main() -> None:
         "--max-tokens", str(args.max_tokens),
         "--seed", str(args.seed),
     ]
-    if args.blue_callsigns.strip():
-        referee_cmd.extend(["--blue-callsigns", args.blue_callsigns])
+    if selected_blue:
+        referee_cmd.extend(["--blue-callsigns", ",".join(selected_blue)])
     run(referee_cmd, "run referee")
 
     # 3. Run blue LLM agents
@@ -57,16 +74,16 @@ def main() -> None:
         "--max-tokens", str(args.max_tokens),
         "--seed", str(args.seed),
     ]
-    if args.blue_callsigns.strip():
-        llm_cmd.extend(["--callsigns", args.blue_callsigns])
+    if selected_blue:
+        llm_cmd.extend(["--callsigns", ",".join(selected_blue)])
     run(llm_cmd, "run blue llm agents")
 
-    # 4. Emit outbound CoT from blue only
-    for cs in blue_callsigns:
+    # 4. Emit outbound CoT for all seeded agents
+    for cs in all_callsigns:
         run([py, str(ROOT / "agent_cot_chat_emit.py"), "--from-agent", cs], f"emit {cs}")
 
     # 5. Poll once more so same-tick emitted orders/reports become visible in agent inboxes
-    for cs in blue_callsigns:
+    for cs in all_callsigns:
         run([py, str(ROOT / "agent_cot_chat_poll.py"), "--callsign", cs], f"post-emit poll {cs}")
 
     print(f"\nDONE sim_time={args.sim_time}")

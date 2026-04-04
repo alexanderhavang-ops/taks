@@ -5,6 +5,14 @@ import subprocess
 from pathlib import Path
 from typing import Any, Dict, List
 
+import sys
+
+REPLAY_CODE_ROOT = Path("/opt/tak/tools/takctl/replay")
+if str(REPLAY_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPLAY_CODE_ROOT))
+
+from state_store import queue_message_to_unit
+
 from fastapi import APIRouter, HTTPException, Request
 
 router = APIRouter(prefix="/api/replay", tags=["replay"])
@@ -238,7 +246,8 @@ def _unit_detail(st: Dict[str, Any]) -> Dict[str, Any]:
     agent = dict(st.get("agent") or {})
     own = dict(st.get("own_state") or {})
     callsign = str(agent.get("callsign") or "")
-    inbox = _read_jsonl(STATE_ROOT / callsign / "inbox.jsonl")
+    inbox = list(st.get("new_messages") or [])
+    read_messages = list(st.get("read_messages") or [])
     outbox = _read_jsonl(STATE_ROOT / callsign / "outbox.jsonl")
     return {
         "callsign": callsign,
@@ -258,6 +267,7 @@ def _unit_detail(st: Dict[str, Any]) -> Dict[str, Any]:
         "work": list(st.get("work") or []),
         "completed_work": list(st.get("completed_work") or []),
         "recent_inbox": inbox[-50:],
+        "recent_read_messages": read_messages[-50:],
         "recent_outbox": outbox[-50:],
         "raw_state": st,
     }
@@ -271,7 +281,8 @@ def _global_correspondence(states: Dict[str, Dict[str, Any]], side: str) -> List
         if str(agent.get("side") or "") != side:
             continue
 
-        inbox = _read_jsonl(STATE_ROOT / cs / "inbox.jsonl")
+        inbox = list(st.get("new_messages") or [])
+        read_messages = list(st.get("read_messages") or [])
         outbox = _read_jsonl(STATE_ROOT / cs / "outbox.jsonl")
 
         for i, row in enumerate(inbox):
@@ -285,6 +296,18 @@ def _global_correspondence(states: Dict[str, Dict[str, Any]], side: str) -> List
                 "sim_time_s": int(row.get("sim_time_s") or 0),
                 "message": str(row.get("message") or ""),
                 "uid": str(row.get("uid") or ""),
+            })
+        for i, row in enumerate(read_messages):
+            rows.append({
+                "key": f"read-{cs}-{i}",
+                "dir": "read",
+                "agent": cs,
+                "kind": str(row.get("kind") or ""),
+                "from": str(row.get("from") or ""),
+                "to": str(row.get("to") or ""),
+                "sim_time_s": int(row.get("sim_time_s") or 0),
+                "message": str(row.get("message") or ""),
+                "uid": str(row.get("uid") or row.get("_message_token") or ""),
             })
         for i, row in enumerate(outbox):
             rows.append({
@@ -458,7 +481,7 @@ async def replay_send_order0(req: Request) -> Dict[str, Any]:
     if not inbox_path.parent.exists():
         raise HTTPException(status_code=404, detail=f"recipient not seeded: {recipient}")
 
-    _append_jsonl(inbox_path, {
+    queue_message_to_unit(recipient, {
         "kind": "order",
         "from": sender,
         "to": recipient,

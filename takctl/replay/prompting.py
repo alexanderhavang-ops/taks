@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 from typing import Dict, List
 
-PROMPT_ROOT = Path("/opt/tak/tools/takctl/replay/prompts")
+SCRIPT_ROOT = Path(__file__).resolve().parent
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
+
+from replay_paths import PROMPT_ROOT
 
 LEGACY_SYSTEM_PROMPT_PATH = PROMPT_ROOT / "system" / "base_system.txt"
 LEGACY_USER_PROMPT_PATH = PROMPT_ROOT / "user" / "agent_user.txt"

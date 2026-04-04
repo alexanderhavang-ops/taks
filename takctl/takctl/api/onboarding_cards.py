@@ -15,6 +15,8 @@ from takctl.onboarding.service_builder import build_service
 from takctl.onboarding.emailer import send_onboarding_email
 from takctl.onboarding.selection import load_selection, save_selection
 from takctl.config import load_config
+from takctl.onboarding.selection import load_selection
+from takctl.onboarding.soldier_card.page import render_soldier_card_page, render_soldier_card_print_pack
 
 router = APIRouter(tags=["onboarding"])
 
@@ -600,57 +602,95 @@ async def onboarding_print_pack(req: Request, payload: str = Form(...)):
     body = json.loads(payload or "{}")
 
     usernames = body.get("usernames") or []
-    print_mode = body.get("print_mode") or "cards"
+    print_mode = str(body.get("print_mode") or "cards").strip()
 
     svc = build_service()
     db, _, _, _ = maybe_db()
     base = external_base(req).rstrip("/")
 
+    cfg = load_config()
+    lang = str(cfg.get("language", "sv") or "sv").strip().lower()
+    ttl_sec = int(getattr(cfg, "onboarding_print_card_ttl_sec", 600) or 600)
+
     sections_cards: list[str] = []
     sections_passwords: list[str] = []
 
     for username in usernames:
+        username = str(username or "").strip()
+        if not username:
+            continue
+
         try:
             card = svc.user_card(username=username, db=db, recent_minutes=120)
         except KeyError:
             continue
 
+        lifecycle = card.get("lifecycle") if isinstance(card, dict) else None
+
+        groups = []
+        if isinstance(card, dict):
+            m = card.get("marti") or {}
+            if isinstance(m, dict) and isinstance(m.get("groups"), list):
+                groups = m.get("groups") or []
+        if not isinstance(groups, list):
+            groups = []
+
         ident = svc.store.get_identity(username)
-        password_value = None
-        if ident and getattr(ident, "password_known", False):
-            password_value = ident.password
+        sel = load_selection(username) or {}
+
+        reveal_password = print_mode in ("cards_inline_passwords", "passwords", "cards_then_passwords")
 
         card_info = _issue_card_link_base(
             base,
             svc,
             username=username,
-            ttl_sec=load_config().onboarding_print_card_ttl_sec,
-            reveal_password=False,
+            ttl_sec=ttl_sec,
+            reveal_password=reveal_password,
         )
 
-        token = card_info["card_token"]["token"]
-        card_url = card_info["card_url"]
+        token = str(((card_info.get("card_token") or {}).get("token") or "")).strip()
+        if not token:
+            continue
+
+        ct = svc.store.get_card_token(token)
+        if ct is None:
+            continue
+
+        exp = getattr(ct, "expires_at_utc", None) or getattr(ct, "expires_at", None)
+        if exp is None:
+            continue
 
         if print_mode in ("cards", "cards_inline_passwords", "cards_then_passwords"):
             sections_cards.append(
-                _render_card_page(
-                    base=base,
+                render_soldier_card_page(
+                    lang=lang,
                     username=username,
-                    card=card,
-                    card_url=card_url,
+                    groups=groups,
+                    base=base,
+                    sel=sel,
+                    ident=ident,
                     token=token,
-                    show_password=(print_mode == "cards_inline_passwords"),
-                    password_value=password_value,
+                    expires_at_utc=exp,
+                    reveal_password=reveal_password,
+                    lifecycle=lifecycle,
+                    render_mode="print_full",
                 )
             )
 
         if print_mode in ("passwords", "cards_then_passwords"):
             sections_passwords.append(
-                _render_password_page(
-                    base=base,
+                render_soldier_card_page(
+                    lang=lang,
                     username=username,
-                    card=card,
-                    password_value=password_value,
+                    groups=groups,
+                    base=base,
+                    sel=sel,
+                    ident=ident,
+                    token=token,
+                    expires_at_utc=exp,
+                    reveal_password=True,
+                    lifecycle=lifecycle,
+                    render_mode="print_password",
                 )
             )
 
@@ -661,7 +701,7 @@ async def onboarding_print_pack(req: Request, payload: str = Form(...)):
     else:
         sections = sections_cards
 
-    html_doc = _render_print_pack(title="TAKS print pack", sections=sections)
+    html_doc = render_soldier_card_print_pack(title="TAKS print pack", sections=sections)
 
     return HTMLResponse(html_doc)
 

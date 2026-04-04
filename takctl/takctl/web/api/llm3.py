@@ -9,6 +9,7 @@ from fastapi.concurrency import run_in_threadpool
 
 from takctl.services.llm3.paths import state_root, latest_root, runs_root
 from takctl.services.llm3.runner import run_phase2, run_phase3
+from takctl.services.llm3.domain_config import load_domain_config
 
 router = APIRouter(prefix='/api/llm3', tags=['llm3'])
 
@@ -19,6 +20,29 @@ def _read_json(p: Path) -> Dict[str, Any]:
     except Exception as e:
         return {'ok': False, 'error': f'{type(e).__name__}: {e}', 'path': str(p)}
 
+
+
+
+def _domain_meta(domain: str) -> Dict[str, Any]:
+    try:
+        infra_dir = Path('/opt/tak/tools/takctl/llm-infra')
+        cfg = load_domain_config(infra_dir, domain)
+        return {
+            'domain': domain,
+            'section': str(cfg.get('section') or '').strip(),
+            'card_title': str(cfg.get('card_title') or '').strip(),
+            'mode': str(cfg.get('mode') or '').strip(),
+            'enabled': bool(cfg.get('enabled', True)),
+        }
+    except Exception as e:
+        return {
+            'domain': domain,
+            'section': '',
+            'card_title': '',
+            'mode': '',
+            'enabled': True,
+            'meta_error': f'{type(e).__name__}: {e}',
+        }
 
 def _latest_phase(domain: str, phase: str) -> Dict[str, Any]:
     d = latest_root() / domain / phase
@@ -57,6 +81,7 @@ def latest() -> Dict[str, Any]:
     for dom_dir in sorted([p for p in latest_root().iterdir() if p.is_dir()]):
         dom = dom_dir.name
         resp['domains'][dom] = {
+            'meta': _domain_meta(dom),
             'phase2': _latest_phase(dom, 'phase2'),
             'phase3': _latest_phase(dom, 'phase3'),
         }

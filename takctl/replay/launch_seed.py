@@ -6,6 +6,13 @@ import random
 import shutil
 import re
 from pathlib import Path
+import sys
+
+SCRIPT_ROOT = Path(__file__).resolve().parent
+if str(SCRIPT_ROOT) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT))
+if str(SCRIPT_ROOT.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_ROOT.parent))
 from typing import Any, Dict, List, Optional
 
 from replay_paths import SEED_ROOT, agent_dir, ensure_runtime_dirs
@@ -44,6 +51,8 @@ def clear_agent_dir(callsign: str) -> None:
         "llm_trace.log",
         "seen_chat_uids.json",
         "emit_trace.json",
+        "last_referee_packet.json",
+        "last_referee_result.json",
     ]:
         p = d / name
         if p.exists():
@@ -373,6 +382,13 @@ def seed_agent_states(seed_dir: Path) -> None:
                 },
                 "work": [],
                 "completed_work": [],
+                "new_messages": [],
+                "read_messages": [],
+                "inbox": [],
+                "seen_chat_uids": [],
+                "private_referee": [],
+                "pending_report_items": [],
+                "world_changed_this_tick": False,
             }
 
             d = agent_dir(callsign)

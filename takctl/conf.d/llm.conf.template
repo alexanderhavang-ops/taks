@@ -16,3 +16,4 @@ llm3_state_dir = /opt/tak/tools/takctl/state/llm3
 llm3_use_martine_server = true
 llm3_default_max_turns = 8
 llm3_default_max_tool_calls = 12
+llm3_refresh_interval_hours = 1
