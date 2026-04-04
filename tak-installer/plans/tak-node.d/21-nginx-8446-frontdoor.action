@@ -1,1 +1,2 @@
-# disabled: TAK server now owns 8446 directly
+# passive/disabled: TAK server owns 8446 directly
+# keep filename for plan/history compatibility, but do not schedule nginx.8446.frontdoor

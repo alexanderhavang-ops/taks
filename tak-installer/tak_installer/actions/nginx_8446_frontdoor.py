@@ -3,42 +3,36 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-
-def _run(cmd: list[str]) -> None:
-    subprocess.run(cmd, check=True)
+from tak_installer.runtime_state import get_fqdn
 
 
 class Nginx8446FrontdoorAction:
     ID = "nginx.8446.frontdoor"
 
     def inspect(self, ctx) -> int:
-        print("Nginx 8446 frontdoor: disabled (TAK server owns 8446 directly)")
+        fqdn = get_fqdn(ctx)
+        print("Nginx 8446 frontdoor: passive/disabled (TAK server owns 8446 directly)")
+        print(f"fqdn: {fqdn}")
+        print("action: would remove legacy nginx 8446 site files if present")
         return 0
 
     def apply(self, ctx) -> int:
-        fqdn = ctx.get("fqdn") if isinstance(getattr(ctx, "__class__", None), type) else None
-        try:
-            from tak_installer.runtime_state import get_fqdn
-            fqdn = get_fqdn(ctx)
-        except Exception:
-            fqdn = None
+        fqdn = get_fqdn(ctx)
 
         candidates = [
             Path("/etc/nginx/sites-enabled/tak-enroll-8446"),
             Path("/etc/nginx/sites-available/tak-enroll-8446"),
+            Path(f"/etc/nginx/sites-enabled/tak-{fqdn}-enroll-8446.conf"),
+            Path(f"/etc/nginx/sites-available/tak-{fqdn}-enroll-8446.conf"),
         ]
-        if fqdn:
-            candidates.extend([
-                Path(f"/etc/nginx/sites-enabled/tak-{fqdn}-enroll-8446.conf"),
-                Path(f"/etc/nginx/sites-available/tak-{fqdn}-enroll-8446.conf"),
-            ])
 
+        changed = False
         for c in candidates:
-            subprocess.run(["sudo", "rm", "-f", str(c)], check=False)
+            if c.exists() or c.is_symlink():
+                subprocess.run(["sudo", "rm", "-f", str(c)], check=False)
+                changed = True
 
-        _run(["sudo", "nginx", "-t"])
-        _run(["sudo", "systemctl", "reload", "nginx"])
-        print("applied: nginx.8446.frontdoor disabled/removed")
+        print(f"applied: nginx.8446.frontdoor passive (removed_legacy={str(changed).lower()})")
         return 0
 
 

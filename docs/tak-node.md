@@ -112,7 +112,7 @@ For a node FQDN:
 - sites-available/tak-<FQDN>-443.conf
 - sites-enabled/tak-<FQDN>-443.conf
 
-8446 (frontdoor):
+8446 (legacy nginx frontdoor, now disabled; TAK server owns 8446 directly):
 - sites-available/tak-<FQDN>-enroll-8446.conf
 - sites-enabled/tak-<FQDN>-enroll-8446.conf
 
@@ -133,7 +133,7 @@ Sites are enabled via symlinks:
 4. nginx.snippets.core
 5. nginx.acme
 6. nginx.443.takctl
-7. nginx.8446.frontdoor
+7. nginx.8446.frontdoor (passive/disabled legacy cleanup only)
 
 Do not reorder casually.
 
