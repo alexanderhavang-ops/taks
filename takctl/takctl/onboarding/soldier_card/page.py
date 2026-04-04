@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from takctl.onboarding.soldier_card.blocks import lifecycle_block, password_block, profile_block
 from takctl.onboarding.soldier_card.post_onboarding import post_onboarding_block
+from takctl.onboarding.soldier_card.status import mobile_flow_btn_extra_class
 from takctl.onboarding.soldier_card.i18n import lang_norm, t
 from takctl.config import load_config
 from takctl.onboarding.atak import _read_runtime_ca_password, _read_runtime_user_cert_password
@@ -318,7 +319,8 @@ def _render_full_card_section(
 
     profile_html = profile_block(lang=l, username=username, groups=groups, sel=sel, ident=ident)
     lifecycle_html = lifecycle_block(l, lifecycle)
-    post_onboarding_html = post_onboarding_block(lang=l, base=base)
+    post_onboarding_html = post_onboarding_block(lang=l, base=base, token=token, bump=bump)
+    mobile_btn_extra = mobile_flow_btn_extra_class(lifecycle)
 
     truststore_password = None
     client_password = None
@@ -501,6 +503,9 @@ body {
 .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
 .choicebtn { border:1px solid var(--bd); background:var(--card2); color:var(--txt); padding:8px 12px; border-radius:999px; cursor:pointer; font-size:13px; }
 .choicebtn-active { outline:2px solid rgba(139,184,255,0.45); }
+    .choicebtn-ok { background: rgba(68,108,62,0.48); border-color: rgba(154,205,136,0.34); color:#ecffe7; }
+    .choicebtn-ok:hover { background: rgba(78,122,72,0.56); }
+    .choicebtn-ok.choicebtn-active { outline:2px solid rgba(154,205,136,0.45); }
 a { color: var(--link); }
 pre { white-space: pre-wrap; word-break: break-word; }
 .print-page > div[id^="tab_"],
@@ -795,8 +800,9 @@ pre { white-space: pre-wrap; word-break: break-word; }
     <div class="tabs interactive-only">
       <button id="tabbtn_start" class="choicebtn" onclick="showMainTab('start')">{h(t(l, "soldier.start"))}</button>
       <button id="tabbtn_guide" class="choicebtn" onclick="showMainTab('guide')">{h(t(l, "soldier.guide"))}</button>
+    <button class="choicebtn interactive-only" id="tabbtn_info" onclick="showMainTab('info')">Din info</button>
       \1
-    <button class="choicebtn interactive-only" id="tabbtn_post" onclick="showMainTab('post')">Post Onboarding</button>
+    <button class="choicebtn interactive-only" id="tabbtn_post" onclick="showMainTab('post')">Steg 2</button>
       <button id="tabbtn_advanced" class="choicebtn" onclick="showMainTab('advanced')">{h(t(l, "soldier.advanced_tab"))}</button>
     </div>
 """
@@ -805,8 +811,8 @@ pre { white-space: pre-wrap; word-break: break-word; }
     if interactive:
         flow_tabs = f"""
       <div class="tabs interactive-only" style="margin-top:6px;">
-        <button id="btn_android" class="choicebtn" onclick="showFlow('android')">{h(t(l, "soldier.android"))}</button>
-        <button id="btn_iphone" class="choicebtn" onclick="showFlow('iphone')">{h(t(l, "soldier.iphone"))}</button>
+        <button id="btn_android" class="choicebtn{mobile_btn_extra}" onclick="showFlow('android')">{h(t(l, "soldier.android"))}</button>
+        <button id="btn_iphone" class="choicebtn{mobile_btn_extra}" onclick="showFlow('iphone')">{h(t(l, "soldier.iphone"))}</button>
         <button id="btn_browser" class="choicebtn" onclick="showFlow('browser')">{h(t(l, "soldier.browser"))}</button>
       </div>
 """

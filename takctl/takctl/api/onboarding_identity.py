@@ -601,8 +601,10 @@ def onboarding_card_html(req: Request, token: str):
     if not username:
         raise HTTPException(status_code=404, detail="Not Found")
 
+    db, _db_err, _db_source, _db_target = maybe_db()
+
     try:
-        card = svc.user_card(username=username, db=None, recent_minutes=120)
+        card = svc.user_card(username=username, db=db, recent_minutes=120)
     except Exception:
         card = {}
 

@@ -16,6 +16,7 @@ function App() {
     martine: true,
     replay: true,
     documents: true,
+    logs: true,
     config: true
   };
   const tab = ALLOWED_TABS[String(tabRaw || "")] ? tabRaw : "onboarding";
@@ -26,6 +27,7 @@ function App() {
     tab === "martine" && h(MartineView),
     tab === "replay" && h(ReplayView),
     tab === "documents" && h(DocumentsPage),
+    tab === "logs" && h(LogsViewerView),
     tab === "config" && h(ConfigView)
   );
 }

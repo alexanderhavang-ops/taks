@@ -1,6 +1,16 @@
 (function(){
   const e = React.createElement;
 
+  function tr(key, fallback){
+    try{
+      if (window.t && typeof window.t === "function") {
+        const v = window.t(key);
+        if (v && v !== key) return v;
+      }
+    }catch(_){}
+    return fallback;
+  }
+
   function SideBtn(props){
     const active = !!props.active;
     return e("button", {
@@ -10,8 +20,11 @@
       style: {
         width: "100%",
         textAlign: "left",
-        marginBottom: 8,
-        display: "block"
+        marginBottom: 6,
+        display: "block",
+        padding: "6px 10px",
+        fontSize: 13,
+        lineHeight: 1.2
       }
     }, props.label);
   }
@@ -35,7 +48,6 @@
   }
 
   window.AIHubView = function AIHubView(){
-    const t = (window.t && typeof window.t === "function") ? window.t : (k => String(k || ""));
     const [subtab, setSubtab] = React.useState(getAiSubtabFromLocation());
 
     React.useEffect(()=>{
@@ -58,36 +70,36 @@
       className: "llm-page",
       style: {
         display: "flex",
-        gap: 16,
+        gap: 12,
         alignItems: "flex-start"
       }
     }, [
       e("div", {
         className: "llm-card",
         style: {
-          width: 180,
-          minWidth: 180,
-          padding: 14,
+          width: 128,
+          minWidth: 128,
+          padding: 10,
           position: "sticky",
           top: 12,
           alignSelf: "flex-start"
         }
       }, [
-        e("div", { style: { fontWeight: 800, marginBottom: 12, fontSize: 18 } }, t("nav.ai")),
+        e("div", { style: { fontWeight: 800, marginBottom: 10, fontSize: 16 } }, tr("nav.ai", "AI")),
         e(SideBtn, {
           active: subtab === "domain",
           onClick: ()=>openSubtab("domain"),
-          label: t("nav.ai_by_domain") || "By Domain"
+          label: tr("nav.ai_by_domain", "Per domän")
         }),
         e(SideBtn, {
           active: subtab === "section",
           onClick: ()=>openSubtab("section"),
-          label: t("nav.ai_by_section") || "By Section"
+          label: tr("nav.ai_by_section", "Per sektion")
         }),
         e(SideBtn, {
           active: subtab === "costs",
           onClick: ()=>openSubtab("costs"),
-          label: t("nav.ai_costs") || "LLM Costs"
+          label: tr("nav.ai_costs", "AI-kostnader")
         })
       ]),
       e("div", { style: { flex: 1, minWidth: 0 } }, body)

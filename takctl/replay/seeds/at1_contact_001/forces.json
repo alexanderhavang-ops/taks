@@ -6,8 +6,8 @@
         "role": "platoon",
         "parent": null,
         "position": {
-          "lat": 55.4268,
-          "lon": 13.9198
+          "lat": 55.446930,
+          "lon": 13.934686
         },
         "strength": 32
       },
@@ -16,8 +16,8 @@
         "role": "group",
         "parent": "AT1",
         "position": {
-          "lat": 55.4272,
-          "lon": 13.9206
+          "lat": 55.447330,
+          "lon": 13.935486
         },
         "strength": 8
       },
@@ -26,8 +26,8 @@
         "role": "group",
         "parent": "AT1",
         "position": {
-          "lat": 55.4269,
-          "lon": 13.9217
+          "lat": 55.447030,
+          "lon": 13.936586
         },
         "strength": 8
       },
@@ -36,8 +36,8 @@
         "role": "group",
         "parent": "AT1",
         "position": {
-          "lat": 55.4265,
-          "lon": 13.9188
+          "lat": 55.446630,
+          "lon": 13.933686
         },
         "strength": 8
       },
@@ -46,8 +46,8 @@
         "role": "group",
         "parent": "AT1",
         "position": {
-          "lat": 55.4262,
-          "lon": 13.9201
+          "lat": 55.446330,
+          "lon": 13.934986
         },
         "strength": 8
       }

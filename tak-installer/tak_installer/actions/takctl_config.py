@@ -212,6 +212,15 @@ def _migrate_legacy_db_env_to_split_secret() -> bool:
     return True
 
 
+
+def _fix_dir_tree_owner_mode(path: Path, *, file_mode: int = 0o640, dir_mode: int = 0o2770) -> None:
+    if not path.exists():
+        return
+    subprocess.run(["chown", "-R", "tak:tak", str(path)], check=False)
+    subprocess.run(["bash", "-lc", f'find "{path}" -type d -exec chmod {dir_mode:o} {{}} \\; 2>/dev/null || true'], check=False)
+    subprocess.run(["bash", "-lc", f'find "{path}" -type f -exec chmod {file_mode:o} {{}} \\; 2>/dev/null || true'], check=False)
+
+
 def _ensure_generated_secrets() -> None:
     certs_path = DST_SECRETS_D / "certs.conf"
     certs = _parse_simple_kv(certs_path)
@@ -276,8 +285,8 @@ def apply(ctx) -> None:
 
     _ensure_generated_secrets()
 
-    subprocess.run(["chown", "-R", "tak:tak", str(DST_CONF_D)], check=False)
-    subprocess.run(["chown", "-R", "tak:tak", str(DST_SECRETS_D)], check=False)
+    _fix_dir_tree_owner_mode(DST_CONF_D, file_mode=0o640, dir_mode=0o2770)
+    _fix_dir_tree_owner_mode(DST_SECRETS_D, file_mode=0o640, dir_mode=0o2770)
 
     n_meta = 0
     if src_confmeta.exists() and src_confmeta.is_dir():
@@ -299,7 +308,7 @@ def apply(ctx) -> None:
             _write_atomic(DST_CONFMETA / dst_name, src.read_text(encoding="utf-8"), 0o644)
             n_meta += 1
 
-    subprocess.run(["chown", "-R", "tak:tak", str(DST_CONFMETA)], check=False)
+    _fix_dir_tree_owner_mode(DST_CONFMETA, file_mode=0o644, dir_mode=0o2755)
     log.info("takctl-config: installed %s confmeta files into %s", n_meta, DST_CONFMETA)
 
 

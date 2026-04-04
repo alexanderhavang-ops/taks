@@ -23,6 +23,7 @@ from takctl.onboarding.atak import (
     now_utc_iso,
 )
 from takctl.onboarding.pages import render_generate_page, render_card_page
+from takctl.onboarding.vx import write_vx_mission_zip, derive_vx_params
 from takctl.config import load_config
 
 
@@ -500,6 +501,81 @@ def _resolve_public_base(req: Request, username: str) -> str:
     )
 
     return f"{scheme}://{host}"
+
+
+
+def _write_vx_package(out, username: str, u, base: str) -> None:
+    sel = load_selection(username) or {}
+    groups = list(getattr(u, "groups", []) or [])
+    vx = derive_vx_params(username=username, groups=groups, selection=sel, base=base)
+    write_vx_mission_zip(
+        out,
+        package_name=vx["package_name"],
+        mission_name=vx["mission_name"],
+        channel_name=vx["channel_name"],
+        host=vx["host"],
+        port=int(vx["port"]),
+        server_channel_id=int(vx["server_channel_id"]),
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/vx/qr.txt")
+def token_vx_qr_txt(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+
+    base = _resolve_public_base(req, username)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/vx/package.zip"
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
+    host, port, use_ssl = _resolve_qr_endpoint(req, username, "atak")
+    payload = qr_payload("atak", package_url, host, port=port, use_ssl=use_ssl)
+
+    return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+
+
+@router.get("/onboarding/cards/{token}/packages/vx/qr.png")
+def token_vx_qr_png(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+
+    base = _resolve_public_base(req, username)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/vx/package.zip"
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
+    host, port, use_ssl = _resolve_qr_endpoint(req, username, "atak")
+    payload = qr_payload("atak", package_url, host, port=port, use_ssl=use_ssl)
+
+    out = artifact_root(username) / f"{username}.vx.token.qr.png"
+    write_qr_png(payload, out, size=8)
+
+    return FileResponse(
+        str(out),
+        media_type="image/png",
+        filename=f"{username}.vx.token.qr.png",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/vx/package.zip")
+def token_vx_package_zip(req: Request, token: str):
+    svc, u, username, _ = _require_token(token)
+
+    out = artifact_root(username) / "vx" / "package.zip"
+    regen = bool_q(req, "regen", False)
+    via = (req.query_params.get("via") or "").strip().lower()
+
+    if regen or (not out.exists()):
+        base = _resolve_public_base(req, username)
+        _write_vx_package(out, username, u, base=base)
+        _mark_package_generated(svc, username, package_type="vx", sel=(load_selection(username) or {}))
+
+    _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
+
+    return FileResponse(
+        str(out),
+        media_type="application/zip",
+        filename=f"{username}.vx.package.zip",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
 
 
 def _resolve_qr_endpoint(req: Request, username: str, client: str) -> tuple[str, int | None, bool | None]:
