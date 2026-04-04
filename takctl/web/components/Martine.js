@@ -21,6 +21,22 @@
     return j;
   }
 
+  async function getJson(url){
+    const r = await fetch(url, {
+      method: "GET",
+      credentials: "same-origin"
+    });
+    const t = await r.text();
+    let j = null;
+    try { j = JSON.parse(t); } catch (_) {}
+    if (!r.ok) {
+      const msg = (j && (j.detail || j.error)) ? String(j.detail || j.error) : ("HTTP " + r.status + ": " + t.slice(0, 400));
+      throw new Error(msg);
+    }
+    if (j == null) throw new Error("Non-JSON response from " + url + ": " + t.slice(0, 400));
+    return j;
+  }
+
   function Box(props){
     return e("div", {
       style: {
@@ -72,11 +88,96 @@
     );
   }
 
+  function eventTitle(ev){
+    const t = String((ev && ev.type) || "");
+    if (t === "run_started") return "Run started";
+    if (t === "turn_started") return "Turn started";
+    if (t === "llm_response_parsed") return "LLM decision";
+    if (t === "tool_call_started") return "Tool call started";
+    if (t === "tool_call_finished") return "Tool call finished";
+    if (t === "final_answer") return "Final answer";
+    if (t === "run_finished") return "Run finished";
+    if (t === "run_failed") return "Run failed";
+    if (t === "llm_parse_error") return "LLM parse error";
+    if (t === "invalid_action") return "Invalid action";
+    if (t === "invalid_tool") return "Invalid tool";
+    if (t === "repair_turn_requested") return "Repair turn requested";
+    return t || "event";
+  }
+
+  function eventSummary(ev){
+    if (!ev) return "";
+    if (ev.type === "run_started") return ev.user_input || "";
+    if (ev.type === "turn_started") return "turn " + String(ev.turn || "");
+    if (ev.type === "llm_response_parsed") {
+      return [ev.action, ev.tool_name, ev.reason].filter(Boolean).join(" • ");
+    }
+    if (ev.type === "tool_call_started") {
+      return [ev.tool_name, ev.reason].filter(Boolean).join(" • ");
+    }
+    if (ev.type === "tool_call_finished") {
+      return [ev.tool_name, ev.ok === false ? "failed" : "ok"].filter(Boolean).join(" • ");
+    }
+    if (ev.type === "final_answer") return ev.answer_preview || "";
+    if (ev.type === "run_finished") return ev.ok ? "ok" : "not ok";
+    if (ev.type === "run_failed") return ev.error || "";
+    if (ev.type === "repair_turn_requested") return ev.message || "";
+    return "";
+  }
+
+  function TraceEvent(ev, idx){
+    return e("div", {
+      key: idx,
+      style: {
+        borderTop: idx === 0 ? "none" : "1px solid rgba(255,255,255,0.08)",
+        paddingTop: idx === 0 ? 0 : 12,
+        marginTop: idx === 0 ? 0 : 12
+      }
+    },
+      e("div", {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          gap: 12,
+          alignItems: "baseline",
+          marginBottom: 4
+        }
+      },
+        e("div", { style: { fontWeight: 700, fontSize: 14 } }, eventTitle(ev)),
+        e("div", { style: { fontSize: 12, opacity: 0.7 } }, String(ev.ts || ""))
+      ),
+      eventSummary(ev) ? e("div", {
+        style: {
+          fontSize: 13,
+          lineHeight: "18px",
+          marginBottom: 8,
+          opacity: 0.95,
+          whiteSpace: "pre-wrap",
+          overflowWrap: "anywhere"
+        }
+      }, eventSummary(ev)) : null,
+      e(Pre, null, ev)
+    );
+  }
+
   function MartineView(){
     const [question, setQuestion] = React.useState("Where is Martine state stored?");
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState("");
     const [result, setResult] = React.useState(null);
+    const [events, setEvents] = React.useState([]);
+    const [eventsError, setEventsError] = React.useState("");
+
+    async function loadEvents(runId){
+      if (!runId) return;
+      try {
+        const res = await getJson("/api/martine/runs/" + encodeURIComponent(runId) + "/events");
+        setEvents(Array.isArray(res.events) ? res.events : []);
+        setEventsError("");
+      } catch (e) {
+        setEventsError(String((e && e.message) || e || "Failed to load events"));
+      }
+    }
 
     async function ask(){
       const q = String(question || "").trim();
@@ -86,9 +187,15 @@
       }
       setLoading(true);
       setError("");
+      setResult(null);
+      setEvents([]);
+      setEventsError("");
       try {
         const res = await postJson("/api/martine/ask", { question: q });
         setResult(res);
+        if (res && res.run_id) {
+          await loadEvents(res.run_id);
+        }
       } catch (e) {
         setError(String((e && e.message) || e || "Request failed"));
       } finally {
@@ -161,6 +268,14 @@
           "run_id: ",
           e("code", null, String((result && result.run_id) || ""))
         )
+      ) : null,
+
+      result ? e(Box, null,
+        e(Label, null, "Agent trace"),
+        eventsError ? e("div", { style: { color: "#ff8f8f", marginBottom: 10 } }, eventsError) : null,
+        events && events.length
+          ? e("div", { style: { display: "grid", gap: 0 } }, events.map(TraceEvent))
+          : e("div", { style: { opacity: 0.75, fontSize: 13 } }, "No trace events found")
       ) : null,
 
       result ? e(Box, null,
