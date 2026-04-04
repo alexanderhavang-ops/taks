@@ -2,11 +2,28 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Protocol
 
 import tak_installer.actions
+
+
+
+STATE_LOG = Path("/var/log/taks-installer-state.log")
+
+
+def _ts_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _log_state(name: str, status: str) -> None:
+    try:
+        with STATE_LOG.open("a", encoding="utf-8") as f:
+            f.write(f"{name},{_ts_now()},{status}\n")
+    except Exception:
+        pass
 
 
 class Action(Protocol):
@@ -80,6 +97,7 @@ def run_plan(ctx: Context, plan_ids: Iterable[str]) -> int:
         print()
         print(f"[{a.ID}]")
 
+        _log_state(f"tak-installer:{a.ID}", "Started")
         try:
             rc = a.inspect(ctx) if ctx.dry_run else a.apply(ctx)
         except Exception as e:
@@ -93,5 +111,7 @@ def run_plan(ctx: Context, plan_ids: Iterable[str]) -> int:
         if rc != 0:
             print(f"ERROR: action failed: {a.ID} (rc={rc})")
             return rc
+
+        _log_state(f"tak-installer:{a.ID}", "Succeeded")
 
     return 0

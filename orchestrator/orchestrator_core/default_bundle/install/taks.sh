@@ -4,6 +4,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUNDLE_ROOT="$ROOT"
 
+
+STATE_LOG="/var/log/taks-installer-state.log"
+
+ts_now() {
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+log_state() {
+  local name="$1"
+  local status="$2"
+  printf '%s,%s,%s\n' "$name" "$(ts_now)" "$status" >> "$STATE_LOG"
+}
+
 log() {
   printf '[taks] %s\n' "$*"
 }
@@ -46,10 +59,12 @@ if [ -n "${LE_EMAIL:-}" ]; then
   export LE_EMAIL
 fi
 
+log_state "taks/apply" "Started"
 log "running tak-installer apply from extracted bundle"
 (
   cd "$TAKS_SOURCE_ROOT"
   python3 ./tak-installer/tak-installer apply
 )
+log_state "taks/apply" "Succeeded"
 
 log "taks install complete"
