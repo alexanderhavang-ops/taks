@@ -48,6 +48,10 @@ class NginxAcme80Action:
     dst_enabled: Path
 
     def _fqdn(self, ctx: Context) -> str:
+        for key in ("FQDN", "TAKS_FQDN", "TAKS_NODE_FQDN"):
+            v = str((ctx.env or {}).get(key) or "").strip()
+            if v:
+                return v
         return get_fqdn(ctx)
 
     def _render(self, fqdn: str) -> str:

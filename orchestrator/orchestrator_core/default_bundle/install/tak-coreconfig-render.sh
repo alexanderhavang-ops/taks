@@ -11,6 +11,28 @@ read_trimmed_file() {
   tr -d '\r' < "$p" | sed -e 's/[[:space:]]*$//' | head -n 1
 }
 
+
+read_db_password_file() {
+  local p="/etc/taks/db/martiuser_password"
+  [ -f "$p" ] || return 1
+  tr -d '\r' < "$p" | sed -e 's/[[:space:]]*$//' | head -n 1
+}
+
+write_db_password_file() {
+  local value="$1"
+  install -d -m 700 /etc/taks/db
+  umask 077
+  printf '%s\n' "$value" > /etc/taks/db/martiuser_password
+}
+
+sync_martiuser_password() {
+  local pw="$1"
+  command -v psql >/dev/null 2>&1 || return 0
+  sudo -u postgres psql -d postgres -v ON_ERROR_STOP=1 >/dev/null <<EOF
+ALTER ROLE martiuser WITH PASSWORD '${pw}';
+EOF
+}
+
 read_shell_assignment() {
   local p="$1"
   local key="$2"
@@ -37,7 +59,13 @@ xml_escape() {
 extract_db_password() {
   local cfg="/opt/tak/CoreConfig.xml"
   [ -f "$cfg" ] || return 1
-  sed -n 's/.*password="\([^"]*\)".*/\1/p' "$cfg" | head -n 1
+  python3 - "$cfg" <<'PYXML'
+import re, sys
+text = open(sys.argv[1], "r", encoding="utf-8").read()
+m = re.search(r'<connection\b[^>]*\busername="martiuser"[^>]*\bpassword="([^"]+)"', text)
+if m:
+    print(m.group(1))
+PYXML
 }
 
 main() {
@@ -51,17 +79,22 @@ main() {
   fi
 
   local taks_dir="/etc/taks"
+  local db_dir="$taks_dir/db"
   local cert_dir="$taks_dir/certs"
   local cert_meta="/opt/tak/certs/cert-metadata.sh"
   local out="/opt/tak/CoreConfig.xml"
   local server_id_file="$taks_dir/server_id"
 
-  local unit_id fqdn private_ip db_password cert_pass org ou org_xml ou_xml
+  local unit_id fqdn private_ip db_password cert_pass cert_capass org ou org_xml ou_xml
   unit_id="$(read_trimmed_file "$taks_dir/TAKS_UNIT_ID" || true)"
   fqdn="${TAKS_NODE_FQDN:-}"
   private_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  db_password="$(extract_db_password || true)"
+  db_password="$(read_db_password_file || true)"
+  if [ -z "$db_password" ]; then
+    db_password="$(extract_db_password || true)"
+  fi
   cert_pass="$(read_shell_assignment "$cert_meta" PASS || read_trimmed_file "$cert_dir/PASS" || true)"
+  cert_capass="$(read_shell_assignment "$cert_meta" CAPASS || read_trimmed_file "$cert_dir/CAPASS" || true)"
   org="$(read_shell_assignment "$cert_meta" ORGANIZATION || read_trimmed_file "$cert_dir/ORGANIZATION" || true)"
   ou="$(read_shell_assignment "$cert_meta" ORGANIZATIONAL_UNIT || read_trimmed_file "$cert_dir/ORGANIZATIONAL_UNIT" || true)"
 
@@ -80,8 +113,12 @@ main() {
   if [ -z "$db_password" ]; then
     db_password="atakatak"
   fi
+  write_db_password_file "$db_password"
   if [ -z "$cert_pass" ]; then
     cert_pass="atakatak"
+  fi
+  if [ -z "$cert_capass" ]; then
+    cert_capass="$cert_pass"
   fi
 
   mkdir -p "$taks_dir"
@@ -178,7 +215,7 @@ main() {
             keystorePass="${cert_pass}"
             truststore="JKS"
             truststoreFile="certs/files/01_TRUST/truststore-root.jks"
-            truststorePass="${cert_pass}"
+            truststorePass="${cert_capass}"
             context="TLSv1.2"
             keymanager="SunX509">
             <crl _name="TAKServer CA" crlFile="/opt/tak/certs/files/00_CA/ca.crl"/>
@@ -194,7 +231,7 @@ main() {
                 keystoreKeyPass="${cert_pass}"
                 truststore="JKS"
                 truststoreFile="certs/files/01_TRUST/fed-truststore.jks"
-                truststorePass="${cert_pass}"
+                truststorePass="${cert_capass}"
                 context="TLSv1.2"
                 keymanager="SunX509"/>
             <v1Tls tlsVersion="TLSv1.2"/>
@@ -218,7 +255,7 @@ main() {
         <TAKServerCAConfig
             keystore="PKCS12"
             keystoreFile="certs/files/00_CA/ca-signing.p12"
-            keystorePass="${cert_pass}"
+            keystorePass="${cert_capass}"
             keyAlias="tak-ca"
             validityDays="365"
             signatureAlg="SHA256WithRSA"/>
@@ -226,7 +263,9 @@ main() {
 </Configuration>
 EOF2
 
-  chmod 600 "$out"
+  chmod 640 "$out"
+  chown tak:tak "$out" 2>/dev/null || true
+  sync_martiuser_password "$db_password" || true
   log "wrote $out"
   log "  fqdn=${fqdn}"
   log "  private_ip=${private_ip}"

@@ -4,6 +4,7 @@ import json
 import os
 import tarfile
 from orchestrator_core.config import load_orch_config, load_secrets_config
+from orchestrator_core.unit_bootstrap import effective_bootstrap_for_bundle
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -184,6 +185,77 @@ def _default_node_cert_model(unit_meta: Dict[str, Any]) -> str:
     return str(cfg.nodes.default_cert_model).strip()
 
 
+
+
+def _unit_cert_ou(unit_path: str) -> str:
+    safe = _safe_unit_fs(unit_path)
+    return safe.split("/")[-1].strip() or safe
+
+
+def _parse_simple_conf(text: str) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for raw in str(text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[str(k).strip()] = str(v).strip()
+    return out
+
+
+def _render_simple_conf(rows: Dict[str, str]) -> str:
+    keys = sorted(rows.keys())
+    return "".join(f"{k} = {rows[k]}\n" for k in keys if str(rows[k]).strip() != "")
+
+
+def _bundle_has_takserver_deb(unit_path: str, role: str) -> bool:
+    pats = ("takserver_*_all.deb",)
+
+    roots = [
+        default_bundle_dir() / "packages",
+        role_bundle_overlay_dir(role) / "packages",
+        unit_bundle_overlay_dir(unit_path) / "packages",
+        unit_files_root(unit_path) / "packages",
+    ]
+
+    for root in roots:
+        if not root.exists():
+            continue
+        for pat in pats:
+            if any(root.glob(pat)):
+                return True
+    return False
+
+
+def bundle_readiness(unit_path: str, role: str) -> Dict[str, Any]:
+    data = effective_bootstrap_for_bundle(unit_path)
+    conf_d = (data.get("conf_d") or {}) if isinstance(data, dict) else {}
+    certs_obj = conf_d.get("certs.conf") or {}
+    if isinstance(certs_obj, dict):
+        certs = {str(k).strip(): str(v).strip() for k, v in certs_obj.items()}
+    else:
+        certs = _parse_simple_conf(str(certs_obj))
+
+    required_cert_keys = (
+        "cert_country",
+        "cert_state",
+        "cert_city",
+        "cert_organization",
+    )
+    missing_cert = [k for k in required_cert_keys if not str(certs.get(k) or "").strip()]
+
+    missing: List[str] = []
+    if not _bundle_has_takserver_deb(unit_path, role):
+        missing.append("takserver_deb")
+    missing.extend(missing_cert)
+
+    return {
+        "ok": len(missing) == 0,
+        "missing": missing,
+        "derived": {
+            "cert_organizational_unit": _unit_cert_ou(unit_path),
+        },
+    }
 def _default_le_email(unit_meta: Dict[str, Any]) -> str:
     meta = unit_meta if isinstance(unit_meta, dict) else {}
     explicit = _meta_get(meta, "le_email", "letsencrypt_email")
@@ -311,6 +383,43 @@ def _copy_tree(src: Path, dst: Path) -> Dict[str, Any]:
     return {"src": str(src), "files": files, "bytes": bytes_total, "exists": True}
 
 
+
+
+def _write_effective_bootstrap(root: Path, *, unit_path: str) -> Dict[str, Any]:
+    data = effective_bootstrap_for_bundle(unit_path)
+    eff = ((data or {}).get("effective") or {})
+    conf_d = (eff.get("conf_d") or {}) if isinstance(eff, dict) else {}
+
+    if isinstance(conf_d, dict):
+        certs_text = str(conf_d.get("certs.conf") or "")
+        certs = _parse_simple_conf(certs_text)
+        certs["cert_organizational_unit"] = _unit_cert_ou(unit_path)
+        conf_d["certs.conf"] = _render_simple_conf(certs)
+        certs = _parse_simple_conf(str(conf_d.get("certs.conf") or ""))
+        certs.pop("cert_organizational_unit", None)
+        certs["cert_organizational_unit"] = _unit_cert_ou(unit_path)
+        conf_d["certs.conf"] = _render_simple_conf(certs)
+    files = 0
+    bytes_total = 0
+
+    for kind, subdir in (("conf_d", "config.d"), ("secrets_d", "secrets.d")):
+        items = data.get(kind) or {}
+        for name, kv in sorted(items.items()):
+            dst = root / "install" / "taks-bootstrap" / subdir / name
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            rows = [f"{k} = {v}" for k, v in kv.items()]
+            dst.write_text("\n".join(rows) + "\n", encoding="utf-8")
+            files += 1
+            bytes_total += dst.stat().st_size
+
+    return {
+        "generated": "install/taks-bootstrap",
+        "kind": "unit_bootstrap",
+        "unit": unit_path,
+        "files": files,
+        "bytes": bytes_total,
+    }
+
 def _copy_repo_snapshot(dst_root: Path) -> Dict[str, Any]:
     src = repo_root_dir()
     dst = dst_root / "taks-source"
@@ -386,6 +495,8 @@ def build_bundle_from_state(unit_path: str, role: str, bundle_name: Optional[str
 
         _write_node_env(root, unit_path=up)
         overlays.append({"generated": "install/node.env", "kind": "node_env"})
+
+        overlays.append(_write_effective_bootstrap(root, unit_path=up))
 
         unit_meta = _read_unit_meta(up)
         cert_model = _default_node_cert_model(unit_meta)

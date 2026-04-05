@@ -26,6 +26,51 @@
     return await CORE.api('GET', '/api/v2/units/' + encodeURIComponent(unitPath) + '/files');
   }
 
+
+  async function loadUnitBootstrap(unitPath){
+    return await CORE.api('GET', '/api/v2/units/' + encodeURIComponent(unitPath) + '/bootstrap');
+  }
+
+  async function loadUnitBootstrapFiles(unitPath){
+    return await CORE.api('GET', '/api/v2/units/' + encodeURIComponent(unitPath) + '/bootstrap/files');
+  }
+
+  async function loadUnitBootstrapFile(unitPath, kind, name, scope){
+    const r = await fetch(
+      '/api/v2/units/' + encodeURIComponent(unitPath) + '/bootstrap/file' +
+      '?kind=' + encodeURIComponent(kind) +
+      '&name=' + encodeURIComponent(name) +
+      '&scope=' + encodeURIComponent(scope || 'local'),
+      { credentials: 'include' }
+    );
+
+    const txt = await r.text();
+    if(!r.ok) throw new Error(txt || ('HTTP ' + r.status));
+    return txt;
+  }
+
+  async function saveUnitBootstrapFile(unitPath, kind, name, content){
+    return await CORE.api(
+      'POST',
+      '/api/v2/units/' + encodeURIComponent(unitPath) + '/bootstrap/file' +
+      '?kind=' + encodeURIComponent(kind) +
+      '&name=' + encodeURIComponent(name),
+      { content: String(content || '') }
+    );
+  }
+
+  async function deleteUnitBootstrapFile(unitPath, kind, name){
+    const r = await fetch(
+      '/api/v2/units/' + encodeURIComponent(unitPath) + '/bootstrap/file' +
+      '?kind=' + encodeURIComponent(kind) +
+      '&name=' + encodeURIComponent(name),
+      { method: 'DELETE', credentials: 'include' }
+    );
+    const txt = await r.text();
+    if(!r.ok) throw new Error(txt || ('HTTP ' + r.status));
+    return txt ? JSON.parse(txt) : {};
+  }
+
   async function saveBrand(unitPath, slogan, symbol){
     return await CORE.api(
       'POST',
@@ -167,6 +212,11 @@
     loadNodes,
     loadStatus,
     loadUnitFiles,
+    loadUnitBootstrap,
+    loadUnitBootstrapFiles,
+    loadUnitBootstrapFile,
+    saveUnitBootstrapFile,
+    deleteUnitBootstrapFile,
     saveBrand,
     uploadLogo,
     uploadUnitFile,

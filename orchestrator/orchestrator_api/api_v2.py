@@ -12,7 +12,7 @@ from orchestrator_core.nodes_state import delete_node, get_node, list_nodes, tou
 from orchestrator_core.units_state import list_units, create_unit
 
 from .auth import verify_token, verify_basic_auth
-from .bundles_v2 import bundle_name_for_unit, bundle_dir, ensure_unit_bundle
+from .bundles_v2 import bundle_name_for_unit, bundle_dir, ensure_unit_bundle, get_unit_bundle_readiness
 
 router = APIRouter(prefix="/api/v2")
 
@@ -169,6 +169,12 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     if not load_orch_config().aws.launch_enabled:
         raise HTTPException(status_code=400, detail="Launch disabled by config (aws.launch_enabled=false)")
     nr = _node_req(req)
+
+    readiness = get_unit_bundle_readiness(nr.unit_path, nr.role)
+    if not bool(readiness.get("ok")):
+        missing = ", ".join([str(x) for x in (readiness.get("missing") or [])]) or "unknown"
+        raise HTTPException(status_code=400, detail=f"Unit config not ready for spawn: {missing}")
+
     ensure_unit_bundle(nr.unit_path, nr.role)
 
     launch = aws_launch(nr)

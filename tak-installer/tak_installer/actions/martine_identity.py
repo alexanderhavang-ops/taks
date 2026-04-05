@@ -4,6 +4,7 @@ import logging
 import secrets
 import shutil
 import subprocess
+import time
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -111,6 +112,27 @@ def _groups_match(actual: list[str], wanted: list[str]) -> bool:
     return sorted(actual) == sorted(wanted)
 
 
+
+def _wait_for_usermgr_ready(timeout_sec: int = 600, sleep_sec: int = 5) -> None:
+    deadline = time.time() + timeout_sec
+    jar = Path("/opt/tak/utils/UserManager.jar")
+
+    while time.time() < deadline:
+        if USERAUTH_XML.exists() and jar.exists():
+            probe = subprocess.run(
+                ["bash", "-lc", f"cd /opt/tak/utils && java -jar {jar.name} userlist >/tmp/martine-usermgr-probe.out 2>/tmp/martine-usermgr-probe.err"],
+                text=True,
+                capture_output=True,
+            )
+            if probe.returncode == 0:
+                print("[martine-identity] usermgr ready")
+                return
+
+        print("[martine-identity] waiting for takserver/usermgr readiness...")
+        time.sleep(sleep_sec)
+
+    raise RuntimeError("timed out waiting for TAK server user manager readiness")
+
 def _ensure_secrets() -> tuple[str, str, str]:
     sec = load_secrets()
 
@@ -164,6 +186,7 @@ def _ensure_user(cfg, user_password: str) -> None:
             print(f"[martine-identity] ensure_user skip xml-ok")
             return
 
+        _wait_for_usermgr_ready()
         um = UserMgrService()
         um.preflight()
         um.user_set(
@@ -175,6 +198,7 @@ def _ensure_user(cfg, user_password: str) -> None:
         print(f"[martine-identity] ensure_user update-groups")
         return
 
+    _wait_for_usermgr_ready()
     um = UserMgrService()
     um.preflight()
     um.user_set(
@@ -235,6 +259,7 @@ def _bind_user_to_cert(cfg, cert_pem_path: Path, user_password: str) -> None:
     groups_in = _split_groups(cfg.get("martine_groups_in", ""))
     groups_out = _split_groups(cfg.get("martine_groups_out", ""))
 
+    _wait_for_usermgr_ready()
     um = UserMgrService()
     um.preflight()
     um.user_set(

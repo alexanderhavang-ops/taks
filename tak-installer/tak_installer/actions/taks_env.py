@@ -7,8 +7,8 @@ from tak_installer.util import log
 
 BOOTSTRAP_ROOT = Path("/etc/taks-bootstrap.d")
 BOOTSTRAP_NODE_ENV = BOOTSTRAP_ROOT / "node.env"
-BOOTSTRAP_CONFIG_D = BOOTSTRAP_ROOT / "config"
-BOOTSTRAP_SECRETS_D = BOOTSTRAP_ROOT / "secrets"
+BOOTSTRAP_CONFIG_D = BOOTSTRAP_ROOT / "config.d"
+BOOTSTRAP_SECRETS_D = BOOTSTRAP_ROOT / "secrets.d"
 
 
 def _pick(ctx, *keys: str) -> str:
@@ -102,8 +102,8 @@ def apply(ctx) -> None:
     Persist orchestrator/bootstrap overrides into one canonical bootstrap area:
 
       /etc/taks-bootstrap.d/node.env
-      /etc/taks-bootstrap.d/config/*.conf
-      /etc/taks-bootstrap.d/secrets/*.conf
+      /etc/taks-bootstrap.d/config.d/*.conf
+      /etc/taks-bootstrap.d/secrets.d/*.conf
 
     This area is later materialized into TAKS runtime config/secrets by
     takctl-config. Files here are partial overlays; callers only need to set

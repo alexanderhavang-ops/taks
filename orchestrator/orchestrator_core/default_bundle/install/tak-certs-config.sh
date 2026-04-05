@@ -12,6 +12,23 @@ read_kv() {
   sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$file" | head -n 1
 }
 
+read_kv_dir_first_hit() {
+  local dir="$1"
+  local key="$2"
+  [ -d "$dir" ] || return 1
+
+  local f v
+  for f in "$dir"/*.conf; do
+    [ -f "$f" ] || continue
+    v="$(read_kv "$f" "$key" || true)"
+    if [ -n "${v:-}" ]; then
+      printf '%s\n' "$v"
+      return 0
+    fi
+  done
+  return 1
+}
+
 read_trimmed_file() {
   local p="$1"
   [ -f "$p" ] || return 1
@@ -48,12 +65,13 @@ write_secret_file() {
 main() {
   local conf="/opt/tak/tools/takctl/conf.d/certs.conf"
   local sec="/opt/tak/tools/takctl/secrets.d/certs.conf"
+  local boot_conf_dir="/etc/taks-bootstrap.d/config.d"
+  local boot_sec_dir="/etc/taks-bootstrap.d/secrets.d"
   local cert_dir="/etc/taks/certs"
   local dst="/opt/tak/certs/cert-metadata.sh"
 
   if [ ! -f "$conf" ]; then
-    log "missing $conf; skipping"
-    return 0
+    log "missing $conf; will try bootstrap conf.d fallback"
   fi
 
   mkdir -p /opt/tak/certs
@@ -70,8 +88,34 @@ main() {
   CAPASS="$(read_kv "$sec" cert_capass || true)"
   PASS="$(read_kv "$sec" cert_pass || true)"
 
+  if [ -z "${COUNTRY:-}" ]; then
+    COUNTRY="$(read_kv_dir_first_hit "$boot_conf_dir" cert_country || true)"
+  fi
+  if [ -z "${STATE:-}" ]; then
+    STATE="$(read_kv_dir_first_hit "$boot_conf_dir" cert_state || true)"
+  fi
+  if [ -z "${CITY:-}" ]; then
+    CITY="$(read_kv_dir_first_hit "$boot_conf_dir" cert_city || true)"
+  fi
+  if [ -z "${ORGANIZATION:-}" ]; then
+    ORGANIZATION="$(read_kv_dir_first_hit "$boot_conf_dir" cert_organization || true)"
+  fi
+  if [ -z "${ORGANIZATIONAL_UNIT:-}" ]; then
+    ORGANIZATIONAL_UNIT="$(read_kv_dir_first_hit "$boot_conf_dir" cert_organizational_unit || true)"
+  fi
+
+  if [ -z "${CAPASS:-}" ]; then
+    CAPASS="$(read_kv_dir_first_hit "$boot_sec_dir" cert_capass || true)"
+  fi
+  if [ -z "${PASS:-}" ]; then
+    PASS="$(read_kv_dir_first_hit "$boot_sec_dir" cert_pass || true)"
+  fi
+
   COUNTRY="${COUNTRY:-SE}"
+  STATE="${STATE:-UnknownState}"
+  CITY="${CITY:-UnknownCity}"
   ORGANIZATION="${ORGANIZATION:-TAK}"
+  ORGANIZATIONAL_UNIT="${ORGANIZATIONAL_UNIT:-TAKS}"
 
   if [ -z "${CAPASS:-}" ]; then
     CAPASS="$(read_trimmed_file "$cert_dir/CAPASS" || true)"
@@ -132,7 +176,7 @@ EOT
   chmod 600 "$dst"
   chown tak:tak "$dst" 2>/dev/null || true
 
-  log "wrote $dst from runtime config / node-local state"
+  log "wrote $dst from runtime/bootstrap config / node-local state"
   log "persisted node-local cert secret files under $cert_dir"
 }
 

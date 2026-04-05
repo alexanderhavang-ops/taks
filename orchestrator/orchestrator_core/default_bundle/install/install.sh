@@ -4,6 +4,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUNDLE_ROOT="$ROOT"
 
+
+STATE_LOG="/var/log/taks-installer-state.log"
+
+ts_now() {
+  date -u +"%Y-%m-%dT%H:%M:%SZ"
+}
+
+log_state() {
+  local name="$1"
+  local status="$2"
+  printf '%s,%s,%s\n' "$name" "$(ts_now)" "$status" >> "$STATE_LOG"
+}
+
 log() {
   printf '[install] %s\n' "$*"
 }
@@ -17,8 +30,10 @@ run_step() {
     return 0
   fi
 
+  log_state "$name" "Started"
   log "running $name: $path"
   bash "$path"
+  log_state "$name" "Succeeded"
 }
 
 ensure_ca_signing_keystore() {
@@ -142,7 +157,7 @@ restart_takserver_if_present() {
 }
 
 install_base_files() {
-  mkdir -p /etc/taks /etc/taks-bootstrap.d
+  mkdir -p /etc/taks /etc/taks-bootstrap.d /etc/taks-bootstrap.d/config.d /etc/taks-bootstrap.d/secrets.d
 
   if [ -f "$BUNDLE_ROOT/config/unit.json" ]; then
     install -m 0644 "$BUNDLE_ROOT/config/unit.json" /etc/taks/unit.json
@@ -152,6 +167,26 @@ install_base_files() {
   if [ -f "$BUNDLE_ROOT/install/node.env" ]; then
     install -m 0600 "$BUNDLE_ROOT/install/node.env" /etc/taks-bootstrap.d/node.env
     log "installed /etc/taks-bootstrap.d/node.env"
+  fi
+
+  if [ -d "$BUNDLE_ROOT/install/taks-bootstrap/config.d" ]; then
+    find "$BUNDLE_ROOT/install/taks-bootstrap/config.d" -type f -name '*.conf' | while read -r src; do
+      rel="${src#$BUNDLE_ROOT/install/taks-bootstrap/config.d/}"
+      dst="/etc/taks-bootstrap.d/config.d/$rel"
+      mkdir -p "$(dirname "$dst")"
+      install -m 0600 "$src" "$dst"
+    done
+    log "installed /etc/taks-bootstrap.d/config.d overlays"
+  fi
+
+  if [ -d "$BUNDLE_ROOT/install/taks-bootstrap/secrets.d" ]; then
+    find "$BUNDLE_ROOT/install/taks-bootstrap/secrets.d" -type f -name '*.conf' | while read -r src; do
+      rel="${src#$BUNDLE_ROOT/install/taks-bootstrap/secrets.d/}"
+      dst="/etc/taks-bootstrap.d/secrets.d/$rel"
+      mkdir -p "$(dirname "$dst")"
+      install -m 0600 "$src" "$dst"
+    done
+    log "installed /etc/taks-bootstrap.d/secrets.d overlays"
   fi
 }
 
@@ -206,17 +241,28 @@ install_heartbeat() {
 }
 
 main() {
-  install_base_files
-  install_bundled_tls_material
-  install_heartbeat
+  log_state "install/main" "Started"
+  log_state "install_base_files" "Started"
+install_base_files
+log_state "install_base_files" "Succeeded"
+  log_state "install_bundled_tls_material" "Started"
+install_bundled_tls_material
+log_state "install_bundled_tls_material" "Succeeded"
+  log_state "install_heartbeat" "Started"
+install_heartbeat
+log_state "install_heartbeat" "Succeeded"
 
   run_step "os-tuning" "$BUNDLE_ROOT/install/os-tuning.sh"
   run_step "takserver" "$BUNDLE_ROOT/install/takserver.sh"
   run_step "tak-certs-config" "$BUNDLE_ROOT/install/tak-certs-config.sh"
+  log_state "generate_tak_server_certs" "Started"
   generate_tak_server_certs
+  log_state "generate_tak_server_certs" "Succeeded"
   run_step "tak-certs-layout" "$BUNDLE_ROOT/install/tak-certs-layout.sh"
   run_step "tak-coreconfig-render" "$BUNDLE_ROOT/install/tak-coreconfig-render.sh"
+  log_state "restart_takserver_if_present" "Started"
   restart_takserver_if_present
+  log_state "restart_takserver_if_present" "Succeeded"
 
   if [ -f "$BUNDLE_ROOT/install/taks.sh" ]; then
     if bash "$BUNDLE_ROOT/install/taks.sh"; then
@@ -227,6 +273,7 @@ main() {
   fi
 
   log "install complete"
+  log_state "install/main" "Succeeded"
 }
 
 main "$@"

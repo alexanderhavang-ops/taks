@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from tak_installer.config_seed import BOOTSTRAP_CONFIG_DIRS, materialize_component_dir_once
 from tak_installer.util import log
 
 DST_ROOT = Path("/opt/tak/tools/martine")
@@ -17,28 +18,6 @@ def _ensure_clean_dir(path: Path) -> None:
     if path.exists():
         shutil.rmtree(path)
     path.mkdir(parents=True, exist_ok=True)
-
-
-def _install_conf_templates(src_conf_d: Path, dst_conf_d: Path) -> None:
-    _ensure_clean_dir(dst_conf_d)
-
-    if not src_conf_d.exists():
-        return
-
-    for src in sorted(src_conf_d.iterdir()):
-        if not src.is_file():
-            continue
-
-        name = src.name
-        if name.endswith(".conf.template"):
-            dst_name = name[:-9]  # strip ".template" -> ".conf"
-        elif name.endswith(".conf"):
-            dst_name = name
-        else:
-            continue
-
-        dst = dst_conf_d / dst_name
-        dst.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
 
 
 def _install_confmeta(src_confmeta: Path, dst_confmeta: Path) -> None:
@@ -59,7 +38,8 @@ def apply(ctx) -> None:
 
     DST_ROOT.mkdir(parents=True, exist_ok=True)
 
-    _install_conf_templates(src_conf_d, DST_CONF_D)
+    DST_CONF_D.mkdir(parents=True, exist_ok=True)
+    n_conf = materialize_component_dir_once(src_dir=src_conf_d, bootstrap_dirs=BOOTSTRAP_CONFIG_DIRS, dst_dir=DST_CONF_D, mode=0o640)
     _install_confmeta(src_confmeta, DST_CONFMETA)
 
     legacy = DST_ROOT / "martine.conf"
@@ -67,7 +47,7 @@ def apply(ctx) -> None:
         legacy.unlink()
 
     subprocess.run(["chown", "-R", "tak:tak", str(DST_ROOT)], check=False)
-    log.info("martine-config: installed runtime conf.d/*.conf and confmeta/*.json")
+    log.info("martine-config: materialized %s runtime conf.d/*.conf and installed confmeta/*.json", n_conf)
 
 
 class _Action:

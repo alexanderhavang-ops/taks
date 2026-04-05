@@ -6,6 +6,7 @@ from fastapi import HTTPException
 
 from orchestrator_core.bundles import (
     build_bundle_from_state,
+    bundle_readiness,
     rendered_bundles_dir,
 )
 
@@ -38,6 +39,11 @@ def resolve_bundle_path(bundle_name: str) -> Path:
         return ptgz
 
     raise HTTPException(status_code=404, detail=f"Bundle not found: {bundle_name}")
+
+
+
+def get_unit_bundle_readiness(unit_path: str, role: str) -> dict:
+    return bundle_readiness(unit_path, role)
 
 
 def ensure_unit_bundle(unit_path: str, role: str) -> Path:

@@ -7,6 +7,13 @@ import subprocess
 from pathlib import Path
 
 from tak_installer.util import log
+from tak_installer.config_seed import (
+    BOOTSTRAP_CONFIG_DIRS,
+    BOOTSTRAP_SECRETS_DIRS,
+    materialize_component_dir_once,
+    parse_simple_kv,
+    write_simple_kv,
+)
 
 
 DST_ROOT = Path("/opt/tak/tools/takctl")
@@ -18,12 +25,6 @@ DST_CONFMETA = DST_ROOT / "confmeta"
 LEGACY_DB_ENV = DST_ROOT / "secrets" / "db.env"
 LEGACY_DB_SPLIT_ENV = DST_ROOT / "secrets" / "db.env"
 DST_DB_SECRET_SPLIT = DST_SECRETS_D / "db.conf"
-
-BOOTSTRAP_ROOT = Path("/etc/taks-bootstrap.d")
-BOOTSTRAP_NODE_ENV = BOOTSTRAP_ROOT / "node.env"
-BOOTSTRAP_CONFIG_D = BOOTSTRAP_ROOT / "config"
-BOOTSTRAP_SECRETS_D = BOOTSTRAP_ROOT / "secrets"
-
 
 def _src_root(ctx) -> Path:
     return Path(ctx.repo_root) / "takctl"
@@ -79,98 +80,6 @@ def _parse_env_file(path: Path) -> dict[str, str]:
     return out
 
 
-def _parse_simple_kv(path: Path) -> dict[str, str]:
-    out: dict[str, str] = {}
-    if not path.exists():
-        return out
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        k = k.strip()
-        v = v.strip()
-        if k:
-            out[k] = v
-    return out
-
-
-def _write_simple_kv(path: Path, data: dict[str, str], mode: int) -> None:
-    rows = [f"{k} = {v}" for k, v in data.items()]
-    _write_atomic(path, "\n".join(rows) + "\n", mode)
-
-
-def _source_components(src_dir: Path) -> dict[str, Path]:
-    out: dict[str, Path] = {}
-    if not src_dir.exists() or not src_dir.is_dir():
-        return out
-    for src in sorted(src_dir.iterdir()):
-        if not src.is_file():
-            continue
-        name = src.name
-        if name.endswith(".conf.template"):
-            out[name[:-len(".template")]] = src
-        elif name.endswith(".conf"):
-            out[name] = src
-    return out
-
-
-def _bootstrap_components(src_dir: Path) -> dict[str, Path]:
-    out: dict[str, Path] = {}
-    if not src_dir.exists() or not src_dir.is_dir():
-        return out
-    for src in sorted(src_dir.iterdir()):
-        if src.is_file() and src.name.endswith(".conf"):
-            out[src.name] = src
-    return out
-
-
-def _materialize_component_dir(
-    *,
-    src_dir: Path,
-    bootstrap_dir: Path,
-    dst_dir: Path,
-    mode: int,
-) -> int:
-    src_map = _source_components(src_dir)
-    bootstrap_map = _bootstrap_components(bootstrap_dir)
-
-    existing_map: dict[str, Path] = {}
-    if dst_dir.exists():
-        for p in sorted(dst_dir.iterdir()):
-            if p.is_file():
-                existing_map[p.name] = p
-            elif p.is_dir():
-                shutil.rmtree(p)
-
-    names = sorted(set(src_map.keys()) | set(bootstrap_map.keys()))
-    dst_dir.mkdir(parents=True, exist_ok=True)
-
-    for name, p in existing_map.items():
-        if name not in names:
-            p.unlink()
-
-    n = 0
-    for name in names:
-        defaults = _parse_simple_kv(src_map[name]) if name in src_map else {}
-        current = _parse_simple_kv(existing_map[name]) if name in existing_map else {}
-        override = _parse_simple_kv(bootstrap_map[name]) if name in bootstrap_map else {}
-
-        merged: dict[str, str] = {}
-        merged.update(defaults)
-        merged.update(current)
-        merged.update(override)
-
-        dst = dst_dir / name
-        if merged:
-            _write_simple_kv(dst, merged, mode)
-            n += 1
-        elif dst.exists():
-            dst.unlink()
-
-    return n
-
-
 def _migrate_legacy_db_env_to_secrets() -> bool:
     if DST_SECRETS.exists():
         return False
@@ -223,7 +132,7 @@ def _fix_dir_tree_owner_mode(path: Path, *, file_mode: int = 0o640, dir_mode: in
 
 def _ensure_generated_secrets() -> None:
     certs_path = DST_SECRETS_D / "certs.conf"
-    certs = _parse_simple_kv(certs_path)
+    certs = parse_simple_kv(certs_path)
 
     changed = False
     if not (certs.get("cert_capass") or "").strip():
@@ -234,7 +143,7 @@ def _ensure_generated_secrets() -> None:
         changed = True
 
     if changed or not certs_path.exists():
-        _write_simple_kv(certs_path, certs, 0o640)
+        write_simple_kv(certs_path, certs, 0o640)
         log.info("takctl-config: ensured installer-owned cert secrets in %s", certs_path)
 
 
@@ -265,9 +174,9 @@ def apply(ctx) -> None:
     else:
         log.info("takctl-config: no source secrets template and no legacy db.env; runtime secrets.conf not installed")
 
-    n_conf = _materialize_component_dir(
+    n_conf = materialize_component_dir_once(
         src_dir=src_conf_d,
-        bootstrap_dir=BOOTSTRAP_CONFIG_D,
+        bootstrap_dirs=BOOTSTRAP_CONFIG_DIRS,
         dst_dir=DST_CONF_D,
         mode=0o640,
     )
@@ -275,9 +184,9 @@ def apply(ctx) -> None:
 
     _migrate_legacy_db_env_to_split_secret()
 
-    n_sec = _materialize_component_dir(
+    n_sec = materialize_component_dir_once(
         src_dir=src_secrets_d,
-        bootstrap_dir=BOOTSTRAP_SECRETS_D,
+        bootstrap_dirs=BOOTSTRAP_SECRETS_DIRS,
         dst_dir=DST_SECRETS_D,
         mode=0o640,
     )
@@ -323,10 +232,10 @@ class _Action:
         log.info("  dst secrets: %s", DST_SECRETS)
         log.info("  src conf.d: %s", _src_conf_d(ctx))
         log.info("  dst conf.d: %s", DST_CONF_D)
-        log.info("  bootstrap conf.d: %s", BOOTSTRAP_CONFIG_D)
+        log.info("  bootstrap conf.d: %s", BOOTSTRAP_CONFIG_DIRS)
         log.info("  src secrets.d: %s", _src_secrets_d(ctx))
         log.info("  dst secrets.d: %s", DST_SECRETS_D)
-        log.info("  bootstrap secrets.d: %s", BOOTSTRAP_SECRETS_D)
+        log.info("  bootstrap secrets.d: %s", BOOTSTRAP_SECRETS_DIRS)
         log.info("  src confmeta: %s", _src_confmeta(ctx))
         log.info("  dst confmeta: %s", DST_CONFMETA)
         log.info("  legacy db env: %s", LEGACY_DB_ENV)
