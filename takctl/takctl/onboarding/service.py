@@ -321,6 +321,12 @@ def _build_marti_client_summary(*, username: str, devices: list[dict[str, Any]],
             "created_ts": latest_event_device.get("last_event_time"),
             "connection_event_type_id": latest_event_device.get("connection_event_type_id"),
             "client_version": latest_event_device.get("client_version"),
+            "client_platform": latest_event_device.get("client_platform"),
+            "client_product": latest_event_device.get("client_product"),
+            "tak_platform": latest_event_device.get("tak_platform"),
+            "tak_version": latest_event_device.get("tak_version"),
+            "tak_device": latest_event_device.get("tak_device"),
+            "tak_os": latest_event_device.get("tak_os"),
         }
 
     certs_by_client_uid_n = 0

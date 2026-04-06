@@ -248,7 +248,24 @@
       h(KV, { k: "Senaste CoT" }, _colText(d.last_cot_time)),
       h(KV, { k: "Senaste event" }, _colText(d.last_event_time)),
       h(KV, { k: "Ålder" }, _colText(d.age_human)),
-      h(KV, { k: "Client version" }, _colText(d.client_version)),
+      h(KV, { k: "Klient" }, _colText(
+        (function () {
+          var p = String(d.client_platform || d.tak_platform || "").trim();
+          if (p) return p;
+          var v = String(d.client_version || "").trim();
+          if (!v) return "";
+          var m = v.match(/^([A-Za-z][A-Za-z0-9._-]*)/);
+          return m ? m[1] : "";
+        })() || "—"
+      )),
+      h(KV, { k: "Version" }, _colText(
+        d.tak_version || (function () {
+          var v = String(d.client_version || "").trim();
+          if (!v) return "—";
+          var m = v.match(/^[A-Za-z][A-Za-z0-9._-]*[\/ ](.+)$/);
+          return m ? m[1] : v;
+        })()
+      )),
       h(KV, { k: "Certifikat" }, _colText(d.certs_n)),
       h(KV, { k: "Revokerade cert" }, _colText(d.revoked_certs_n)),
       h(KV, { k: "CoT sedd" }, h(StatusBadge, { tone: boolTone(!!d.cot_seen), text: _yn(!!d.cot_seen) })),
@@ -441,27 +458,7 @@
             h(DeviceSummaryRow, { label: "Never", value: neverDevices, tone: "neutral" })
           ),
 
-          h(Box, null,
-            SectionTitle("Livscykel"),
-            h(KV, { k: "Stage" }, _colText(lifecycle.stage)),
-            h(KV, { k: "Label" }, _colText(lifecycle.label)),
-            h(KV, { k: "Lösenord känt" }, h(StatusBadge, { tone: boolTone(!!(lifecycle.evidence && lifecycle.evidence.taks_password_known)), text: _yn(!!(lifecycle.evidence && lifecycle.evidence.taks_password_known)) })),
-            h(KV, { k: "CoT sedd" }, h(StatusBadge, { tone: boolTone(!!(lifecycle.evidence && lifecycle.evidence.cot_seen)), text: _yn(!!(lifecycle.evidence && lifecycle.evidence.cot_seen)) })),
-            h(KV, { k: "Sedd nyligen" }, h(StatusBadge, { tone: boolTone(!!(lifecycle.evidence && lifecycle.evidence.seen_recently)), text: _yn(!!(lifecycle.evidence && lifecycle.evidence.seen_recently)) })),
-            h(KV, { k: "Har endpoint" }, h(StatusBadge, { tone: boolTone(!!(lifecycle.evidence && lifecycle.evidence.marti_client && lifecycle.evidence.marti_client.has_endpoint)), text: _yn(!!(lifecycle.evidence && lifecycle.evidence.marti_client && lifecycle.evidence.marti_client.has_endpoint)) })),
-            h(KV, { k: "Har certifikat" }, h(StatusBadge, { tone: boolTone(!!(lifecycle.evidence && lifecycle.evidence.marti_client && lifecycle.evidence.marti_client.has_certificate)), text: _yn(!!(lifecycle.evidence && lifecycle.evidence.marti_client && lifecycle.evidence.marti_client.has_certificate)) }))
-          ),
 
-          h(Box, null,
-            SectionTitle("Teknisk status"),
-            h(KV, { k: "Databas" }, h(StatusBadge, {
-              tone: (typeof meta.db_attached === "boolean") ? boolTone(!!meta.db_attached) : "neutral",
-              text: _colText(typeof meta.db_attached === "boolean" ? (meta.db_attached ? "yes" : "no") : "?")
-            })),
-            h(KV, { k: "DB-källa" }, _colText(meta.db_source)),
-            h(KV, { k: "DB-mål" }, _colText(meta.db_target)),
-            h(KV, { k: "DB-fel" }, _colText(meta.db_error))
-          )
         )
       ),
 

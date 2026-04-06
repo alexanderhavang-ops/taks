@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import re
 from typing import Any, Dict, Iterable, Optional, Sequence
 
 
@@ -62,6 +63,42 @@ def _sql_in_placeholders(n: int) -> str:
     return ",".join(["%s"] * n)
 
 
+_TAKV_RE = re.compile(r"<takv\b([^>]*)/?>", re.IGNORECASE | re.DOTALL)
+_TAKV_ATTR_RE = re.compile(r'([A-Za-z0-9_:-]+)="([^"]*)"')
+
+
+def _parse_takv_detail(detail: Any) -> dict[str, str]:
+    s = str(detail or "")
+    if not s or "<takv" not in s.lower():
+        return {}
+    m = _TAKV_RE.search(s)
+    if not m:
+        return {}
+    attrs: dict[str, str] = {}
+    for k, v in _TAKV_ATTR_RE.findall(m.group(1) or ""):
+        key = str(k or "").strip().lower()
+        val = str(v or "").strip()
+        if key:
+            attrs[key] = val
+    return attrs
+
+
+def _coalesce_text(*vals: Any) -> Optional[str]:
+    for v in vals:
+        x = str(v or "").strip()
+        if x:
+            return x
+    return None
+
+
+def _format_client_product(platform: Any, version: Any) -> Optional[str]:
+    p = _coalesce_text(platform)
+    v = _coalesce_text(version)
+    if p and v:
+        return f"{p} {v}"
+    return p or v
+
+
 def fetch_devices_for_usernames(
     db,
     usernames: Sequence[str],
@@ -107,7 +144,8 @@ SELECT
   END AS is_current,
   le.created_ts AS last_event_time,
   le.connection_event_type_id,
-  le.client_version,
+  le.client_version AS event_client_version,
+  lc.detail AS cot_detail,
   COALESCE(cc.certs_n, 0) AS certs_n,
   COALESCE(cc.revoked_certs_n, 0) AS revoked_certs_n
 FROM public.client_endpoint ce
@@ -143,9 +181,18 @@ ORDER BY
         is_current = bool(_row_get(row, 6, "is_current"))
         last_event_time = _to_utc(_row_get(row, 7, "last_event_time"))
         connection_event_type_id = _row_get(row, 8, "connection_event_type_id")
-        client_version = _row_get(row, 9, "client_version")
-        certs_n = int(_row_get(row, 10, "certs_n") or 0)
-        revoked_certs_n = int(_row_get(row, 11, "revoked_certs_n") or 0)
+        event_client_version = _row_get(row, 9, "event_client_version")
+        cot_detail = _row_get(row, 10, "cot_detail")
+        certs_n = int(_row_get(row, 11, "certs_n") or 0)
+        revoked_certs_n = int(_row_get(row, 12, "revoked_certs_n") or 0)
+
+        takv = _parse_takv_detail(cot_detail)
+        tak_platform = _coalesce_text(takv.get("platform"))
+        tak_version = _coalesce_text(takv.get("version"), event_client_version)
+        tak_device = _coalesce_text(takv.get("device"))
+        tak_os = _coalesce_text(takv.get("os"))
+        client_version = _coalesce_text(tak_version, event_client_version)
+        client_product = _format_client_product(tak_platform, tak_version)
 
         cot_seen = last_cot_time is not None
         age_sec = None
@@ -177,6 +224,12 @@ ORDER BY
             "last_event_time": last_event_time.isoformat().replace("+00:00", "Z") if last_event_time else None,
             "connection_event_type_id": connection_event_type_id,
             "client_version": client_version,
+            "client_platform": tak_platform,
+            "client_product": client_product,
+            "tak_platform": tak_platform,
+            "tak_version": tak_version,
+            "tak_device": tak_device,
+            "tak_os": tak_os,
             "certs_n": certs_n,
             "revoked_certs_n": revoked_certs_n,
             "cot_seen": cot_seen,

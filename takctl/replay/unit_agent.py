@@ -14,6 +14,7 @@ if str(SCRIPT_ROOT) not in sys.path:
 if str(SCRIPT_ROOT.parent) not in sys.path:
     sys.path.insert(0, str(SCRIPT_ROOT.parent))
 from typing import Any, Dict, List
+from math import radians, sin, cos, sqrt, atan2
 
 from llm_decision import build_agent_packet, parse_and_validate
 from llm_runner import run_model
@@ -502,90 +503,146 @@ def _complete_root(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) ->
     completed.append(item)
     st["completed_work"] = completed[-200:]
 
-def _execute_move_unit(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
+def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    R = 6371000.0
+    p1 = radians(lat1)
+    p2 = radians(lat2)
+    dp = radians(lat2 - lat1)
+    dl = radians(lon2 - lon1)
+    a = sin(dp / 2.0) ** 2 + cos(p1) * cos(p2) * sin(dl / 2.0) ** 2
+    return 2.0 * R * atan2(sqrt(a), sqrt(max(0.0, 1.0 - a)))
+
+
+def _movement_speed_mps(st: Dict[str, Any], urgency: str) -> float:
+    own = dict(st.get("own_state") or {})
+    mobility = dict(own.get("mobility") or {})
+    base_kph = mobility.get("speed_kph_max")
+
+    try:
+        base_kph_f = float(base_kph)
+    except Exception:
+        mtype = str(mobility.get("type") or "").strip().lower()
+        if mtype in {"foot_mobile", "foot", "dismounted"}:
+            base_kph_f = 5.0
+        elif mtype in {"bandvagn"}:
+            base_kph_f = 35.0
+        else:
+            base_kph_f = 20.0
+
+    u = str(urgency or "").strip().lower()
+    if u == "high":
+        factor = 0.85
+    elif u == "low":
+        factor = 0.45
+    else:
+        factor = 0.60
+
+    speed_mps = (base_kph_f * factor) / 3.6
+    return max(0.5, speed_mps)
+
+
+def _same_destination(planned: Dict[str, Any], dest_lat: float, dest_lon: float) -> bool:
+    dst = dict(planned.get("destination") or {})
+    try:
+        a = float(dst.get("lat"))
+        b = float(dst.get("lon"))
+    except Exception:
+        return False
+    return abs(a - dest_lat) < 1e-7 and abs(b - dest_lon) < 1e-7
+
+
+def _ensure_planned_move(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> Dict[str, Any] | None:
     params = dict(root.get("params") or {})
     own = st.setdefault("own_state", {})
+    pos = dict(own.get("position") or {})
 
     lat = params.get("lat", params.get("destination_lat"))
     lon = params.get("lon", params.get("destination_lon"))
     if lat is None or lon is None:
-        return
+        return None
 
     try:
-        lat = float(lat)
-        lon = float(lon)
+        dest_lat = float(lat)
+        dest_lon = float(lon)
+        cur_lat = float(pos.get("lat"))
+        cur_lon = float(pos.get("lon"))
     except Exception:
-        return
+        return None
 
     urgency = str(params.get("urgency") or params.get("movement_type") or "").strip()
+    planned = dict(own.get("planned_movement") or {})
 
-    own["planned_movement"] = {
+    if planned and _same_destination(planned, dest_lat, dest_lon):
+        try:
+            float(planned.get("speed_mps"))
+            float(planned.get("distance_m"))
+            float(planned.get("route_progress_m"))
+            return planned
+        except Exception:
+            pass
+
+    distance_m = _haversine_m(cur_lat, cur_lon, dest_lat, dest_lon)
+    speed_mps = _movement_speed_mps(st, urgency)
+    eta_s = max(1, int(round(distance_m / speed_mps))) if distance_m > 0 else 1
+
+    planned = {
         "started_sim_time_s": int(sim_time_s),
-        "destination": {
-            "lat": lat,
-            "lon": lon,
-        },
+        "from_position": {"lat": cur_lat, "lon": cur_lon},
+        "destination": {"lat": dest_lat, "lon": dest_lon},
         "urgency": urgency,
+        "distance_m": round(distance_m, 1),
+        "speed_mps": round(speed_mps, 3),
+        "route_progress_m": 0.0,
+        "eta_s": int(eta_s),
     }
+    own["planned_movement"] = planned
+    root["started_sim_time_s"] = int(sim_time_s)
+    root["deadline_sim_time_s"] = int(sim_time_s) + int(eta_s)
+    return planned
 
+
+def _execute_move_unit(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
+    _ensure_planned_move(st, root, sim_time_s)
 
 
 def _progress_active_move_unit(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
     own = st.setdefault("own_state", {})
-    pos = dict(own.get("position") or {})
-    planned = dict(own.get("planned_movement") or {})
-    params = dict(root.get("params") or {})
-
-    started = root.get("started_sim_time_s")
-    deadline = root.get("deadline_sim_time_s")
-    if started is None or deadline is None:
+    planned = _ensure_planned_move(st, root, sim_time_s)
+    if not planned:
         return
 
     try:
-        started_i = int(started)
-        deadline_i = int(deadline)
+        started_i = int(planned.get("started_sim_time_s"))
         now_i = int(sim_time_s)
-        f_lat = float(pos.get("lat"))
-        f_lon = float(pos.get("lon"))
+        from_pos = dict(planned.get("from_position") or {})
+        dst = dict(planned.get("destination") or {})
+        o_lat = float(from_pos.get("lat"))
+        o_lon = float(from_pos.get("lon"))
+        d_lat = float(dst.get("lat"))
+        d_lon = float(dst.get("lon"))
+        distance_m = float(planned.get("distance_m"))
+        speed_mps = float(planned.get("speed_mps"))
     except Exception:
         return
 
-    to_lat = params.get("lat", params.get("destination_lat"))
-    to_lon = params.get("lon", params.get("destination_lon"))
-    try:
-        t_lat = float(to_lat)
-        t_lon = float(to_lon)
-    except Exception:
-        return
-
-    movement_from = dict(planned.get("from_position") or {})
-    if movement_from:
-        try:
-            f_lat = float(movement_from.get("lat"))
-            f_lon = float(movement_from.get("lon"))
-        except Exception:
-            pass
-    else:
-        planned["from_position"] = {"lat": f_lat, "lon": f_lon}
-
-    total = max(1, deadline_i - started_i)
-    elapsed = max(0, min(now_i - started_i, total))
-    frac = elapsed / total
+    elapsed_s = max(0, now_i - started_i)
+    progress_m = min(distance_m, elapsed_s * speed_mps) if distance_m > 0 else distance_m
+    frac = 1.0 if distance_m <= 0 else max(0.0, min(1.0, progress_m / distance_m))
 
     own["position"] = {
-        "lat": f_lat + (t_lat - f_lat) * frac,
-        "lon": f_lon + (t_lon - f_lon) * frac,
+        "lat": o_lat + (d_lat - o_lat) * frac,
+        "lon": o_lon + (d_lon - o_lon) * frac,
     }
 
-    planned["started_sim_time_s"] = started_i
-    planned["destination"] = {"lat": t_lat, "lon": t_lon}
-    planned["urgency"] = str(params.get("urgency") or params.get("movement_type") or "").strip()
+    planned["route_progress_m"] = round(progress_m, 1)
     planned["progress"] = {
         "started_sim_time_s": started_i,
         "sim_time_s": now_i,
         "fraction": round(frac, 4),
     }
     own["planned_movement"] = planned
+    root["started_sim_time_s"] = started_i
+    root["deadline_sim_time_s"] = started_i + max(1, int(round(distance_m / max(0.1, speed_mps))))
 
 
 def _execute_change_posture(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
@@ -877,74 +934,7 @@ def _tick_active_runtime_action(st: Dict[str, Any], root: Dict[str, Any], sim_ti
     if action != "move_unit":
         return
 
-    params = dict(root.get("params") or {})
-    lat = params.get("lat", params.get("destination_lat"))
-    lon = params.get("lon", params.get("destination_lon"))
-    if lat is None or lon is None:
-        return
-
-    try:
-        dest_lat = float(lat)
-        dest_lon = float(lon)
-    except Exception:
-        return
-
-    pos = dict(own.get("position") or {})
-    try:
-        cur_lat = float(pos.get("lat"))
-        cur_lon = float(pos.get("lon"))
-    except Exception:
-        return
-
-    created = root.get("created_sim_time_s")
-    started = root.get("started_sim_time_s")
-    if started is None:
-        started = int(created if created is not None else sim_time_s)
-        root["started_sim_time_s"] = int(started)
-
-    deadline = root.get("deadline_sim_time_s")
-    if deadline is None:
-        deadline = int(started) + int(root.get("duration_s") or 0)
-        root["deadline_sim_time_s"] = int(deadline)
-
-    try:
-        started_i = int(started)
-        deadline_i = int(deadline)
-        now_i = int(sim_time_s)
-    except Exception:
-        return
-
-    planned = dict(own.get("planned_movement") or {})
-    origin = dict(planned.get("origin") or {})
-    if not origin:
-        origin = {"lat": cur_lat, "lon": cur_lon}
-        planned["origin"] = origin
-
-    planned["started_sim_time_s"] = started_i
-    planned["destination"] = {"lat": dest_lat, "lon": dest_lon}
-    planned["urgency"] = str(params.get("urgency") or params.get("movement_type") or "").strip()
-    own["planned_movement"] = planned
-
-    try:
-        o_lat = float(origin.get("lat"))
-        o_lon = float(origin.get("lon"))
-    except Exception:
-        o_lat = cur_lat
-        o_lon = cur_lon
-
-    total = max(1, deadline_i - started_i)
-    elapsed = max(0, min(now_i - started_i, total))
-    frac = elapsed / total
-
-    own["position"] = {
-        "lat": o_lat + (dest_lat - o_lat) * frac,
-        "lon": o_lon + (dest_lon - o_lon) * frac,
-    }
-    own["planned_movement"]["progress"] = {
-        "started_sim_time_s": started_i,
-        "sim_time_s": now_i,
-        "fraction": round(frac, 4),
-    }
+    _progress_active_move_unit(st, root, sim_time_s)
 
 
 def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
@@ -1008,22 +998,28 @@ def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
                 if action == "move_unit":
                     own = st.setdefault("own_state", {})
                     planned = dict(own.get("planned_movement") or {})
-                    dest = dict(planned.get("destination") or {})
                     try:
-                        lat = dest.get("lat")
-                        lon = dest.get("lon")
-                        if lat is not None and lon is not None:
-                            own["position"] = {
-                                "lat": float(lat),
-                                "lon": float(lon),
-                            }
+                        progress_m = float(planned.get("route_progress_m") or 0.0)
+                        distance_m = float(planned.get("distance_m") or 0.0)
                     except Exception:
-                        pass
-                    if "planned_movement" in own:
-                        del own["planned_movement"]
+                        progress_m = 0.0
+                        distance_m = 0.0
 
-                _complete_root(st, root, sim_time_s)
-                completed_now = True
+                    if distance_m <= 0.0 or progress_m >= distance_m:
+                        dest = dict(planned.get("destination") or {})
+                        try:
+                            lat = dest.get("lat")
+                            lon = dest.get("lon")
+                            if lat is not None and lon is not None:
+                                own["position"] = {
+                                    "lat": float(lat),
+                                    "lon": float(lon),
+                                }
+                        except Exception:
+                            pass
+                        own.pop("planned_movement", None)
+                        _complete_root(st, root, sim_time_s)
+                        completed_now = True
 
         if completed_now:
             if rest:
