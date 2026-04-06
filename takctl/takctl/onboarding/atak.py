@@ -270,7 +270,7 @@ def atak_enroll_payload_values(
     if username is not None and str(username).strip():
         qs.append(("username", str(username)))
     if password is not None and str(password).strip():
-        qs.append(("password", str(password)))
+        qs.append(("token", str(password)))
     qs.append(("ssl", "true" if use_ssl else "false"))
     qstr = "&".join(f"{k}={quote(str(v), safe='')}" for k, v in qs)
     return "tak://com.atakmap.app/enroll?" + qstr
@@ -553,7 +553,7 @@ def write_atak_auto_enroll_package_zip(out_zip: Path, username: str, req: Reques
     raise HTTPException(status_code=501, detail="ATAK auto-enroll package writer not split out yet")
 
 
-def write_atak_auto_enroll_zip(out_zip: Path, username: str, req: Request, base: str) -> None:
+def write_atak_auto_enroll_zip(out_zip: Path, username: str, req: Request, base: str, include_creds: bool = False) -> None:
     cfg = load_config()
     raw_mode = str(cfg.get("onboarding_mode", "") or "").strip().lower()
     if raw_mode not in ("auto-enroll", "cert-creation"):

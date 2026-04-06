@@ -24,7 +24,7 @@ Viktigt:
 - Tala och skriv på svenska
 - returnera ENDAST JSON med nyckeln "work"
 - bygg direkt körbar work[] för runtime
-- utgå från inkommet inbox-innehåll, observationsläge, egen roll och egna underställda
+- utgå från inkommet inbox-innehåll, läge, egen roll och egna underställda
 - om du behöver planeringstid innan nästa order eller åtgärd, skapa först ett aktivt llm_replan_from_deadline med realistisk duration_s
 - om du behöver skicka order eller rapport, använd send_message eller report_status
 - om du ska hålla platsen tills nytt beslut finns, använd hold_position

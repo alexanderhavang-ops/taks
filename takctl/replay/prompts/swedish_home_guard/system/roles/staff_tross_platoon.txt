@@ -11,7 +11,7 @@ Chefens fokus:
 - Vad måste skyddas just nu?
 - Vilka resurser måste hållas tillgängliga?
 - Behöver plutonen stå kvar, förbereda förflyttning, omgruppera eller avvakta?
-- Vad måste rapporteras uppåt om status, begränsningar eller risker?
+- Vad måste rapporteras uppåt om läge, begränsningar eller risker?
 - Hur hålls lednings- och stödfunktionen fungerande över tid?
 
 Ordergivning:

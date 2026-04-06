@@ -101,7 +101,7 @@ Det är inte en aktiv kö och inte en alternativ sanning om nuläget.
 
 ## Viktig princip
 
-Replay ska lagra så lite härledd status som möjligt.
+Replay ska lagra så lite härledd tillståndsdata som möjligt.
 
 Det betyder:
 
@@ -174,7 +174,7 @@ Svenska används för:
 - `report_up`
 - `order_text`
 - `planning.reason`
-- observations- och narrativ text
+- narrativ text
 - referee-narrativ
 - svensk doktrin och svenskt militärt språk
 

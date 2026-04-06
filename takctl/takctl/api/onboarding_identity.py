@@ -145,6 +145,26 @@ def _card_token_json(ct) -> Dict[str, Any]:
     }
 
 
+def _identity_out(ident, *, password_value: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    if ident is None:
+        return None
+
+    known = bool(getattr(ident, "password_known", False) or getattr(ident, "password", None))
+    value = str(password_value) if (password_value is not None and known) else None
+
+    return {
+        "username": str(getattr(ident, "username", "") or ""),
+        "origin": str(getattr(ident, "origin", "") or ""),
+        "password_known": bool(known),
+        "ctx": dict(getattr(ident, "ctx", {}) or {}),
+        "identity": dict(getattr(ident, "identity", {}) or {}),
+        "password": {
+            "known": bool(value is not None),
+            "value": value,
+        },
+    }
+
+
 def _issue_card_link_base(base: str, svc, *, username: str, ttl_sec: int, reveal_password: bool) -> Dict[str, Any]:
     """
     Background-job compatible card link generator.
@@ -276,19 +296,9 @@ def get_user(username: str):
             "username": u,
             "groups": list(getattr(tak_user, "groups", []) or []),
         },
-        "taks_identity": None,
+        "taks_identity": _identity_out(ident),
         "selection": sel,
     }
-
-    if ident is not None:
-        out["taks_identity"] = {
-            "username": ident.username,
-            "origin": ident.origin,
-            "password_known": bool(getattr(ident, "password_known", False)),
-            "ctx": ident.ctx or {},
-            "identity": getattr(ident, "identity", None) or {},
-            "password": {"known": False, "value": None},
-        }
 
     return JSONResponse(out, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 
@@ -396,13 +406,10 @@ def create_user(req: Request, username: str, body: UserCreateIn):
                 "username": u,
                 "groups": list(getattr(tak_user, "groups", []) or []),
             },
-            "taks_identity": {
-                "origin": "taks",
-                "password_known": bool(pw_known),
-                "ctx": ctx,
-                "identity": ident_out,
-                "password": {"known": bool(pw_known), "value": pw_value},
-            },
+            "taks_identity": _identity_out(
+                ident_after,
+                password_value=(pw_value if pw_known else None),
+            ),
             "selection": sel,
             **card_info,
         },

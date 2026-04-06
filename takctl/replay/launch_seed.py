@@ -342,7 +342,6 @@ def seed_agent_states(seed_dir: Path) -> None:
             for child_cs in children.get(callsign, []):
                 subs.append({
                     "callsign": child_cs,
-                    "status": "ok",
                 })
 
             state = {
@@ -375,7 +374,6 @@ def seed_agent_states(seed_dir: Path) -> None:
                     "weather": weather,
                 },
                 "subordinates": subs,
-                "observations": [],
                 "constraints": {
                     "roe": roe_value,
                     "decision_horizon_sec": decision_horizon_sec,

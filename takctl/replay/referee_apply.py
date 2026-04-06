@@ -19,7 +19,6 @@ def validate_referee_outcome(data: Dict[str, Any]) -> None:
         "position_update",
         "time_effects",
         "friction",
-        "observations",
         "contact",
         "casualties",
         "state_patch",
@@ -42,12 +41,10 @@ def apply_referee_outcome(state: Dict[str, Any], outcome: Dict[str, Any], sim_ti
     own_state.update(own_patch)
 
     constraints_add = patch.get("constraints_add") or []
-    observations_add = patch.get("observations_add") or []
     private_referee_add = patch.get("private_referee_add") or []
     pending_report_items_add = patch.get("pending_report_items_add") or []
 
     _ensure_list(s, "constraints").extend(constraints_add)
-    _ensure_list(s, "observations").extend(observations_add)
     _ensure_list(s, "private_referee").extend(private_referee_add)
 
     pri = _ensure_list(s, "pending_report_items")
@@ -60,9 +57,7 @@ def apply_referee_outcome(state: Dict[str, Any], outcome: Dict[str, Any], sim_ti
 
     current_activity = s.setdefault("current_activity", {})
     if outcome.get("activity_result") in {"completed", "aborted", "blocked"}:
-        current_activity["status"] = "inactive"
     else:
-        current_activity["status"] = "active"
 
     pos_update = outcome.get("position_update") or {}
     if "to" in pos_update:

@@ -175,7 +175,7 @@ def lifecycle_block(lang: str | None, lifecycle: dict | None) -> str:
 
     taks_origin = norm(ev.get("taks_origin"))
     taks_pw_known = bool(ev.get("taks_password_known"))
-    onboarding_status = norm(ev.get("onboarding_status"))
+    onboarding_status = norm((ev.get("onboarding") or {}).get("status"))
     offboarded = bool(ev.get("offboarded"))
 
     small = []

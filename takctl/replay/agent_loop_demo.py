@@ -31,11 +31,11 @@ def build_demo_packet(sim_time_s: int) -> Dict[str, Any]:
             "combat_value": "god",
         },
         subordinates=[
-            {"callsign": "EATQ", "status": "ok"},
-            {"callsign": "FATQ", "status": "ok"},
-            {"callsign": "GATQ", "status": "no_recent_report"},
+            {"callsign": "EATQ"},
+            {"callsign": "FATQ"},
+            {"callsign": "GATQ"},
         ],
-        observations=[
+        sightings=[
             {
                 "type": "enemy_naval_contact",
                 "age_sec": 120,

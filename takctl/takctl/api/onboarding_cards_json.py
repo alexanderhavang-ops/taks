@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
 from takctl.onboarding.onboarding_db import maybe_db
@@ -14,26 +15,30 @@ def onboarding_user_card_json(
     username: str,
     recent_minutes: int = Query(120, ge=1, le=24 * 60),
 ):
-    """
-    JSON view model for Web UI (no HTML).
-
-    IMPORTANT:
-      - The service owns the card model (including authority/selection/onboarding/activity).
-      - This endpoint only wraps it with meta (db attachment info).
-    """
     svc = build_service()
     db, db_err, db_source, db_target = maybe_db()
 
     try:
-        card = svc.user_card(username=username, db=db, recent_minutes=int(recent_minutes))
+        card = svc.user_card(
+            username=username,
+            db=db,
+            recent_minutes=int(recent_minutes),
+        )
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Unknown user: {username}")
 
-    out = {"card": card, "meta": {}}
-    out["meta"]["db_attached"] = db is not None
-    out["meta"]["db_source"] = db_source
-    out["meta"]["db_target"] = db_target
+    out = {
+        "card": card,
+        "meta": {
+            "db_attached": db is not None,
+            "db_source": db_source,
+            "db_target": db_target,
+        },
+    }
     if db is None and db_err:
         out["meta"]["db_error"] = db_err
 
-    return JSONResponse(out)
+    return JSONResponse(
+        jsonable_encoder(out),
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )

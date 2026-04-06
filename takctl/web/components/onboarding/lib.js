@@ -1,3 +1,4 @@
+
 /* global React */
 (function () {
   window.TaksOnboarding = window.TaksOnboarding || {};
@@ -14,6 +15,30 @@
     return gs.length ? gs.join(",") : "—";
   };
 
+  lib.deriveState = function (activity) {
+    if (!activity) return "never";
+    if (activity.is_current === true) return "current";
+    if (activity.seen_recently === true) return "recent";
+    return "stale";
+  };
+
+  lib.bestDevice = function (userRow) {
+    const ds = (userRow && Array.isArray(userRow.devices)) ? userRow.devices : [];
+    if (ds.length) return ds[0] || null;
+    return null;
+  };
+
+  lib.userState = function (userRow) {
+    const best = lib.bestDevice(userRow);
+    if (best && best.state) return String(best.state || "never");
+    return lib.deriveState(userRow && userRow.activity);
+  };
+
+  lib.userDeviceCount = function (userRow) {
+    const ds = (userRow && Array.isArray(userRow.devices)) ? userRow.devices : [];
+    return ds.length;
+  };
+
   lib.tail = function (act) {
     if (!act) return "—";
     const cs = act.callsign || "";
@@ -22,11 +47,14 @@
     return t.length ? t : "—";
   };
 
-  lib.deriveState = function (act) {
-    if (!act) return "never";
-    if (act.is_current === true) return "current";
-    if (act.seen_recently === true) return "recent";
-    return "stale";
+  lib.deviceTail = function (device) {
+    if (!device) return "—";
+    const act = device.activity || {};
+    const ep = device.endpoint || {};
+    const cs = act.callsign || device.observed_callsign || ep.callsign || "";
+    const uid = device.client_uid || ep.uid || act.uid || "";
+    const t = (cs + " " + uid).trim();
+    return t.length ? t : "—";
   };
 
   lib.badgeForState = function (stateRaw) {
@@ -43,10 +71,6 @@
     );
   };
 
-  // ---------------------------------------------------------------------------
-  // URLs + routing helpers
-  // ---------------------------------------------------------------------------
-
   lib.userUrls = function (username) {
     const u = encodeURIComponent(String(username || ""));
     const base = `api/onboarding/users/${u}`;
@@ -58,14 +82,6 @@
     };
   };
 
-  // Route format (hash):
-  //   #onboarding/list
-  //   #onboarding/create
-  //   #onboarding/import
-  //   #onboarding/import-jobs
-  //   #onboarding/create:<username>   (may be URL-encoded as create%3Aalice)
-  //
-  // parseHashRoute() returns: { sub: "...", username: "" }
   lib.parseHashRoute = function () {
     const raw = String(window.location.hash || "");
     const m = raw.match(/#onboarding(?:\/([^?]+))?/i);

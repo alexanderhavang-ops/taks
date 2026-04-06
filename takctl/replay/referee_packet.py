@@ -50,7 +50,6 @@ def build_referee_packet(
         },
         "activity": {
             "type": current_activity.get("type", "idle"),
-            "status": current_activity.get("status", "idle"),
             "intent": current_activity.get("intent", ""),
             "from": _copy_position(current_activity.get("from") or own_state.get("position")),
             "to": _copy_position(current_activity.get("to") or own_state.get("position")),

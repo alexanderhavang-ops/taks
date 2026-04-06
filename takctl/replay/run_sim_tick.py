@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -14,12 +15,38 @@ if str(SCRIPT_ROOT.parent) not in sys.path:
 from replay_paths import STATE_ROOT
 
 ROOT = Path("/opt/tak/tools/takctl/replay")
+SAFE_CWD = "/tmp"
+VENV_PYTHON = Path("/opt/tak/tools/takctl/.venv/bin/python3")
+
+
+def _python_cmd() -> str:
+    if VENV_PYTHON.exists():
+        return str(VENV_PYTHON)
+    return sys.executable
+
+
+def _base_env() -> dict[str, str]:
+    env = dict(os.environ)
+    existing = env.get("PYTHONPATH", "")
+    parts = [p for p in existing.split(":") if p]
+
+    wanted = [
+        "/opt/tak/tools/takctl",
+        "/opt/tak/tools/martine",
+    ]
+    for w in reversed(wanted):
+        if w in parts:
+            parts.remove(w)
+        parts.insert(0, w)
+
+    env["PYTHONPATH"] = ":".join(parts)
+    return env
 
 
 def run(cmd: list[str], label: str) -> int:
     print(f"\n## {label}")
     print(" ".join(cmd))
-    res = subprocess.run(cmd, check=False)
+    res = subprocess.run(cmd, check=False, env=_base_env(), cwd=SAFE_CWD)
     print(f"rc={res.returncode}")
     return res.returncode
 
@@ -33,7 +60,7 @@ def main() -> None:
     ap.add_argument("--seed", type=int, default=7)
     args = ap.parse_args()
 
-    py = sys.executable
+    py = _python_cmd()
 
     all_callsigns = []
     if STATE_ROOT.exists():

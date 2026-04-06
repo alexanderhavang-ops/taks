@@ -71,13 +71,11 @@ def unit_pos(st: Dict[str, Any]) -> Dict[str, float] | None:
 
 
 def append_unique_observation(st: Dict[str, Any], obs: Dict[str, Any]) -> bool:
-    rows = list(st.get("observations") or [])
     token = json.dumps(obs, ensure_ascii=False, sort_keys=True)
     existing = {json.dumps(x, ensure_ascii=False, sort_keys=True) for x in rows if isinstance(x, dict)}
     if token in existing:
         return False
     rows.append(obs)
-    st["observations"] = rows[-200:]
     return True
 
 
