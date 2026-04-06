@@ -16,6 +16,8 @@ from typing import Any, Dict, List
 from replay_paths import STATE_ROOT, ensure_runtime_dirs
 from takctl.config import load_config
 
+SAFE_CWD = "/tmp"
+
 
 def role_rank(role: str) -> int:
     return {

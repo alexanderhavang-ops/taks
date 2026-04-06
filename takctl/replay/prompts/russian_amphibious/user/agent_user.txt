@@ -6,7 +6,7 @@ Your immediate superior is {{SUPERIOR}}.
 Your subordinates are: {{SUBORDINATES}}.
 Your mission is: {{MISSION}}.
 
-Current status:
+Current situation:
 - strength: {{STRENGTH}}
 - ammo: {{AMMO}}
 - morale: {{MORALE}}

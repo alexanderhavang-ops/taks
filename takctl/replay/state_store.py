@@ -71,10 +71,10 @@ def append_jsonl(path: Path, obj: Dict[str, Any]) -> None:
 def ensure_state_schema(st: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(st, dict):
         st = {}
+    st.pop('current_activity', None)
     st.setdefault('agent', {})
     st.setdefault('own_state', {})
     st.setdefault('subordinates', [])
-    st.setdefault('observations', [])
     st.setdefault('constraints', {})
     st.setdefault('work', [])
     st.setdefault('completed_work', [])
@@ -86,7 +86,7 @@ def ensure_state_schema(st: Dict[str, Any]) -> Dict[str, Any]:
     st.setdefault('pending_report_items', [])
     st.setdefault('world_changed_this_tick', False)
     st.setdefault('last_referee_outcome', {})
-    return st
+    return _strip_legacy_forbidden_fields(st)
 
 
 def message_token(row: Dict[str, Any]) -> str:
@@ -126,14 +126,46 @@ def ensure_agent_layout(callsign: str) -> Path:
     return d
 
 
+
+def _strip_legacy_forbidden_fields(st):
+    if not isinstance(st, dict):
+        return st
+    st.pop("current_activity", None)
+
+    work = []
+    for chain in list(st.get("work") or []):
+        if not isinstance(chain, list):
+            continue
+        out_chain = []
+        for item in chain:
+            if not isinstance(item, dict):
+                continue
+            x = dict(item)
+            out_chain.append(x)
+        if out_chain:
+            work.append(out_chain)
+    st["work"] = work
+
+    completed = []
+    for item in list(st.get("completed_work") or []):
+        if not isinstance(item, dict):
+            continue
+        x = dict(item)
+        completed.append(x)
+    st["completed_work"] = completed
+    return st
+
 def load_state(callsign: str) -> Dict[str, Any]:
     d = ensure_agent_layout(callsign)
     st = read_json(d / 'state.json', {})
-    return ensure_state_schema(st if isinstance(st, dict) else {})
+    st = st if isinstance(st, dict) else {}
+    st = _strip_legacy_forbidden_fields(st)
+    return ensure_state_schema(st)
 
 
 def save_state(callsign: str, st: Dict[str, Any]) -> None:
     d = ensure_agent_layout(callsign)
+    st = _strip_legacy_forbidden_fields(st if isinstance(st, dict) else {})
     write_json(d / 'state.json', ensure_state_schema(st))
 
 
@@ -208,7 +240,8 @@ def load_all_states() -> Dict[str, Dict[str, Any]]:
         st = read_json(p, {})
         if not isinstance(st, dict):
             continue
-        st = ensure_state_schema(st)
+        st = _strip_legacy_forbidden_fields(st)
+        st = _strip_legacy_forbidden_fields(ensure_state_schema(st))
         cs = str((st.get('agent') or {}).get('callsign') or d.name).upper()
         out[cs] = st
     return out

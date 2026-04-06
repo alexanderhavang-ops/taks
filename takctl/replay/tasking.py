@@ -17,6 +17,19 @@ RUNTIME_ACTIONS = {
 }
 
 
+def _strip_status_fields(obj):
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            if False:
+                continue
+            out[k] = _strip_status_fields(v)
+        return out
+    if isinstance(obj, list):
+        return [_strip_status_fields(x) for x in obj]
+    return obj
+
+
 def default_title_for_runtime_action(action: str, params: Dict[str, Any]) -> str:
     if action == "llm_replan_from_inbox":
         return "Läsa igenom meddelande"
@@ -57,7 +70,7 @@ def default_description_for_runtime_action(action: str, params: Dict[str, Any]) 
     if action == "hold_position":
         return "Enheten ska hålla nuvarande eller angiven position."
     if action == "report_status":
-        return f"Enheten ska rapportera status till {params.get('recipient') or 'överordnad'}."
+        return f"Enheten ska rapportera läge till {params.get('recipient') or 'överordnad'}."
     return action
 
 
@@ -74,20 +87,6 @@ def normalize_runtime_work_item(item: Dict[str, Any], sim_time_s: int) -> Dict[s
         params = {}
     out["params"] = params
 
-    status = str(out.get("status") or "pending").strip() or "pending"
-
-    runtime_state_actions = {
-        "move_unit",
-        "change_posture",
-        "observe_area",
-        "hold_position",
-    }
-
-    if action in runtime_state_actions and status == "active":
-        status = "pending"
-
-    out["status"] = status
-
     title = str(out.get("title") or "").strip()
     if not title:
         title = default_title_for_runtime_action(action, params)
@@ -101,21 +100,19 @@ def normalize_runtime_work_item(item: Dict[str, Any], sim_time_s: int) -> Dict[s
     duration_s = int(out.get("duration_s") or 0)
     out["duration_s"] = max(0, duration_s)
 
-    out["created_sim_time_s"] = int(out.get("created_sim_time_s") or sim_time_s)
+    created = out.get("created_sim_time_s")
+    out["created_sim_time_s"] = int(created if created is not None else sim_time_s)
 
     started = out.get("started_sim_time_s")
-    if out["status"] == "active":
-        out["started_sim_time_s"] = int(started if started is not None else sim_time_s)
-    else:
-        out["started_sim_time_s"] = None
+    out["started_sim_time_s"] = None if started is None else int(started)
 
     deadline = out.get("deadline_sim_time_s")
     if deadline is None:
-        base = sim_time_s
+        base = out["started_sim_time_s"] if out["started_sim_time_s"] is not None else out["created_sim_time_s"]
         deadline = int(base) + int(out["duration_s"])
     out["deadline_sim_time_s"] = int(deadline)
 
-    return out
+    return _strip_status_fields(out)
 
 
 def normalize_runtime_work(work: Any, sim_time_s: int) -> List[List[Dict[str, Any]]]:
@@ -132,7 +129,7 @@ def normalize_runtime_work(work: Any, sim_time_s: int) -> List[List[Dict[str, An
             norm_chain.append(normalize_runtime_work_item(item, sim_time_s))
         if norm_chain:
             out.append(norm_chain)
-    return out
+    return _strip_status_fields(out)
 
 
 def decision_to_work(decision: Dict[str, Any], sim_time_s: int) -> List[List[Dict[str, Any]]]:

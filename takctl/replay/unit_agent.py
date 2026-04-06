@@ -103,7 +103,6 @@ def seed_state_if_empty(callsign: str, role: str, superior: str, mission: str) -
             "posture": "screening",
         },
         "subordinates": [],
-        "observations": [],
         "constraints": {
             "roe": "defensive",
             "decision_horizon_sec": 300,
@@ -282,7 +281,7 @@ def _geo_area_brief(local_area: Dict[str, Any], language_profile: str) -> Dict[s
         t = str(v or "").strip()
         sv = {
             "approach routes appear limited and exposed": "framryckningsvägarna bedöms vara få och exponerade",
-            "few obvious observation positions detected": "få tydliga observationslägen identifierade",
+            "few obvious observation positions detected": "få tydliga spaningslägen identifierade",
             "open ground exposure": "öppen mark medför exponering",
             "road approach likely": "framryckning längs väg är sannolik",
             "foot infiltration via tracks/paths possible": "infiltration till fots via stigar och mindre vägar möjlig",
@@ -290,7 +289,7 @@ def _geo_area_brief(local_area: Dict[str, Any], language_profile: str) -> Dict[s
             "concealed movement via tree cover possible": "dold framryckning via trädbevuxen terräng möjlig",
             "built-up edge positions": "läge i bebyggelsekant",
             "tree line / woodland edge": "läge i skogsbryn eller trädlinje",
-            "waterfront observation line": "observationslinje längs strand eller vatten",
+            "waterfront observation line": "spaningslinje längs strand eller vatten",
             "road junction overwatch": "övervakning av vägkorsning",
             "water obstacle / exposed shoreline": "vattenhinder eller exponerad strandlinje",
             "road crossing / avenue of approach": "vägövergång eller sannolik anfallsriktning",
@@ -339,7 +338,7 @@ def _geo_area_brief(local_area: Dict[str, Any], language_profile: str) -> Dict[s
         if likely:
             parts.append("Sannolika framryckningsvägar: " + "; ".join(likely[:2]))
         if op:
-            parts.append("Lämpliga observationslägen: " + "; ".join(op[:2]))
+            parts.append("Lämpliga spaningslägen: " + "; ".join(op[:2]))
         if risks:
             parts.append("Riskytor: " + "; ".join(risks[:2]))
         summary_text = " | ".join(parts) if parts else "Ingen tydlig terrängbedömning tillgänglig."
@@ -375,30 +374,54 @@ def _geo_area_brief(local_area: Dict[str, Any], language_profile: str) -> Dict[s
         "summary_text": summary_text,
     }
 
+
 def build_packet_from_state(st: Dict[str, Any], sim_time_s: int) -> Dict[str, Any]:
     agent = dict(st.get("agent") or {})
-    inbox_rows = list(st.get("new_messages") or [])
+    own = dict(st.get("own_state") or {})
+    local_area = dict((st.get("geo") or {}).get("local_area") or {})
+
+    subordinates = []
+    for row in list(st.get("subordinates") or []):
+        if not isinstance(row, dict):
+            continue
+        x = dict(row)
+        x.pop("status", None)
+        subordinates.append(x)
 
     packet = build_agent_packet(
-        sim_time_s=sim_time_s,
+        sim_time_s=int(sim_time_s),
         agent=agent,
-        own_state=dict(st.get("own_state") or {}),
-        subordinates=list(st.get("subordinates") or []),
-        observations=list(st.get("observations") or []),
+        own_state=own,
+        subordinates=subordinates,
         constraints=dict(st.get("constraints") or {}),
     )
-    packet["inbox"] = inbox_rows
-    packet["new_messages"] = list(st.get("new_messages") or [])
-    packet["read_messages"] = list(st.get("read_messages") or [])[-50:]
-    packet["work"] = list(st.get("work") or [])
-    packet["completed_work"] = list(st.get("completed_work") or [])
-    local_area = _geo_area_summary_for_state(st)
+
     packet["geo"] = {
-        "local_area": local_area,
         "local_area_brief": _geo_area_brief(local_area, str(agent.get("language_profile") or "")),
     }
-    return packet
 
+    packet["inbox"] = list(st.get("inbox") or [])
+    packet["new_messages"] = list(st.get("new_messages") or [])
+    packet["read_messages"] = list(st.get("read_messages") or [])[-3:]
+    packet["completed_work"] = list(st.get("completed_work") or [])[-3:]
+
+    trimmed_work = []
+    for chain in list(st.get("work") or []):
+        if not isinstance(chain, list) or not chain:
+            continue
+        trimmed_work.append([dict(x or {}) for x in chain[:2] if isinstance(x, dict)])
+    packet["work"] = trimmed_work
+
+    if packet.get("new_messages"):
+        packet["inbox"] = []
+    else:
+        packet["inbox"] = list(packet.get("inbox") or [])[-3:]
+
+    geo = dict(packet.get("geo") or {})
+    brief = geo.get("local_area_brief")
+    packet["geo"] = {"local_area_brief": brief} if brief else {}
+
+    return packet
 
 def load_model_response(path: Path) -> str:
     return path.read_text(encoding="utf-8")
@@ -467,10 +490,17 @@ def emit_report_up(
 
 
 def _complete_root(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
-    root["status"] = "completed"
-    root["completed_sim_time_s"] = int(sim_time_s)
-    append_completed_work(st, root)
-
+    completed = list(st.get("completed_work") or [])
+    item = dict(root or {})
+    item.pop("status", None)
+    if item.get("started_sim_time_s") is None:
+        created = item.get("created_sim_time_s")
+        item["started_sim_time_s"] = int(created if created is not None else sim_time_s)
+    if item.get("deadline_sim_time_s") is None:
+        item["deadline_sim_time_s"] = int(sim_time_s)
+    item["completed_sim_time_s"] = int(sim_time_s)
+    completed.append(item)
+    st["completed_work"] = completed[-200:]
 
 def _execute_move_unit(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
     params = dict(root.get("params") or {})
@@ -497,16 +527,65 @@ def _execute_move_unit(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int
         },
         "urgency": urgency,
     }
-    st["current_activity"] = {
-        "type": "move_unit",
-        "status": "active",
-        "intent": str(root.get("title") or root.get("description") or "move_unit"),
-        "from": dict(own.get("position") or {}),
-        "to": {"lat": lat, "lon": lon},
-        "tempo": urgency,
-        "started_sim_time_s": int(sim_time_s),
-        "last_progress_sim_time_s": int(sim_time_s),
+
+
+
+def _progress_active_move_unit(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
+    own = st.setdefault("own_state", {})
+    pos = dict(own.get("position") or {})
+    planned = dict(own.get("planned_movement") or {})
+    params = dict(root.get("params") or {})
+
+    started = root.get("started_sim_time_s")
+    deadline = root.get("deadline_sim_time_s")
+    if started is None or deadline is None:
+        return
+
+    try:
+        started_i = int(started)
+        deadline_i = int(deadline)
+        now_i = int(sim_time_s)
+        f_lat = float(pos.get("lat"))
+        f_lon = float(pos.get("lon"))
+    except Exception:
+        return
+
+    to_lat = params.get("lat", params.get("destination_lat"))
+    to_lon = params.get("lon", params.get("destination_lon"))
+    try:
+        t_lat = float(to_lat)
+        t_lon = float(to_lon)
+    except Exception:
+        return
+
+    movement_from = dict(planned.get("from_position") or {})
+    if movement_from:
+        try:
+            f_lat = float(movement_from.get("lat"))
+            f_lon = float(movement_from.get("lon"))
+        except Exception:
+            pass
+    else:
+        planned["from_position"] = {"lat": f_lat, "lon": f_lon}
+
+    total = max(1, deadline_i - started_i)
+    elapsed = max(0, min(now_i - started_i, total))
+    frac = elapsed / total
+
+    own["position"] = {
+        "lat": f_lat + (t_lat - f_lat) * frac,
+        "lon": f_lon + (t_lon - f_lon) * frac,
     }
+
+    planned["started_sim_time_s"] = started_i
+    planned["destination"] = {"lat": t_lat, "lon": t_lon}
+    planned["urgency"] = str(params.get("urgency") or params.get("movement_type") or "").strip()
+    planned["progress"] = {
+        "started_sim_time_s": started_i,
+        "sim_time_s": now_i,
+        "fraction": round(frac, 4),
+    }
+    own["planned_movement"] = planned
 
 
 def _execute_change_posture(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
@@ -517,15 +596,6 @@ def _execute_change_posture(st: Dict[str, Any], root: Dict[str, Any], sim_time_s
     own = st.setdefault("own_state", {})
     own["posture"] = posture
     own["posture_updated_sim_time_s"] = int(sim_time_s)
-    st["current_activity"] = {
-        "type": "change_posture",
-        "status": "active",
-        "intent": str(root.get("title") or root.get("description") or posture),
-        "from": dict(own.get("position") or {}),
-        "to": dict(own.get("position") or {}),
-        "started_sim_time_s": int(sim_time_s),
-        "last_progress_sim_time_s": int(sim_time_s),
-    }
 
 
 def _execute_hold_position(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
@@ -543,51 +613,12 @@ def _execute_hold_position(st: Dict[str, Any], root: Dict[str, Any], sim_time_s:
         pass
     own["position"] = pos
     own["holding_since_sim_time_s"] = int(sim_time_s)
-    st["current_activity"] = {
-        "type": "hold_position",
-        "status": "active",
-        "intent": str(root.get("title") or root.get("description") or "hold_position"),
-        "from": dict(pos),
-        "to": dict(pos),
-        "started_sim_time_s": int(sim_time_s),
-        "last_progress_sim_time_s": int(sim_time_s),
-    }
 
 
 def _execute_observe_area(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
-    params = dict(root.get("params") or {})
-    obs = list(st.get("observations") or [])
-    center_lat = params.get("center_lat", params.get("lat"))
-    center_lon = params.get("center_lon", params.get("lon"))
-    radius_km = params.get("radius_km", params.get("radius"))
-    focus = params.get("focus") or []
-
-    row = {
-        "kind": "area_observation_task",
-        "sim_time_s": int(sim_time_s),
-        "from": str((st.get("agent") or {}).get("callsign") or ""),
-        "center": {
-            "lat": center_lat,
-            "lon": center_lon,
-        },
-        "radius_km": radius_km,
-        "focus": focus,
-        "summary": str(root.get("description") or root.get("title") or "observe_area"),
-    }
-    obs.append(row)
-    st["observations"] = obs[-200:]
-    st["current_activity"] = {
-        "type": "observe_area",
-        "status": "active",
-        "intent": str(root.get("title") or root.get("description") or "observe_area"),
-        "from": dict((st.get("own_state") or {}).get("position") or {}),
-        "to": {
-            "lat": center_lat,
-            "lon": center_lon,
-        },
-        "started_sim_time_s": int(sim_time_s),
-        "last_progress_sim_time_s": int(sim_time_s),
-    }
+    # Intentionally no self-generated sightings.
+    # World facts belong outside the unit; the unit must not invent them.
+    return
 
 
 def world_changed(st: Dict[str, Any], sim_time_s: int) -> bool:
@@ -612,11 +643,316 @@ def llm_trigger_reason(
     return ""
 
 
+
+def _json_size_bytes(obj: Any) -> int:
+    try:
+        return len(json.dumps(obj, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    except Exception:
+        return -1
+
+
+def _message_token(row: Dict[str, Any]) -> str:
+    return str(
+        row.get("_message_token")
+        or row.get("uid")
+        or (
+            f'{row.get("kind")}|{row.get("from")}|{row.get("to")}|'
+            f'{row.get("sim_time_s")}|{row.get("message")}'
+        )
+    )
+
+
+def _message_debug(st: Dict[str, Any]) -> Dict[str, Any]:
+    names = ["inbox", "new_messages", "read_messages"]
+    out: Dict[str, Any] = {"buckets": {}, "overlaps": {}}
+    bucket_sets: Dict[str, set] = {}
+
+    for name in names:
+        rows = [dict(x or {}) for x in list(st.get(name) or []) if isinstance(x, dict)]
+        toks = [_message_token(r) for r in rows]
+        seen = set()
+        dupes = []
+        for t in toks:
+            if t in seen and t not in dupes:
+                dupes.append(t)
+            seen.add(t)
+        out["buckets"][name] = {
+            "count": len(toks),
+            "unique": len(set(toks)),
+            "duplicate_count": len(toks) - len(set(toks)),
+            "duplicate_samples": dupes[:5],
+        }
+        bucket_sets[name] = set(toks)
+
+    for i, a in enumerate(names):
+        for b in names[i+1:]:
+            both = sorted(bucket_sets[a].intersection(bucket_sets[b]))
+            out["overlaps"][f"{a}__{b}"] = {
+                "count": len(both),
+                "samples": both[:5],
+            }
+
+    return out
+
+
+def _packet_part_sizes(packet: Dict[str, Any]) -> Dict[str, int]:
+    keys = [
+        "agent",
+        "own_state",
+        "subordinates",
+        "constraints",
+        "inbox",
+        "new_messages",
+        "read_messages",
+        "work",
+        "completed_work",
+        "geo",
+        "llm_trigger_reason",
+    ]
+    out: Dict[str, int] = {}
+    for k in keys:
+        if k in packet:
+            out[k] = _json_size_bytes(packet.get(k))
+    geo = packet.get("geo")
+    if isinstance(geo, dict):
+        if "local_area" in geo:
+            out["geo.local_area"] = _json_size_bytes(geo.get("local_area"))
+        if "local_area_brief" in geo:
+            out["geo.local_area_brief"] = _json_size_bytes(geo.get("local_area_brief"))
+    return out
+
+
+def _decision_part_sizes(decision: Any) -> Dict[str, int]:
+    if not isinstance(decision, dict):
+        return {"decision": _json_size_bytes(decision)}
+    out: Dict[str, int] = {"decision": _json_size_bytes(decision)}
+    for k, v in decision.items():
+        out[f"decision.{k}"] = _json_size_bytes(v)
+    return out
+
+
+def _print_llm_request_debug(packet: Dict[str, Any], st: Dict[str, Any], callsign: str) -> None:
+    print(f"=== LLM REQUEST SIZE {callsign} ===")
+    print(f"request.total_bytes={_json_size_bytes(packet)}")
+    for k, v in sorted(_packet_part_sizes(packet).items(), key=lambda kv: (-kv[1], kv[0])):
+        print(f"request.part.{k}={v}")
+
+    md = _message_debug(st)
+    for bucket, info in md.get("buckets", {}).items():
+        print(
+            f"messages.{bucket}.count={info.get('count', 0)} "
+            f"unique={info.get('unique', 0)} "
+            f"duplicates={info.get('duplicate_count', 0)}"
+        )
+        samples = list(info.get("duplicate_samples") or [])
+        for i, sample in enumerate(samples[:3], 1):
+            print(f"messages.{bucket}.duplicate_sample_{i}={sample[:220]}")
+    for pair, info in md.get("overlaps", {}).items():
+        print(f"messages.overlap.{pair}={info.get('count', 0)}")
+        samples = list(info.get("samples") or [])
+        for i, sample in enumerate(samples[:3], 1):
+            print(f"messages.overlap.{pair}.sample_{i}={sample[:220]}")
+
+
+def _print_llm_response_debug(raw_text: str, result: Any, callsign: str) -> None:
+    print(f"=== LLM RESPONSE SIZE {callsign} ===")
+    print(f"response.raw_bytes={len((raw_text or '').encode('utf-8'))}")
+    decision = getattr(result, "decision", None)
+    for k, v in sorted(_decision_part_sizes(decision).items(), key=lambda kv: (-kv[1], kv[0])):
+        print(f"response.part.{k}={v}")
+    errs = list(getattr(result, "errors", []) or [])
+    print(f"response.errors.count={len(errs)}")
+    if errs:
+        for i, err in enumerate(errs[:5], 1):
+            print(f"response.errors.{i}={str(err)[:300]}")
+    print(f"response.ok={bool(getattr(result, 'ok', False))}")
+
+
+
+
+
+def _strip_forbidden_state_shape(st: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(st, dict):
+        return st
+
+    st.pop("current_activity", None)
+    st.pop("observations", None)
+
+    work = []
+    for chain in list(st.get("work") or []):
+        if not isinstance(chain, list):
+            continue
+        out_chain = []
+        for item in chain:
+            if not isinstance(item, dict):
+                continue
+            x = dict(item)
+            x.pop("status", None)
+            out_chain.append(x)
+        if out_chain:
+            work.append(out_chain)
+    st["work"] = work
+
+    completed = []
+    for item in list(st.get("completed_work") or []):
+        if not isinstance(item, dict):
+            continue
+        x = dict(item)
+        x.pop("status", None)
+        completed.append(x)
+    st["completed_work"] = completed
+
+    return st
+
+FORBIDDEN_TOPLEVEL_STATE_KEYS = {
+    "current_activity",
+    "observations",
+}
+
+FORBIDDEN_WORK_ITEM_KEYS = {
+    "status",
+}
+
+def _assert_no_forbidden_state_shape(st: Dict[str, Any], where: str) -> None:
+    bad_top = sorted(k for k in FORBIDDEN_TOPLEVEL_STATE_KEYS if k in st)
+    if bad_top:
+        raise RuntimeError(f"{where}: forbidden top-level state keys present: {bad_top}")
+
+    work = list(st.get("work") or [])
+    completed = list(st.get("completed_work") or [])
+
+    def check_chain_items(items, bucket: str) -> None:
+        for ci, chain in enumerate(items):
+            if not isinstance(chain, list):
+                continue
+            for wi, item in enumerate(chain):
+                if not isinstance(item, dict):
+                    continue
+                bad = sorted(k for k in FORBIDDEN_WORK_ITEM_KEYS if k in item)
+                if bad:
+                    raise RuntimeError(
+                        f"{where}: forbidden work-item keys in {bucket}[{ci}][{wi}]: {bad}"
+                    )
+
+    check_chain_items(work, "work")
+
+    # completed_work is a flat list, normalize to pseudo-chains for reuse
+    for wi, item in enumerate(completed):
+        if not isinstance(item, dict):
+            continue
+        bad = sorted(k for k in FORBIDDEN_WORK_ITEM_KEYS if k in item)
+        if bad:
+            raise RuntimeError(
+                f"{where}: forbidden work-item keys in completed_work[{wi}]: {bad}"
+            )
+
+
+
+def _tick_active_runtime_action(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> None:
+    action = str(root.get("action") or "")
+    own = st.setdefault("own_state", {})
+
+    if action == "change_posture":
+        params = dict(root.get("params") or {})
+        posture = str(params.get("posture") or "").strip()
+        if posture:
+            own["posture"] = posture
+        return
+
+    if action == "hold_position":
+        params = dict(root.get("params") or {})
+        pos = dict(own.get("position") or {})
+        lat = params.get("lat")
+        lon = params.get("lon")
+        try:
+            if lat is not None:
+                pos["lat"] = float(lat)
+            if lon is not None:
+                pos["lon"] = float(lon)
+        except Exception:
+            pass
+        own["position"] = pos
+        return
+
+    if action != "move_unit":
+        return
+
+    params = dict(root.get("params") or {})
+    lat = params.get("lat", params.get("destination_lat"))
+    lon = params.get("lon", params.get("destination_lon"))
+    if lat is None or lon is None:
+        return
+
+    try:
+        dest_lat = float(lat)
+        dest_lon = float(lon)
+    except Exception:
+        return
+
+    pos = dict(own.get("position") or {})
+    try:
+        cur_lat = float(pos.get("lat"))
+        cur_lon = float(pos.get("lon"))
+    except Exception:
+        return
+
+    created = root.get("created_sim_time_s")
+    started = root.get("started_sim_time_s")
+    if started is None:
+        started = int(created if created is not None else sim_time_s)
+        root["started_sim_time_s"] = int(started)
+
+    deadline = root.get("deadline_sim_time_s")
+    if deadline is None:
+        deadline = int(started) + int(root.get("duration_s") or 0)
+        root["deadline_sim_time_s"] = int(deadline)
+
+    try:
+        started_i = int(started)
+        deadline_i = int(deadline)
+        now_i = int(sim_time_s)
+    except Exception:
+        return
+
+    planned = dict(own.get("planned_movement") or {})
+    origin = dict(planned.get("origin") or {})
+    if not origin:
+        origin = {"lat": cur_lat, "lon": cur_lon}
+        planned["origin"] = origin
+
+    planned["started_sim_time_s"] = started_i
+    planned["destination"] = {"lat": dest_lat, "lon": dest_lon}
+    planned["urgency"] = str(params.get("urgency") or params.get("movement_type") or "").strip()
+    own["planned_movement"] = planned
+
+    try:
+        o_lat = float(origin.get("lat"))
+        o_lon = float(origin.get("lon"))
+    except Exception:
+        o_lat = cur_lat
+        o_lon = cur_lon
+
+    total = max(1, deadline_i - started_i)
+    elapsed = max(0, min(now_i - started_i, total))
+    frac = elapsed / total
+
+    own["position"] = {
+        "lat": o_lat + (dest_lat - o_lat) * frac,
+        "lon": o_lon + (dest_lon - o_lon) * frac,
+    }
+    own["planned_movement"]["progress"] = {
+        "started_sim_time_s": started_i,
+        "sim_time_s": now_i,
+        "fraction": round(frac, 4),
+    }
+
+
 def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
     callsign = str((st.get("agent") or {}).get("callsign") or "")
     superior = str((st.get("agent") or {}).get("superior") or "")
 
     new_work: List[List[Dict[str, Any]]] = []
+
     for chain in list(st.get("work") or []):
         if not isinstance(chain, list) or not chain:
             continue
@@ -629,46 +965,20 @@ def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
         rest = chain[1:]
 
         action = str(root.get("action") or "")
-        status = str(root.get("status") or "")
-        deadline = int(root.get("deadline_sim_time_s") or 0)
+        created = root.get("created_sim_time_s")
         started = root.get("started_sim_time_s")
+        if started is None:
+            started = int(created if created is not None else sim_time_s)
+            root["started_sim_time_s"] = int(started)
 
-        runtime_state_actions = {
-            "move_unit",
-            "change_posture",
-            "observe_area",
-            "hold_position",
-        }
+        deadline = root.get("deadline_sim_time_s")
+        if deadline is None:
+            deadline = int(started) + int(root.get("duration_s") or 0)
+            root["deadline_sim_time_s"] = int(deadline)
 
-        should_start_now = False
-        if action in runtime_state_actions:
-            if status == "pending":
-                should_start_now = True
-            elif status == "active" and started is None:
-                should_start_now = True
+        deadline_i = int(root.get("deadline_sim_time_s") or 0)
 
-        if should_start_now:
-            root["status"] = "active"
-            root["started_sim_time_s"] = int(sim_time_s)
-            if not root.get("deadline_sim_time_s"):
-                root["deadline_sim_time_s"] = int(sim_time_s) + int(root.get("duration_s") or 0)
-            deadline = int(root.get("deadline_sim_time_s") or 0)
-
-            if action == "move_unit":
-                _execute_move_unit(st, root, sim_time_s)
-            elif action == "change_posture":
-                _execute_change_posture(st, root, sim_time_s)
-            elif action == "observe_area":
-                _execute_observe_area(st, root, sim_time_s)
-            elif action == "hold_position":
-                _execute_hold_position(st, root, sim_time_s)
-
-        elif status == "pending":
-            root["status"] = "active"
-            root["started_sim_time_s"] = int(sim_time_s)
-            if not root.get("deadline_sim_time_s"):
-                root["deadline_sim_time_s"] = int(sim_time_s) + int(root.get("duration_s") or 0)
-            deadline = int(root.get("deadline_sim_time_s") or 0)
+        _tick_active_runtime_action(st, root, sim_time_s)
 
         completed_now = False
 
@@ -694,7 +1004,7 @@ def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
             "observe_area",
             "hold_position",
         }:
-            if deadline and int(sim_time_s) >= deadline:
+            if deadline_i and int(sim_time_s) >= deadline_i:
                 if action == "move_unit":
                     own = st.setdefault("own_state", {})
                     planned = dict(own.get("planned_movement") or {})
@@ -709,30 +1019,18 @@ def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
                             }
                     except Exception:
                         pass
-
-                    urgency = str(planned.get("urgency") or "").strip()
-                    own["last_movement"] = {
-                        "sim_time_s": int(sim_time_s),
-                        "urgency": urgency,
-                    }
                     if "planned_movement" in own:
                         del own["planned_movement"]
 
-                current_activity = st.setdefault("current_activity", {})
-                if action in {"move_unit", "change_posture", "observe_area", "hold_position"}:
-                    current_activity["status"] = "inactive"
-                    current_activity["last_progress_sim_time_s"] = int(sim_time_s)
                 _complete_root(st, root, sim_time_s)
                 completed_now = True
 
         if completed_now:
             if rest:
                 nxt = dict(rest[0] or {})
-                if not nxt.get("status") or str(nxt.get("status")) == "completed":
-                    nxt["status"] = "pending"
                 if nxt.get("created_sim_time_s") is None:
                     nxt["created_sim_time_s"] = int(sim_time_s)
-                if nxt.get("started_sim_time_s") is not None and str(nxt.get("status")) != "completed":
+                if nxt.get("started_sim_time_s") is not None:
                     nxt["started_sim_time_s"] = None
                 new_work.append([nxt] + rest[1:])
         else:
@@ -761,6 +1059,8 @@ def main() -> None:
     seed_state_if_empty(args.callsign, args.role, args.superior, args.mission)
 
     st = ensure_memory_fields(ingest_inbox_into_state(args.callsign))
+    st = _strip_forbidden_state_shape(st)
+    _assert_no_forbidden_state_shape(st, "after_load")
 
     outbox_path = d / "outbox.jsonl"
 
@@ -768,6 +1068,7 @@ def main() -> None:
 
     # Kör roten på varje arbetskedja en gång per tick
     completed_after = process_work(st, args.sim_time, outbox_path)
+    _assert_no_forbidden_state_shape(st, "after_process_work")
 
     trigger = llm_trigger_reason(
         st=st,
@@ -779,11 +1080,35 @@ def main() -> None:
 
     if not trigger:
         st["world_changed_this_tick"] = False
+        _assert_no_forbidden_state_shape(st, "before_save_no_llm")
         save_state(args.callsign, st)
         return
 
     packet = build_packet_from_state(st, args.sim_time)
     packet["llm_trigger_reason"] = trigger
+
+    # Slimma packet till LLM så prompten inte växer okontrollerat över tid.
+    packet["new_messages"] = list(packet.get("new_messages") or [])
+    packet["read_messages"] = list(packet.get("read_messages") or [])[-3:]
+    packet["completed_work"] = list(packet.get("completed_work") or [])[-3:]
+
+    slim_work = []
+    for chain in list(packet.get("work") or []):
+        if isinstance(chain, list) and chain:
+            slim_work.append(chain[:2])
+    packet["work"] = slim_work
+
+    # inbox och new_messages överlappar i praktiken; låt new_messages vara sann källa.
+    if packet.get("new_messages"):
+        packet["inbox"] = []
+    else:
+        packet["inbox"] = list(packet.get("inbox") or [])[-3:]
+
+    geo = dict(packet.get("geo") or {})
+    if geo:
+        brief = geo.get("local_area_brief")
+        packet["geo"] = {"local_area_brief": brief} if brief else {}
+    _print_llm_request_debug(packet, st, args.callsign)
 
     if args.live_llm:
         write_json(d / "state.json", st)
@@ -813,6 +1138,7 @@ def main() -> None:
 
     write_prompt_log(d, packet, raw_text)
     result = parse_and_validate(raw_text, packet)
+    _print_llm_response_debug(raw_text, result, args.callsign)
 
     new_work = decision_to_work(
         decision=result.decision,
@@ -831,6 +1157,7 @@ def main() -> None:
         st["inbox"] = []
 
     st["world_changed_this_tick"] = False
+    _assert_no_forbidden_state_shape(st, "before_save_after_llm")
     write_json(d / "state.json", st)
 
     append_jsonl(d / "decisions.jsonl", {

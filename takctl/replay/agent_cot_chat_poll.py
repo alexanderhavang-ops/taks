@@ -16,6 +16,7 @@ import psycopg2
 import psycopg2.extras
 
 from replay_paths import agent_dir, ensure_runtime_dirs
+from state_store import consume_transport_inbox, save_state
 from takctl.config import load_config, load_secrets
 
 DEFAULT_LOOKBACK_MINUTES = 15
@@ -153,7 +154,13 @@ def main() -> None:
         imported += 1
 
     write_json(seen_path, sorted(seen_set))
-    print(f"imported={imported}")
+
+    st = consume_transport_inbox(args.callsign)
+    save_state(args.callsign, st)
+
+    new_count = len(list(st.get("new_messages") or []))
+    read_count = len(list(st.get("read_messages") or []))
+    print(f"imported={imported} new_messages={new_count} read_messages={read_count}")
 
 
 if __name__ == "__main__":

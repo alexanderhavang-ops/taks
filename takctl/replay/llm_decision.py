@@ -26,22 +26,33 @@ class DecisionResult:
     raw_text: str
 
 
+def _strip_forbidden_fields(obj: Any) -> Any:
+    if isinstance(obj, dict):
+        out: Dict[str, Any] = {}
+        for k, v in obj.items():
+            if k in {"status", "observations"}:
+                continue
+            out[k] = _strip_forbidden_fields(v)
+        return out
+    if isinstance(obj, list):
+        return [_strip_forbidden_fields(x) for x in obj]
+    return obj
+
+
 def build_agent_packet(
     *,
     sim_time_s: int,
     agent: Dict[str, Any],
     own_state: Dict[str, Any],
     subordinates: List[Dict[str, Any]],
-    observations: List[Dict[str, Any]],
     constraints: Dict[str, Any],
 ) -> Dict[str, Any]:
     return {
         "sim_time_s": int(sim_time_s),
-        "agent": agent,
-        "own_state": own_state,
-        "subordinates": subordinates,
-        "observations": observations,
-        "constraints": constraints,
+        "agent": _strip_forbidden_fields(agent),
+        "own_state": _strip_forbidden_fields(own_state),
+        "subordinates": _strip_forbidden_fields(subordinates),
+        "constraints": _strip_forbidden_fields(constraints),
     }
 
 
@@ -73,9 +84,8 @@ def validate_runtime_work_item(item: Dict[str, Any]) -> List[str]:
     if description is not None and not isinstance(description, str):
         errors.append("work item description must be string")
 
-    status = item.get("status")
-    if status is not None and not isinstance(status, str):
-        errors.append("work item status must be string")
+    if "status" in item:
+        errors.append("work item status is forbidden")
 
     duration_s = item.get("duration_s")
     if duration_s is not None and (not isinstance(duration_s, int) or duration_s < 0):
@@ -86,6 +96,11 @@ def validate_runtime_work_item(item: Dict[str, Any]) -> List[str]:
 
 def validate_decision(d: Dict[str, Any]) -> List[str]:
     errors: List[str] = []
+
+    if "observations" in d:
+        errors.append("top-level observations is forbidden")
+    if "status" in d:
+        errors.append("top-level status is forbidden")
 
     work = d.get("work")
     if not isinstance(work, list):
@@ -118,7 +133,6 @@ def fallback_decision(packet: Dict[str, Any], reason: str) -> Dict[str, Any]:
                 "description": f"Fallback efter fel i LLM-svar: {reason}",
                 "action": "llm_replan_from_deadline",
                 "params": {},
-                "status": "active",
                 "duration_s": 60,
             }
         ]
@@ -127,14 +141,13 @@ def fallback_decision(packet: Dict[str, Any], reason: str) -> Dict[str, Any]:
     if isinstance(pos, dict) and pos.get("lat") is not None and pos.get("lon") is not None:
         work.append([
             {
-                "title": "Hålla nuvarande position",
+                "title": "Håll nuvarande position",
                 "description": "Enheten håller nuvarande position tills nytt beslut finns.",
                 "action": "hold_position",
                 "params": {
                     "lat": pos.get("lat"),
                     "lon": pos.get("lon"),
                 },
-                "status": "pending",
                 "duration_s": 300,
             }
         ])
@@ -154,6 +167,7 @@ def parse_and_validate(raw_text: str, packet: Dict[str, Any]) -> DecisionResult:
             raw_text=raw_text,
         )
 
+    d = _strip_forbidden_fields(d)
     errors = validate_decision(d)
 
     if errors:

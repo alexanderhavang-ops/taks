@@ -5,7 +5,7 @@ Your immediate superior is {{SUPERIOR}}.
 Your subordinates are: {{SUBORDINATES}}.
 Your mission is: {{MISSION}}.
 Your current strength is {{STRENGTH}}.
-Your ammo status is {{AMMO}}.
+Your ammo is {{AMMO}}.
 Your morale is {{MORALE}}.
 Your posture is {{POSTURE}}.
 Your decision horizon is {{DECISION_HORIZON_S}} seconds.
