@@ -7,13 +7,23 @@ from pathlib import Path
 
 from tak_installer.util import sha256_path, diff_text
 
+from tak_installer.runtime_state import get_fqdn
+
 
 @dataclass(frozen=True)
 class NginxAcmeSite:
     template: Path
     dst: Path
 
-    def inspect(self, fqdn: str) -> dict[str, str]:
+    def _fqdn(self, ctx) -> str:
+        for key in ("FQDN", "TAKS_FQDN", "TAKS_NODE_FQDN"):
+            v = str((ctx.env or {}).get(key) or "").strip()
+            if v:
+                return v
+        return get_fqdn(ctx)
+
+    def inspect(self, ctx) -> dict[str, str]:
+        fqdn = self._fqdn(ctx)
         out: dict[str, str] = {}
 
         if not self.template.is_file():

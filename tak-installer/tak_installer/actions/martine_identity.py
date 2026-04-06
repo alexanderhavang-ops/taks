@@ -112,26 +112,18 @@ def _groups_match(actual: list[str], wanted: list[str]) -> bool:
     return sorted(actual) == sorted(wanted)
 
 
-
 def _wait_for_usermgr_ready(timeout_sec: int = 600, sleep_sec: int = 5) -> None:
     deadline = time.time() + timeout_sec
-    jar = Path("/opt/tak/utils/UserManager.jar")
 
     while time.time() < deadline:
-        if USERAUTH_XML.exists() and jar.exists():
-            probe = subprocess.run(
-                ["bash", "-lc", f"cd /opt/tak/utils && java -jar {jar.name} userlist >/tmp/martine-usermgr-probe.out 2>/tmp/martine-usermgr-probe.err"],
-                text=True,
-                capture_output=True,
-            )
-            if probe.returncode == 0:
-                print("[martine-identity] usermgr ready")
-                return
-
-        print("[martine-identity] waiting for takserver/usermgr readiness...")
+        if USERAUTH_XML.exists():
+            print("[martine-identity] UserAuthenticationFile.xml present")
+            return
+        print("[martine-identity] waiting for /opt/tak/UserAuthenticationFile.xml ...")
         time.sleep(sleep_sec)
 
-    raise RuntimeError("timed out waiting for TAK server user manager readiness")
+    raise RuntimeError("timed out waiting for /opt/tak/UserAuthenticationFile.xml")
+
 
 def _ensure_secrets() -> tuple[str, str, str]:
     sec = load_secrets()
@@ -183,7 +175,7 @@ def _ensure_user(cfg, user_password: str) -> None:
             and _groups_match(current["groups_in"], groups_in)
             and _groups_match(current["groups_out"], groups_out)
         ):
-            print(f"[martine-identity] ensure_user skip xml-ok")
+            print("[martine-identity] ensure_user skip xml-ok")
             return
 
         _wait_for_usermgr_ready()
@@ -195,7 +187,7 @@ def _ensure_user(cfg, user_password: str) -> None:
             in_groups=groups_in or None,
             out_groups=groups_out or None,
         )
-        print(f"[martine-identity] ensure_user update-groups")
+        print("[martine-identity] ensure_user update-groups")
         return
 
     _wait_for_usermgr_ready()
@@ -208,7 +200,7 @@ def _ensure_user(cfg, user_password: str) -> None:
         in_groups=groups_in or None,
         out_groups=groups_out or None,
     )
-    print(f"[martine-identity] ensure_user create")
+    print("[martine-identity] ensure_user create")
 
 
 def _ensure_cert(cfg, sec) -> tuple[Path, Path]:
@@ -252,7 +244,7 @@ def _bind_user_to_cert(cfg, cert_pem_path: Path, user_password: str) -> None:
     username = (cfg.get("martine_username", "martine") or "martine").strip() or "martine"
     current = _load_userauth_user(username)
     if current is not None and (current.get("fingerprint") or "").strip():
-        print(f"[martine-identity] bind_user_to_cert skip fingerprint-present")
+        print("[martine-identity] bind_user_to_cert skip fingerprint-present")
         return
 
     groups_rw = _split_groups(cfg.get("martine_groups_rw", ""))
@@ -270,7 +262,7 @@ def _bind_user_to_cert(cfg, cert_pem_path: Path, user_password: str) -> None:
         in_groups=groups_in or None,
         out_groups=groups_out or None,
     )
-    print(f"[martine-identity] bind_user_to_cert bind")
+    print("[martine-identity] bind_user_to_cert bind")
 
 
 def _install_runtime_identity(cfg, cert_p12_path: Path, cert_pem_path: Path) -> None:
@@ -283,12 +275,14 @@ def _install_runtime_identity(cfg, cert_p12_path: Path, cert_pem_path: Path) -> 
     ca_pem_dst = RUNTIME_ID_DIR / "ca.pem"
 
     cert_key_path = cert_pem_path.with_suffix(".key")
-    ca_pem_src = CERTS_DIR / "00_CA" / "ca.pem"
+    ca_pem_src = CERTS_DIR / "ca.pem"
 
     if not cert_key_path.exists():
-        raise RuntimeError(f"martine client key not found: {cert_key_path}")
+        raise RuntimeError(f"missing client key next to pem: {cert_key_path}")
+    if not TRUSTSTORE_SRC.exists():
+        raise RuntimeError(f"missing truststore source: {TRUSTSTORE_SRC}")
     if not ca_pem_src.exists():
-        raise RuntimeError(f"martine ca pem not found: {ca_pem_src}")
+        raise RuntimeError(f"missing CA pem: {ca_pem_src}")
 
     shutil.copy2(cert_p12_path, client_p12_dst)
     shutil.copy2(TRUSTSTORE_SRC, trust_p12_dst)
@@ -296,55 +290,37 @@ def _install_runtime_identity(cfg, cert_p12_path: Path, cert_pem_path: Path) -> 
     shutil.copy2(cert_key_path, client_key_dst)
     shutil.copy2(ca_pem_src, ca_pem_dst)
 
-    subprocess.run(["sudo", "mkdir", "-p", str(RUNTIME_ID_DIR)], check=True)
-    subprocess.run(["sudo", "chown", "-R", "tak:tak", str(RUNTIME_ID_DIR)], check=True)
-    subprocess.run(["sudo", "find", str(RUNTIME_ID_DIR), "-type", "d", "-exec", "chmod", "2750", "{}", ";"], check=True)
-    subprocess.run(["sudo", "find", str(RUNTIME_ID_DIR), "-type", "f", "-exec", "chmod", "0640", "{}", ";"], check=True)
+    for p in (client_p12_dst, trust_p12_dst, client_pem_dst, client_key_dst, ca_pem_dst):
+        p.chmod(0o600)
 
-    cfg2 = load_config()
-    changed = False
-    if cfg2.get("martine_client_p12_path", "") != str(client_p12_dst):
-        cfg2.set("martine_client_p12_path", str(client_p12_dst), component="martine")
-        changed = True
-    if cfg2.get("martine_truststore_p12_path", "") != str(trust_p12_dst):
-        cfg2.set("martine_truststore_p12_path", str(trust_p12_dst), component="martine")
-        changed = True
-    if changed:
-        save_runtime_config_view(cfg2)
+    print(f"[martine-identity] runtime identity installed under {RUNTIME_ID_DIR}")
 
 
-class Action:
+class MartineIdentityAction:
     ID = SRC_ID
 
     def inspect(self, ctx) -> int:
-        self.verify(ctx)
+        print("martine-identity")
+        print(f"  runtime_dir: {RUNTIME_ID_DIR}")
+        print(f"  certs_dir:   {CERTS_DIR}")
+        print(f"  userauth:    {USERAUTH_XML}")
         return 0
 
     def apply(self, ctx) -> int:
         cfg = load_config()
-        user_password, _client_p12_pass, _truststore_p12_pass = _ensure_secrets()
         sec = load_secrets()
 
+        save_runtime_config_view(cfg)
+        save_runtime_secrets_view(sec)
+
+        user_password, _client_p12_pass, _truststore_p12_pass = _ensure_secrets()
         _ensure_user(cfg, user_password)
         cert_p12_path, cert_pem_path = _ensure_cert(cfg, sec)
         _bind_user_to_cert(cfg, cert_pem_path, user_password)
         _install_runtime_identity(cfg, cert_p12_path, cert_pem_path)
+
+        print("[martine-identity] done")
         return 0
 
-    def verify(self, ctx) -> None:
-        cfg = load_config()
-        username = (cfg.get("martine_username", "martine") or "martine").strip() or "martine"
-        client_p12 = Path(cfg.get("martine_client_p12_path", "/opt/tak/tools/martine/runtime/identity/client.p12"))
-        trust_p12 = Path(cfg.get("martine_truststore_p12_path", "/opt/tak/tools/martine/runtime/identity/truststore-root.p12"))
 
-        if not client_p12.exists():
-            raise RuntimeError(f"missing martine client p12: {client_p12}")
-        if not trust_p12.exists():
-            raise RuntimeError(f"missing martine truststore p12: {trust_p12}")
-
-        current = _load_userauth_user(username)
-        if current is None:
-            raise RuntimeError(f"user not found in UserAuthenticationFile.xml: {username}")
-
-
-ACTION = Action()
+ACTION = MartineIdentityAction()

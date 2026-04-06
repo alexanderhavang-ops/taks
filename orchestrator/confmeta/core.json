@@ -6,10 +6,12 @@
       "default": "sv",
       "doc": "Systemspråk för orchestratorns UI och doktrinnära systemtexter",
       "secret": false,
-      "enum": ["sv", "en"],
+      "enum": [
+        "sv",
+        "en"
+      ],
       "level": "basic"
     },
-
     "orchestrator_fqdn": {
       "type": "string",
       "default": "",
@@ -31,7 +33,6 @@
       "secret": false,
       "level": "advanced"
     },
-
     "aws_region": {
       "type": "string",
       "default": "",
@@ -79,10 +80,13 @@
       "default": "t3.medium",
       "doc": "Standard instanstyp för startade noder",
       "secret": false,
-      "enum": ["t3.small", "t3.medium", "t3.large"],
+      "enum": [
+        "t3.small",
+        "t3.medium",
+        "t3.large"
+      ],
       "level": "basic"
     },
-
     "nodes_default_node_domain": {
       "type": "string",
       "default": "aws.tak-hv-sandbox.se",
@@ -95,10 +99,11 @@
       "default": "letsencrypt",
       "doc": "Standard certifikatmodell för noder",
       "secret": false,
-      "enum": ["letsencrypt"],
+      "enum": [
+        "letsencrypt"
+      ],
       "level": "basic"
     },
-
     "launch_enabled": {
       "type": "bool",
       "default": "true",
@@ -114,13 +119,15 @@
       "min": 60,
       "level": "advanced"
     },
-
     "letsencrypt_mode": {
       "type": "string",
       "default": "dns-route53",
       "doc": "Let's Encrypt-läge för orchestratorns front door",
       "secret": false,
-      "enum": ["dns-route53", "http-01"],
+      "enum": [
+        "dns-route53",
+        "http-01"
+      ],
       "level": "basic"
     },
     "letsencrypt_email": {
@@ -144,7 +151,6 @@
       "secret": false,
       "level": "advanced"
     },
-
     "bundles_source_repo_root": {
       "type": "string",
       "default": "/opt/taks",
@@ -157,7 +163,9 @@
       "default": "tak-node",
       "doc": "Standard bundle-typ för renderade bundles",
       "secret": false,
-      "enum": ["tak-node"],
+      "enum": [
+        "tak-node"
+      ],
       "level": "advanced"
     },
     "bundles_include_taks_source": {
@@ -167,7 +175,6 @@
       "secret": false,
       "level": "advanced"
     },
-
     "state_dir": {
       "type": "string",
       "default": "/opt/tak-orch/state",
@@ -189,7 +196,6 @@
       "secret": false,
       "level": "advanced"
     },
-
     "aws_access_key_id": {
       "type": "string",
       "default": "",
@@ -211,5 +217,11 @@
       "secret": true,
       "level": "advanced"
     }
+  },
+  "aws_route53_zone_id": {
+    "label": "AWS Route53 Zone ID",
+    "type": "string",
+    "default": "",
+    "help": "Hosted Zone ID used for Route53 UPSERT of node A records when letsencrypt_mode=dns-route53."
   }
 }

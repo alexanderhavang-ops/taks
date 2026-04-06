@@ -112,8 +112,10 @@ def apply(ctx) -> None:
     BOOTSTRAP_CONFIG_D.mkdir(parents=True, exist_ok=True)
     BOOTSTRAP_SECRETS_D.mkdir(parents=True, exist_ok=True)
 
+    node_fqdn = _pick(ctx, "TAKS_NODE_FQDN", "FQDN", "TAKS_FQDN")
     node_updates = {
-        "TAKS_FQDN": _pick(ctx, "FQDN", "TAKS_FQDN"),
+        "TAKS_FQDN": node_fqdn,
+        "TAKS_NODE_FQDN": node_fqdn,
         "TAKS_NODE_CERT_MODEL": _pick(ctx, "TAKS_NODE_CERT_MODEL"),
         "LE_EMAIL": _pick(ctx, "LE_EMAIL"),
     }

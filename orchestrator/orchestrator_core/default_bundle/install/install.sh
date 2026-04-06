@@ -265,10 +265,13 @@ log_state "install_heartbeat" "Succeeded"
   log_state "restart_takserver_if_present" "Succeeded"
 
   if [ -f "$BUNDLE_ROOT/install/taks.sh" ]; then
+    log_state "taks/apply" "Started"
     if bash "$BUNDLE_ROOT/install/taks.sh"; then
       log "taks step completed"
+      log_state "taks/apply" "Succeeded"
     else
       log "WARNING: taks step failed; continuing"
+      log_state "taks/apply" "Failed"
     fi
   fi
 

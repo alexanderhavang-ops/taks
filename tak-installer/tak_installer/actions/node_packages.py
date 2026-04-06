@@ -14,6 +14,7 @@ PACKAGES = [
     "python3-pip",
     "rsync",
     "nginx",
+    "certbot",
 ]
 
 

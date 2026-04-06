@@ -252,14 +252,11 @@ def apply(ctx) -> None:
     if src_bin_root.exists():
         _rsync_dir(src_bin_root, DST_BIN_ROOT)
 
-    if _replay_enabled(ctx):
-        log.info("takctl-runtime: replay enabled -> syncing replay runtime")
-        if src_replay_root.exists():
-            _rsync_dir(src_replay_root, DST_REPLAY_ROOT)
+    if src_replay_root.exists():
+        log.info("takctl-runtime: syncing replay code")
+        _rsync_dir(src_replay_root, DST_REPLAY_ROOT)
     else:
-        log.info("takctl-runtime: replay disabled -> removing replay runtime code if present")
-        if DST_REPLAY_ROOT.exists():
-            shutil.rmtree(DST_REPLAY_ROOT)
+        log.info(f"takctl-runtime: replay source tree missing: {src_replay_root}")
 
     _ensure_runtime_dirs()
     _fix_runtime_perms()
@@ -267,8 +264,11 @@ def apply(ctx) -> None:
     _fix_state_perms()
 
     if _replay_enabled(ctx):
+        log.info("takctl-runtime: replay enabled -> ensuring replay runtime state dirs")
         _ensure_replay_runtime_dirs()
         _fix_replay_runtime_perms()
+    else:
+        log.info("takctl-runtime: replay disabled -> replay code still installed; skipping replay runtime state dirs")
 
     log.info("takctl-runtime: ready")
 

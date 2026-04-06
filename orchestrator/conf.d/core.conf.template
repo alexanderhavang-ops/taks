@@ -19,6 +19,7 @@ launch_enabled = true
 launch_default_bundle_ttl = 3600
 
 letsencrypt_mode = dns-route53
+aws_route53_zone_id = 
 letsencrypt_email =
 letsencrypt_wildcard_zone =
 letsencrypt_artifact_cert_dir = /opt/tak-orch/state/artifacts/letsencrypt/aws.tak-hv-sandbox.se
