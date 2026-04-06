@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export PYTHONPATH="/opt/tak/tools/takctl"
+exec /opt/tak/tools/takctl/.venv/bin/python -m takctl.web.log_helper "$@"

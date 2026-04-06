@@ -88,27 +88,30 @@ def _url_with_qs(url: str, **add) -> str:
     new_q = urlencode(q, doseq=True)
     return urlunparse((u.scheme, u.netloc, u.path, u.params, new_q, u.fragment))
 
-def _get_record(svc, username: str):
-    try:
-        return svc.store.get_record(username)
-    except Exception:
-        return None
+def _record_or_new(svc, username: str) -> OnboardingRecord:
+    rec = svc.store.get_record(username)
+    if rec is None:
+        return OnboardingRecord(username=username, status=OnboardingStatus.NEW)
+    return rec
 
-def _upsert_record(svc, rec: OnboardingRecord) -> None:
-    try:
-        svc.store.upsert_record(rec)
-    except Exception:
-        return
+def _save_record(svc, rec: OnboardingRecord) -> None:
+    svc.store.upsert_record(rec)
 
 def _mark_pending(svc, username: str) -> None:
-    rec = _get_record(svc, username)
-    if rec is None or rec.status == OnboardingStatus.NEW:
-        _upsert_record(svc, OnboardingRecord(username=username, status=OnboardingStatus.PACKAGE_PENDING))
+    rec = _record_or_new(svc, username)
+    if rec.status == OnboardingStatus.NEW:
+        _save_record(
+            svc,
+            OnboardingRecord(
+                username=username,
+                status=OnboardingStatus.PACKAGE_PENDING,
+                package=rec.package,
+                delivery=rec.delivery,
+            ),
+        )
 
 def _mark_qr_generated(svc, username: str) -> None:
-    rec = _get_record(svc, username)
-    if rec is None:
-        rec = OnboardingRecord(username=username, status=OnboardingStatus.NEW)
+    rec = _record_or_new(svc, username)
     dlv0 = rec.delivery or DeliveryMeta()
     dlv = DeliveryMeta(
         qr_generated=True,
@@ -116,13 +119,18 @@ def _mark_qr_generated(svc, username: str) -> None:
         downloaded_at=dlv0.downloaded_at,
         delivery_method="qr",
     )
-    _upsert_record(svc, OnboardingRecord(username=username, status=rec.status, package=rec.package, delivery=dlv))
+    _save_record(
+        svc,
+        OnboardingRecord(
+            username=username,
+            status=rec.status,
+            package=rec.package,
+            delivery=dlv,
+        ),
+    )
 
 def _mark_package_generated(svc, username: str, *, package_type: str, sel: dict) -> None:
-    rec = _get_record(svc, username)
-    if rec is None:
-        rec = OnboardingRecord(username=username, status=OnboardingStatus.NEW)
-
+    rec = _record_or_new(svc, username)
     pkg = PackageMeta(
         package_type=package_type,
         version=_bundle_version(),
@@ -134,13 +142,18 @@ def _mark_package_generated(svc, username: str, *, package_type: str, sel: dict)
     st = rec.status
     if st in (OnboardingStatus.NEW, OnboardingStatus.PACKAGE_PENDING):
         st = OnboardingStatus.PACKAGE_GENERATED
-    _upsert_record(svc, OnboardingRecord(username=username, status=st, package=pkg, delivery=rec.delivery))
+    _save_record(
+        svc,
+        OnboardingRecord(
+            username=username,
+            status=st,
+            package=pkg,
+            delivery=rec.delivery,
+        ),
+    )
 
 def _mark_downloaded(svc, username: str, *, download_url: str | None, via: str | None) -> None:
-    rec = _get_record(svc, username)
-    if rec is None:
-        rec = OnboardingRecord(username=username, status=OnboardingStatus.NEW)
-
+    rec = _record_or_new(svc, username)
     dlv0 = rec.delivery or DeliveryMeta()
     method = "qr" if (via or "").strip().lower() == "qr" else (dlv0.delivery_method or "manual")
     dlv = DeliveryMeta(
@@ -149,7 +162,15 @@ def _mark_downloaded(svc, username: str, *, download_url: str | None, via: str |
         downloaded_at=_now_utc(),
         delivery_method=method,
     )
-    _upsert_record(svc, OnboardingRecord(username=username, status=OnboardingStatus.DOWNLOADED, package=rec.package, delivery=dlv))
+    _save_record(
+        svc,
+        OnboardingRecord(
+            username=username,
+            status=OnboardingStatus.DOWNLOADED,
+            package=rec.package,
+            delivery=dlv,
+        ),
+    )
 
 # --- end helpers ---
 

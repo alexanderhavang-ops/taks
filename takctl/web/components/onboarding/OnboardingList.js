@@ -1,23 +1,22 @@
-/* global React */
+
+/* global React useApi */
 (function () {
   var h = (window.h || React.createElement); window.h = h;
 
   const useState = React.useState;
-  const useMemo = React.useMemo;
   const useEffect = React.useEffect;
 
   const _t = (window.t || function (k) { return k; });
 
-  // shared onboarding helpers
   const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
   function _needLib() { if (!lib) throw new Error('Missing onboarding lib: load components/onboarding/lib.js before Onboarding.js'); return lib; }
   function _colText(v){ return _needLib().colText(v); }
-  function _groups(u){ return _needLib().groups(u); }
-  function _tail(act){ return _needLib().tail(act); }
-  function _deriveState(act){ return _needLib().deriveState(act); }
-  function _badgeForState(stateRaw){ return _needLib().badgeForState(stateRaw); }
   function _userUrls(username){ return _needLib().userUrls(username); }
-  function _splitCsv(s){ return _needLib().splitCsv(s); }
+  function _badgeForState(stateRaw){ return _needLib().badgeForState(stateRaw); }
+  function _userState(row){ return _needLib().userState(row); }
+  function _deviceCount(row){ return _needLib().userDeviceCount(row); }
+  function _bestDevice(row){ return _needLib().bestDevice(row); }
+  function _deviceTail(device){ return _needLib().deviceTail(device); }
 
   const PRINT_MODES = [
     { id: "cards", label: "Cards only" },
@@ -51,9 +50,7 @@
 
   function _submitPrintPack(usernames, printMode) {
     const list = Array.isArray(usernames) ? usernames.filter(Boolean).map(String) : [];
-    if (!list.length) {
-      throw new Error("No users selected for print");
-    }
+    if (!list.length) throw new Error("No users selected for print");
 
     const form = document.createElement("form");
     form.method = "POST";
@@ -80,9 +77,7 @@
 
   async function _submitEmailPack(usernames, printMode) {
     const list = Array.isArray(usernames) ? usernames.filter(Boolean).map(String) : [];
-    if (!list.length) {
-      throw new Error("No users selected for email");
-    }
+    if (!list.length) throw new Error("No users selected for email");
 
     const resp = await fetch("/api/onboarding/email-pack", {
       method: "POST",
@@ -94,11 +89,7 @@
     });
 
     let data = {};
-    try {
-      data = await resp.json();
-    } catch (e) {
-      data = {};
-    }
+    try { data = await resp.json(); } catch (e) { data = {}; }
 
     if (!resp.ok || data.ok === false) {
       const msg = (data && (data.detail || data.error)) ? String(data.detail || data.error) : ("HTTP " + resp.status);
@@ -108,15 +99,10 @@
     return data || {};
   }
 
-  function PrintToolbar({
-    rows,
-    selectedMap,
-    onClear,
-    onSelectAllVisible,
-    printMode,
-    onPrintMode,
-  }) {
-    const usernames = (rows || []).map(_rowUsername).filter(Boolean);
+  function PrintToolbar(props) {
+    const rows = props.rows || [];
+    const selectedMap = props.selectedMap || {};
+    const usernames = rows.map(_rowUsername).filter(Boolean);
     const selectedUsernames = usernames.filter((u) => !!selectedMap[u]);
 
     return h(
@@ -135,57 +121,38 @@
       h("div", { className: "muted", style: { marginRight: "8px" } },
         _t("list.selected_count", { selected: _colText(selectedUsernames.length), total: _colText(usernames.length) })
       ),
-
-      h("button", {
-        className: "btn",
-        type: "button",
-        onClick: function () { onSelectAllVisible(); }
-      }, _t("list.select_all")),
-
-      h("button", {
-        className: "btn",
-        type: "button",
-        onClick: function () { onClear(); }
-      }, _t("list.clear_selection")),
-
+      h("button", { className: "btn", type: "button", onClick: function () { props.onSelectAllVisible(); } }, _t("list.select_all")),
+      h("button", { className: "btn", type: "button", onClick: function () { props.onClear(); } }, _t("list.clear_selection")),
       h("div", { className: "muted", style: { marginLeft: "6px" } }, _t("list.print_mode") + ":"),
-
       h("select", {
         className: "inp",
-        value: String(printMode || "cards"),
-        onChange: function (e) { onPrintMode(String(e.target.value || "cards")); },
+        value: String(props.printMode || "cards"),
+        onChange: function (e) { props.onPrintMode(String(e.target.value || "cards")); },
         style: { minWidth: "260px" }
       },
         PRINT_MODES.map(function (m) {
           return h("option", { key: m.id, value: m.id }, m.label);
         })
       ),
-
       h("button", {
         className: "btn",
         type: "button",
         disabled: selectedUsernames.length === 0,
-        onClick: function () {
-          _submitPrintPack(selectedUsernames, printMode);
-        }
+        onClick: function () { _submitPrintPack(selectedUsernames, props.printMode); }
       }, _t("list.print_selected")),
-
       h("button", {
         className: "btn",
         type: "button",
         disabled: usernames.length === 0,
-        onClick: function () {
-          _submitPrintPack(usernames, printMode);
-        }
+        onClick: function () { _submitPrintPack(usernames, props.printMode); }
       }, _t("list.print_all")),
-
       h("button", {
         className: "btn",
         type: "button",
         disabled: selectedUsernames.length === 0,
         onClick: async function () {
           try {
-            const out = await _submitEmailPack(selectedUsernames, printMode);
+            const out = await _submitEmailPack(selectedUsernames, props.printMode);
             window.alert(_t("list.email_result", {
               sent: _colText(out.sent),
               failed: _colText(out.failed),
@@ -196,14 +163,13 @@
           }
         }
       }, _t("list.email_selected")),
-
       h("button", {
         className: "btn",
         type: "button",
         disabled: usernames.length === 0,
         onClick: async function () {
           try {
-            const out = await _submitEmailPack(usernames, printMode);
+            const out = await _submitEmailPack(usernames, props.printMode);
             window.alert(_t("list.email_result", {
               sent: _colText(out.sent),
               failed: _colText(out.failed),
@@ -217,70 +183,66 @@
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // tables (List)
-  // ---------------------------------------------------------------------------
-  function OnboardingTable({ rows, selectedMap, onToggleOne, onToggleAllVisible }) {
-    const allUsernames = (rows || []).map(_rowUsername).filter(Boolean);
+  function _deviceSummary(row) {
+    const ds = (row && Array.isArray(row.devices)) ? row.devices : [];
+    if (!ds.length) return "0";
+    let current = 0, recent = 0, stale = 0, never = 0;
+    ds.forEach(function (d) {
+      const s = String((d && d.state) || "never");
+      if (s === "current") current += 1;
+      else if (s === "recent") recent += 1;
+      else if (s === "stale") stale += 1;
+      else never += 1;
+    });
+    const bits = [];
+    if (current) bits.push("C:" + current);
+    if (recent) bits.push("R:" + recent);
+    if (stale) bits.push("S:" + stale);
+    if (never) bits.push("N:" + never);
+    return String(ds.length) + " (" + bits.join(" ") + ")";
+  }
+
+  function OnboardingTable(props) {
+    const rows = props.rows || [];
+    const selectedMap = props.selectedMap || {};
+    const allUsernames = rows.map(_rowUsername).filter(Boolean);
     const allSelected = allUsernames.length > 0 && allUsernames.every((u) => !!selectedMap[u]);
 
     return h(
       "table",
       { className: "tbl" },
-      h(
-        "thead",
-        null,
-        h(
-          "tr",
-          null,
+      h("thead", null,
+        h("tr", null,
           h("th", { style: { width: "36px" } },
-            h("input", {
-              type: "checkbox",
-              checked: !!allSelected,
-              onChange: function () { onToggleAllVisible(); }
-            })
+            h("input", { type: "checkbox", checked: !!allSelected, onChange: function () { props.onToggleAllVisible(); } })
           ),
           h("th", null, _t("list.username")),
           h("th", null, _t("list.groups")),
           h("th", null, _t("list.onboard")),
+          h("th", null, "Devices"),
           h("th", null, _t("list.state")),
-          h("th", null, _t("list.age")),
-          h("th", null, _t("list.callsign_uid")),
+          h("th", null, "Best device"),
           h("th", null, _t("list.actions"))
         )
       ),
-      h(
-        "tbody",
-        null,
-        (rows || []).map((u) => {
+      h("tbody", null,
+        rows.map(function (u) {
           const hdr = (u && u.header) || {};
-          const act = (u && u.activity) || null;
-
           const username = String(hdr.username || u.username || "");
-          const groupsArr =
-            (hdr && Array.isArray(hdr.groups) ? hdr.groups :
-             (u && u.marti && Array.isArray(u.marti.groups) ? u.marti.groups :
-              (u && Array.isArray(u.groups) ? u.groups : [])));
-
+          const groupsArr = (hdr && Array.isArray(hdr.groups)) ? hdr.groups : [];
           const onboardRaw = (u && u.onboarding_status) || "";
           const onboard = String(onboardRaw || "").toUpperCase();
+          const state = _userState(u);
+          const best = _bestDevice(u);
+          const key = username + ":" + String((best && best.client_uid) || "");
+          const bestTxt = best ? _deviceTail(best) : "—";
 
-          const state = act ? _deriveState(act) : "never";
-          const key = username + ":" + String((act && act.uid) || "");
-          const urls = _userUrls(username);
-
-          const groupsTxt = groupsArr.length ? groupsArr.join(", ") : "—";
-          const callsign = (hdr && hdr.callsign) ? String(hdr.callsign) : "—";
-          const uid = (act && act.uid) ? String(act.uid) : "—";
-
-          return h(
-            "tr",
-            { key },
+          return h("tr", { key: key },
             h("td", null,
               h("input", {
                 type: "checkbox",
                 checked: !!selectedMap[username],
-                onChange: function () { onToggleOne(username); }
+                onChange: function () { props.onToggleOne(username); }
               })
             ),
             h("td", null,
@@ -297,47 +259,34 @@
                 }
               }, _colText(username || "—"))
             ),
-            h("td", null, _colText(groupsTxt)),
+            h("td", null, _colText(groupsArr.length ? groupsArr.join(", ") : "—")),
             h("td", null, _colText(onboard || "—")),
+            h("td", null, _colText(_deviceSummary(u))),
             h("td", null, _badgeForState(state)),
-            h("td", null, _colText(act ? act.age_human : "—")),
-            h("td", null, _colText(`${callsign} / ${uid}`)),
-            h(
-              "td",
-              null,
-              h(
-                "div",
-                { style: { display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" } },
-                h(
-                  "button",
-                  {
-                    className: "btn",
-                    type: "button",
-                    title: "Create fresh onboarding card token and open card",
-                    onClick: async function () {
-                      try {
-                        await _openFreshCard(username);
-                      } catch (e) {
-                        window.alert(String((e && e.message) || e || "Failed to open fresh card"));
-                      }
+            h("td", null, _colText(bestTxt)),
+            h("td", null,
+              h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" } },
+                h("button", {
+                  className: "btn",
+                  type: "button",
+                  onClick: async function () {
+                    try {
+                      await _openFreshCard(username);
+                    } catch (e) {
+                      window.alert(String((e && e.message) || e || "Failed to open fresh card"));
                     }
-                  },
-                  _t("btn.card")
-                ),
-                h(
-                  "button",
-                  {
-                    className: "btn",
-                    onClick: function () {
-                      try {
-                        const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
-                        if (lib && typeof lib.setHashRoute === "function") lib.setHashRoute("create", username);
-                        else window.location.hash = "#onboarding/create:" + encodeURIComponent(username);
-                      } catch (e) {}
-                    }
-                  },
-                  _t("btn.edit")
-                )
+                  }
+                }, _t("btn.card")),
+                h("button", {
+                  className: "btn",
+                  onClick: function () {
+                    try {
+                      const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
+                      if (lib && typeof lib.setHashRoute === "function") lib.setHashRoute("create", username);
+                      else window.location.hash = "#onboarding/create:" + encodeURIComponent(username);
+                    } catch (e) {}
+                  }
+                }, _t("btn.edit"))
               )
             )
           );
@@ -346,16 +295,13 @@
     );
   }
 
-  function UnknownTable({ rows }) {
+  function UnknownTable(props) {
+    const rows = props.rows || [];
     return h(
       "table",
       { className: "tbl" },
-      h(
-        "thead",
-        null,
-        h(
-          "tr",
-          null,
+      h("thead", null,
+        h("tr", null,
           h("th", null, _t("list.username")),
           h("th", null, _t("list.state")),
           h("th", null, _t("list.age")),
@@ -363,15 +309,10 @@
           h("th", null, "UID")
         )
       ),
-      h(
-        "tbody",
-        null,
-        (rows || []).map((e) => {
-          const state =
-            (e && (e.is_current === true ? "current" : (e.seen_recently === true ? "recent" : "stale"))) || "—";
-          return h(
-            "tr",
-            { key: (e.username || "") + ":" + (e.uid || "") },
+      h("tbody", null,
+        rows.map(function (e) {
+          const state = (e && (e.is_current === true ? "current" : (e.seen_recently === true ? "recent" : "stale"))) || "—";
+          return h("tr", { key: (e.username || "") + ":" + (e.uid || "") },
             h("td", null, _colText(e.username)),
             h("td", null, _badgeForState(state)),
             h("td", null, _colText(e.age_human)),
@@ -429,11 +370,8 @@
 
       setSelectedMap(function (prev) {
         const out = Object.assign({}, prev || {});
-        if (allSelected) {
-          usernames.forEach(function (u) { delete out[u]; });
-        } else {
-          usernames.forEach(function (u) { out[u] = true; });
-        }
+        if (allSelected) usernames.forEach(function (u) { delete out[u]; });
+        else usernames.forEach(function (u) { out[u] = true; });
         return out;
       });
     }
@@ -442,18 +380,10 @@
       setSelectedMap({});
     }
 
-    return h(
-      "div",
-      null,
+    return h("div", null,
       h("div", { className: "card-title" }, _t("page.onboarding_list")),
-      h(
-        "div",
-        { className: "muted", style: { marginBottom: "8px" } },
-        ok ? _t("list.live_view") : _t("list.loading")
-      ),
-      h(
-        "div",
-        { className: "muted", style: { marginBottom: "10px" } },
+      h("div", { className: "muted", style: { marginBottom: "8px" } }, ok ? _t("list.live_view") : _t("list.loading")),
+      h("div", { className: "muted", style: { marginBottom: "10px" } },
         _t("list.summary", {
           users: _colText(summary.total_users),
           seen: _colText(summary.cot_seen),
@@ -463,7 +393,6 @@
           source: _colText((meta && meta.db_source) || "no meta")
         })
       ),
-
       h(PrintToolbar, {
         rows: users,
         selectedMap: selectedMap,
@@ -472,22 +401,16 @@
         printMode: printMode,
         onPrintMode: setPrintMode
       }),
-
       h(OnboardingTable, {
         rows: users,
         selectedMap: selectedMap,
         onToggleOne: toggleOne,
         onToggleAllVisible: toggleAllVisible
       }),
-
-      unknown && unknown.length
-        ? h(
-            "div",
-            { style: { marginTop: "18px" } },
-            h("div", { className: "card-title", style: { fontSize: "14px" } }, _t("list.unmanaged_endpoints")),
-            h(UnknownTable, { rows: unknown })
-          )
-        : null
+      unknown && unknown.length ? h("div", { style: { marginTop: "18px" } },
+        h("div", { className: "card-title", style: { fontSize: "14px" } }, _t("list.unmanaged_endpoints")),
+        h(UnknownTable, { rows: unknown })
+      ) : null
     );
   }
 

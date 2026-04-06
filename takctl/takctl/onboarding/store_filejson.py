@@ -19,7 +19,7 @@ def _dt_to_iso(dt: datetime) -> str:
 
 
 def _iso_to_dt(s: str) -> datetime:
-    s = (s or "").strip()
+    s = str(s or "").strip()
     if not s:
         return datetime.now(timezone.utc)
     if s.endswith("Z"):
@@ -30,24 +30,14 @@ def _iso_to_dt(s: str) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-# -----------------------------------------------------------------------------
-# New lightweight persisted objects (kept boring JSON)
-# -----------------------------------------------------------------------------
-
 @dataclass(frozen=True)
 class UserIdentity:
-    """
-    Persisted TAKS "authoritative" user identity record.
-
-    - origin="taks": TAKS created the Marti user → password is known here.
-    - origin="marti": user exists in Marti but created externally → password is unknown here.
-    """
     username: str
     origin: str  # "taks" | "marti"
-    ctx: Dict[str, Any]  # policy inputs: unit/company/platoon/n/role/etc
-    identity: Dict[str, Any]  # outputs: callsign/team/atak_role_type
+    ctx: Dict[str, Any]
+    identity: Dict[str, Any]
     password_known: bool
-    password: Optional[str]  # NOTE: plaintext for now (later: encrypt)
+    password: Optional[str]
     created_at_utc: datetime
     updated_at_utc: datetime
 
@@ -69,14 +59,14 @@ class UserIdentity:
     def from_json(d: Dict[str, Any]) -> "UserIdentity":
         pw = d.get("password") or {}
         known = bool(pw.get("known", False))
-        val = pw.get("value") if known else None
+        value = pw.get("value") if known else None
         return UserIdentity(
-            username=d.get("username") or "",
-            origin=(d.get("origin") or "marti").strip().lower(),
-            ctx=d.get("ctx") or {},
-            identity=d.get("identity") or {},
+            username=str(d.get("username") or "").strip(),
+            origin=str(d.get("origin") or "marti").strip().lower(),
+            ctx=dict(d.get("ctx") or {}),
+            identity=dict(d.get("identity") or {}),
             password_known=known,
-            password=val,
+            password=value,
             created_at_utc=_iso_to_dt(d.get("created_at_utc") or ""),
             updated_at_utc=_iso_to_dt(d.get("updated_at_utc") or ""),
         )
@@ -102,8 +92,8 @@ class CardToken:
     @staticmethod
     def from_json(d: Dict[str, Any]) -> "CardToken":
         return CardToken(
-            token=d.get("token") or "",
-            username=d.get("username") or "",
+            token=str(d.get("token") or "").strip(),
+            username=str(d.get("username") or "").strip(),
             expires_at_utc=_iso_to_dt(d.get("expires_at_utc") or ""),
             reveal_password=bool(d.get("reveal_password", False)),
             created_at_utc=_iso_to_dt(d.get("created_at_utc") or ""),
@@ -117,15 +107,6 @@ class CardToken:
 
 
 class FileJsonOnboardingStore(OnboardingStore):
-    """
-    Simple file-backed store:
-
-      root/
-        users/<username>.json         (existing: OnboardingRecord)
-        identities/<username>.json    (new: UserIdentity)
-        cards/<token>.json            (new: CardToken)
-    """
-
     def __init__(self, root_dir: str | Path):
         self.root = Path(root_dir)
 
@@ -138,9 +119,9 @@ class FileJsonOnboardingStore(OnboardingStore):
         self.cards_dir = self.root / "cards"
         self.cards_dir.mkdir(parents=True, exist_ok=True)
 
-    # -------------------------------------------------------------------------
-    # Existing OnboardingRecord storage (backward compatible)
-    # -------------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # OnboardingRecord
+    # ------------------------------------------------------------------
 
     def list_records(self) -> Sequence[OnboardingRecord]:
         out = []
@@ -149,7 +130,10 @@ class FileJsonOnboardingStore(OnboardingStore):
         return out
 
     def get_record(self, username: str) -> Optional[OnboardingRecord]:
-        p = self.users_dir / f"{username}.json"
+        u = str(username or "").strip()
+        if not u:
+            return None
+        p = self.users_dir / f"{u}.json"
         if not p.exists():
             return None
         return self._load_onboarding_file(p)
@@ -157,19 +141,19 @@ class FileJsonOnboardingStore(OnboardingStore):
     def upsert_record(self, record: OnboardingRecord) -> None:
         p = self.users_dir / f"{record.username}.json"
         tmp = p.with_suffix(".json.tmp")
-        data = self._onboarding_to_json(record)
-        tmp.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        tmp.write_text(json.dumps(self._onboarding_to_json(record), indent=2, sort_keys=True) + "\n", encoding="utf-8")
         tmp.replace(p)
 
     def _onboarding_to_json(self, r: OnboardingRecord) -> Dict[str, Any]:
-        d: Dict[str, Any] = {
+        out: Dict[str, Any] = {
             "username": r.username,
             "status": r.status.value,
             "package": None,
             "delivery": None,
         }
-        if r.package:
-            d["package"] = {
+
+        if r.package is not None:
+            out["package"] = {
                 "package_type": r.package.package_type,
                 "version": r.package.version,
                 "generated_at": _dt_to_iso(r.package.generated_at),
@@ -177,63 +161,62 @@ class FileJsonOnboardingStore(OnboardingStore):
                 "maps": list(r.package.maps),
                 "config_hash": r.package.config_hash,
             }
-        if r.delivery:
-            d["delivery"] = {
-                "qr_generated": r.delivery.qr_generated,
+
+        if r.delivery is not None:
+            out["delivery"] = {
+                "qr_generated": bool(r.delivery.qr_generated),
                 "download_url": r.delivery.download_url,
                 "downloaded_at": _dt_to_iso(r.delivery.downloaded_at) if r.delivery.downloaded_at else None,
                 "delivery_method": r.delivery.delivery_method,
             }
-        return d
+
+        return out
 
     def _load_onboarding_file(self, p: Path) -> OnboardingRecord:
         raw = json.loads(p.read_text(encoding="utf-8"))
 
         pkg = None
-        if raw.get("package"):
-            pr = raw["package"]
+        pkg_raw = raw.get("package")
+        if pkg_raw:
             pkg = PackageMeta(
-                package_type=pr["package_type"],
-                version=pr["version"],
-                generated_at=_iso_to_dt(pr["generated_at"]),
-                plugins=pr.get("plugins", []),
-                maps=pr.get("maps", []),
-                config_hash=pr["config_hash"],
+                package_type=str(pkg_raw["package_type"]),
+                version=str(pkg_raw["version"]),
+                generated_at=_iso_to_dt(pkg_raw["generated_at"]),
+                plugins=list(pkg_raw.get("plugins") or []),
+                maps=list(pkg_raw.get("maps") or []),
+                config_hash=str(pkg_raw["config_hash"]),
             )
 
         dlv = None
-        if raw.get("delivery"):
-            dr = raw["delivery"]
+        dlv_raw = raw.get("delivery")
+        if dlv_raw:
             dlv = DeliveryMeta(
-                qr_generated=bool(dr.get("qr_generated", False)),
-                download_url=dr.get("download_url"),
-                downloaded_at=_iso_to_dt(dr["downloaded_at"]) if dr.get("downloaded_at") else None,
-                delivery_method=dr.get("delivery_method"),
+                qr_generated=bool(dlv_raw.get("qr_generated", False)),
+                download_url=dlv_raw.get("download_url"),
+                downloaded_at=_iso_to_dt(dlv_raw["downloaded_at"]) if dlv_raw.get("downloaded_at") else None,
+                delivery_method=dlv_raw.get("delivery_method"),
             )
 
         return OnboardingRecord(
-            username=raw["username"],
-            status=OnboardingStatus(raw["status"]),
+            username=str(raw["username"]),
+            status=OnboardingStatus(str(raw["status"])),
             package=pkg,
             delivery=dlv,
         )
 
-    # -------------------------------------------------------------------------
-    # New: UserIdentity storage
-    # -------------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # UserIdentity
+    # ------------------------------------------------------------------
 
     def get_identity(self, username: str) -> Optional[UserIdentity]:
-        u = (username or "").strip()
+        u = str(username or "").strip()
         if not u:
             return None
         p = self.identities_dir / f"{u}.json"
         if not p.exists():
             return None
         raw = json.loads(p.read_text(encoding="utf-8"))
-        try:
-            return UserIdentity.from_json(raw)
-        except Exception:
-            return None
+        return UserIdentity.from_json(raw)
 
     def upsert_identity(
         self,
@@ -244,24 +227,24 @@ class FileJsonOnboardingStore(OnboardingStore):
         identity: Dict[str, Any],
         password: Optional[str],
     ) -> UserIdentity:
-        u = (username or "").strip()
+        u = str(username or "").strip()
         if not u:
             raise ValueError("username required")
 
         now = datetime.now(timezone.utc)
-
         existing = self.get_identity(u)
-        created_at = existing.created_at_utc if existing else now
+        created_at = existing.created_at_utc if existing is not None else now
 
-        password_known = bool(password) and (origin.strip().lower() == "taks")
+        normalized_origin = str(origin or "marti").strip().lower()
+        password_known = bool(password) and normalized_origin == "taks"
 
         rec = UserIdentity(
             username=u,
-            origin=(origin or "marti").strip().lower(),
-            ctx=ctx or {},
-            identity=identity or {},
+            origin=normalized_origin,
+            ctx=dict(ctx or {}),
+            identity=dict(identity or {}),
             password_known=password_known,
-            password=password if password_known else None,
+            password=(password if password_known else None),
             created_at_utc=created_at,
             updated_at_utc=now,
         )
@@ -270,27 +253,26 @@ class FileJsonOnboardingStore(OnboardingStore):
         tmp = p.with_suffix(".json.tmp")
         tmp.write_text(json.dumps(rec.to_json(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
         tmp.replace(p)
-
         return rec
 
-    # -------------------------------------------------------------------------
-    # New: CardToken storage (random URI + TTL)
-    # -------------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # CardToken
+    # ------------------------------------------------------------------
 
-    def issue_card_token(
+    def create_card_token(
         self,
         *,
         username: str,
-        ttl_hours: int = 24,
-        reveal_password: bool = False,
+        ttl_sec: int,
+        reveal_password: bool,
     ) -> CardToken:
-        u = (username or "").strip()
+        u = str(username or "").strip()
         if not u:
             raise ValueError("username required")
 
         now = datetime.now(timezone.utc)
-        token = secrets.token_urlsafe(32)  # unguessable, URL safe
-        expires = now + timedelta(hours=int(ttl_hours))
+        expires = now + timedelta(seconds=max(1, int(ttl_sec)))
+        token = secrets.token_urlsafe(32)
 
         ct = CardToken(
             token=token,
@@ -301,30 +283,30 @@ class FileJsonOnboardingStore(OnboardingStore):
         )
 
         p = self.cards_dir / f"{token}.json"
-        p.write_text(json.dumps(ct.to_json(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        tmp = p.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(ct.to_json(), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        tmp.replace(p)
         return ct
 
+    def upsert_card_token(
+        self,
+        *,
+        username: str,
+        ttl_sec: int,
+        reveal_password: bool,
+    ) -> CardToken:
+        return self.create_card_token(
+            username=username,
+            ttl_sec=ttl_sec,
+            reveal_password=reveal_password,
+        )
 
-    def create_card_token(self, *, username: str, ttl_sec: int, reveal_password: bool) -> "CardToken":
-        """Compat wrapper expected by API. Delegates to issue_card_token().
-        ttl_sec is converted to ttl_hours (ceil), minimum 1 hour.
-        """
-        ttl_sec = int(ttl_sec)
-        ttl_hours = max(1, (ttl_sec + 3599) // 3600)
-        return self.issue_card_token(username=username, ttl_hours=ttl_hours, reveal_password=bool(reveal_password))
-
-    def upsert_card_token(self, *, username: str, ttl_sec: int, reveal_password: bool) -> "CardToken":
-        """Compat alias (some callers may look for upsert_card_token)."""
-        return self.create_card_token(username=username, ttl_sec=ttl_sec, reveal_password=reveal_password)
     def get_card_token(self, token: str) -> Optional[CardToken]:
-        t = (token or "").strip()
+        t = str(token or "").strip()
         if not t:
             return None
         p = self.cards_dir / f"{t}.json"
         if not p.exists():
             return None
         raw = json.loads(p.read_text(encoding="utf-8"))
-        try:
-            return CardToken.from_json(raw)
-        except Exception:
-            return None
+        return CardToken.from_json(raw)

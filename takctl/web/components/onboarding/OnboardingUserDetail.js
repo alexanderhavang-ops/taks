@@ -2,27 +2,61 @@
 (function () {
   var h = (window.h || React.createElement); window.h = h;
 
-  const useState = React.useState;
-  const useEffect = React.useEffect;
+  var useState = React.useState;
+  var useEffect = React.useEffect;
 
-  const t = (window.t && typeof window.t === "function") ? window.t : (k) => String(k || "");
-  const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
+  var t = (window.t && typeof window.t === "function") ? window.t : function (k) { return String(k || ""); };
+  var lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
   function _needLib() { if (!lib) throw new Error("Missing onboarding lib"); return lib; }
   function _colText(v){ return _needLib().colText(v); }
 
   function _yn(v) { return v ? "Ja" : "Nej"; }
   function _join(v) { return Array.isArray(v) && v.length ? v.join(", ") : "—"; }
   function _onboardText(v) {
-    const x = String(v || "").trim();
+    var x = String(v || "").trim();
     return x ? x : "okänt";
   }
   function _endpointFlags(sel) {
-    const ep = (sel && sel.endpoints) || {};
-    const out = [];
+    var ep = (sel && sel.endpoints) || {};
+    var out = [];
     if (ep && ep.stream_host) out.push("stream-host");
     if (ep && ep.stream_port) out.push("stream-port");
     if (ep && ep.stream_ssl !== undefined) out.push("tls");
     return out.length ? out.join(", ") : "—";
+  }
+  function _deviceState(d) {
+    var s = String((d && d.state) || "").toLowerCase();
+    if (s) return s;
+    if (d && d.is_current === true) return "current";
+    if (d && d.seen_recently === true) return "recent";
+    if (d && d.cot_seen) return "stale";
+    return "never";
+  }
+  function _deviceStateText(d) {
+    return _deviceState(d).toUpperCase();
+  }
+  function _countStates(devices, wanted) {
+    var n = 0;
+    (devices || []).forEach(function (d) {
+      if (_deviceState(d) === wanted) n += 1;
+    });
+    return n;
+  }
+  function _pickPrimaryDevice(devices) {
+    var list = Array.isArray(devices) ? devices.slice() : [];
+    if (!list.length) return null;
+    var score = { current: 4, recent: 3, stale: 2, never: 1 };
+    list.sort(function (a, b) {
+      var sa = score[_deviceState(a)] || 0;
+      var sb = score[_deviceState(b)] || 0;
+      if (sa !== sb) return sb - sa;
+      var ta = String((a && (a.last_cot_time || a.last_event_time)) || "");
+      var tb = String((b && (b.last_cot_time || b.last_event_time)) || "");
+      if (ta < tb) return 1;
+      if (ta > tb) return -1;
+      return 0;
+    });
+    return list[0] || null;
   }
 
   function Box(props) {
@@ -32,11 +66,22 @@
     }, props.children);
   }
 
-  function SectionTitle(txt) {
+  function SectionTitle(txt, right) {
     return h("div", {
-      className: "card-title",
-      style: { fontSize: "16px", marginBottom: "10px" }
-    }, txt);
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: "10px",
+        marginBottom: "10px"
+      }
+    },
+      h("div", {
+        className: "card-title",
+        style: { fontSize: "16px", marginBottom: 0 }
+      }, txt),
+      right || null
+    );
   }
 
   function KV(props) {
@@ -77,16 +122,16 @@
   }
 
   function StatusBadge(props) {
-    const tone = String((props && props.tone) || "neutral");
-    const text = String((props && props.text) || "—");
+    var tone = String((props && props.tone) || "neutral");
+    var text = String((props && props.text) || "—");
 
-    const styles = {
+    var styles = {
       good:  { border: "1px solid rgba(80,200,120,0.45)", background: "rgba(80,200,120,0.12)", color: "#b8f5c8" },
       warn:  { border: "1px solid rgba(240,190,70,0.45)",  background: "rgba(240,190,70,0.12)",  color: "#ffe29a" },
       bad:   { border: "1px solid rgba(255,90,90,0.45)",   background: "rgba(255,90,90,0.12)",   color: "#ffb3b3" },
       neutral:{ border: "1px solid rgba(255,255,255,0.16)", background: "rgba(255,255,255,0.05)", color: "rgba(255,255,255,0.92)" }
     };
-    const st = styles[tone] || styles.neutral;
+    var st = styles[tone] || styles.neutral;
 
     return h("span", {
       style: {
@@ -108,15 +153,16 @@
   }
 
   function cotStateTone(stateText) {
-    const s = String(stateText || "").toUpperCase();
+    var s = String(stateText || "").toUpperCase();
     if (s === "CURRENT") return "good";
     if (s === "RECENT") return "warn";
     if (s === "STALE") return "bad";
+    if (s === "NEVER") return "neutral";
     return "neutral";
   }
 
   function onboardTone(v) {
-    const s = String(v || "").toUpperCase();
+    var s = String(v || "").toUpperCase();
     if (s === "DOWNLOADED" || s === "COMPLETE" || s === "ACTIVE") return "good";
     if (s === "NEW" || s === "PACKAGE_GENERATED" || s === "QR_GENERATED") return "warn";
     if (!s || s === "—") return "neutral";
@@ -124,7 +170,7 @@
   }
 
   function JsonToggle(props) {
-    const [open, setOpen] = useState(false);
+    var _a = useState(false), open = _a[0], setOpen = _a[1];
     return h("div", null,
       h(SmallButton, { onClick: function () { setOpen(!open); } }, open ? "Dölj debugdata" : "Visa debugdata"),
       open ? h("pre", {
@@ -140,35 +186,105 @@
     );
   }
 
-  function OnboardingUserDetailPage(props) {
-    const routeUsername = (props && props.routeUsername) ? String(props.routeUsername) : "";
-    const [busy, setBusy] = useState(true);
-    const [err, setErr] = useState("");
-    const [userData, setUserData] = useState(null);
-    const [cardData, setCardData] = useState(null);
+  function DeviceSummaryRow(props) {
+    var label = String(props.label || "");
+    var value = Number(props.value || 0);
+    var tone = String(props.tone || "neutral");
+    return h("div", {
+      style: {
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: "10px",
+        padding: "8px 10px",
+        borderRadius: "10px",
+        background: "rgba(255,255,255,0.03)",
+        marginBottom: "8px"
+      }
+    },
+      h("div", { className: "muted" }, label),
+      h(StatusBadge, { tone: tone, text: String(value) })
+    );
+  }
 
-    useEffect(() => {
-      const u = String(routeUsername || "").trim();
+  function DeviceCard(props) {
+    var d = props.device || {};
+    var stateText = _deviceStateText(d);
+    return h("div", {
+      style: {
+        border: "1px solid rgba(255,255,255,0.10)",
+        borderRadius: "12px",
+        padding: "12px",
+        background: "rgba(255,255,255,0.03)"
+      }
+    },
+      h("div", {
+        style: {
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "10px",
+          flexWrap: "wrap",
+          marginBottom: "10px"
+        }
+      },
+        h("div", {
+          style: {
+            display: "flex",
+            gap: "8px",
+            alignItems: "center",
+            flexWrap: "wrap"
+          }
+        },
+          h(Pill, null, _colText(d.observed_callsign || d.client_uid || "device")),
+          h(StatusBadge, { tone: cotStateTone(stateText), text: stateText })
+        ),
+        h("div", { className: "muted", style: { fontSize: "12px" } },
+          "endpoint_id: ", _colText(d.endpoint_id)
+        )
+      ),
+      h(KV, { k: "client_uid" }, h("code", null, _colText(d.client_uid))),
+      h(KV, { k: "Observed callsign" }, _colText(d.observed_callsign)),
+      h(KV, { k: "Senaste CoT" }, _colText(d.last_cot_time)),
+      h(KV, { k: "Senaste event" }, _colText(d.last_event_time)),
+      h(KV, { k: "Ålder" }, _colText(d.age_human)),
+      h(KV, { k: "Client version" }, _colText(d.client_version)),
+      h(KV, { k: "Certifikat" }, _colText(d.certs_n)),
+      h(KV, { k: "Revokerade cert" }, _colText(d.revoked_certs_n)),
+      h(KV, { k: "CoT sedd" }, h(StatusBadge, { tone: boolTone(!!d.cot_seen), text: _yn(!!d.cot_seen) })),
+      h(KV, { k: "Sedd nyligen" }, h(StatusBadge, { tone: boolTone(!!d.seen_recently), text: _yn(!!d.seen_recently) }))
+    );
+  }
+
+  function OnboardingUserDetailPage(props) {
+    var routeUsername = (props && props.routeUsername) ? String(props.routeUsername) : "";
+    var _a = useState(true), busy = _a[0], setBusy = _a[1];
+    var _b = useState(""), err = _b[0], setErr = _b[1];
+    var _c = useState(null), userData = _c[0], setUserData = _c[1];
+    var _d = useState(null), cardData = _d[0], setCardData = _d[1];
+
+    useEffect(function () {
+      var u = String(routeUsername || "").trim();
       if (!u) {
         setErr("Missing username");
         setBusy(false);
         return;
       }
 
-      let alive = true;
-      (async () => {
+      var alive = true;
+      (async function () {
         setBusy(true);
         setErr("");
         try {
-          const urls = _needLib().userUrls(u);
+          var urls = _needLib().userUrls(u);
 
-          const [rUser, rCard] = await Promise.all([
+          var _a = await Promise.all([
             fetch(urls.api_get),
             fetch(urls.card_json)
-          ]);
+          ]), rUser = _a[0], rCard = _a[1];
 
-          const jUser = await rUser.json().catch(() => ({}));
-          const jCard = await rCard.json().catch(() => ({}));
+          var jUser = await rUser.json().catch(function () { return ({}); });
+          var jCard = await rCard.json().catch(function () { return ({}); });
 
           if (!rUser.ok) throw new Error(jUser.detail || ("HTTP " + rUser.status));
           if (!rCard.ok) throw new Error(jCard.detail || ("HTTP " + rCard.status));
@@ -184,7 +300,7 @@
         }
       })();
 
-      return () => { alive = false; };
+      return function () { alive = false; };
     }, [routeUsername]);
 
     if (busy) {
@@ -201,26 +317,30 @@
       );
     }
 
-    const user = (userData && userData.user) || {};
-    const ti = (userData && userData.taks_identity) || {};
-    const sel = (userData && userData.selection) || {};
-    const ctx = (ti && ti.ctx) || {};
-    const ident = (ti && ti.identity) || {};
-    const cardWrap = cardData || {};
-    const card = (cardWrap && cardWrap.card) || {};
-    const meta = (cardWrap && cardWrap.meta) || {};
-    const lifecycle = (card && card.lifecycle) || {};
-    const activity = (card && card.activity) || {};
-    const header = (card && card.header) || {};
-    const marti = (card && card.marti) || {};
+    var user = (userData && userData.user) || {};
+    var ti = (userData && userData.taks_identity) || {};
+    var sel = (userData && userData.selection) || {};
+    var ctx = (ti && ti.ctx) || {};
+    var ident = (ti && ti.identity) || {};
+    var cardWrap = cardData || {};
+    var card = (cardWrap && cardWrap.card) || {};
+    var meta = (cardWrap && cardWrap.meta) || {};
+    var lifecycle = (card && card.lifecycle) || {};
+    var activity = (card && card.activity) || {};
+    var header = (card && card.header) || {};
+    var marti = (card && card.marti) || {};
+    var devices = Array.isArray(card.devices) ? card.devices : [];
 
-    const username = String(user.username || routeUsername || "").trim();
-    const groups = Array.isArray(user.groups) ? user.groups : [];
-    const cardUrl = (userData && userData.card_url) || (card && card.card_url) || "";
-    const onboardStatus = _onboardText((card.onboarding && card.onboarding.status) || (lifecycle.evidence && lifecycle.evidence.onboarding_status));
-    const stateText = activity
-      ? (activity.is_current === true ? "CURRENT" : (activity.seen_recently === true ? "RECENT" : "STALE"))
-      : "NEVER";
+    var username = String(user.username || routeUsername || "").trim();
+    var groups = Array.isArray(user.groups) ? user.groups : [];
+    var cardUrl = (userData && userData.card_url) || (card && card.card_url) || "";
+    var onboardStatus = _onboardText((card.onboarding && card.onboarding.status) || (lifecycle.evidence && lifecycle.evidence.onboarding_status));
+    var primaryDevice = _pickPrimaryDevice(devices);
+    var primaryStateText = primaryDevice ? _deviceStateText(primaryDevice) : (activity ? (activity.is_current === true ? "CURRENT" : (activity.seen_recently === true ? "RECENT" : "STALE")) : "NEVER");
+    var currentDevices = _countStates(devices, "current");
+    var recentDevices = _countStates(devices, "recent");
+    var staleDevices = _countStates(devices, "stale");
+    var neverDevices = _countStates(devices, "never");
 
     return h("div", null,
       h("div", { className: "card-title" }, "Adminvy — användare"),
@@ -236,7 +356,8 @@
       },
         h(Pill, null, _colText(username)),
         h(StatusBadge, { tone: onboardTone(onboardStatus), text: "Onboarding: " + onboardStatus }),
-        h(StatusBadge, { tone: cotStateTone(stateText), text: "Status: " + stateText })
+        h(StatusBadge, { tone: cotStateTone(primaryStateText), text: "Primär device: " + primaryStateText }),
+        h(StatusBadge, { tone: devices.length ? "good" : "neutral", text: "Devices: " + String(devices.length) })
       ),
 
       h("div", {
@@ -252,8 +373,8 @@
           type: "button",
           onClick: function () {
             try {
-              const lib = window.TaksOnboarding && window.TaksOnboarding.lib;
-              if (lib && typeof lib.setHashRoute === "function") lib.setHashRoute("create", username);
+              var lib2 = window.TaksOnboarding && window.TaksOnboarding.lib;
+              if (lib2 && typeof lib2.setHashRoute === "function") lib2.setHashRoute("create", username);
             } catch (e) {}
           }
         }, t("btn.edit")),
@@ -276,12 +397,12 @@
           h(Box, null,
             SectionTitle("Identitet"),
             h(KV, { k: "Användarnamn" }, _colText(username)),
-            h(KV, { k: "Anropssignal" }, _colText(ctx.callsign || header.callsign || ident.callsign)),
-            h(KV, { k: "Team" }, _colText(ctx.team || header.team || ident.team)),
-            h(KV, { k: "ATAK-roll" }, _colText(ctx.atak_role_type || ident.atak_role_type)),
+            h(KV, { k: "Anropssignal" }, _colText(header.callsign || ctx.callsign || ident.callsign)),
+            h(KV, { k: "Team" }, _colText(header.team || ctx.team || ident.team)),
+            h(KV, { k: "ATAK-roll" }, _colText(header.atak_role_type || ctx.atak_role_type || ident.atak_role_type)),
             h(KV, { k: "E-post" }, _colText(ctx.email)),
             h(KV, { k: "Grupper" }, _colText(_join(groups))),
-            h(KV, { k: "Policy" }, _colText(ctx.policy_id))
+            h(KV, { k: "Policy" }, _colText(ctx.policy_id || (card.policy && card.policy.id)))
           ),
 
           h(Box, null,
@@ -303,14 +424,21 @@
 
         h("div", null,
           h(Box, null,
-            SectionTitle("Runtime / aktivitet"),
+            SectionTitle("Runtime / sammanfattning"),
             h(KV, { k: "Onboarding-status" }, h(StatusBadge, { tone: onboardTone(onboardStatus), text: onboardStatus })),
-            h(KV, { k: "Status" }, h(StatusBadge, { tone: cotStateTone(stateText), text: _colText(stateText) })),
-            h(KV, { k: "Ålder" }, _colText(activity.age_human)),
-            h(KV, { k: "UID" }, _colText(activity.uid)),
-            h(KV, { k: "Senast sedd" }, _colText(activity.last_seen)),
-            h(KV, { k: "CoT anropssignal" }, _colText(activity.callsign)),
+            h(KV, { k: "Primär status" }, h(StatusBadge, { tone: cotStateTone(primaryStateText), text: _colText(primaryStateText) })),
+            h(KV, { k: "Devices" }, _colText(devices.length)),
+            h(KV, { k: "Aktivitet" }, _colText(activity && activity.callsign ? (activity.callsign + " / " + _colText(activity.uid)) : "—")),
+            h(KV, { k: "Senast sedd" }, _colText((activity && (activity.last_seen || activity.last_cot_time)) || "—")),
             h(KV, { k: "Marti-grupper" }, _colText(_join(marti.groups)))
+          ),
+
+          h(Box, null,
+            SectionTitle("Devices"),
+            h(DeviceSummaryRow, { label: "Current", value: currentDevices, tone: currentDevices ? "good" : "neutral" }),
+            h(DeviceSummaryRow, { label: "Recent", value: recentDevices, tone: recentDevices ? "warn" : "neutral" }),
+            h(DeviceSummaryRow, { label: "Stale", value: staleDevices, tone: staleDevices ? "bad" : "neutral" }),
+            h(DeviceSummaryRow, { label: "Never", value: neverDevices, tone: "neutral" })
           ),
 
           h(Box, null,
@@ -335,6 +463,19 @@
             h(KV, { k: "DB-fel" }, _colText(meta.db_error))
           )
         )
+      ),
+
+      h(Box, null,
+        SectionTitle("Device-detaljer", h("div", { className: "muted", style: { fontSize: "12px" } }, devices.length ? (String(devices.length) + " devices") : "Inga devices")),
+        devices.length ? h("div", {
+          style: {
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+            gap: "12px"
+          }
+        }, devices.map(function (d, idx) {
+          return h(DeviceCard, { key: String((d && d.client_uid) || idx), device: d });
+        })) : h("div", { className: "muted" }, "Inga devices hittades för användaren.")
       ),
 
       h(Box, null,

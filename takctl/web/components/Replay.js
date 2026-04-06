@@ -707,7 +707,7 @@
     const toggleNode = selectedSide === "blue" ? toggleNodeBlue : toggleNodeRed;
     const chatBySide = data.chat_by_side || {};
     const chat = Array.isArray(chatBySide[selectedSide]) ? chatBySide[selectedSide] : [];
-    const markers = (((data.map || {}).markers) || []).filter(function(m){ return m.side === selectedSide; });
+    const markers = (((data.map || {}).markers) || []);
 
     return e("div", { style: { display: "grid", gap: 12, height: "calc(100vh - 110px)" } },
 
