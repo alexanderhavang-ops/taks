@@ -4,6 +4,8 @@ from pathlib import Path
 
 
 TAKS_ENV = Path("/opt/tak/etc/taks.env")
+BOOTSTRAP_NODE_ENV = Path("/etc/taks-bootstrap.d/node.env")
+NODE_ENV = Path("/etc/taks/node.env")
 
 
 def _parse_env_text(s: str) -> dict[str, str]:
@@ -22,23 +24,35 @@ def _parse_env_text(s: str) -> dict[str, str]:
     return out
 
 
+def _parse_env_file(path: Path) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+    return _parse_env_text(path.read_text(encoding="utf-8"))
+
+
 def get_fqdn(ctx) -> str:
     """
     Canonical FQDN resolution:
-      1) env: FQDN or TAKS_FQDN
-      2) runtime state: /opt/tak/etc/taks.env (TAKS_FQDN or FQDN)
+      1) ctx/env: FQDN, TAKS_FQDN, TAKS_NODE_FQDN
+      2) bootstrap env: /etc/taks-bootstrap.d/node.env
+      3) node env: /etc/taks/node.env
+      4) runtime state: /opt/tak/etc/taks.env
     """
-    fqdn = (ctx.env.get("FQDN") or ctx.env.get("TAKS_FQDN") or "").strip()
-    if fqdn:
-        return fqdn
+    env = getattr(ctx, "env", {}) or {}
 
-    if TAKS_ENV.is_file():
-        data = _parse_env_text(TAKS_ENV.read_text(encoding="utf-8"))
-        fqdn = (data.get("TAKS_FQDN") or data.get("FQDN") or "").strip()
+    for key in ("FQDN", "TAKS_FQDN", "TAKS_NODE_FQDN"):
+        fqdn = str(env.get(key) or "").strip()
         if fqdn:
             return fqdn
 
-    raise RuntimeError(
-        "FQDN not set. Provide FQDN env var (or TAKS_FQDN), or write /opt/tak/etc/taks.env with TAKS_FQDN=<node-fqdn>."
-    )
+    for path in (BOOTSTRAP_NODE_ENV, NODE_ENV, TAKS_ENV):
+        data = _parse_env_file(path)
+        for key in ("FQDN", "TAKS_FQDN", "TAKS_NODE_FQDN"):
+            fqdn = str(data.get(key) or "").strip()
+            if fqdn:
+                return fqdn
 
+    raise RuntimeError(
+        "FQDN not set. Checked ctx/env (FQDN, TAKS_FQDN, TAKS_NODE_FQDN), "
+        "/etc/taks-bootstrap.d/node.env, /etc/taks/node.env, and /opt/tak/etc/taks.env."
+    )

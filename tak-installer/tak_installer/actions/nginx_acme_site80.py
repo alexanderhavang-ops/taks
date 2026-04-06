@@ -39,6 +39,44 @@ def _sudo_rm(path: Path) -> None:
     _run(["sudo", "rm", "-f", str(path)])
 
 
+def _parse_env_file(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not path.exists():
+        return out
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip()] = v.strip()
+    return out
+
+
+def _cert_paths_for_fqdn(fqdn: str) -> tuple[Path, Path]:
+    base = Path("/etc/letsencrypt/live") / fqdn
+    return base / "fullchain.pem", base / "privkey.pem"
+
+
+def _cert_exists(fqdn: str) -> bool:
+    fullchain, privkey = _cert_paths_for_fqdn(fqdn)
+    return fullchain.exists() and privkey.exists()
+
+
+def _le_email(ctx: Context) -> str:
+    for key in ("LE_EMAIL",):
+        v = str((ctx.env or {}).get(key) or "").strip()
+        if v:
+            return v
+
+    for env_path in (Path("/etc/taks-bootstrap.d/node.env"), Path("/etc/taks/node.env")):
+        env_map = _parse_env_file(env_path)
+        v = str(env_map.get("LE_EMAIL") or "").strip()
+        if v:
+            return v
+
+    return ""
+
+
 @dataclass(frozen=True)
 class NginxAcme80Action:
     ID = "nginx.acme"
@@ -130,9 +168,42 @@ class NginxAcme80Action:
 
         _sudo_symlink(self.dst_enabled, self.dst_available)
 
-        # Validate + reload nginx
+        # Validate + reload nginx so ACME HTTP-01 can be served on port 80.
         _run(["sudo", "nginx", "-t"])
         _run(["sudo", "systemctl", "reload", "nginx"])
+
+        # Ensure ACME webroot exists and matches nginx site80 config.
+        _run(["sudo", "install", "-d", "-o", "root", "-g", "root", "-m", "0755", "/var/www/letsencrypt"])
+        _run(["sudo", "install", "-d", "-o", "root", "-g", "root", "-m", "0755", "/var/www/letsencrypt/.well-known"])
+        _run(["sudo", "install", "-d", "-o", "root", "-g", "root", "-m", "0755", "/var/www/letsencrypt/.well-known/acme-challenge"])
+
+        # Ensure LE certificate exists for later 443/TLS actions.
+        if _cert_exists(fqdn):
+            print(f"nginx.acme: LE cert already present for {fqdn}")
+        else:
+            email = _le_email(ctx)
+            cmd = [
+                "sudo",
+                "certbot",
+                "certonly",
+                "--non-interactive",
+                "--agree-tos",
+                "--webroot",
+                "-w", "/var/www/letsencrypt",
+                "-d", fqdn,
+                "--keep-until-expiring",
+            ]
+            if email:
+                cmd.extend(["--email", email])
+            else:
+                cmd.append("--register-unsafely-without-email")
+
+            _run(cmd)
+
+            if not _cert_exists(fqdn):
+                raise RuntimeError(f"nginx.acme: certbot completed but cert files still missing for {fqdn}")
+
+            print(f"nginx.acme: LE cert ready for {fqdn}")
 
         print("applied: nginx.acme")
         return 0

@@ -155,10 +155,29 @@ def nodes_preview(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
         "raw": plan,
     }
 
+def _require_route53_prereqs_for_node_launch() -> None:
+    cfg = load_orch_config()
+    dns_suffix = str(cfg.nodes.default_node_domain or "").strip()
+    le_mode = str(cfg.letsencrypt.mode or "").strip()
+    zone_id = str(cfg.aws.route53_zone_id or "").strip()
+
+    if dns_suffix and le_mode == "dns-route53" and not zone_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Route53 DNS/LE launch prerequisites not met: "
+                "aws.route53_zone_id is required when "
+                "letsencrypt_mode=dns-route53 and nodes_default_node_domain is set"
+            ),
+        )
+
+
+
 
 @router.post("/nodes/dry-run")
 def nodes_dry_run(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     require_operator(request)
+    _require_route53_prereqs_for_node_launch()
     nr = _node_req(req)
     return aws_dry_run(nr)
 
@@ -168,6 +187,7 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     require_operator(request)
     if not load_orch_config().aws.launch_enabled:
         raise HTTPException(status_code=400, detail="Launch disabled by config (aws.launch_enabled=false)")
+    _require_route53_prereqs_for_node_launch()
     nr = _node_req(req)
 
     readiness = get_unit_bundle_readiness(nr.unit_path, nr.role)
@@ -478,6 +498,9 @@ def nodes_heartbeat(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     extra = {}
     for k in ("private_ip", "public_ip", "public_dns", "fqdn", "hostname"):
         if k in req:
+            extra[k] = req.get(k)
+    for k in ("install", "services", "checks"):
+        if isinstance(req.get(k), dict):
             extra[k] = req.get(k)
 
     rec = touch_heartbeat(node_id, status=status, extra=extra)

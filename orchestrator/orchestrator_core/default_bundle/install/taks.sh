@@ -59,12 +59,10 @@ if [ -n "${LE_EMAIL:-}" ]; then
   export LE_EMAIL
 fi
 
-log_state "taks/apply" "Started"
 log "running tak-installer apply from extracted bundle"
 (
   cd "$TAKS_SOURCE_ROOT"
   python3 ./tak-installer/tak-installer apply
 )
-log_state "taks/apply" "Succeeded"
 
 log "taks install complete"
