@@ -116,8 +116,9 @@ class Nginx443TakctlAction:
 
         proxy_pass http://127.0.0.1:8080;
 
-        proxy_read_timeout  60s;
-        proxy_send_timeout  60s;
+        proxy_connect_timeout 60s;
+        proxy_read_timeout  600s;
+        proxy_send_timeout  600s;
     }}
 }}
 """

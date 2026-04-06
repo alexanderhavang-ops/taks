@@ -4,4 +4,4 @@
 # takctl-llm-kick (one-shot tactical refresh helper)
 from . import takctl_llm_kick  # noqa: F401
 from . import systemd_takctl_llm_refresh_tactical  # noqa: F401
-
+from . import takctl_log_helper_sudoers  # noqa: F401
