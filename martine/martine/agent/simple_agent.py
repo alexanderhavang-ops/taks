@@ -4,7 +4,10 @@ from typing import Any, Dict
 
 from martine_server import AgentLoop, RunContext, load_config, resolve_profile
 from martine_server.tracing import TraceWriter, new_run_id
+from martine.logging import get_logger, setup_martine_logging
 
+
+log = get_logger(__name__)
 
 def _system_prompt() -> str:
     return (
@@ -12,12 +15,15 @@ def _system_prompt() -> str:
         'Use tools when they materially improve correctness. '
         'For doctrine, handbook, chapter, and reference-document questions, prefer the reference document tools before answering. '
         'Prefer semantic reference-doc search for broad conceptual questions, and exact/keyword search for exact names or phrases. '
+        'If a user asks to be onboarded for voice, Vx, or Mumble, use the send_voice_onboarding tool rather than only describing the steps. '
         'Keep final answers brief and concrete. '
         'If a tool result is missing or insufficient, say so plainly.'
     )
 
 
 def run_once(user_question: str, *, sender_uid: str = '', sender_callsign: str = '') -> Dict[str, Any]:
+    setup_martine_logging()
+    log.info('run_once_start sender_callsign=%s sender_uid=%s question=%r', sender_callsign, sender_uid, user_question[:500])
     cfg = load_config()
     run_id = new_run_id('martine')
     profile = resolve_profile('martine_chat', 'chat.reply')
@@ -56,4 +62,5 @@ def run_once(user_question: str, *, sender_uid: str = '', sender_callsign: str =
         },
     }
     trace.write_json('99_result.json', out)
+    log.info('run_once_done ok=%s run_id=%s error=%s answer_preview=%r log_dir=%s', out.get('ok'), run_id, out.get('error'), str(out.get('answer') or '')[:500], str(trace.path))
     return out

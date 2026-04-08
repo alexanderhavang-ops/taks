@@ -1,0 +1,21 @@
+{
+  "server": {
+    "host": "",
+    "port": 64738,
+    "force_tcp": false
+  },
+  "defaults": {
+    "mission_name_template": "{target_callsign} voice"
+  },
+  "profiles": {
+    "default": {
+      "channels": []
+    },
+    "hq": {
+      "channels": ["Command", "HQ"]
+    },
+    "pluton": {
+      "channels": ["Command", "Pluton"]
+    }
+  }
+}

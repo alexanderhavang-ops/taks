@@ -10,7 +10,10 @@ import xml.etree.ElementTree as ET
 
 from martine.agent.simple_agent import run_once
 from martine.config import load_config
+from martine.logging import get_logger, setup_martine_logging
 
+
+log = get_logger(__name__)
 
 HOST = "127.0.0.1"
 PORT = 8089
@@ -103,6 +106,7 @@ def build_presence_xml(*, chat_uid: str, callsign: str) -> str:
         f'</detail>'
         f'</event>'
     )
+    log.info('reply_sent to_callsign=%s to_uid=%s run_id=%s', to_callsign, to_uid, result.get('run_id'))
 
 
 def build_atak_chat_xml(*, chat_uid: str, callsign: str, to_uid: str, to_callsign: str, message: str) -> str:
@@ -157,22 +161,28 @@ def recv_xml(sock: ssl.SSLSocket, timeout: float = 1.0) -> str | None:
 
 
 def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
+    log.info('incoming_xml bytes=%s', len(text.encode("utf-8", errors="ignore")))
     msg = parse_chat_xml(text)
     if not msg:
+        log.info('incoming_xml ignored=parse_chat_xml_none')
         return
     if str(msg.get("to_callsign") or "") != cfg.callsign:
+        log.info('incoming_chat ignored wrong_recipient to_callsign=%s expected=%s from_callsign=%s uid=%s', msg.get('to_callsign'), cfg.callsign, msg.get('from_callsign'), msg.get('uid'))
         return
 
     question = str(msg.get("message") or "").strip()
     if not question:
+        log.info('incoming_chat ignored empty_question from_callsign=%s from_uid=%s', msg.get('from_callsign'), msg.get('from_uid'))
         return
 
+    log.info('incoming_chat accepted from_callsign=%s from_uid=%s to_callsign=%s question=%r', msg.get('from_callsign'), msg.get('from_uid'), msg.get('to_callsign'), question[:500])
     result = run_once(
         question,
         sender_uid=str(msg.get("from_uid") or "").strip(),
         sender_callsign=str(msg.get("from_callsign") or "").strip(),
     )
     answer = str(result.get("answer") or "").strip()
+    log.info('agent_result ok=%s run_id=%s error=%s answer_preview=%r', result.get('ok'), result.get('run_id'), result.get('error'), answer[:500])
     if not answer:
         answer = f"Jag kunde inte svara just nu. Fel: {result.get('error') or 'okänt fel'}"
 
@@ -192,24 +202,24 @@ def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
 
 
 def session_loop() -> None:
+    setup_martine_logging()
     cfg = load_config()
     ctx = ssl_context()
 
     with socket.create_connection((HOST, PORT), timeout=10) as raw:
         with ctx.wrap_socket(raw, server_hostname="tak-hv-sandbox.se") as sock:
-            print(
-                {
-                    "ok": True,
-                    "mode": "cot_tls_client",
-                    "host": HOST,
-                    "port": PORT,
-                    "callsign": cfg.callsign,
-                    "chat_uid": cfg.chat_uid,
-                    "tls_version": sock.version(),
-                    "cipher": sock.cipher(),
-                },
-                flush=True,
-            )
+            info = {
+                "ok": True,
+                "mode": "cot_tls_client",
+                "host": HOST,
+                "port": PORT,
+                "callsign": cfg.callsign,
+                "chat_uid": cfg.chat_uid,
+                "tls_version": sock.version(),
+                "cipher": sock.cipher(),
+            }
+            print(info, flush=True)
+            log.info('cot_session_connected %s', info)
 
             send_event(sock, build_presence_xml(chat_uid=cfg.chat_uid, callsign=cfg.callsign))
             send_event(
@@ -247,6 +257,7 @@ def main() -> None:
             raise
         except Exception as e:
             print({"ok": False, "where": "cot_tls_client", "error": str(e)}, flush=True)
+            log.exception('cot_tls_client_loop_failed error=%s', e)
             time.sleep(backoff)
             backoff = min(backoff * 2.0, 30.0)
 

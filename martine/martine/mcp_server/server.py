@@ -23,6 +23,7 @@ from martine.tools.osrm_geo import (
     route_alternatives_between_points,
     snap_point_to_network,
 )
+from martine.tools.voice_onboarding import send_voice_onboarding
 
 
 def list_tools() -> List[Dict[str, Any]]:
@@ -253,6 +254,36 @@ def list_tools() -> List[Dict[str, Any]]:
                 "required": [],
                 "additionalProperties": False,
             },
+        },
+        {
+            "name": "send_voice_onboarding",
+            "description": "Create and send a semantic Vx/Mumble voice onboarding package to a TAK contact. If the user means themselves, use sender_callsign and sender_uid from RUN_CONTEXT.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "target_callsign": {"type": "string"},
+                    "target_uid": {"type": "string"},
+                    "sender_callsign": {"type": "string"},
+                    "sender_uid": {"type": "string"},
+                    "profile": {"type": "string"},
+                    "mission_name": {"type": "string"},
+                    "channels": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "mumble_host": {"type": "string"},
+                    "mumble_port": {"type": "integer"},
+                    "force_tcp": {"type": "boolean"},
+                    "server_password": {"type": "string"},
+                    "channel_passwords": {
+                        "type": "object",
+                        "additionalProperties": {"type": "string"}
+                    },
+                    "dry_run": {"type": "boolean"}
+                },
+                "required": [],
+                "additionalProperties": false
+            }
         },
         {
             "name": "route_between_points",

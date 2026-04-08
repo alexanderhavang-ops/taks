@@ -22,13 +22,16 @@ def _int(v: Any, default: int = 0) -> int:
 
 def battalion_no_from_unit(unit: str) -> Optional[int]:
     """
-    Best-effort: "46HV" -> 46
+    Best-effort:
+      - "46HV" -> 46
+      - "48HVBAT" -> 48
+      - "48hvbat" -> 48
     """
     u = _upper(unit)
-    if u.endswith("HV") and len(u) >= 4:
-        prefix = u[:-2]
+    m = re.match(r"^(\d+)(HVBAT|HV)$", u)
+    if m:
         try:
-            return int(prefix)
+            return int(m.group(1))
         except Exception:
             return None
     return None

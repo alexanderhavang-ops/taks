@@ -5,12 +5,15 @@ from dataclasses import dataclass
 from typing import Any
 
 from martine.llm.bedrock_adapter import MartineLlm
+from martine.logging import get_logger, setup_martine_logging
 
 from .output_validation import parse_structured_json
 from .tool_client import call_tool, list_tools
 from .tracing import TraceWriter
 from .run_context import RunContext
 
+
+log = get_logger(__name__)
 
 @dataclass
 class AgentLoopResult:
@@ -195,6 +198,8 @@ class AgentLoop:
         )
 
     def run(self, *, system_prompt: str, user_input: str, final_format: str = "text") -> AgentLoopResult:
+        setup_martine_logging()
+        log.info('agent_loop_start run_id=%s sender_callsign=%s sender_uid=%s user_input=%r', self.ctx.run_id, self.ctx.sender_callsign, self.ctx.sender_uid, user_input[:500])
         tools = list_tools()
         tool_names = {str(t.get("name") or "") for t in tools}
         self.trace.append_event("run_started", {
@@ -227,6 +232,7 @@ class AgentLoop:
                 reference_doc_names=reference_doc_names,
             )
             self.trace.write_text(f"{turn_idx:02d}_prompt.txt", prompt)
+            log.info('agent_loop_turn_llm turn=%s tool_calls_used=%s', turn_idx, tool_calls)
             resp = self.llm.complete_text(
                 prompt=prompt,
                 temperature=0.1,
@@ -243,9 +249,11 @@ class AgentLoop:
                 return AgentLoopResult(ok=False, error=err, turns=turns, tool_results=tool_results)
 
             text = str(resp.get("text") or "").strip()
+            log.info('agent_loop_llm_done turn=%s ok=%s text_preview=%r', turn_idx, resp.get('ok'), text[:500])
             try:
                 obj = parse_structured_json(text)
             except Exception as e:
+                log.exception('agent_loop_tool_failed turn=%s tool_name=%s error=%s', turn_idx, tool_name, e)
                 err = f"{type(e).__name__}: {e}"
                 turns.append({
                     "turn": turn_idx,
@@ -287,6 +295,7 @@ class AgentLoop:
             })
 
             if action == "final":
+                log.info('agent_loop_final turn=%s reason=%r', turn_idx, reason)
                 final_text = str(obj.get("final_text") or "").strip()
                 final_json = obj.get("final_json") if isinstance(obj.get("final_json"), dict) else None
                 self.trace.append_event("final_answer", {
@@ -338,6 +347,7 @@ class AgentLoop:
                 return AgentLoopResult(ok=False, error="max_tool_calls_exceeded", turns=turns, tool_results=tool_results)
 
             tool_name = str(obj.get("tool_name") or "").strip()
+            log.info('agent_loop_tool_selected turn=%s tool_name=%s reason=%r tool_args=%s', turn_idx, tool_name, reason, obj.get('tool_args'))
             tool_args = obj.get("tool_args") or {}
             if tool_name not in tool_names:
                 turns.append({"turn": turn_idx, "kind": "invalid_tool", "tool_name": tool_name})
@@ -389,6 +399,7 @@ class AgentLoop:
             })
             try:
                 tool_resp = call_tool(tool_name, tool_args)
+                log.info('agent_loop_tool_finished turn=%s tool_name=%s tool_response_preview=%r', turn_idx, tool_name, str(tool_resp)[:1000])
             except Exception as e:
                 err = f"{type(e).__name__}: {e}"
                 self.trace.append_event("tool_call_finished", {

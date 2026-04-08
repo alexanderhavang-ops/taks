@@ -26,6 +26,7 @@ from martine.tools.osrm_geo import (
     route_alternatives_between_points,
     snap_point_to_network,
 )
+from martine.tools.voice_onboarding import send_voice_onboarding
 
 logging.basicConfig(
     level=logging.INFO,
@@ -253,6 +254,43 @@ def snap_point_to_network_tool(
         lon=lon,
         profile=profile,
         number=number,
+    )
+
+
+@mcp.tool(name="send_voice_onboarding")
+def send_voice_onboarding_tool(
+    target_callsign: str = "",
+    target_uid: str = "",
+    sender_callsign: str = "",
+    sender_uid: str = "",
+    profile: str = "default",
+    mission_name: str = "",
+    channels: list[str] | None = None,
+    mumble_host: str = "",
+    mumble_port: int = 64738,
+    force_tcp: bool = False,
+    server_password: str = "",
+    channel_passwords: dict[str, str] | None = None,
+    dry_run: bool = False,
+) -> dict:
+    """Create and send a semantic Vx/Mumble voice onboarding package to a TAK contact.
+    Use this when the user asks to be onboarded for voice or asks Martine to send a voice package.
+    If the user means themselves, pass sender_callsign/sender_uid from RUN_CONTEXT.
+    """
+    return send_voice_onboarding(
+        target_callsign=target_callsign,
+        target_uid=target_uid,
+        sender_callsign=sender_callsign,
+        sender_uid=sender_uid,
+        profile=profile,
+        mission_name=mission_name,
+        channels=channels,
+        mumble_host=mumble_host,
+        mumble_port=mumble_port,
+        force_tcp=force_tcp,
+        server_password=server_password,
+        channel_passwords=channel_passwords,
+        dry_run=dry_run,
     )
 
 

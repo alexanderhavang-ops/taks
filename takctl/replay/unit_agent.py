@@ -551,19 +551,67 @@ def _same_destination(planned: Dict[str, Any], dest_lat: float, dest_lon: float)
     return abs(a - dest_lat) < 1e-7 and abs(b - dest_lon) < 1e-7
 
 
+KNOWN_DESTINATION_REFS: Dict[str, Dict[str, float]] = {
+    "upk201": {"lat": 55.4285, "lon": 13.9975},
+    "ystad saltsjöbad": {"lat": 55.4285, "lon": 13.9975},
+    "ystad saltsjobad": {"lat": 55.4285, "lon": 13.9975},
+}
+
+
+def _norm_dest_text(v: Any) -> str:
+    return " ".join(str(v or "").strip().lower().replace("_", " ").split())
+
+
+def _resolve_named_destination(params: Dict[str, Any]) -> Dict[str, float] | None:
+    ref = _norm_dest_text(params.get("destination_ref"))
+    query = _norm_dest_text(params.get("destination_query"))
+
+    for candidate in [ref, query]:
+        if not candidate:
+            continue
+        if candidate in KNOWN_DESTINATION_REFS:
+            return dict(KNOWN_DESTINATION_REFS[candidate])
+
+    text = " ".join(x for x in [ref, query] if x)
+    if not text:
+        return None
+
+    if "upk201" in text:
+        return dict(KNOWN_DESTINATION_REFS["upk201"])
+    if "ystad saltsjöbad" in text or "ystad saltlsjöbad" in text or "ystad saltsjobad" in text:
+        return dict(KNOWN_DESTINATION_REFS["ystad saltsjöbad"])
+
+    return None
+
+
+def _resolve_move_destination(params: Dict[str, Any]) -> Dict[str, float] | None:
+    lat = params.get("lat", params.get("destination_lat"))
+    lon = params.get("lon", params.get("destination_lon"))
+
+    if lat is not None and lon is not None:
+        try:
+            return {
+                "lat": float(lat),
+                "lon": float(lon),
+            }
+        except Exception:
+            pass
+
+    return _resolve_named_destination(params)
+
+
 def _ensure_planned_move(st: Dict[str, Any], root: Dict[str, Any], sim_time_s: int) -> Dict[str, Any] | None:
     params = dict(root.get("params") or {})
     own = st.setdefault("own_state", {})
     pos = dict(own.get("position") or {})
 
-    lat = params.get("lat", params.get("destination_lat"))
-    lon = params.get("lon", params.get("destination_lon"))
-    if lat is None or lon is None:
+    resolved = _resolve_move_destination(params)
+    if not resolved:
         return None
 
     try:
-        dest_lat = float(lat)
-        dest_lon = float(lon)
+        dest_lat = float(resolved.get("lat"))
+        dest_lon = float(resolved.get("lon"))
         cur_lat = float(pos.get("lat"))
         cur_lon = float(pos.get("lon"))
     except Exception:
@@ -935,6 +983,7 @@ def _tick_active_runtime_action(st: Dict[str, Any], root: Dict[str, Any], sim_ti
         return
 
     _progress_active_move_unit(st, root, sim_time_s)
+
 
 
 def process_work(st: Dict[str, Any], sim_time_s: int, outbox_path: Path) -> int:
