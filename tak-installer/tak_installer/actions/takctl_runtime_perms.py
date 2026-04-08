@@ -15,11 +15,6 @@ WRITABLE_TREES = [
     DST_ROOT / "state",
 ]
 
-WRITABLE_FILES = [
-    DST_ROOT / "takctl.conf",
-    DST_ROOT / "secrets.conf",
-]
-
 
 def _run_best_effort(cmd: list[str]) -> None:
     subprocess.run(cmd, check=False)
@@ -42,12 +37,6 @@ def apply(ctx) -> None:
         _run_best_effort(["chown", "-R", "tak:tak", str(d)])
         _chmod_tree(d, "2770", "0660")
 
-    for f in WRITABLE_FILES:
-        if not f.exists():
-            continue
-        _run_best_effort(["chown", "tak:tak", str(f)])
-        _run_best_effort(["chmod", "0660", str(f)])
-
     log.info("takctl.runtime-perms: ready")
 
 
@@ -58,8 +47,6 @@ class _Action:
         print(f"Inspecting {self.ID} action...")
         for p in WRITABLE_TREES:
             print(f"tree: {p}")
-        for p in WRITABLE_FILES:
-            print(f"file: {p}")
         return 0
 
     def apply(self, ctx) -> int:

@@ -3,12 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import subprocess
 
-from takctl.config import Config
+from takctl.config import RuntimeConfig
 
 
 @dataclass
 class Systemd:
-    cfg: Config
+    cfg: RuntimeConfig
 
     def is_active(self) -> bool:
         try:
@@ -26,4 +26,3 @@ class Systemd:
             text=True,
         )
         return out.strip().split("=", 1)[1] if "=" in out else out.strip()
-

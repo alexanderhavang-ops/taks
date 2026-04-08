@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import os
 import tarfile
+import shutil
 from orchestrator_core.config import load_orch_config, load_secrets_config
 from orchestrator_core.unit_bootstrap import effective_bootstrap_for_bundle
+from orchestrator_core.branding_resolver import materialize_branding_bundle
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -490,6 +492,66 @@ def _copy_repo_snapshot(dst_root: Path) -> Dict[str, Any]:
     }
 
 
+
+def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
+    chain = _read_unit_chain(unit_path)
+    if not chain:
+        chain = [unit_path]
+
+    stage_root = root / ".branding-chain"
+    if stage_root.exists():
+        shutil.rmtree(stage_root)
+    stage_root.mkdir(parents=True, exist_ok=True)
+
+    cur = stage_root
+    mounted: List[Dict[str, str]] = []
+
+    for idx, up in enumerate(chain):
+        if idx > 0:
+            cur = cur / f"child-{idx:03d}"
+            cur.mkdir(parents=True, exist_ok=True)
+
+        src_root = unit_files_root(up)
+        src_branding = src_root / "branding"
+        src_conf = src_root / "config.d" / "branding.conf"
+
+        if src_branding.is_dir():
+            shutil.copytree(src_branding, cur / "branding", dirs_exist_ok=True)
+
+        if src_conf.is_file():
+            conf_d = cur / "config.d"
+            conf_d.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_conf, conf_d / "branding.conf")
+
+        mounted.append(
+            {
+                "unit_path": up,
+                "src_root": str(src_root),
+                "branding_dir": str(src_branding) if src_branding.exists() else "",
+                "conf_file": str(src_conf) if src_conf.exists() else "",
+            }
+        )
+
+    out_dir = root / "branding"
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+
+    manifest = materialize_branding_bundle(
+        tree_root=stage_root,
+        current_dir=cur,
+        out_dir=out_dir,
+    )
+
+    return {
+        "generated": "branding",
+        "kind": "effective_branding",
+        "chain": chain,
+        "mounted": mounted,
+        "effective_count": int(manifest.get("effective_count", 0)),
+        "files": manifest.get("files", []),
+    }
+
+
 def build_bundle_from_state(unit_path: str, role: str, bundle_name: Optional[str] = None) -> Dict[str, Any]:
     up = _safe_unit_fs(unit_path)
     role = str(role or "").strip() or "tak-node"
@@ -533,6 +595,7 @@ def build_bundle_from_state(unit_path: str, role: str, bundle_name: Optional[str
         overlays.append({"generated": "install/node.env", "kind": "node_env"})
 
         overlays.append(_write_effective_bootstrap(root, unit_path=up))
+        overlays.append(_write_effective_branding(root, unit_path=up))
 
         unit_meta = _read_unit_meta(up)
         cert_model = _default_node_cert_model(unit_meta)

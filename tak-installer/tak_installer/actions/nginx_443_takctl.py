@@ -38,15 +38,10 @@ def _sudo_symlink(link_path: Path, target: Path) -> None:
     _run(["sudo", "ln", "-sfn", str(target), str(link_path)])
 
 
-
 def takctl_client_max_body_size() -> str:
-    try:
-        cfg = load_config()
-        v = str(getattr(cfg, "nginx_takctl_client_max_body_size", "") or "").strip()
-        return v or "64m"
-    except Exception:
-        return "64m"
-
+    cfg = load_config()
+    v = str(getattr(cfg, "nginx_takctl_client_max_body_size", "") or "").strip()
+    return v or "64m"
 
 
 @dataclass(frozen=True)

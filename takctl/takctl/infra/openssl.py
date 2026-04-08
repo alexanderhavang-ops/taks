@@ -9,12 +9,12 @@ from dataclasses import dataclass
 from typing import Set, Tuple
 from pathlib import Path
 
-from takctl.config import Config
+from takctl.config import RuntimeConfig
 
 
 @dataclass(frozen=True)
 class OpenSSL:
-    cfg: Config
+    cfg: RuntimeConfig
 
     def _run(self, args: list[str], text: bool = True) -> str:
         out = subprocess.check_output(args, text=text, stderr=subprocess.STDOUT)

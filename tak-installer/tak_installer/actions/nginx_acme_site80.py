@@ -6,9 +6,9 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from takctl.config import load_config
 from tak_installer.engine import Context
 from tak_installer.util import sha256_path, diff_text
-
 from tak_installer.runtime_state import get_fqdn
 
 
@@ -39,19 +39,6 @@ def _sudo_rm(path: Path) -> None:
     _run(["sudo", "rm", "-f", str(path)])
 
 
-def _parse_env_file(path: Path) -> dict[str, str]:
-    out: dict[str, str] = {}
-    if not path.exists():
-        return out
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        out[k.strip()] = v.strip()
-    return out
-
-
 def _cert_paths_for_fqdn(fqdn: str) -> tuple[Path, Path]:
     base = Path("/etc/letsencrypt/live") / fqdn
     return base / "fullchain.pem", base / "privkey.pem"
@@ -62,19 +49,9 @@ def _cert_exists(fqdn: str) -> bool:
     return fullchain.exists() and privkey.exists()
 
 
-def _le_email(ctx: Context) -> str:
-    for key in ("LE_EMAIL",):
-        v = str((ctx.env or {}).get(key) or "").strip()
-        if v:
-            return v
-
-    for env_path in (Path("/etc/taks-bootstrap.d/node.env"), Path("/etc/taks/node.env")):
-        env_map = _parse_env_file(env_path)
-        v = str(env_map.get("LE_EMAIL") or "").strip()
-        if v:
-            return v
-
-    return ""
+def _le_email() -> str:
+    cfg = load_config()
+    return str(cfg.get("le_email", "") or "").strip()
 
 
 @dataclass(frozen=True)
@@ -86,10 +63,6 @@ class NginxAcme80Action:
     dst_enabled: Path
 
     def _fqdn(self, ctx: Context) -> str:
-        for key in ("FQDN", "TAKS_FQDN", "TAKS_NODE_FQDN"):
-            v = str((ctx.env or {}).get(key) or "").strip()
-            if v:
-                return v
         return get_fqdn(ctx)
 
     def _render(self, fqdn: str) -> str:
@@ -181,7 +154,7 @@ class NginxAcme80Action:
         if _cert_exists(fqdn):
             print(f"nginx.acme: LE cert already present for {fqdn}")
         else:
-            email = _le_email(ctx)
+            email = _le_email()
             cmd = [
                 "sudo",
                 "certbot",

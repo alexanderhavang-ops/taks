@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from orchestrator_core.config import load_orch_config, load_secrets_config
-from orchestrator_core.core import NodeRequest, aws_dry_run, aws_launch, aws_list_nodes, aws_terminate, plan_node
+from orchestrator_core.core import NodeRequest, aws_dry_run, aws_launch, aws_list_nodes, aws_snooze, aws_terminate, aws_wake, plan_node
 from orchestrator_core.nodes_state import delete_node, get_node, list_nodes, touch_heartbeat, upsert_node
 from orchestrator_core.units_state import list_units, create_unit
 
@@ -238,14 +238,7 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 # Running nodes: state DB (operator auth)
 # ----------------------------
 
-@router.post("/nodes/{node_id}/terminate")
-def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
-    require_operator(request)
-
-    rec = get_node(node_id)
-    if not rec:
-        raise HTTPException(status_code=404, detail=f"node not found: {node_id}")
-
+def _resolve_instance_for_node_record(rec: Dict[str, Any], node_id: str) -> Dict[str, Any]:
     aws = aws_list_nodes()
     aws_instances = list((aws or {}).get("instances") or [])
 
@@ -255,13 +248,22 @@ def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
     want_pub = str(rec.get("public_ip") or rec.get("aws_public_ip") or "").strip()
     want_iid = str(rec.get("aws_instance_id") or rec.get("instance_id") or "").strip()
 
+    cfg = load_orch_config()
+    fqdn_suffix = str(cfg.nodes.default_node_domain or "").strip().strip(".")
+
     matched = None
 
     for inst in aws_instances:
         iid = str(inst.get("instance_id") or "").strip()
-        fqdn = str(inst.get("fqdn") or "").strip()
         priv = str(inst.get("private_ip") or "").strip()
         pub = str(inst.get("public_ip") or "").strip()
+        unit_path = str(inst.get("unit_path") or "").strip()
+
+        inst_fqdn = ""
+        if unit_path and "." in unit_path:
+            inst_fqdn = unit_path
+        elif unit_path and fqdn_suffix:
+            inst_fqdn = f"{unit_path}.{fqdn_suffix}"
 
         if want_iid and iid and iid == want_iid:
             matched = inst
@@ -272,18 +274,33 @@ def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
         if want_pub and pub and pub == want_pub:
             matched = inst
             break
-        if want_fqdn and fqdn and fqdn == want_fqdn:
+        if want_fqdn and inst_fqdn and inst_fqdn == want_fqdn:
             matched = inst
             break
-        if want_node_id and fqdn and fqdn == want_node_id:
+        if want_node_id and inst_fqdn and inst_fqdn == want_node_id:
             matched = inst
             break
 
-    instance_id = str(
-        ((matched or {}).get("instance_id") or want_iid or "")
-    ).strip()
+    instance_id = str(((matched or {}).get("instance_id") or want_iid or "")).strip()
     if not instance_id:
         raise HTTPException(status_code=400, detail=f"node has no instance_id: {node_id}")
+
+    return {
+        "instance_id": instance_id,
+        "matched": matched or {},
+    }
+
+
+@router.post("/nodes/{node_id}/terminate")
+def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
+    require_operator(request)
+
+    rec = get_node(node_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"node not found: {node_id}")
+
+    resolved = _resolve_instance_for_node_record(rec, node_id)
+    instance_id = str(resolved.get("instance_id") or "").strip()
 
     term = aws_terminate(instance_id)
 
@@ -296,6 +313,63 @@ def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
     }
     updated = upsert_node(str(rec.get("node_id") or node_id), patch)
     return {"ok": True, "terminate": term, "node": updated}
+
+
+@router.post("/nodes/{node_id}/snooze")
+def nodes_snooze(node_id: str, request: Request) -> Dict[str, Any]:
+    require_operator(request)
+
+    rec = get_node(node_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"node not found: {node_id}")
+
+    resolved = _resolve_instance_for_node_record(rec, node_id)
+    instance_id = str(resolved.get("instance_id") or "").strip()
+    fqdn = str(rec.get("fqdn") or "").strip()
+
+    snooze = aws_snooze(instance_id, fqdn=fqdn)
+
+    patch = {
+        "node_id": rec.get("node_id") or node_id,
+        "instance_id": instance_id,
+        "aws_instance_id": instance_id,
+        "status": "stopping",
+        "aws_state": snooze.get("current_state") or "stopping",
+        "public_ip": "",
+        "aws_public_ip": "",
+    }
+    updated = upsert_node(str(rec.get("node_id") or node_id), patch)
+    return {"ok": True, "snooze": snooze, "node": updated}
+
+
+@router.post("/nodes/{node_id}/wake")
+def nodes_wake(node_id: str, request: Request) -> Dict[str, Any]:
+    require_operator(request)
+
+    rec = get_node(node_id)
+    if not rec:
+        raise HTTPException(status_code=404, detail=f"node not found: {node_id}")
+
+    resolved = _resolve_instance_for_node_record(rec, node_id)
+    instance_id = str(resolved.get("instance_id") or "").strip()
+    fqdn = str(rec.get("fqdn") or "").strip()
+
+    wake = aws_wake(instance_id, fqdn=fqdn)
+
+    patch = {
+        "node_id": rec.get("node_id") or node_id,
+        "instance_id": instance_id,
+        "aws_instance_id": instance_id,
+        "status": "booting",
+        "aws_state": wake.get("current_state") or wake.get("state") or "running",
+        "private_ip": wake.get("private_ip") or rec.get("private_ip") or rec.get("aws_private_ip") or "",
+        "public_ip": wake.get("public_ip") or "",
+        "aws_private_ip": wake.get("private_ip") or rec.get("aws_private_ip") or rec.get("private_ip") or "",
+        "aws_public_ip": wake.get("public_ip") or "",
+        "last_seen_ts": None,
+    }
+    updated = upsert_node(str(rec.get("node_id") or node_id), patch)
+    return {"ok": True, "wake": wake, "node": updated}
 
 
 
@@ -371,9 +445,23 @@ def nodes_list(request: Request) -> Dict[str, Any]:
         if aws_iid:
             matched_aws_ids.add(aws_iid)
 
+        derived_status = aws_state or "unknown"
+        if aws_state == "running":
+            derived_status = "running" if (heartbeat_age is None or heartbeat_age <= 180) else "stale"
+        elif aws_state == "pending":
+            derived_status = "booting"
+        elif aws_state == "stopped":
+            derived_status = "stopped"
+        elif aws_state == "stopping":
+            derived_status = "stopping"
+        elif aws_state == "shutting-down":
+            derived_status = "terminating"
+        elif aws_state == "terminated":
+            derived_status = "terminated"
+
         row["aws_state"] = aws_state
         row["heartbeat_age_sec"] = heartbeat_age
-        row["derived_status"] = "active"
+        row["derived_status"] = derived_status
 
         row["aws_instance_id"] = aws_rec.get("instance_id")
         row["aws_private_ip"] = aws_rec.get("private_ip")

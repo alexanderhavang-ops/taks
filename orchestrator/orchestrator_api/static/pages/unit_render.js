@@ -441,7 +441,37 @@
       text: 'Uppdatera'
     }));
 
-    if(looksRunning && nodeId){
+    const awsState = String((node && node.aws_state) || '').trim().toLowerCase();
+    const derivedStatus = String((node && node.derived_status) || '').trim().toLowerCase();
+    const isStopped = !!nodeId && (awsState === 'stopped' || derivedStatus === 'stopped');
+    const isLiveish = !!nodeId && (
+      awsState === 'running' ||
+      awsState === 'pending' ||
+      derivedStatus === 'running' ||
+      derivedStatus === 'stale' ||
+      derivedStatus === 'booting'
+    );
+
+    if(isStopped){
+      actions.appendChild(S.el('button', {
+        id: 'node_wake_btn',
+        className: 'btn btn--secondary',
+        text: 'Wake',
+        'data-node-id': nodeId
+      }));
+      actions.appendChild(S.el('button', {
+        id: 'node_terminate_btn',
+        className: 'btn btn--danger',
+        text: 'Terminera',
+        'data-node-id': nodeId
+      }));
+    }else if(isLiveish){
+      actions.appendChild(S.el('button', {
+        id: 'node_snooze_btn',
+        className: 'btn btn--secondary',
+        text: 'Snooze',
+        'data-node-id': nodeId
+      }));
       actions.appendChild(S.el('button', {
         id: 'node_terminate_btn',
         className: 'btn btn--danger',
@@ -1079,6 +1109,8 @@
     const previewBtn = S.byId('node_preview_btn');
     const dryrunBtn = S.byId('node_dryrun_btn');
     const launchBtn = S.byId('node_launch_btn');
+    const wakeBtn = S.byId('node_wake_btn');
+    const snoozeBtn = S.byId('node_snooze_btn');
     const refreshBtn = S.byId('node_refresh_btn');
     const terminateBtn = S.byId('node_terminate_btn');
 
@@ -1117,11 +1149,59 @@
       };
     }
 
+    if(wakeBtn){
+      wakeBtn.onclick = async function(){
+        const nodeId = String(wakeBtn.getAttribute('data-node-id') || '').trim();
+        if(!nodeId) return;
+        if(!confirm('Väck stoppad nod ' + nodeId + '?')) return;
+
+        setNodeActionStatus('Wake begärs… väntar på AWS-start och DNS-refresh…', 'muted');
+        setNodeLaunchInfo(null);
+
+        try{
+          const j = await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/wake', {});
+          if(j && j.wake) setNodeLaunchInfo(j.wake);
+          clearInstallProgressState(node, c);
+          clearInstallProgressState(node, c);
+          setNodeActionStatus('Wake begärd. Väntar på heartbeat…', 'ok');
+          startNodeProgressPoll(S.getRouteUnitPath());
+          setTimeout(function(){ render(); }, 700);
+        }catch(e){
+          const msg = String(e && e.message ? e.message : e);
+          setNodeActionStatus(msg, 'err');
+          alert(msg);
+        }
+      };
+    }
+
+    if(snoozeBtn){
+      snoozeBtn.onclick = async function(){
+        const nodeId = String(snoozeBtn.getAttribute('data-node-id') || '').trim();
+        if(!nodeId) return;
+        if(!confirm('Snooze/stoppa nod ' + nodeId + '?\n\nDin runtime data överlever detta. Inget går förlorat på noden.\n\nKostnaden för denna nod när den sover är liten och begränsad till kostnaden för storage.')) return;
+
+        setNodeActionStatus('Snooze begärs… stoppar instans och flyttar DNS…', 'muted');
+
+        try{
+          const j = await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/snooze', {});
+          if(j && j.snooze) setNodeLaunchInfo(j.snooze);
+          clearInstallProgressState(node, c);
+          clearInstallProgressState(node, c);
+          setNodeActionStatus('Snooze begärd.', 'ok');
+          setTimeout(function(){ render(); }, 700);
+        }catch(e){
+          const msg = String(e && e.message ? e.message : e);
+          setNodeActionStatus(msg, 'err');
+          alert(msg);
+        }
+      };
+    }
+
     if(terminateBtn){
       terminateBtn.onclick = async function(){
         const nodeId = String(terminateBtn.getAttribute('data-node-id') || '').trim();
         if(!nodeId) return;
-        if(!confirm('Terminera AWS-instans för ' + nodeId + '?')) return;
+        if(!confirm('Terminera nod ' + nodeId + '?\n\nTerminering innebär att du destruerar noden. DIN DATA KOMMER RADERAS. MKAY?')) return;
 
         setNodeActionStatus('Terminerar…', 'muted');
 

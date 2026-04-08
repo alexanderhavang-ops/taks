@@ -5,12 +5,12 @@ from pathlib import Path
 import os
 import tempfile
 
-from takctl.config import Config
+from takctl.config import RuntimeConfig
 
 
 @dataclass
 class FS:
-    cfg: Config
+    cfg: RuntimeConfig
 
     def read_text(self, path: str) -> str:
         return Path(path).read_text(encoding="utf-8")
@@ -35,4 +35,3 @@ class FS:
                     os.unlink(tmp)
             except Exception:
                 pass
-

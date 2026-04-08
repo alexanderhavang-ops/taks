@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from takctl.config import Config
+from takctl.config import RuntimeConfig
 from takctl.infra.audit import Audit
 from takctl.infra.db import DB
 from takctl.infra.fs import FS
@@ -12,7 +12,7 @@ from takctl.infra.systemd import Systemd
 
 @dataclass(frozen=True)
 class AppContext:
-    cfg: Config
+    cfg: RuntimeConfig
     db: DB
     openssl: OpenSSL
     fs: FS
@@ -20,7 +20,7 @@ class AppContext:
     audit: Audit
 
 
-def build_context(cfg: Config) -> AppContext:
+def build_context(cfg: RuntimeConfig) -> AppContext:
     db = DB(cfg)
     openssl = OpenSSL(cfg)
     fs = FS(cfg)

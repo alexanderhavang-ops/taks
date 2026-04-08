@@ -28,7 +28,7 @@
       }
 
       const s = document.createElement('script');
-      s.src = src + '?v=unit-split-8';
+      s.src = src + '?v=20260408-dialogs-1';
       s.async = false;
       s.dataset.unitSplit = src;
       s.onload = function(){

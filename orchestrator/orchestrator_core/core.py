@@ -281,6 +281,85 @@ def aws_launch(req: NodeRequest) -> Dict[str, Any]:
 
 
 
+def aws_snooze(instance_id: str, *, fqdn: str = "") -> Dict[str, Any]:
+    iid = str(instance_id or "").strip()
+    fqdn = str(fqdn or "").strip()
+    if not iid:
+        raise ValueError("missing instance_id")
+
+    r = region()
+    ec2 = boto3.client("ec2", region_name=r)
+    resp = ec2.stop_instances(InstanceIds=[iid])
+
+    items = list(resp.get("StoppingInstances") or [])
+    row = items[0] if items else {}
+
+    zone_id = _route53_zone_id()
+    dns_change = None
+    if zone_id and fqdn:
+        dns_change = _upsert_node_dns(
+            zone_id=zone_id,
+            fqdn=fqdn,
+            public_ip="192.0.2.1",
+        )
+
+    return {
+        "instance_id": iid,
+        "previous_state": ((row.get("PreviousState") or {}).get("Name") or "").strip() or None,
+        "current_state": ((row.get("CurrentState") or {}).get("Name") or "").strip() or "stopping",
+        "region": r,
+        "fqdn": fqdn or None,
+        "route53_zone_id": zone_id or None,
+        "dns_change": dns_change,
+        "dns_placeholder_ip": "192.0.2.1",
+    }
+
+
+def aws_wake(instance_id: str, *, fqdn: str = "") -> Dict[str, Any]:
+    iid = str(instance_id or "").strip()
+    fqdn = str(fqdn or "").strip()
+    if not iid:
+        raise ValueError("missing instance_id")
+
+    r = region()
+    ec2 = boto3.client("ec2", region_name=r)
+    resp = ec2.start_instances(InstanceIds=[iid])
+
+    items = list(resp.get("StartingInstances") or [])
+    row = items[0] if items else {}
+
+    inst_live = _wait_for_instance_network(ec2, iid)
+    public_ip = str(inst_live.get("PublicIpAddress") or "").strip()
+    private_ip = str(inst_live.get("PrivateIpAddress") or "").strip()
+    state = str(
+        ((inst_live.get("State") or {}).get("Name"))
+        or ((row.get("CurrentState") or {}).get("Name"))
+        or "running"
+    ).strip()
+
+    zone_id = _route53_zone_id()
+    dns_change = None
+    if zone_id and fqdn and public_ip:
+        dns_change = _upsert_node_dns(
+            zone_id=zone_id,
+            fqdn=fqdn,
+            public_ip=public_ip,
+        )
+
+    return {
+        "instance_id": iid,
+        "previous_state": ((row.get("PreviousState") or {}).get("Name") or "").strip() or None,
+        "current_state": ((row.get("CurrentState") or {}).get("Name") or "").strip() or state,
+        "state": state,
+        "region": r,
+        "fqdn": fqdn or None,
+        "private_ip": private_ip,
+        "public_ip": public_ip,
+        "route53_zone_id": zone_id or None,
+        "dns_change": dns_change,
+    }
+
+
 def aws_terminate(instance_id: str) -> Dict[str, Any]:
     iid = str(instance_id or "").strip()
     if not iid:

@@ -19,12 +19,9 @@ def _run(argv: list[str], check: bool = True) -> subprocess.CompletedProcess:
 
 
 def _refresh_interval_hours() -> int:
-    try:
-        cfg = load_takctl_config()
-        raw = str(cfg.get("llm3_refresh_interval_hours", "1") or "1").strip()
-        return max(0, int(raw))
-    except Exception:
-        return 1
+    cfg = load_takctl_config()
+    raw = str(cfg.get("llm3_refresh_interval_hours", "1") or "1").strip()
+    return max(0, int(raw))
 
 
 def _service_text() -> str:
@@ -34,7 +31,6 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-EnvironmentFile=/opt/tak/tools/takctl/secrets/db.env
 Type=oneshot
 User=tak
 Group=tak

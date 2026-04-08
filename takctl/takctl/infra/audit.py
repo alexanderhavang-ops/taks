@@ -3,13 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from takctl.config import Config
+from takctl.config import RuntimeConfig
 from takctl.infra.time import utcnow
 
 
 @dataclass
 class Audit:
-    cfg: Config
+    cfg: RuntimeConfig
 
     def log(self, event: str, detail: str = "") -> None:
         """
@@ -21,4 +21,3 @@ class Audit:
         line = f"{ts}\t{event}\t{detail}\n"
         with p.open("a", encoding="utf-8") as f:
             f.write(line)
-

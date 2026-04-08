@@ -3,8 +3,6 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from takctl.config_store import (
-    DEFAULT_CONFIG_PATH,
-    DEFAULT_SECRETS_PATH,
     KVView,
     apply_runtime_updates,
     load_runtime_config_view,
@@ -28,17 +26,11 @@ def _render_conf(section: str, values: dict[str, str]) -> str:
 
 
 def load_config(path: Optional[str] = None, *, secrets_path: Optional[str] = None) -> RuntimeConfig:
-    cfg = load_runtime_config_view()
-    if path and path != cfg.root_path and path != cfg._loaded_from:
-        pass
-    return cfg
+    return load_runtime_config_view()
 
 
 def load_secrets(path: Optional[str] = None) -> RuntimeSecrets:
-    sec = load_runtime_secrets_view()
-    if path and path != sec.root_path and path != sec._loaded_from:
-        pass
-    return sec
+    return load_runtime_secrets_view()
 
 
 def render_config(cfg: RuntimeConfig) -> str:

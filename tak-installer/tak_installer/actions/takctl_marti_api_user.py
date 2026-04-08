@@ -1,17 +1,17 @@
 from __future__ import annotations
 
 import os
-import secrets
 import subprocess
 from pathlib import Path
 
 from tak_installer.util import log
+from takctl.config import load_secrets
+from takctl.config_store import save_runtime_secrets_view
 
 
-SECRETS_CONF = Path("/opt/tak/tools/takctl/secrets.conf")
 HELPER = Path("/opt/tak/tools/takctl/bin/takctl-usermgr")
-
 DEFAULT_USERNAME = "taks-api"
+COMPONENT = "marti_api"
 
 
 def _gen_strong_password(length: int = 20) -> str:
@@ -42,76 +42,45 @@ def _gen_strong_password(length: int = 20) -> str:
     return "".join(chars)
 
 
-def _parse_env(text: str) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for line in text.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        if line.startswith("[") and line.endswith("]"):
-            continue
-        k, v = line.split("=", 1)
-        out[k.strip()] = v.strip()
-    return out
-
-
-def _write_atomic(path: Path, data: str, mode: int) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(data, encoding="utf-8")
-    os.chmod(tmp, mode)
-    tmp.replace(path)
-
-
 def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=check)
 
 
-def _load_runtime_secrets() -> dict[str, str]:
-    if not SECRETS_CONF.exists():
-        return {}
-    return _parse_env(SECRETS_CONF.read_text(encoding="utf-8"))
+def _component_path() -> Path:
+    return Path("/opt/tak/tools/takctl/secrets.d") / f"{COMPONENT}.conf"
 
 
-def _write_runtime_secrets(existing: dict[str, str]) -> None:
-    existing.setdefault("db_password", "")
-    existing.setdefault("ca_signing_p12_pass", "")
-    existing.setdefault("user_key_pass", "")
-    existing.setdefault("onboarding_client_p12_default_pass", "")
-    existing.setdefault("marti_api_username", DEFAULT_USERNAME)
-    existing.setdefault("marti_api_password", "")
-    existing.setdefault("bedrock_api_key", "")
-
-    content = (
-        "[takctl-secrets]\n"
-        f"db_password = {existing.get('db_password', '')}\n"
-        f"ca_signing_p12_pass = {existing.get('ca_signing_p12_pass', '')}\n"
-        f"user_key_pass = {existing.get('user_key_pass', '')}\n"
-        f"onboarding_client_p12_default_pass = {existing.get('onboarding_client_p12_default_pass', '')}\n"
-        f"marti_api_username = {existing.get('marti_api_username', '')}\n"
-        f"marti_api_password = {existing.get('marti_api_password', '')}\n"
-        f"bedrock_api_key = {existing.get('bedrock_api_key', '')}\n"
-    )
-
-    _write_atomic(SECRETS_CONF, content, 0o640)
-    _run(["chown", "tak:tak", str(SECRETS_CONF)], check=False)
-    log.info("takctl-marti-api-user: ensured %s", SECRETS_CONF)
+def _normalize_component_file() -> None:
+    p = _component_path()
+    if not p.exists():
+        return
+    try:
+        os.chmod(p, 0o640)
+    except Exception:
+        pass
+    _run(["chown", "tak:tak", str(p)], check=False)
 
 
 def _ensure_secret_values() -> tuple[str, str]:
-    sec = _load_runtime_secrets()
+    sec = load_secrets()
+    changed = False
 
-    user = (sec.get("marti_api_username") or "").strip()
+    user = (sec.get("marti_api_username", "") or "").strip()
     if not user:
         user = DEFAULT_USERNAME
-        sec["marti_api_username"] = user
+        sec.set("marti_api_username", user, component=COMPONENT)
+        changed = True
 
-    pw = (sec.get("marti_api_password") or "").strip()
+    pw = (sec.get("marti_api_password", "") or "").strip()
     if not pw:
         pw = _gen_strong_password(20)
-        sec["marti_api_password"] = pw
+        sec.set("marti_api_password", pw, component=COMPONENT)
+        changed = True
 
-    _write_runtime_secrets(sec)
+    if changed:
+        save_runtime_secrets_view(sec)
+        _normalize_component_file()
+
     return user, pw
 
 
@@ -146,7 +115,7 @@ class _Action:
 
     def inspect(self, ctx) -> int:
         log.info("Inspecting %s action...", self.ID)
-        log.info("  secrets: %s", SECRETS_CONF)
+        log.info("  secrets component: %s", _component_path())
         log.info("  helper: %s", HELPER)
         log.info("  default marti_api_username: %s", DEFAULT_USERNAME)
         return 0

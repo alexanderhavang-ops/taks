@@ -1,42 +1,86 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-NODE_ENV=""
-for cand in \
-  /etc/taks-bootstrap.d/node.env \
-  /etc/taks/node.env
-do
-  if [[ -f "$cand" ]]; then
-    NODE_ENV="$cand"
-    break
-  fi
-done
-
 UNIT_JSON=/etc/taks/unit.json
 INSTALL_STATE_LOG=/var/log/taks-installer-state.log
 
-[[ -n "$NODE_ENV" ]] || {
-  echo "[taks-heartbeat] no node.env found in /etc/taks-bootstrap.d or /etc/taks" >&2
-  exit 0
+read_runtime_values() {
+  python3 - <<'PY'
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+
+def parse_file(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not path.is_file():
+        return out
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            continue
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        v = v.strip()
+        if k:
+            out[k] = v
+    return out
+
+
+def load_dir(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not path.is_dir():
+        return out
+    for p in sorted(path.glob("*.conf")):
+        out.update(parse_file(p))
+    return out
+
+
+conf = {}
+for d in (
+    Path("/opt/tak/tools/takctl/conf.d"),
+    Path("/etc/taks-bootstrap.d/config.d"),
+):
+    conf.update(load_dir(d))
+
+sec = {}
+for d in (
+    Path("/opt/tak/tools/takctl/secrets.d"),
+    Path("/etc/taks-bootstrap.d/secrets.d"),
+):
+    sec.update(load_dir(d))
+
+payload = {
+    "ORCH_API_URL": str(conf.get("orch_api_url", "") or ""),
+    "TAKS_NODE_USER": str(sec.get("node_api_user", "") or sec.get("node_user", "") or ""),
+    "TAKS_NODE_PASSWORD": str(sec.get("node_api_password", "") or sec.get("node_password", "") or ""),
+    "NODE_ID": str(conf.get("node_id", "") or conf.get("node_fqdn", "") or conf.get("fqdn", "") or ""),
+    "NODE_FQDN": str(conf.get("node_fqdn", "") or conf.get("fqdn", "") or ""),
+    "NODE_HOSTNAME": str(conf.get("hostname", "") or ""),
 }
 
-# shellcheck disable=SC1090
-. "$NODE_ENV"
+for k, v in payload.items():
+    print(f"{k}={json.dumps(v)}")
+PY
+}
 
-ORCH_API_URL="${ORCH_API_URL:-}"
-TAKS_NODE_USER="${TAKS_NODE_USER:-}"
-TAKS_NODE_PASSWORD="${TAKS_NODE_PASSWORD:-}"
+eval "$(read_runtime_values)"
 
 [[ -n "$ORCH_API_URL" ]] || {
-  echo "[taks-heartbeat] ORCH_API_URL missing in $NODE_ENV" >&2
+  echo "[taks-heartbeat] orch_api_url missing in runtime/bootstrap conf.d" >&2
   exit 0
 }
 [[ -n "$TAKS_NODE_USER" ]] || {
-  echo "[taks-heartbeat] TAKS_NODE_USER missing in $NODE_ENV" >&2
+  echo "[taks-heartbeat] node_api_user missing in runtime/bootstrap secrets.d" >&2
   exit 0
 }
 [[ -n "$TAKS_NODE_PASSWORD" ]] || {
-  echo "[taks-heartbeat] TAKS_NODE_PASSWORD missing in $NODE_ENV" >&2
+  echo "[taks-heartbeat] node_api_password missing in runtime/bootstrap secrets.d" >&2
   exit 0
 }
 
@@ -45,15 +89,20 @@ if command -v jq >/dev/null 2>&1 && [[ -f "$UNIT_JSON" ]]; then
   UNIT_ID="$(jq -r '.unit_id // .unit_path // empty' "$UNIT_JSON" 2>/dev/null || true)"
 fi
 
-NODE_ID="${TAKS_NODE_ID:-${TAKS_NODE_FQDN:-$(hostname -f 2>/dev/null || hostname)}}"
-NODE_FQDN="${TAKS_NODE_FQDN:-$NODE_ID}"
+if [[ -z "$NODE_ID" ]]; then
+  NODE_ID="$(hostname -f 2>/dev/null || hostname)"
+fi
 
-if [[ -n "${TAKS_NODE_HOSTNAME:-}" ]]; then
-  NODE_HOSTNAME="$TAKS_NODE_HOSTNAME"
-elif [[ -n "${TAKS_NODE_FQDN:-}" ]]; then
-  NODE_HOSTNAME="${TAKS_NODE_FQDN%%.*}"
-else
-  NODE_HOSTNAME="$(hostname -s 2>/dev/null || hostname)"
+if [[ -z "$NODE_FQDN" ]]; then
+  NODE_FQDN="$NODE_ID"
+fi
+
+if [[ -z "$NODE_HOSTNAME" ]]; then
+  if [[ -n "$NODE_FQDN" ]]; then
+    NODE_HOSTNAME="${NODE_FQDN%%.*}"
+  else
+    NODE_HOSTNAME="$(hostname -s 2>/dev/null || hostname)"
+  fi
 fi
 
 PRIVATE_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"

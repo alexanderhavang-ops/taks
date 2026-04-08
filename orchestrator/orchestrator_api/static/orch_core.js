@@ -195,7 +195,11 @@
       'nodes.table.last_seen': 'last seen',
       'nodes.terminate': 'Terminate',
       'nodes.delete_state.confirm': 'Delete state for {id}?',
-      'nodes.terminate.confirm': 'Terminate AWS instance for {id}?',
+      'nodes.terminate.confirm': 'Terminate node {id}?
+
+THIS DESTROYS THE NODE.
+
+YOUR DATA WILL BE DELETED. MKAY?',
       'nodes.terminate.requested': 'Terminate requested for {id}',
       'nodes.terminate.failed': 'Terminate failed for {id}',
       'common.none': '—',

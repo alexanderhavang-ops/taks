@@ -48,6 +48,32 @@
     }
   }
 
+  async function snoozeNode(id){
+    if(!confirm(CORE.t('nodes.snooze.confirm', { id }))) return;
+    try{
+      const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/snooze`, {});
+      alert(`${CORE.t('nodes.snooze.requested', { id })}\n\n${JSON.stringify(j.snooze || j || {}, null, 2)}`);
+      load();
+    }catch(e){
+      const d = CORE.errorDetails ? CORE.errorDetails(e) : { msg: String((e && e.message) ? e.message : e), detail: '' };
+      alert(`${CORE.t('nodes.snooze.failed', { id })}\n\n${d.msg || CORE.t('common.error')}${d.detail ? '\n\n' + d.detail : ''}`);
+      throw e;
+    }
+  }
+
+  async function wakeNode(id){
+    if(!confirm(CORE.t('nodes.wake.confirm', { id }))) return;
+    try{
+      const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/wake`, {});
+      alert(`${CORE.t('nodes.wake.requested', { id })}\n\n${JSON.stringify(j.wake || j || {}, null, 2)}`);
+      load();
+    }catch(e){
+      const d = CORE.errorDetails ? CORE.errorDetails(e) : { msg: String((e && e.message) ? e.message : e), detail: '' };
+      alert(`${CORE.t('nodes.wake.failed', { id })}\n\n${d.msg || CORE.t('common.error')}${d.detail ? '\n\n' + d.detail : ''}`);
+      throw e;
+    }
+  }
+
   function tdVal(v){
     const x = document.createElement('td');
     if(v instanceof Node) x.appendChild(v);
@@ -59,19 +85,37 @@
     const td = document.createElement('td');
     td.style.whiteSpace = 'nowrap';
 
-    const st = String(n.derived_status || '').trim();
+    const st = String(n.derived_status || '').trim().toLowerCase();
+    const aws = String(n.aws_state || '').trim().toLowerCase();
     const hasInstance = String(n.instance_id || n.aws_instance_id || '').trim().length > 0;
 
-    if(hasInstance && st !== 'terminated' && st !== 'untracked'){
-      const term = document.createElement('button');
-      term.className = 'btn btn--danger';
-      term.textContent = CORE.t('nodes.terminate');
-      term.onclick = () => terminateNode(n.node_id);
-      td.appendChild(term);
-    }else{
+    if(!hasInstance || st === 'terminated' || st === 'untracked' || aws === 'terminated'){
       td.textContent = CORE.t('common.none');
+      return td;
     }
 
+    const addBtn = function(text, cls, onclick){
+      const b = document.createElement('button');
+      b.className = cls;
+      b.textContent = text;
+      b.onclick = onclick;
+      if(td.childNodes.length) b.style.marginLeft = '8px';
+      td.appendChild(b);
+    };
+
+    if(st === 'stopped' || aws === 'stopped'){
+      addBtn(CORE.t('nodes.wake'), 'btn btn--secondary', () => wakeNode(n.node_id));
+      addBtn(CORE.t('nodes.terminate'), 'btn btn--danger', () => terminateNode(n.node_id));
+      return td;
+    }
+
+    if(st === 'running' || st === 'stale' || st === 'booting' || aws === 'running' || aws === 'pending'){
+      addBtn(CORE.t('nodes.snooze'), 'btn btn--secondary', () => snoozeNode(n.node_id));
+      addBtn(CORE.t('nodes.terminate'), 'btn btn--danger', () => terminateNode(n.node_id));
+      return td;
+    }
+
+    addBtn(CORE.t('nodes.terminate'), 'btn btn--danger', () => terminateNode(n.node_id));
     return td;
   }
 

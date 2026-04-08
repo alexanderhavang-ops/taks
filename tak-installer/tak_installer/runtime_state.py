@@ -3,16 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 
 
-TAKS_ENV = Path("/opt/tak/etc/taks.env")
-BOOTSTRAP_NODE_ENV = Path("/etc/taks-bootstrap.d/node.env")
-NODE_ENV = Path("/etc/taks/node.env")
+RUNTIME_CONF_D = Path("/opt/tak/tools/takctl/conf.d")
+BOOTSTRAP_CONF_D = Path("/etc/taks-bootstrap.d/config.d")
 
 
-def _parse_env_text(s: str) -> dict[str, str]:
+def _parse_kv_text(s: str) -> dict[str, str]:
     out: dict[str, str] = {}
-    for line in s.splitlines():
-        line = line.strip()
+    for raw in str(s or "").splitlines():
+        line = raw.strip()
         if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
             continue
         if "=" not in line:
             continue
@@ -24,35 +25,30 @@ def _parse_env_text(s: str) -> dict[str, str]:
     return out
 
 
-def _parse_env_file(path: Path) -> dict[str, str]:
-    if not path.is_file():
+def _load_conf_dir(dir_path: Path) -> dict[str, str]:
+    if not dir_path.is_dir():
         return {}
-    return _parse_env_text(path.read_text(encoding="utf-8"))
+    merged: dict[str, str] = {}
+    for p in sorted(dir_path.glob("*.conf")):
+        if not p.is_file():
+            continue
+        merged.update(_parse_kv_text(p.read_text(encoding="utf-8")))
+    return merged
 
 
 def get_fqdn(ctx) -> str:
     """
     Canonical FQDN resolution:
-      1) ctx/env: FQDN, TAKS_FQDN, TAKS_NODE_FQDN
-      2) bootstrap env: /etc/taks-bootstrap.d/node.env
-      3) node env: /etc/taks/node.env
-      4) runtime state: /opt/tak/etc/taks.env
+      1) runtime conf.d
+      2) bootstrap config.d (first-install seed only)
     """
-    env = getattr(ctx, "env", {}) or {}
-
-    for key in ("FQDN", "TAKS_FQDN", "TAKS_NODE_FQDN"):
-        fqdn = str(env.get(key) or "").strip()
-        if fqdn:
-            return fqdn
-
-    for path in (BOOTSTRAP_NODE_ENV, NODE_ENV, TAKS_ENV):
-        data = _parse_env_file(path)
-        for key in ("FQDN", "TAKS_FQDN", "TAKS_NODE_FQDN"):
+    for dir_path in (RUNTIME_CONF_D, BOOTSTRAP_CONF_D):
+        data = _load_conf_dir(dir_path)
+        for key in ("fqdn", "node_fqdn", "tak_public_host", "public_host", "hostname"):
             fqdn = str(data.get(key) or "").strip()
             if fqdn:
                 return fqdn
 
     raise RuntimeError(
-        "FQDN not set. Checked ctx/env (FQDN, TAKS_FQDN, TAKS_NODE_FQDN), "
-        "/etc/taks-bootstrap.d/node.env, /etc/taks/node.env, and /opt/tak/etc/taks.env."
+        "FQDN not set. Checked /opt/tak/tools/takctl/conf.d and /etc/taks-bootstrap.d/config.d."
     )
