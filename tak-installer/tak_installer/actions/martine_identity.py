@@ -275,7 +275,7 @@ def _install_runtime_identity(cfg, cert_p12_path: Path, cert_pem_path: Path) -> 
     ca_pem_dst = RUNTIME_ID_DIR / "ca.pem"
 
     cert_key_path = cert_pem_path.with_suffix(".key")
-    ca_pem_src = CERTS_DIR / "ca.pem"
+    ca_pem_src = CERTS_DIR / "00_CA" / "ca.pem"
 
     if not cert_key_path.exists():
         raise RuntimeError(f"missing client key next to pem: {cert_key_path}")

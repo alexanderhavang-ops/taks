@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from takctl.config import load_config
 from takctl.services.docs_paths import (
     ensure_docs_dirs,
     raw_doc_dir,
@@ -89,8 +90,75 @@ def _normalize_text(text: str) -> str:
     return text.strip()
 
 
-def extract_pdf_text(pdf_path: Path) -> str:
-    # KISS: try pypdf first, then pdftotext if available.
+def _ocr_lang_from_config() -> str:
+    cfg = load_config()
+
+    raw = ""
+    for key in (
+        "docs_lang",
+        "docs_language",
+        "ocr_lang",
+        "ocr_language",
+        "language",
+        "lang",
+    ):
+        v = str(cfg.get(key, "") or "").strip()
+        if v:
+            raw = v
+            break
+
+    code = (raw or "EN").upper()
+    if code == "SV":
+        return "swe"
+    if code == "EN":
+        return "eng"
+    raise RuntimeError(f"unsupported OCR language in config: {raw!r} (expected SV or EN)")
+
+
+def _pdf_page_count(pdf_path: Path) -> int | None:
+    try:
+        from pypdf import PdfReader  # type: ignore
+        return len(PdfReader(str(pdf_path)).pages)
+    except Exception:
+        pass
+
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["pdfinfo", str(pdf_path)],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if out.returncode == 0:
+            m = re.search(r"^Pages:\s+(\d+)\s*$", out.stdout or "", re.MULTILINE)
+            if m:
+                return int(m.group(1))
+    except Exception:
+        pass
+
+    return None
+
+
+def _validate_extracted_text(pdf_path: Path, text: str) -> str:
+    text = _normalize_text(text)
+    text_len = len(text)
+    pages = _pdf_page_count(pdf_path)
+
+    if text_len < 400:
+        raise RuntimeError("could not extract enough text from PDF (very small extract)")
+
+    if pages and pages >= 40:
+        chars_per_page = text_len / max(pages, 1)
+        if text_len < 5000 or chars_per_page < 80:
+            raise RuntimeError(
+                f"extracted text too small for PDF ({text_len} chars across {pages} pages; likely scanned/image PDF requiring OCR)"
+            )
+
+    return text
+
+
+def _extract_pdf_text_basic(pdf_path: Path) -> str:
     try:
         from pypdf import PdfReader  # type: ignore
         reader = PdfReader(str(pdf_path))
@@ -122,6 +190,55 @@ def extract_pdf_text(pdf_path: Path) -> str:
         pass
 
     raise RuntimeError("could not extract text from PDF (no usable parser output)")
+
+
+def _ocr_pdf_to_text(pdf_path: Path) -> str:
+    import subprocess
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="taks-ocr-") as td:
+        td_path = Path(td)
+        ocr_pdf = td_path / "ocr.pdf"
+
+        out = subprocess.run(
+            [
+                "ocrmypdf",
+                "--quiet",
+                "--skip-big",
+                "50",
+                "--language",
+                _ocr_lang_from_config(),
+                "--force-ocr",
+                str(pdf_path),
+                str(ocr_pdf),
+            ],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if out.returncode != 0:
+            detail = (out.stderr or out.stdout or "").strip()
+            raise RuntimeError(f"OCR failed: {detail or 'ocrmypdf returned non-zero exit code'}")
+
+        out2 = subprocess.run(
+            ["pdftotext", "-layout", str(ocr_pdf), "-"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if out2.returncode == 0 and (out2.stdout or "").strip():
+            return _normalize_text(out2.stdout)
+
+        raise RuntimeError("OCR completed but no usable text was extracted from OCR PDF")
+
+
+def extract_pdf_text(pdf_path: Path) -> tuple[str, str]:
+    try:
+        basic = _extract_pdf_text_basic(pdf_path)
+        return _validate_extracted_text(pdf_path, basic), "basic"
+    except Exception:
+        ocr_text = _ocr_pdf_to_text(pdf_path)
+        return _validate_extracted_text(pdf_path, ocr_text), "ocr_fallback"
 
 
 def _chunk_text(text: str, *, chunk_chars: int = 1800, overlap_chars: int = 250) -> list[str]:
@@ -462,7 +579,7 @@ def ingest_uploaded_pdf(
         "source": "local_upload",
         "active": True,
         "status": "uploaded",
-        "parser_version": "v1",
+        "parser_version": "v2-ocr",
         "tags": [],
     }
     write_manifest(doc_id, manifest)
@@ -472,9 +589,9 @@ def ingest_uploaded_pdf(
 
     try:
         write_status(doc_id, status="extracting", steps=steps)
-        text = extract_pdf_text(raw_path)
+        text, extract_mode = extract_pdf_text(raw_path)
         _write_text(extract_path(doc_id), text)
-        steps["extract"] = {"ok": True}
+        steps["extract"] = {"ok": True, "mode": extract_mode}
 
         write_status(doc_id, status="structuring", steps=steps)
         sections = _write_sections(doc_id, doc_title, text)
@@ -500,7 +617,7 @@ def ingest_uploaded_pdf(
                 "status": "ready",
                 "active": True,
                 "source": "local_upload",
-                "parser_version": "v1",
+                "parser_version": "v2-ocr",
                 "chunk_count": chunk_count,
             }
         )
@@ -532,7 +649,7 @@ def ingest_uploaded_pdf(
                 "status": "failed",
                 "active": True,
                 "source": "local_upload",
-                "parser_version": "v1",
+                "parser_version": "v2-ocr",
                 "chunk_count": 0,
                 "error": err,
             }

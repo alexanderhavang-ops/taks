@@ -15,6 +15,9 @@ PACKAGES = [
     "rsync",
     "nginx",
     "qrencode",
+    "tesseract-ocr-swe",
+    "tesseract-ocr-eng",
+    "ocrmypdf",
     "certbot",
 ]
 
