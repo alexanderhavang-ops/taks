@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-SOURCE_ROOT = Path(os.environ.get("TAK_REPLAY_CODE_ROOT", "/opt/tak/tools/takctl/replay")).resolve()
-RUNTIME_ROOT = Path(os.environ.get("TAK_REPLAY_STATE_ROOT", "/opt/tak/replay")).resolve()
+SOURCE_ROOT = Path("/opt/tak/tools/takctl/replay").resolve()
+RUNTIME_ROOT = Path("/opt/tak/replay").resolve()
 
 PROMPT_ROOT = SOURCE_ROOT / "prompts"
 SEED_ROOT = SOURCE_ROOT / "seeds"

@@ -16,10 +16,6 @@ class NginxAcmeSite:
     dst: Path
 
     def _fqdn(self, ctx) -> str:
-        for key in ("FQDN", "TAKS_FQDN", "TAKS_NODE_FQDN"):
-            v = str((ctx.env or {}).get(key) or "").strip()
-            if v:
-                return v
         return get_fqdn(ctx)
 
     def inspect(self, ctx) -> dict[str, str]:

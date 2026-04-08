@@ -6,8 +6,8 @@ import shutil
 import sys
 from pathlib import Path
 
-RUNS_DIR = Path(os.environ.get("TAKCTL_LLM2_RUNS_DIR", "/opt/tak/tools/takctl/state/llm2/runs"))
-KEEP = int(os.environ.get("TAKCTL_LLM2_KEEP_RUNS", "5"))
+RUNS_DIR = Path("/opt/tak/tools/takctl/state/llm2/runs")
+KEEP = 5
 
 
 def main() -> int:

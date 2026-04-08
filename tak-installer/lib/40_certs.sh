@@ -1,13 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+BOOTSTRAP_NODE_CONF="/etc/taks-bootstrap.d/config.d/node.conf"
+
+read_node_conf(){
+  local key="$1"
+  [[ -f "$BOOTSTRAP_NODE_CONF" ]] || die "missing ${BOOTSTRAP_NODE_CONF}"
+  sed -n "s/^${key}[[:space:]]*=[[:space:]]*//p" "$BOOTSTRAP_NODE_CONF" | head -n 1
+}
+
 node_cert_model(){
-  printf '%s' "${TAKS_NODE_CERT_MODEL:-HTTP_01}"
+  local v
+  v="$(read_node_conf node_cert_model || true)"
+  [[ -n "$v" ]] || v="HTTP_01"
+  printf '%s' "$v"
+}
+
+node_fqdn(){
+  local v
+  v="$(read_node_conf node_fqdn || true)"
+  [[ -n "$v" ]] || v="$(read_node_conf fqdn || true)"
+  [[ -n "$v" ]] || die "missing node_fqdn/fqdn in ${BOOTSTRAP_NODE_CONF}"
+  printf '%s' "$v"
+}
+
+node_le_email(){
+  local v
+  v="$(read_node_conf le_email || true)"
+  printf '%s' "$v"
 }
 
 le_cert_paths_set(){
-  TLS_CERT="/etc/letsencrypt/live/${FQDN}/fullchain.pem"
-  TLS_KEY="/etc/letsencrypt/live/${FQDN}/privkey.pem"
+  local fqdn
+  fqdn="$(node_fqdn)"
+  TLS_CERT="/etc/letsencrypt/live/${fqdn}/fullchain.pem"
+  TLS_KEY="/etc/letsencrypt/live/${fqdn}/privkey.pem"
 }
 
 offline_cert_paths_set(){
@@ -26,13 +53,16 @@ ensure_webroot(){
 }
 
 ensure_live_dir(){
-  local live_dir
-  live_dir="/etc/letsencrypt/live/${FQDN}"
+  local live_dir fqdn
+  fqdn="$(node_fqdn)"
+  live_dir="/etc/letsencrypt/live/${fqdn}"
   mkdir -p "$live_dir"
   chmod 0755 "$live_dir"
 }
 
 install_wildcard_cert_to_live_path(){
+  local fqdn
+  fqdn="$(node_fqdn)"
   le_cert_paths_set
   wildcard_bundle_cert_paths_set
   ensure_live_dir
@@ -46,29 +76,32 @@ install_wildcard_cert_to_live_path(){
   [[ -f "$TLS_CERT" ]] || die "wildcard mode: failed to install TLS_CERT ($TLS_CERT)"
   [[ -f "$TLS_KEY"  ]] || die "wildcard mode: failed to install TLS_KEY ($TLS_KEY)"
 
-  log "installed wildcard TLS material for ${FQDN} into /etc/letsencrypt/live/${FQDN}"
+  log "installed wildcard TLS material for ${fqdn} into /etc/letsencrypt/live/${fqdn}"
 }
 
 le_cert_obtain_http01(){
+  local fqdn le_email
+  fqdn="$(node_fqdn)"
+  le_email="$(node_le_email)"
   le_cert_paths_set
 
   if [[ -f "$TLS_CERT" && -f "$TLS_KEY" ]]; then
-    log "LE cert already present for ${FQDN}"
+    log "LE cert already present for ${fqdn}"
     return 0
   fi
 
   command -v certbot >/dev/null 2>&1 || die "certbot not installed (HTTP_01 mode requires it)"
-  [[ -n "${LE_EMAIL:-}" ]] || die "HTTP_01 mode requires LE_EMAIL"
+  [[ -n "$le_email" ]] || die "HTTP_01 mode requires le_email in ${BOOTSTRAP_NODE_CONF}"
 
   nginx -t || die "nginx config invalid before certbot"
   systemctl enable --now nginx
   systemctl reload nginx
 
-  log "Requesting LE cert for ${FQDN} via HTTP-01 (port 80)"
+  log "Requesting LE cert for ${fqdn} via HTTP-01 (port 80)"
   certbot certonly --nginx \
-    -d "${FQDN}" \
+    -d "${fqdn}" \
     --non-interactive --agree-tos \
-    -m "${LE_EMAIL}" \
+    -m "${le_email}" \
     || die "certbot failed (DNS/SG/80 reachability?)"
 
   [[ -f "$TLS_CERT" ]] || die "LE certbot completed but missing TLS_CERT ($TLS_CERT)"
@@ -98,7 +131,7 @@ certs_prepare(){
       install_wildcard_cert_to_live_path
       ;;
     *)
-      die "unknown TAKS_NODE_CERT_MODEL: $(node_cert_model)"
+      die "unknown node_cert_model in ${BOOTSTRAP_NODE_CONF}: $(node_cert_model)"
       ;;
   esac
 }

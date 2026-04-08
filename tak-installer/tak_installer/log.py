@@ -10,9 +10,8 @@ def get_logger(name: str) -> logging.Logger:
 
     - Logs to stderr
     - Level defaults to INFO
-    - Override with: TAK_INSTALLER_LOG_LEVEL=DEBUG (etc)
     """
-    level_name = os.environ.get("TAK_INSTALLER_LOG_LEVEL", "INFO").upper()
+    level_name = "INFO"
     level = getattr(logging, level_name, logging.INFO)
 
     logger = logging.getLogger(name)

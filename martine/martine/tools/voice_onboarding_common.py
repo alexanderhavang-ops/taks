@@ -10,21 +10,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-from takctl.config import load_secrets
+from takctl.config import load_config, load_secrets
 
 
 IDENTITY_DIR = Path("/opt/tak/tools/martine/runtime/identity")
 CERT_PEM = IDENTITY_DIR / "client.pem"
 KEY_PEM = IDENTITY_DIR / "client.key"
 CA_PEM = IDENTITY_DIR / "ca.pem"
-
-TAKS_ENV = Path("/opt/tak/etc/taks.env")
-FQDN_FILES = [
-    TAKS_ENV,
-    Path("/opt/tak/FQDN"),
-    Path("/opt/tak/bootstrap/fqdn"),
-    Path("/opt/tak/bootstrap/fqdn.txt"),
-]
 
 MURMUR_SECRET_FILES = [
     Path("/opt/tak/bootstrap/secrets.d/murmur.conf"),
@@ -132,25 +124,6 @@ def _state_root(cfg: Any) -> Path:
     return Path(str(_cfg_get(cfg, "state_dir", "/opt/tak/tools/martine/state")))
 
 
-def _parse_env_file(path: Path) -> dict[str, str]:
-    out: dict[str, str] = {}
-    try:
-        if not path.exists():
-            return out
-        for raw in path.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            k = k.strip()
-            v = v.strip()
-            if k:
-                out[k] = v
-    except Exception:
-        return {}
-    return out
-
-
 def _read_simple_kv(path: Path) -> dict[str, str]:
     out: dict[str, str] = {}
     try:
@@ -171,39 +144,16 @@ def _read_simple_kv(path: Path) -> dict[str, str]:
 
 
 def _resolve_fqdn(cfg: Any) -> str:
-    env = _parse_env_file(TAKS_ENV)
-    for key in ("TAKS_FQDN", "TAKS_NODE_FQDN"):
-        val = str(env.get(key) or "").strip()
-        if val:
-            return val
-
-    for path in FQDN_FILES[1:]:
-        try:
-            if not path.exists():
-                continue
-            txt = path.read_text(encoding="utf-8").strip()
-            if txt:
-                return txt.splitlines()[0].strip()
-        except Exception:
-            pass
-
     for cand in (
+        _cfg_get(cfg, "node_fqdn", ""),
         _cfg_get(cfg, "fqdn", ""),
         _cfg_get(cfg, "tak_public_host", ""),
         _cfg_get(cfg, "public_host", ""),
     ):
-        s = str(cand or "").strip()
+        s = str(cand or "").strip().lower()
         if s:
             return s
-
-    try:
-        fqdn = socket.getfqdn().strip()
-        if fqdn:
-            return fqdn
-    except Exception:
-        pass
-
-    raise RuntimeError("could not resolve node FQDN")
+    raise RuntimeError("missing node_fqdn/fqdn in runtime conf.d")
 
 
 def _resolve_ipv4(host: str) -> str:
@@ -260,53 +210,90 @@ def _normalize_channels(
             else:
                 add(item)
 
-    if channels_csv:
-        for part in str(channels_csv).split(","):
-            add(part)
+    for part in str(channels_csv or "").split(","):
+        add(part)
 
-    if not out and isinstance(defaults, dict):
-        for key in ("channels", "default_channels"):
-            raw = defaults.get(key)
-            if isinstance(raw, list):
-                for item in raw:
-                    if isinstance(item, dict):
-                        add(item.get("name") or item.get("path") or item.get("channel"))
-                    else:
-                        add(item)
+    defs = defaults or {}
+    raw_defaults = defs.get("channels")
+    if isinstance(raw_defaults, str):
+        for part in raw_defaults.split(","):
+            add(part)
+    elif isinstance(raw_defaults, Iterable):
+        for item in raw_defaults:
+            if isinstance(item, dict):
+                add(item.get("name") or item.get("path") or item.get("channel"))
+            else:
+                add(item)
 
     if not out:
-        out = ["Ledning"]
-
+        out.append("Root")
     return out
 
 
-def _pem_key_password() -> str | None:
-    sec = load_secrets()
-    for key in (
-        "martine_client_p12_pass",
-        "user_key_pass",
-        "onboarding_client_p12_default_pass",
-        "cert_pass",
-    ):
-        val = str(sec.get(key, "") or "").strip()
-        if val:
-            return val
-    return None
+def _normalize_server(defaults: dict[str, Any], host: str, ipv4: str) -> dict[str, Any]:
+    server = defaults.get("server")
+    if not isinstance(server, dict):
+        server = {}
+
+    return {
+        "label": _first_nonempty(server.get("label"), _host_token(host)),
+        "host": _first_nonempty(server.get("host"), host),
+        "ipv4": _first_nonempty(server.get("ipv4"), ipv4),
+        "port": int(server.get("port") or 64738),
+        "username": _first_nonempty(server.get("username"), "atak"),
+        "password": _first_nonempty(server.get("password"), ""),
+    }
 
 
-def _mtls_context() -> ssl.SSLContext:
-    for p in (CERT_PEM, KEY_PEM, CA_PEM):
-        if not p.exists():
-            raise RuntimeError(f"missing Martine identity file: {p}")
+def _normalize_identity(defaults: dict[str, Any]) -> dict[str, Any]:
+    ident = defaults.get("identity")
+    if not isinstance(ident, dict):
+        ident = {}
+    return {
+        "callsign_prefix": _first_nonempty(ident.get("callsign_prefix"), "VX"),
+        "uid_prefix": _first_nonempty(ident.get("uid_prefix"), "ANDROID-"),
+    }
+
+
+def _normalize_position(defaults: dict[str, Any]) -> dict[str, str]:
+    pos = defaults.get("position")
+    if not isinstance(pos, dict):
+        pos = {}
+    return {
+        "lat": _first_nonempty(pos.get("lat"), DEFAULT_LAT),
+        "lon": _first_nonempty(pos.get("lon"), DEFAULT_LON),
+        "hae": _first_nonempty(pos.get("hae"), DEFAULT_HAE),
+        "ce": _first_nonempty(pos.get("ce"), DEFAULT_CE),
+        "le": _first_nonempty(pos.get("le"), DEFAULT_LE),
+    }
+
+
+def _build_defaults(cfg: Any) -> dict[str, Any]:
+    defaults = _load_defaults()
+    host = _resolve_fqdn(cfg)
+    ipv4 = _resolve_ipv4(host)
+
+    return {
+        "server": _normalize_server(defaults, host, ipv4),
+        "identity": _normalize_identity(defaults),
+        "position": _normalize_position(defaults),
+        "channels": _normalize_channels(defaults=defaults),
+        "raw": defaults,
+    }
+
+
+def _tls_context() -> ssl.SSLContext:
+    if not CERT_PEM.exists():
+        raise RuntimeError(f"missing client cert: {CERT_PEM}")
+    if not KEY_PEM.exists():
+        raise RuntimeError(f"missing client key: {KEY_PEM}")
+    if not CA_PEM.exists():
+        raise RuntimeError(f"missing CA pem: {CA_PEM}")
 
     ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=str(CA_PEM))
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_REQUIRED
-    ctx.load_cert_chain(
-        certfile=str(CERT_PEM),
-        keyfile=str(KEY_PEM),
-        password=_pem_key_password(),
-    )
+    ctx.load_cert_chain(certfile=str(CERT_PEM), keyfile=str(KEY_PEM))
     return ctx
 
 
@@ -314,29 +301,24 @@ def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _multipart_body(field_name: str, filename: str, content: bytes, content_type: str) -> tuple[str, bytes]:
-    boundary = f"----martine-{uuid.uuid4().hex}"
-    head = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'
-        f"Content-Type: {content_type}\r\n"
-        f"\r\n"
-    ).encode("utf-8")
-    tail = f"\r\n--{boundary}--\r\n".encode("utf-8")
-    return boundary, head + content + tail
+def _sha256_text(text: str) -> str:
+    return _sha256_bytes(text.encode("utf-8"))
 
 
-def _parse_upload_hash(resp_text: str) -> str:
-    m = HASH_RE.search(resp_text or "")
-    if m:
-        return str(m.group(1))
-    try:
-        raw = json.loads(resp_text)
-        if isinstance(raw, dict):
-            for key in ("hash", "sha256"):
-                val = str(raw.get(key) or "").strip()
-                if val:
-                    return val
-    except Exception:
-        pass
-    raise RuntimeError(f"could not parse missionupload hash from response: {resp_text[:500]}")
+def _xml_escape(text: Any) -> str:
+    s = str(text or "")
+    return (
+        s.replace("&", "&amp;")
+        .replace('"', "&quot;")
+        .replace("'", "&apos;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def _new_uid(prefix: str = "ANDROID-") -> str:
+    return f"{prefix}{uuid.uuid4().hex[:12].upper()}"
+
+
+def _now_z() -> str:
+    return _iso_z(_utc_now())

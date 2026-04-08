@@ -669,8 +669,8 @@ def cleanup_replay_rows(dbname: str = "cot") -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--scenario", required=True, help="Path to scenario.json")
-    ap.add_argument("--host", default=os.environ.get("TAK_REPLAY_HOST", "127.0.0.1"))
-    ap.add_argument("--port", type=int, default=int(os.environ.get("TAK_REPLAY_PORT", "6969")))
+    ap.add_argument("--host", default="127.0.0.1")
+    ap.add_argument("--port", type=int, default=6969)
     ap.add_argument("--speed", type=float, default=60.0, help="Scenario seconds per real second")
     ap.add_argument("--duration", type=float, default=14400.0, help="Scenario duration in seconds")
     ap.add_argument("--once", action="store_true", help="Emit one frame only")

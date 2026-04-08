@@ -45,7 +45,7 @@ def apply(repo_root: Path, dry_run: bool) -> int:
     print()
 
     default_plan_dir = repo_root / "tak-installer" / "plans" / "tak-node.d"
-    plan_dir = Path(os.environ.get("TAKS_PLAN_DIR", str(default_plan_dir)))
+    plan_dir = default_plan_dir
 
     print(f"plan_dir: {plan_dir}")
 

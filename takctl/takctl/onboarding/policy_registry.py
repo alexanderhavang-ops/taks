@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from takctl.config import load_config
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -42,7 +43,7 @@ def _pick_dir(policy_id: str) -> Tuple[str, Path]:
 
 
 def default_policy_id() -> str:
-    return (os.getenv("TAKS_DEFAULT_POLICY_ID") or "hemvarnet").strip() or "hemvarnet"
+    return (str(load_config().get("default_policy_id", "") or "").strip() or "hemvarnet")
 
 
 def list_policies() -> List[PolicyRef]:

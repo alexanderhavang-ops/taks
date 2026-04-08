@@ -3,13 +3,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-REPLAY_CODE_ROOT = Path(
-    os.environ.get("TAK_REPLAY_CODE_ROOT", "/opt/tak/tools/takctl/replay")
-).resolve()
+REPLAY_CODE_ROOT = Path("/opt/tak/tools/takctl/replay").resolve()
 
-REPLAY_STATE_ROOT = Path(
-    os.environ.get("TAK_REPLAY_STATE_ROOT", "/opt/tak/replay")
-).resolve()
+REPLAY_STATE_ROOT = Path("/opt/tak/replay").resolve()
 
 
 def replay_code_root() -> Path:

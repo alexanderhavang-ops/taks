@@ -1,13 +1,16 @@
 from __future__ import annotations
 
-import os
 from typing import Any, Dict, List, Tuple
 
 import requests
+from takctl.config import load_config
 
 
 def _osrm_base_url() -> str:
-    return os.environ.get("MARTINE_OSRM_URL", "http://127.0.0.1:8080/api/geo/osrm").rstrip("/")
+    url = str(load_config().get("geo_osrm_base_url", "") or "").strip().rstrip("/")
+    if not url:
+        raise RuntimeError("missing geo_osrm_base_url in runtime conf.d")
+    return url
 
 
 def _validate_profile(profile: str) -> str:

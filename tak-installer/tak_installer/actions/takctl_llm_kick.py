@@ -10,7 +10,7 @@ BIN_DIR = Path("/opt/tak/tools/takctl/bin")
 SCRIPT = BIN_DIR / "takctl-llm-kick"
 
 # Default one-shot unit to start (override via env or first CLI arg to script)
-DEFAULT_SERVICE = os.environ.get("TAKCTL_LLM_KICK_SERVICE", "takctl-llm-refresh-tactical.service")
+DEFAULT_SERVICE = "takctl-llm-refresh-tactical.service"
 
 
 def _write_script(service_default: str) -> None:

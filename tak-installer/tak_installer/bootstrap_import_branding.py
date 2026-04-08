@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
-import socket
 from pathlib import Path
 
 BOOTSTRAP_ROOT = Path("/opt/taks-bootstrap")
+BOOTSTRAP_NODE_CONF = Path("/etc/taks-bootstrap.d/config.d/node.conf")
 NODE_ROOT = Path("/opt/tak/tools/takctl/web/assets/branding/node")
 STATE_ROOT = Path("/opt/tak/tools/takctl/state/branding")
 STATE_FILE = STATE_ROOT / "imported.json"
@@ -16,14 +15,34 @@ TOPLEVEL_COPY_NAMES = {
     "branding.json",
 }
 
+
+def _read_simple_kv(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not path.exists():
+        return out
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            continue
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k = k.strip()
+        v = v.strip()
+        if k:
+            out[k] = v
+    return out
+
+
 def _get_fqdn() -> str:
-    fqdn = os.environ.get("TAKS_FQDN", "").strip()
+    kv = _read_simple_kv(BOOTSTRAP_NODE_CONF)
+    fqdn = (kv.get("node_fqdn") or kv.get("fqdn") or "").strip().lower()
     if fqdn:
         return fqdn
-    try:
-        return socket.getfqdn().strip()
-    except Exception:
-        return ""
+    raise SystemExit(f"missing node_fqdn/fqdn in {BOOTSTRAP_NODE_CONF}")
+
 
 def _unit_id_from_fqdn(fqdn: str) -> str:
     fqdn = (fqdn or "").strip().lower()
@@ -33,6 +52,7 @@ def _unit_id_from_fqdn(fqdn: str) -> str:
     if not first:
         raise SystemExit(f"invalid fqdn: {fqdn!r}")
     return first
+
 
 def _cleanup_runtime_outputs() -> None:
     NODE_ROOT.mkdir(parents=True, exist_ok=True)
@@ -45,6 +65,7 @@ def _cleanup_runtime_outputs() -> None:
         p = NODE_ROOT / name
         if p.exists() and p.is_file():
             p.unlink()
+
 
 def _copy_materialized_branding(src_dir: Path) -> list[str]:
     copied: list[str] = []
@@ -60,6 +81,7 @@ def _copy_materialized_branding(src_dir: Path) -> list[str]:
             copied.append(str(dst))
 
     return copied
+
 
 def import_branding() -> int:
     fqdn = _get_fqdn()
@@ -101,8 +123,10 @@ def import_branding() -> int:
         print(f"[bootstrap-branding] copied -> {path}")
     return 0
 
+
 def main() -> int:
     return import_branding()
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

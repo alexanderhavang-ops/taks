@@ -6,6 +6,4 @@ After=network.target
 Type=oneshot
 User=tak
 Group=tak
-Environment=TAKCTL_LLM2_RUNS_DIR=/opt/tak/tools/takctl/state/llm2/runs
-Environment=TAKCTL_LLM2_KEEP_RUNS=5
 ExecStart=/opt/tak/tools/takctl/bin/takctl-llm2-prune-runs
