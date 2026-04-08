@@ -4,11 +4,13 @@ import json
 import os
 import tempfile
 import zipfile
+from io import BytesIO
 from pathlib import Path
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
-from takctl.services.docs_ingest import ingest_uploaded_pdf
+from takctl.services.docs_ingest import queue_uploaded_pdf
+from takctl.services.docs_jobs import start_docs_worker
 from takctl.services.docs_paths import (
     ensure_docs_dirs,
     manifest_path,
@@ -23,12 +25,15 @@ router = APIRouter(prefix="/api/docs", tags=["documents"])
 @router.get("")
 def api_list_docs():
     ensure_docs_dirs()
+    start_docs_worker()
     return {"ok": True, "items": list_docs()}
 
 
 @router.get("/{doc_id}")
 def api_get_doc(doc_id: str):
     ensure_docs_dirs()
+    start_docs_worker()
+
     item = get_doc(doc_id)
     if item is None:
         raise HTTPException(status_code=404, detail="document not found")
@@ -68,7 +73,7 @@ def api_get_doc(doc_id: str):
     }
 
 
-def _ingest_one_pdf_bytes(
+def _queue_one_pdf_bytes(
     *,
     data: bytes,
     filename: str,
@@ -81,7 +86,7 @@ def _ingest_one_pdf_bytes(
     tmp_path = Path(tmp_name)
     try:
         tmp_path.write_bytes(data)
-        return ingest_uploaded_pdf(
+        return queue_uploaded_pdf(
             temp_upload_path=tmp_path,
             original_filename=filename,
             content_type=content_type,
@@ -111,7 +116,7 @@ async def api_upload_doc(
     lower = filename.lower()
 
     if lower.endswith(".pdf"):
-        out = _ingest_one_pdf_bytes(
+        out = _queue_one_pdf_bytes(
             data=data,
             filename=filename,
             content_type=content_type or "application/pdf",
@@ -119,22 +124,17 @@ async def api_upload_doc(
             title=title,
         )
         out["mode"] = "pdf"
+        start_docs_worker()
         return out
 
     if not lower.endswith(".zip"):
         raise HTTPException(status_code=400, detail="only PDF or ZIP upload is supported")
-
-    try:
-        zf = zipfile.ZipFile(Path(filename), mode="r")
-    except Exception:
-        pass
 
     items = []
     skipped = []
     pdf_members = []
 
     try:
-        from io import BytesIO
         with zipfile.ZipFile(BytesIO(data), mode="r") as z:
             for info in z.infolist():
                 if info.is_dir():
@@ -159,7 +159,7 @@ async def api_upload_doc(
             for info, member_base in pdf_members:
                 try:
                     member_data = z.read(info)
-                    result = _ingest_one_pdf_bytes(
+                    result = _queue_one_pdf_bytes(
                         data=member_data,
                         filename=member_base,
                         content_type="application/pdf",
@@ -180,6 +180,9 @@ async def api_upload_doc(
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"invalid zip: {e}")
+
+    if items:
+        start_docs_worker()
 
     ok_count = sum(1 for x in items if x.get("ok"))
     fail_count = sum(1 for x in items if not x.get("ok"))

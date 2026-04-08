@@ -549,7 +549,45 @@ def _save_original_file(doc_id: str, src_path: Path) -> Path:
     return dst
 
 
-def ingest_uploaded_pdf(
+
+def _load_manifest(doc_id: str) -> dict[str, Any]:
+    mp = manifest_path(doc_id)
+    if not mp.exists():
+        return {}
+    try:
+        return json.loads(mp.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _registry_item_from_manifest(
+    manifest: dict[str, Any],
+    *,
+    status: str,
+    chunk_count: int = 0,
+    error: str = "",
+) -> dict[str, Any]:
+    item = {
+        "doc_id": str(manifest.get("doc_id") or ""),
+        "title": str(manifest.get("title") or ""),
+        "filename": str(manifest.get("filename") or "original.pdf"),
+        "content_type": str(manifest.get("content_type") or "application/pdf"),
+        "uploaded_at": str(manifest.get("uploaded_at") or iso_z()),
+        "uploaded_by": str(manifest.get("uploaded_by") or "admin"),
+        "size_bytes": int(manifest.get("size_bytes") or 0),
+        "sha256": str(manifest.get("sha256") or ""),
+        "status": status,
+        "active": bool(manifest.get("active", True)),
+        "source": str(manifest.get("source") or "local_upload"),
+        "parser_version": str(manifest.get("parser_version") or "v2-ocr"),
+        "chunk_count": int(chunk_count or 0),
+    }
+    if error:
+        item["error"] = str(error)
+    return item
+
+
+def queue_uploaded_pdf(
     *,
     temp_upload_path: Path,
     original_filename: str,
@@ -578,13 +616,50 @@ def ingest_uploaded_pdf(
         "uploaded_by": str(uploaded_by or "admin"),
         "source": "local_upload",
         "active": True,
-        "status": "uploaded",
+        "status": "queued",
         "parser_version": "v2-ocr",
         "tags": [],
     }
     write_manifest(doc_id, manifest)
-    write_status(doc_id, status="uploaded", steps={})
+    write_status(doc_id, status="queued", steps={})
+    initialize_sections_placeholder(doc_id, doc_title)
 
+    upsert_doc(_registry_item_from_manifest(manifest, status="queued", chunk_count=0))
+
+    return {
+        "ok": True,
+        "queued": True,
+        "doc_id": doc_id,
+        "status": "queued",
+        "chunk_count": 0,
+        "title": doc_title,
+        "filename": str(original_filename or "original.pdf"),
+    }
+
+
+def process_queued_pdf(doc_id: str) -> dict[str, Any]:
+    ensure_docs_dirs()
+
+    manifest = _load_manifest(doc_id)
+    raw_path = raw_original_path(doc_id, "original.pdf")
+
+    if not manifest:
+        raise RuntimeError(f"document manifest missing for {doc_id}")
+    if not raw_path.exists():
+        raise RuntimeError(f"document source missing for {doc_id}")
+
+    manifest["status"] = "processing"
+    manifest["parser_version"] = "v2-ocr"
+    write_manifest(doc_id, manifest)
+    write_status(doc_id, status="processing", steps={})
+    upsert_doc(_registry_item_from_manifest(manifest, status="processing", chunk_count=0))
+
+    try:
+        errors_path(doc_id).unlink(missing_ok=True)
+    except Exception:
+        pass
+
+    doc_title = str(manifest.get("title") or "")
     steps: dict[str, Any] = {}
 
     try:
@@ -600,27 +675,13 @@ def ingest_uploaded_pdf(
         write_status(doc_id, status="chunking", steps=steps)
         chunk_count = write_chunks(doc_id, doc_title, text, sections=sections)
         steps["chunk"] = {"ok": True, "count": chunk_count}
+
         manifest["status"] = "ready"
+        manifest["parser_version"] = "v2-ocr"
         write_manifest(doc_id, manifest)
         write_status(doc_id, status="ready", steps=steps)
 
-        upsert_doc(
-            {
-                "doc_id": doc_id,
-                "title": doc_title,
-                "filename": str(original_filename or "original.pdf"),
-                "content_type": str(content_type or "application/pdf"),
-                "uploaded_at": manifest["uploaded_at"],
-                "uploaded_by": str(uploaded_by or "admin"),
-                "size_bytes": size_bytes,
-                "sha256": sha,
-                "status": "ready",
-                "active": True,
-                "source": "local_upload",
-                "parser_version": "v2-ocr",
-                "chunk_count": chunk_count,
-            }
-        )
+        upsert_doc(_registry_item_from_manifest(manifest, status="ready", chunk_count=chunk_count))
 
         return {
             "ok": True,
@@ -632,31 +693,35 @@ def ingest_uploaded_pdf(
     except Exception as e:
         err = str(e)
         _write_text(errors_path(doc_id), err + "\n")
+
         manifest["status"] = "failed"
+        manifest["parser_version"] = "v2-ocr"
         write_manifest(doc_id, manifest)
         write_status(doc_id, status="failed", steps=steps, error=err)
 
-        upsert_doc(
-            {
-                "doc_id": doc_id,
-                "title": doc_title,
-                "filename": str(original_filename or "original.pdf"),
-                "content_type": str(content_type or "application/pdf"),
-                "uploaded_at": manifest["uploaded_at"],
-                "uploaded_by": str(uploaded_by or "admin"),
-                "size_bytes": size_bytes,
-                "sha256": sha,
-                "status": "failed",
-                "active": True,
-                "source": "local_upload",
-                "parser_version": "v2-ocr",
-                "chunk_count": 0,
-                "error": err,
-            }
-        )
+        upsert_doc(_registry_item_from_manifest(manifest, status="failed", chunk_count=0, error=err))
+
         return {
             "ok": False,
             "doc_id": doc_id,
             "status": "failed",
             "error": err,
         }
+
+
+def ingest_uploaded_pdf(
+    *,
+    temp_upload_path: Path,
+    original_filename: str,
+    content_type: str,
+    uploaded_by: str = "admin",
+    title: str = "",
+) -> dict[str, Any]:
+    queued = queue_uploaded_pdf(
+        temp_upload_path=temp_upload_path,
+        original_filename=original_filename,
+        content_type=content_type,
+        uploaded_by=uploaded_by,
+        title=title,
+    )
+    return process_queued_pdf(str(queued["doc_id"]))
