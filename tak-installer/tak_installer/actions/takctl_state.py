@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,18 @@ def _write_apply_token(ctx: Context) -> str:
     return ts
 
 
+def _fix_state_perms() -> None:
+    subprocess.run(["chown", "-R", "tak:tak", str(STATE_ROOT)], check=False)
+    subprocess.run(
+        ["bash", "-lc", f'find "{STATE_ROOT}" -type d -exec chmod 2770 {{}} \\; 2>/dev/null || true'],
+        check=False,
+    )
+    subprocess.run(
+        ["bash", "-lc", f'find "{STATE_ROOT}" -type f -exec chmod 0660 {{}} \\; 2>/dev/null || true'],
+        check=False,
+    )
+
+
 @dataclass
 class TakctlStateAction:
     """
@@ -47,12 +60,16 @@ class TakctlStateAction:
 
         # Onboarding runtime
         (STATE_ROOT / "onboarding" / "users").mkdir(parents=True, exist_ok=True)
+        (STATE_ROOT / "onboarding" / "identities").mkdir(parents=True, exist_ok=True)
 
         # Runtime policy overrides (orchestrator-controlled)
         (STATE_ROOT / "policies.d").mkdir(parents=True, exist_ok=True)
 
+        _fix_state_perms()
+
         # Apply token written every apply
         _write_apply_token(ctx)
+        _fix_state_perms()
 
         log.info("takctl-state: ready")
         return 0

@@ -302,7 +302,9 @@
         cfg: cfg,
         setBusy: setBusy,
         setErr: setErr,
-        setResult: setResult
+        setResult: setResult,
+        setEmailErr: setEmailErr,
+        setEmailResult: setEmailResult
       });
     }
 

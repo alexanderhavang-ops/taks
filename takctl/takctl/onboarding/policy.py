@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any
 from takctl.config import load_config
 from takctl.onboarding.identity_grammar import derive_grammar
 from takctl.onboarding.fal import derive_fal_ctx
+from takctl.onboarding.policy_registry import get_policy
 
 
 @dataclass(frozen=True)
@@ -33,13 +34,15 @@ class _SafeFormatDict(dict):
 
 class Policy:
     """
-    Loads a policy pack from:
+    Legacy policy.conf loader with JSON-policy fallback.
+
+    Resolution order for legacy config:
       1) policy_dir from takctl.conf (if set)
       2) /opt/tak/policies/<id>/policy.conf
       3) /opt/taks/policies/<id>/policy.conf
 
-    Policy id default:
-      default_policy_id from takctl.conf
+    JSON metadata fallback:
+      - onboarding policy_registry builtin/runtime policy.json
     """
 
     def __init__(self, policy_id: Optional[str] = None) -> None:
@@ -47,9 +50,26 @@ class Policy:
         self.policy_id = str(policy_id or cfg0.get("default_policy_id", "") or "").strip()
         if not self.policy_id:
             raise PolicyError("default_policy_id is empty in takctl.conf")
+
         self.path = self._resolve_path(self.policy_id)
+
         self.cfg = configparser.ConfigParser(interpolation=None, inline_comment_prefixes=(";", "#"))
-        self.cfg.read(self.path, encoding="utf-8")
+        if self.path:
+            self.cfg.read(self.path, encoding="utf-8")
+
+        self.json_meta: Dict[str, Any] = {}
+        try:
+            j = get_policy(self.policy_id)
+            if isinstance(j, dict):
+                self.json_meta = j
+        except Exception:
+            self.json_meta = {}
+
+        if not self.path and not self.json_meta:
+            raise PolicyError(
+                f"policy not found for policy_id={self.policy_id!r}. "
+                f"Tried legacy policy.conf paths and policy_registry JSON."
+            )
 
     @staticmethod
     def _resolve_path(policy_id: str) -> str:
@@ -75,15 +95,22 @@ class Policy:
             except Exception:
                 continue
 
-        raise PolicyError(
-            f"policy.conf not found for policy_id={policy_id!r}. Tried: " + ", ".join(str(x) for x in candidates)
-        )
+        return ""
 
     def meta(self) -> Dict[str, str]:
-        if "meta" not in self.cfg:
-            return {"id": self.policy_id}
-        d = dict(self.cfg["meta"])
-        d.setdefault("id", self.policy_id)
+        if "meta" in self.cfg:
+            d = dict(self.cfg["meta"])
+            d.setdefault("id", self.policy_id)
+            return d
+
+        d: Dict[str, str] = {"id": self.policy_id}
+        if self.json_meta:
+            if self.json_meta.get("name"):
+                d["name"] = str(self.json_meta.get("name") or "").strip()
+            if self.json_meta.get("title"):
+                d["title"] = str(self.json_meta.get("title") or "").strip()
+            if self.json_meta.get("version"):
+                d["version"] = str(self.json_meta.get("version") or "").strip()
         return d
 
     def _normalize_callsign(self, s: str) -> str:

@@ -15,6 +15,12 @@ if [ -z "$CN" ]; then
   usage
 fi
 
+TAKCTL_ROOT="/opt/tak/tools/takctl"
+PYTHON_BIN="${TAKCTL_ROOT}/.venv/bin/python3"
+if [ ! -x "${PYTHON_BIN}" ]; then
+  PYTHON_BIN="$(command -v python3)"
+fi
+
 CERTS_DIR="/opt/tak/certs"
 FILES_DIR="${CERTS_DIR}/files"
 USER_DIR="${FILES_DIR}/04_USERS/${CN}"
@@ -24,24 +30,43 @@ mkdir -p "${USER_DIR}"
 chmod 0700 "${USER_DIR}"
 
 cd "${CERTS_DIR}"
-set -a
-. ./tak-cert-identity.env
-set +a
 
-# Per-user client cert password.
-# Reuse existing password if present so regenerate stays stable for the same user.
+eval "$(
+  PYTHONPATH="${TAKCTL_ROOT}" "${PYTHON_BIN}" - <<'PY'
+import shlex
+from takctl.config import load_config, load_secrets
+
+cfg = load_config()
+sec = load_secrets()
+
+vals = {
+    "COUNTRY": (cfg.get("cert_country", "SE") or "SE").strip(),
+    "STATE": (cfg.get("cert_state", "") or "").strip(),
+    "CITY": (cfg.get("cert_city", "") or "").strip(),
+    "ORGANIZATION": (cfg.get("cert_organization", "TAK") or "TAK").strip(),
+    "ORGANIZATIONAL_UNIT": (cfg.get("cert_organizational_unit", "") or "").strip(),
+    "CAPASS": (sec.get("cert_capass", "") or "").strip(),
+}
+
+missing = [k for k in ("STATE", "CITY", "ORGANIZATIONAL_UNIT", "CAPASS") if not vals.get(k)]
+if missing:
+    raise SystemExit("missing cert config/secrets: " + ", ".join(missing))
+
+for k, v in vals.items():
+    print(f"export {k}={shlex.quote(v)}")
+PY
+)"
+
 if [ -f "${PW_FILE}" ]; then
   USER_PASS="$(cat "${PW_FILE}")"
 else
   USER_PASS="$(openssl rand -base64 18 | tr -d '\n' | tr '/+' 'AB' | cut -c1-24)"
 fi
 
-# makeCert.sh writes into DIR=files and uses PASS from env for client artifacts.
 export PASS="${USER_PASS}"
 
 ./makeCert.sh client "${CN}" --force
 
-# Move artifacts into the structure expected by takctl onboarding code.
 for ext in key csr pem p12 jks; do
   src="${FILES_DIR}/${CN}.${ext}"
   if [ -f "${src}" ]; then

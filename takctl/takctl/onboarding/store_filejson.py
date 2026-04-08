@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -140,7 +141,7 @@ class FileJsonOnboardingStore(OnboardingStore):
 
     def upsert_record(self, record: OnboardingRecord) -> None:
         p = self.users_dir / f"{record.username}.json"
-        tmp = p.with_suffix(".json.tmp")
+        tmp = p.with_name(f"{p.name}.tmp.{uuid.uuid4().hex}")
         tmp.write_text(json.dumps(self._onboarding_to_json(record), indent=2, sort_keys=True) + "\n", encoding="utf-8")
         tmp.replace(p)
 

@@ -22,7 +22,6 @@ REPO_EXCLUDE_NAMES = {
     ".mypy_cache",
     ".ruff_cache",
     "node_modules",
-    "state",
     "bundles",
     "rendered",
     "artifacts",
@@ -230,11 +229,37 @@ def _bundle_has_takserver_deb(unit_path: str, role: str) -> bool:
 def bundle_readiness(unit_path: str, role: str) -> Dict[str, Any]:
     data = effective_bootstrap_for_bundle(unit_path)
     conf_d = (data.get("conf_d") or {}) if isinstance(data, dict) else {}
+    secrets_d = (data.get("secrets_d") or {}) if isinstance(data, dict) else {}
+
     certs_obj = conf_d.get("certs.conf") or {}
     if isinstance(certs_obj, dict):
         certs = {str(k).strip(): str(v).strip() for k, v in certs_obj.items()}
     else:
         certs = _parse_simple_conf(str(certs_obj))
+
+    takctl_conf_obj = conf_d.get("takctl.conf") or {}
+    if isinstance(takctl_conf_obj, dict):
+        takctl_conf = {str(k).strip(): str(v).strip() for k, v in takctl_conf_obj.items()}
+    else:
+        takctl_conf = _parse_simple_conf(str(takctl_conf_obj))
+
+    takctl_sec_obj = secrets_d.get("takctl.conf") or {}
+    if isinstance(takctl_sec_obj, dict):
+        takctl_sec = {str(k).strip(): str(v).strip() for k, v in takctl_sec_obj.items()}
+    else:
+        takctl_sec = _parse_simple_conf(str(takctl_sec_obj))
+
+    certs_sec_obj = secrets_d.get("certs.conf") or {}
+    if isinstance(certs_sec_obj, dict):
+        certs_sec = {str(k).strip(): str(v).strip() for k, v in certs_sec_obj.items()}
+    else:
+        certs_sec = _parse_simple_conf(str(certs_sec_obj))
+
+    murmur_sec_obj = secrets_d.get("murmur.conf") or {}
+    if isinstance(murmur_sec_obj, dict):
+        murmur_sec = {str(k).strip(): str(v).strip() for k, v in murmur_sec_obj.items()}
+    else:
+        murmur_sec = _parse_simple_conf(str(murmur_sec_obj))
 
     required_cert_keys = (
         "cert_country",
@@ -244,10 +269,19 @@ def bundle_readiness(unit_path: str, role: str) -> Dict[str, Any]:
     )
     missing_cert = [k for k in required_cert_keys if not str(certs.get(k) or "").strip()]
 
+    required_bootstrap = [
+        ("conf.d/takctl.conf:takctl_admin_user", str(takctl_conf.get("takctl_admin_user") or "").strip()),
+        ("secrets.d/takctl.conf:takctl_admin_password", str(takctl_sec.get("takctl_admin_password") or "").strip()),
+        ("secrets.d/certs.conf:cert_capass", str(certs_sec.get("cert_capass") or "").strip()),
+        ("secrets.d/certs.conf:cert_pass", str(certs_sec.get("cert_pass") or "").strip()),
+        ("secrets.d/murmur.conf:serverpassword", str(murmur_sec.get("serverpassword") or "").strip()),
+    ]
+
     missing: List[str] = []
     if not _bundle_has_takserver_deb(unit_path, role):
         missing.append("takserver_deb")
     missing.extend(missing_cert)
+    missing.extend([name for name, value in required_bootstrap if not value])
 
     return {
         "ok": len(missing) == 0,
