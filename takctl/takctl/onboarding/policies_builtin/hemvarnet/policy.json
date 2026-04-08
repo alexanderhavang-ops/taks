@@ -8,14 +8,14 @@
       "label": "Battalion",
       "type": "text",
       "required": true,
-      "default": "46"
+      "default": ""
     },
     {
       "key": "battalion_fal",
       "label": "FALA Battalion",
       "type": "text",
       "required": false,
-      "default": "VQ"
+      "default": ""
     },
     {
       "key": "company",
@@ -95,7 +95,7 @@
       "key": "groups_rw",
       "label": "Groups (RW)",
       "type": "csv",
-      "default": "46hvbat"
+      "default": ""
     },
     {
       "key": "groups_in",

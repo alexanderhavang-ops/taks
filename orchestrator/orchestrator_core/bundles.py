@@ -515,14 +515,16 @@ def build_bundle_from_state(unit_path: str, role: str, bundle_name: Optional[str
         unit_overlay = unit_bundle_overlay_dir(up)
         overlays.append(_copy_tree(unit_overlay, root))
 
-        files_root = unit_files_root(up)
-        for subtree in SUBTREES:
-            src = files_root / subtree
-            dst = root / subtree
-            item = _copy_tree(src, dst)
-            item["unit"] = up
-            item["subtree"] = subtree
-            overlays.append(item)
+        for src_unit in _read_unit_chain(up):
+            files_root = unit_files_root(src_unit)
+            for subtree in SUBTREES:
+                src = files_root / subtree
+                dst = root / subtree
+                item = _copy_tree(src, dst)
+                item["unit"] = src_unit
+                item["subtree"] = subtree
+                item["inherited"] = (src_unit != up)
+                overlays.append(item)
 
         _write_unit_config(root, unit_path=up, role=role)
         overlays.append({"generated": "config/unit.json", "kind": "unit_config"})

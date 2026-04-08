@@ -40,19 +40,27 @@ def _uniq(items: list[str]) -> list[str]:
 
 
 def _company_fals(battalion_second: str) -> list[str]:
+    # company + battalion-second: QW, RW, SW, TW
     return [f"{c}{battalion_second}" for c in _COMPANY_LETTERS]
 
 
 def _platoon_fals(company_fal: str) -> list[str]:
+    # platoon + company: AQ, BQ, CQ, DQ, EQ under QW
     company_fal = _upper(company_fal)
     company_letter = company_fal[:1]
-    return [f"{company_letter}{p}" for p in _PLATOON_LETTERS]
+    return [f"{p}{company_letter}" for p in _PLATOON_LETTERS]
 
 
 def _group_fals(platoon_fal: str) -> list[str]:
+    # group + platoon: EA, FA, GA, HA under AQ
     platoon_fal = _upper(platoon_fal)
-    platoon_letter = platoon_fal[1:2]
+    platoon_letter = platoon_fal[:1]
     return [f"{g}{platoon_letter}" for g in _GROUP_PREFIXES]
+
+
+def _group_channel_fal(company_fal: str, group_fal: str) -> str:
+    # FALFAL for groups: QW + EA => QWEA
+    return f"{_upper(company_fal)}{_upper(group_fal)}"
 
 
 def _seed_channels_from_ctx(derived: dict[str, Any]) -> list[str]:
@@ -64,8 +72,8 @@ def _seed_channels_from_ctx(derived: dict[str, Any]) -> list[str]:
 
     seeds: list[str] = []
 
-    if group_fal and platoon_fal:
-        seeds.extend([f"GruppL-{group_fal}", f"PlutL-{platoon_fal}"])
+    if group_fal and platoon_fal and company_fal:
+        seeds.extend([f"GruppL-{_group_channel_fal(company_fal, group_fal)}", f"PlutL-{platoon_fal}"])
     elif platoon_fal and company_fal:
         seeds.extend([f"PlutL-{platoon_fal}", f"KompL-{company_fal}"])
     elif company_fal and battalion_fal:
@@ -80,19 +88,12 @@ def derive_voice_topology(policy_cfg, ctx: dict[str, Any] | None) -> dict[str, A
     """
     Hemvärnet battalion voice topology, rendered as a FLAT list for Mumble.
 
-    Logical model:
-      BatL-$BATALIONFAL
-      PlutL-P$BATTALION_SECOND
-      KompL-$COMPANYFAL
-      PlutL-$PLATOONFAL
-      GruppL-$GROUPFAL
-
-    Example for 48hvbat / VW:
-      BatL-VW
-      PlutL-PW
-      KompL-QW, KompL-RW, KompL-SW, KompL-TW
-      PlutL-QA ... PlutL-QE, ...
-      GruppL-EA ... GruppL-HE, ...
+    Model:
+      BatL-$BATALIONFAL            e.g. VW
+      PlutL-P$BATTALION_SECOND     e.g. PW
+      KompL-$COMPANYFAL            e.g. QW
+      PlutL-$PLATOONFAL            e.g. AQ
+      GruppL-$COMPANYFAL$GROUPFAL  e.g. QWEA
     """
     base_ctx = dict(ctx or {})
     derived = derive_fal_ctx(policy_cfg, base_ctx)
@@ -124,7 +125,8 @@ def derive_voice_topology(policy_cfg, ctx: dict[str, Any] | None) -> dict[str, A
             return
         if n not in channels:
             channels.append(n)
-        relations[n] = dict(meta)
+        if n not in relations:
+            relations[n] = dict(meta)
 
     add_channel(
         battalion_channel,
@@ -176,12 +178,14 @@ def derive_voice_topology(policy_cfg, ctx: dict[str, Any] | None) -> dict[str, A
 
             groups: list[str] = []
             for group_fal in _group_fals(platoon_fal):
-                group_channel = f"GruppL-{group_fal}"
+                group_scope_fal = _group_channel_fal(company_fal, group_fal)
+                group_channel = f"GruppL-{group_scope_fal}"
                 add_channel(
                     group_channel,
                     {
                         "kind": "group",
-                        "fal": group_fal,
+                        "fal": group_scope_fal,
+                        "group_scope_fal": group_scope_fal,
                         "group_fal": group_fal,
                         "platoon_fal": platoon_fal,
                         "company_fal": company_fal,

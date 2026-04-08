@@ -363,27 +363,33 @@ def _build_vx_proto(
     *,
     mission_uuid: str,
     mission_name: str,
-    channel_uuid: str,
-    channel_name: str,
+    channels: Sequence[dict[str, Any]],
     server_uuid: str,
     fqdn: str,
     port: int,
-    subtitle: str,
 ) -> bytes:
-    channel_flags = (
-        _pb_int(1, 1) +
-        _pb_str(2, subtitle)
-    )
+    channel_parts: list[bytes] = []
 
-    channel_msg = (
-        _pb_str(1, channel_uuid) +
-        _pb_str(2, channel_name) +
-        _pb_int(3, 1) +
-        _pb_str(4, server_uuid) +
-        _pb_msg(6, channel_flags)
-    )
+    for ch in channels:
+        channel_uuid = str(ch.get("id") or uuid.uuid4()).strip()
+        channel_name = str(ch.get("name") or "").strip()
+        subtitle = str(ch.get("subtitle") or channel_name).strip()
+        server_channel_id = int(ch.get("serverChannelId") or 1)
 
-    channel_container = _pb_msg(1, channel_msg)
+        channel_flags = (
+            _pb_int(1, 1) +
+            _pb_str(2, subtitle)
+        )
+
+        channel_msg = (
+            _pb_str(1, channel_uuid) +
+            _pb_str(2, channel_name) +
+            _pb_int(3, server_channel_id) +
+            _pb_str(4, server_uuid) +
+            _pb_msg(6, channel_flags)
+        )
+
+        channel_parts.append(_pb_msg(3, _pb_msg(1, channel_msg)))
 
     server_msg = (
         _pb_str(1, server_uuid) +
@@ -396,7 +402,7 @@ def _build_vx_proto(
     return (
         _pb_str(1, mission_uuid) +
         _pb_str(2, mission_name) +
-        _pb_msg(3, channel_container) +
+        b"".join(channel_parts) +
         _pb_msg(4, server_msg)
     )
 
@@ -450,8 +456,27 @@ def _render_voice_package(
     mission_uuid = str(uuid.uuid4())
     server_uuid = str(uuid.uuid4())
 
-    channel_name = str(channels[0]).strip()
-    channel_uuid = str(uuid.uuid4())
+    channel_specs: list[dict[str, Any]] = []
+    for idx, raw_name in enumerate(channels, start=1):
+        channel_name = str(raw_name or "").strip()
+        if not channel_name:
+            continue
+        channel_specs.append(
+            {
+                "id": str(uuid.uuid4()),
+                "name": channel_name,
+                "host": f"{fqdn}:{int(voice_port)}",
+                "missionId": mission_uuid,
+                "serverChannelId": idx,
+                "subtitle": channel_name,
+                "isMumble": True,
+                "isEngineering": False,
+                "port": -1,
+            }
+        )
+
+    if not channel_specs:
+        raise RuntimeError("at least one voice channel is required")
 
     json_dir = uuid.uuid4().hex
     proto_dir = uuid.uuid4().hex
@@ -466,19 +491,7 @@ def _render_voice_package(
     voice_json = {
         "missionId": {"uuid": mission_uuid},
         "name": mission_label,
-        "channels": [
-            {
-                "id": channel_uuid,
-                "name": channel_name,
-                "host": f"{fqdn}:{int(voice_port)}",
-                "missionId": mission_uuid,
-                "serverChannelId": 1,
-                "subtitle": channel_name,
-                "isMumble": True,
-                "isEngineering": False,
-                "port": -1,
-            }
-        ],
+        "channels": channel_specs,
         "missionType": "COMBINED",
         "missionIP": "",
         "missionPort": "-1",
@@ -488,12 +501,10 @@ def _render_voice_package(
     proto_bytes = _build_vx_proto(
         mission_uuid=mission_uuid,
         mission_name=mission_label,
-        channel_uuid=channel_uuid,
-        channel_name=channel_name,
+        channels=channel_specs,
         server_uuid=server_uuid,
         fqdn=fqdn,
         port=int(voice_port),
-        subtitle=channel_name,
     )
 
     manifest_text = _build_manifest_xml(

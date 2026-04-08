@@ -80,8 +80,22 @@
     const [callsignPolicyDefault, setCallsignPolicyDefault] = useState("FAL_TAK");
     const [callsignPolicyOverride, setCallsignPolicyOverride] = useState("");
 
-    const [ident, setIdent] = useState({});
-    const [groups, setGroups] = useState({ groups_rw: "46hvbat", groups_in: "", groups_out: "" });
+    const _hostUnit = (function () {
+      try {
+        const h = String((window && window.location && window.location.hostname) || "").trim();
+        return _norm((h.split(".")[0] || ""));
+      } catch (_) {
+        return "";
+      }
+    })();
+
+    const _defaultBattalionFromUnit = (function () {
+      const m = /^(\d+)(?:hvbat|hv)$/i.exec(_hostUnit);
+      return m ? String(m[1]) : "";
+    })();
+
+    const [ident, setIdent] = useState(_defaultBattalionFromUnit ? { battalion: _defaultBattalionFromUnit } : {});
+    const [groups, setGroups] = useState({ groups_rw: _hostUnit || "", groups_in: "", groups_out: "" });
     const [cfg, setCfg] = useState({});
 
     const [derived, setDerived] = useState(null);
