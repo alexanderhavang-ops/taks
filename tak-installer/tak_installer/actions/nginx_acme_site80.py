@@ -17,7 +17,6 @@ def _run(cmd: list[str]) -> None:
 
 
 def _sudo_write_file(dst: Path, content: str, mode: str = "0644") -> None:
-    # Write to a temp file we own, then sudo-install into place.
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".tmp") as tf:
         tf.write(content)
         tmp = tf.name
@@ -31,7 +30,6 @@ def _sudo_write_file(dst: Path, content: str, mode: str = "0644") -> None:
 
 
 def _sudo_symlink(link_path: Path, target: Path) -> None:
-    # Ensure link_path is a symlink to target (root-owned dirs).
     _run(["sudo", "ln", "-sfn", str(target), str(link_path)])
 
 
@@ -131,26 +129,20 @@ class NginxAcme80Action:
         fqdn = self._fqdn(ctx)
         rendered = self._render(fqdn)
 
-        # Install sites-available content
         _sudo_write_file(self.dst_available, rendered, mode="0644")
 
-        # Normalize enabled to a symlink to available
-        # If enabled is a regular file, remove it first.
         if not self.dst_enabled.is_symlink() and self.dst_enabled.exists():
             _sudo_rm(self.dst_enabled)
 
         _sudo_symlink(self.dst_enabled, self.dst_available)
 
-        # Validate + reload nginx so ACME HTTP-01 can be served on port 80.
         _run(["sudo", "nginx", "-t"])
         _run(["sudo", "systemctl", "reload", "nginx"])
 
-        # Ensure ACME webroot exists and matches nginx site80 config.
         _run(["sudo", "install", "-d", "-o", "root", "-g", "root", "-m", "0755", "/var/www/letsencrypt"])
         _run(["sudo", "install", "-d", "-o", "root", "-g", "root", "-m", "0755", "/var/www/letsencrypt/.well-known"])
         _run(["sudo", "install", "-d", "-o", "root", "-g", "root", "-m", "0755", "/var/www/letsencrypt/.well-known/acme-challenge"])
 
-        # Ensure LE certificate exists for later 443/TLS actions.
         if _cert_exists(fqdn):
             print(f"nginx.acme: LE cert already present for {fqdn}")
         else:
@@ -184,7 +176,7 @@ class NginxAcme80Action:
 
 def _default_action(repo_root: Path) -> NginxAcme80Action:
     tmpl = repo_root / "infra" / "nginx" / "80-acme.conf"
-    name = "80-acme-redirect"  # keep your current filename
+    name = "80-acme-redirect"
     return NginxAcme80Action(
         template=tmpl,
         dst_available=Path("/etc/nginx/sites-available") / name,
