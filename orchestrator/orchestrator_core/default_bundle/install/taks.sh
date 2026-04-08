@@ -31,6 +31,7 @@ fi
 
 TAKS_SOURCE_ROOT="$BUNDLE_ROOT/taks-source"
 TAK_INSTALLER="$TAKS_SOURCE_ROOT/tak-installer/tak-installer"
+IMPORT_BOOTSTRAP_BRANDING="$TAKS_SOURCE_ROOT/tak-installer/bin/import-bootstrap-branding"
 
 if [ ! -f "$TAK_INSTALLER" ]; then
   fail "missing tak-installer at $TAK_INSTALLER"
@@ -41,5 +42,15 @@ log "running tak-installer apply from extracted bundle"
   cd "$TAKS_SOURCE_ROOT"
   python3 ./tak-installer/tak-installer apply
 )
+
+if [ -x "$IMPORT_BOOTSTRAP_BRANDING" ]; then
+  log "importing bootstrap branding"
+  (
+    cd "$TAKS_SOURCE_ROOT"
+    "$IMPORT_BOOTSTRAP_BRANDING"
+  )
+else
+  log "skip bootstrap branding import (missing $IMPORT_BOOTSTRAP_BRANDING)"
+fi
 
 log "taks install complete"

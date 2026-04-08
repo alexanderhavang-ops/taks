@@ -8,6 +8,7 @@ from orchestrator_core.config import load_orch_config, load_secrets_config
 from orchestrator_core.unit_bootstrap import effective_bootstrap_for_bundle
 from orchestrator_core.branding_resolver import materialize_branding_bundle
 import tempfile
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -456,23 +457,32 @@ def _copy_repo_snapshot(dst_root: Path) -> Dict[str, Any]:
     files = 0
     bytes_total = 0
 
-    for p in sorted(src.rglob("*")):
-        rel = p.relative_to(src)
+    for cur_root, dirnames, filenames in os.walk(src):
+        cur = Path(cur_root)
+        rel_dir = cur.relative_to(src)
 
-        if any(part in REPO_EXCLUDE_NAMES for part in rel.parts):
-            continue
-        if p.suffix in REPO_EXCLUDE_SUFFIXES:
-            continue
+        dirnames[:] = sorted(
+            d for d in dirnames
+            if d not in REPO_EXCLUDE_NAMES
+        )
 
-        out = dst / rel
-        if p.is_dir():
-            out.mkdir(parents=True, exist_ok=True)
-            continue
-        if p.is_file():
+        out_dir = dst / rel_dir
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        for name in sorted(filenames):
+            if name in REPO_EXCLUDE_NAMES:
+                continue
+
+            src_file = cur / name
+            if src_file.suffix in REPO_EXCLUDE_SUFFIXES:
+                continue
+
+            rel = src_file.relative_to(src)
+            out = dst / rel
             out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(p.read_bytes())
+            out.write_bytes(src_file.read_bytes())
             files += 1
-            bytes_total += p.stat().st_size
+            bytes_total += src_file.stat().st_size
 
     return {
         "src": str(src),
@@ -482,7 +492,6 @@ def _copy_repo_snapshot(dst_root: Path) -> Dict[str, Any]:
         "bytes": bytes_total,
         "exists": True,
     }
-
 
 
 def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
@@ -516,6 +525,7 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
             mounted.append(
                 {
                     "unit_path": up,
+                    "staged_unit_dir": str(cur),
                     "src_root": str(src_root),
                     "branding_dir": str(src_branding) if src_branding.exists() else "",
                     "conf_file": str(src_conf) if src_conf.exists() else "",
@@ -532,13 +542,42 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
             out_dir=out_dir,
         )
 
+        stage_to_unit = {
+            str(item.get("staged_unit_dir") or ""): str(item.get("unit_path") or "")
+            for item in mounted
+        }
+
+        sanitized_files = []
+        for item in list(manifest.get("files", [])):
+            sanitized_files.append(
+                {
+                    "slot": str(item.get("slot") or ""),
+                    "filename": str(item.get("filename") or ""),
+                    "source_unit": stage_to_unit.get(str(item.get("source_unit_dir") or ""), ""),
+                    "source_name": str(item.get("source_name") or ""),
+                }
+            )
+
+        sanitized_manifest = {
+            "mode": "png-chain",
+            "unit_path": unit_path,
+            "chain": chain,
+            "effective_count": int(manifest.get("effective_count", 0)),
+            "files": sanitized_files,
+        }
+
+        (out_dir / "files.json").write_text(
+            json.dumps(sanitized_manifest, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+
         return {
             "generated": "branding",
             "kind": "effective_branding",
             "chain": chain,
             "mounted": mounted,
             "effective_count": int(manifest.get("effective_count", 0)),
-            "files": manifest.get("files", []),
+            "files": sanitized_files,
         }
     finally:
         shutil.rmtree(stage_root, ignore_errors=True)
@@ -572,6 +611,8 @@ def build_bundle_from_state(unit_path: str, role: str, bundle_name: Optional[str
         for src_unit in _read_unit_chain(up):
             files_root = unit_files_root(src_unit)
             for subtree in SUBTREES:
+                if subtree == "branding":
+                    continue
                 src = files_root / subtree
                 dst = root / subtree
                 item = _copy_tree(src, dst)
@@ -583,7 +624,6 @@ def build_bundle_from_state(unit_path: str, role: str, bundle_name: Optional[str
         _write_unit_config(root, unit_path=up, role=role)
         overlays.append({"generated": "config/unit.json", "kind": "unit_config"})
 
-        _write_node_env(root, unit_path=up)
         overlays.append(_write_node_env(root, unit_path=up))
 
         overlays.append(_write_effective_bootstrap(root, unit_path=up))
@@ -594,8 +634,10 @@ def build_bundle_from_state(unit_path: str, role: str, bundle_name: Optional[str
         if cert_model == "WILDCARD_DNS_01":
             overlays.append(_copy_wildcard_tls_material(root))
 
-        with tarfile.open(tar_path, "w:gz") as tf:
-            tf.add(root, arcname=up)
+        subprocess.run(
+            ["tar", "-C", str(root.parent), "-czf", str(tar_path), up],
+            check=True,
+        )
 
     return {
         "bundle_name": bundle_name,

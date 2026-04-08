@@ -192,6 +192,47 @@ install_base_files() {
   fi
 }
 
+seed_bootstrap_branding() {
+  local node_conf="/etc/taks-bootstrap.d/config.d/node.conf"
+  local src_dir="$BUNDLE_ROOT/branding"
+  local fqdn=""
+  local unit_id=""
+  local dst_dir=""
+
+  if [ ! -d "$src_dir" ]; then
+    log "skip bootstrap branding seed (missing $src_dir)"
+    return 0
+  fi
+
+  if [ ! -f "$node_conf" ]; then
+    log "skip bootstrap branding seed (missing $node_conf)"
+    return 0
+  fi
+
+  fqdn="$(read_simple_kv "$node_conf" node_fqdn || true)"
+  if [ -z "$fqdn" ]; then
+    fqdn="$(read_simple_kv "$node_conf" fqdn || true)"
+  fi
+  if [ -z "$fqdn" ]; then
+    log "skip bootstrap branding seed (node_fqdn/fqdn missing in $node_conf)"
+    return 0
+  fi
+
+  unit_id="${fqdn%%.*}"
+  if [ -z "$unit_id" ]; then
+    log "skip bootstrap branding seed (failed to derive unit id from fqdn=$fqdn)"
+    return 0
+  fi
+
+  dst_dir="/opt/taks-bootstrap/$unit_id/branding"
+  mkdir -p "$dst_dir"
+
+  find "$dst_dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  cp -a "$src_dir"/. "$dst_dir"/
+
+  log "seeded bootstrap branding into $dst_dir"
+}
+
 install_bundled_tls_material() {
   local node_conf="/etc/taks-bootstrap.d/config.d/node.conf"
   local src_dir="$BUNDLE_ROOT/install/letsencrypt"
@@ -252,6 +293,10 @@ main() {
   log_state "install_bundled_tls_material" "Started"
   install_bundled_tls_material
   log_state "install_bundled_tls_material" "Succeeded"
+
+  log_state "seed_bootstrap_branding" "Started"
+  seed_bootstrap_branding
+  log_state "seed_bootstrap_branding" "Succeeded"
 
   log_state "install_heartbeat" "Started"
   install_heartbeat
