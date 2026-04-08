@@ -228,40 +228,24 @@ def _bundle_has_takserver_deb(unit_path: str, role: str) -> bool:
     return False
 
 
+def _flatten_component_values(items: Dict[str, Any]) -> Dict[str, str]:
+    out: Dict[str, str] = {}
+    for _name, obj in sorted((items or {}).items()):
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                out[str(k).strip()] = str(v).strip()
+        else:
+            out.update(_parse_simple_conf(str(obj)))
+    return out
+
+
 def bundle_readiness(unit_path: str, role: str) -> Dict[str, Any]:
     data = effective_bootstrap_for_bundle(unit_path)
     conf_d = (data.get("conf_d") or {}) if isinstance(data, dict) else {}
     secrets_d = (data.get("secrets_d") or {}) if isinstance(data, dict) else {}
 
-    certs_obj = conf_d.get("certs.conf") or {}
-    if isinstance(certs_obj, dict):
-        certs = {str(k).strip(): str(v).strip() for k, v in certs_obj.items()}
-    else:
-        certs = _parse_simple_conf(str(certs_obj))
-
-    takctl_conf_obj = conf_d.get("takctl.conf") or {}
-    if isinstance(takctl_conf_obj, dict):
-        takctl_conf = {str(k).strip(): str(v).strip() for k, v in takctl_conf_obj.items()}
-    else:
-        takctl_conf = _parse_simple_conf(str(takctl_conf_obj))
-
-    takctl_sec_obj = secrets_d.get("takctl.conf") or {}
-    if isinstance(takctl_sec_obj, dict):
-        takctl_sec = {str(k).strip(): str(v).strip() for k, v in takctl_sec_obj.items()}
-    else:
-        takctl_sec = _parse_simple_conf(str(takctl_sec_obj))
-
-    certs_sec_obj = secrets_d.get("certs.conf") or {}
-    if isinstance(certs_sec_obj, dict):
-        certs_sec = {str(k).strip(): str(v).strip() for k, v in certs_sec_obj.items()}
-    else:
-        certs_sec = _parse_simple_conf(str(certs_sec_obj))
-
-    murmur_sec_obj = secrets_d.get("murmur.conf") or {}
-    if isinstance(murmur_sec_obj, dict):
-        murmur_sec = {str(k).strip(): str(v).strip() for k, v in murmur_sec_obj.items()}
-    else:
-        murmur_sec = _parse_simple_conf(str(murmur_sec_obj))
+    conf_vals = _flatten_component_values(conf_d)
+    sec_vals = _flatten_component_values(secrets_d)
 
     required_cert_keys = (
         "cert_country",
@@ -269,14 +253,14 @@ def bundle_readiness(unit_path: str, role: str) -> Dict[str, Any]:
         "cert_city",
         "cert_organization",
     )
-    missing_cert = [k for k in required_cert_keys if not str(certs.get(k) or "").strip()]
+    missing_cert = [k for k in required_cert_keys if not str(conf_vals.get(k) or "").strip()]
 
     required_bootstrap = [
-        ("conf.d/takctl.conf:takctl_admin_user", str(takctl_conf.get("takctl_admin_user") or "").strip()),
-        ("secrets.d/takctl.conf:takctl_admin_password", str(takctl_sec.get("takctl_admin_password") or "").strip()),
-        ("secrets.d/certs.conf:cert_capass", str(certs_sec.get("cert_capass") or "").strip()),
-        ("secrets.d/certs.conf:cert_pass", str(certs_sec.get("cert_pass") or "").strip()),
-        ("secrets.d/murmur.conf:serverpassword", str(murmur_sec.get("serverpassword") or "").strip()),
+        ("conf.d/*:takctl_admin_user", str(conf_vals.get("takctl_admin_user") or "").strip()),
+        ("secrets.d/*:takctl_admin_password", str(sec_vals.get("takctl_admin_password") or "").strip()),
+        ("secrets.d/*:cert_capass", str(sec_vals.get("cert_capass") or "").strip()),
+        ("secrets.d/*:cert_pass", str(sec_vals.get("cert_pass") or "").strip()),
+        ("secrets.d/*:serverpassword", str(sec_vals.get("serverpassword") or "").strip()),
     ]
 
     missing: List[str] = []
@@ -297,7 +281,7 @@ def _default_le_email(unit_meta: Dict[str, Any]) -> str:
     explicit = _meta_get(meta, "le_email", "letsencrypt_email")
     if explicit:
         return explicit
-    return os.environ.get("LE_EMAIL", "").strip()
+    return ""
 
 
 def _write_unit_config(root: Path, *, unit_path: str, role: str) -> Path:
@@ -323,7 +307,7 @@ def _write_unit_config(root: Path, *, unit_path: str, role: str) -> Path:
     return out
 
 
-def _write_node_env(root: Path, *, unit_path: str) -> Path:
+def _write_node_env(root: Path, *, unit_path: str) -> Dict[str, Any]:
     unit_meta = _read_unit_meta(unit_path)
     fqdn = _default_node_fqdn(unit_path, unit_meta)
     cert_model = _default_node_cert_model(unit_meta)
@@ -332,33 +316,41 @@ def _write_node_env(root: Path, *, unit_path: str) -> Path:
     cfg = load_orch_config()
     secrets = load_secrets_config()
 
-    install_dir = root / "install"
-    install_dir.mkdir(parents=True, exist_ok=True)
+    conf_dir = root / "install" / "taks-bootstrap" / "config.d"
+    sec_dir = root / "install" / "taks-bootstrap" / "secrets.d"
+    conf_dir.mkdir(parents=True, exist_ok=True)
+    sec_dir.mkdir(parents=True, exist_ok=True)
 
     orch_base = str(cfg.identity.public_base_url).strip().rstrip("/")
-    if orch_base:
-        orch_api_url = orch_base
-    else:
-        orch_api_url = ""
+    orch_api_url = orch_base if orch_base else ""
 
-    rows = [
-        "# Generated by TAKS orchestrator bundle builder",
-        f"TAKS_NODE_FQDN={fqdn}",
-        f"TAKS_NODE_CERT_MODEL={cert_model}",
-    ]
-
+    node_conf = {
+        "fqdn": fqdn,
+        "node_fqdn": fqdn,
+        "node_cert_model": cert_model,
+    }
     if le_email:
-        rows.append(f"LE_EMAIL={le_email}")
-
+        node_conf["le_email"] = le_email
     if orch_api_url:
-        rows.append(f"ORCH_API_URL={orch_api_url}")
+        node_conf["orch_api_url"] = orch_api_url
 
-    rows.append(f"TAKS_NODE_USER={secrets.auth.node_api_user}")
-    rows.append(f"TAKS_NODE_PASSWORD={secrets.auth.node_api_password}")
+    node_sec = {
+        "node_api_user": str(secrets.auth.node_api_user),
+        "node_api_password": str(secrets.auth.node_api_password),
+    }
 
-    out = install_dir / "node.env"
-    out.write_text("\n".join(rows) + "\n", encoding="utf-8")
-    return out
+    conf_path = conf_dir / "node.conf"
+    sec_path = sec_dir / "node_api.conf"
+
+    conf_path.write_text(_render_simple_conf(node_conf), encoding="utf-8")
+    sec_path.write_text(_render_simple_conf(node_sec), encoding="utf-8")
+
+    return {
+        "generated": "install/taks-bootstrap/{config.d/node.conf,secrets.d/node_api.conf}",
+        "kind": "generated_bootstrap",
+        "files": 2,
+        "bytes": conf_path.stat().st_size + sec_path.stat().st_size,
+    }
 
 
 def _copy_wildcard_tls_material(root: Path) -> Dict[str, Any]:
@@ -498,58 +490,58 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
     if not chain:
         chain = [unit_path]
 
-    stage_root = root / ".branding-chain"
-    if stage_root.exists():
-        shutil.rmtree(stage_root)
-    stage_root.mkdir(parents=True, exist_ok=True)
-
-    cur = stage_root
+    stage_root = Path(tempfile.mkdtemp(prefix="taks-branding-chain-"))
     mounted: List[Dict[str, str]] = []
 
-    for idx, up in enumerate(chain):
-        if idx > 0:
-            cur = cur / f"child-{idx:03d}"
-            cur.mkdir(parents=True, exist_ok=True)
+    try:
+        cur = stage_root
 
-        src_root = unit_files_root(up)
-        src_branding = src_root / "branding"
-        src_conf = src_root / "config.d" / "branding.conf"
+        for idx, up in enumerate(chain):
+            if idx > 0:
+                cur = cur / f"child-{idx:03d}"
+                cur.mkdir(parents=True, exist_ok=True)
 
-        if src_branding.is_dir():
-            shutil.copytree(src_branding, cur / "branding", dirs_exist_ok=True)
+            src_root = unit_files_root(up)
+            src_branding = src_root / "branding"
+            src_conf = src_root / "config.d" / "branding.conf"
 
-        if src_conf.is_file():
-            conf_d = cur / "config.d"
-            conf_d.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_conf, conf_d / "branding.conf")
+            if src_branding.is_dir():
+                shutil.copytree(src_branding, cur / "branding", dirs_exist_ok=True)
 
-        mounted.append(
-            {
-                "unit_path": up,
-                "src_root": str(src_root),
-                "branding_dir": str(src_branding) if src_branding.exists() else "",
-                "conf_file": str(src_conf) if src_conf.exists() else "",
-            }
+            if src_conf.is_file():
+                conf_d = cur / "config.d"
+                conf_d.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src_conf, conf_d / "branding.conf")
+
+            mounted.append(
+                {
+                    "unit_path": up,
+                    "src_root": str(src_root),
+                    "branding_dir": str(src_branding) if src_branding.exists() else "",
+                    "conf_file": str(src_conf) if src_conf.exists() else "",
+                }
+            )
+
+        out_dir = root / "branding"
+        if out_dir.exists():
+            shutil.rmtree(out_dir)
+
+        manifest = materialize_branding_bundle(
+            tree_root=stage_root,
+            current_dir=cur,
+            out_dir=out_dir,
         )
 
-    out_dir = root / "branding"
-    if out_dir.exists():
-        shutil.rmtree(out_dir)
-
-    manifest = materialize_branding_bundle(
-        tree_root=stage_root,
-        current_dir=cur,
-        out_dir=out_dir,
-    )
-
-    return {
-        "generated": "branding",
-        "kind": "effective_branding",
-        "chain": chain,
-        "mounted": mounted,
-        "effective_count": int(manifest.get("effective_count", 0)),
-        "files": manifest.get("files", []),
-    }
+        return {
+            "generated": "branding",
+            "kind": "effective_branding",
+            "chain": chain,
+            "mounted": mounted,
+            "effective_count": int(manifest.get("effective_count", 0)),
+            "files": manifest.get("files", []),
+        }
+    finally:
+        shutil.rmtree(stage_root, ignore_errors=True)
 
 
 def build_bundle_from_state(unit_path: str, role: str, bundle_name: Optional[str] = None) -> Dict[str, Any]:
@@ -592,7 +584,7 @@ def build_bundle_from_state(unit_path: str, role: str, bundle_name: Optional[str
         overlays.append({"generated": "config/unit.json", "kind": "unit_config"})
 
         _write_node_env(root, unit_path=up)
-        overlays.append({"generated": "install/node.env", "kind": "node_env"})
+        overlays.append(_write_node_env(root, unit_path=up))
 
         overlays.append(_write_effective_bootstrap(root, unit_path=up))
         overlays.append(_write_effective_branding(root, unit_path=up))

@@ -67,7 +67,7 @@ def apply(ctx) -> None:
       /etc/taks-bootstrap.d/config.d/*.conf
       /etc/taks-bootstrap.d/secrets.d/*.conf
 
-    No node.env is written anymore.
+    No legacy bootstrap env file is written anymore.
     """
     BOOTSTRAP_CONFIG_D.mkdir(parents=True, exist_ok=True)
     BOOTSTRAP_SECRETS_D.mkdir(parents=True, exist_ok=True)

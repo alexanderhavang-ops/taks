@@ -137,10 +137,7 @@ def _fix_runtime_perms() -> None:
         DST_REPLAY_ROOT,
     ]
 
-    managed_files = [
-        DST_ROOT / "takctl.conf",
-        DST_ROOT / "secrets.conf",
-    ]
+    managed_files = []
 
     writable_cfg_dirs = {
         str(DST_ROOT / "conf.d"),

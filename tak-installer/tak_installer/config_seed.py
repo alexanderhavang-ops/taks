@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Dict, Iterable
 
 BOOTSTRAP_ROOT = Path("/etc/taks-bootstrap.d")
-BOOTSTRAP_NODE_ENV = BOOTSTRAP_ROOT / "node.env"
 BOOTSTRAP_CONFIG_DIRS = [BOOTSTRAP_ROOT / "config.d", BOOTSTRAP_ROOT / "config"]
 BOOTSTRAP_SECRETS_DIRS = [BOOTSTRAP_ROOT / "secrets.d", BOOTSTRAP_ROOT / "secrets"]
 
@@ -16,7 +15,11 @@ def parse_simple_kv(path: Path) -> Dict[str, str]:
         return out
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            continue
+        if "=" not in line:
             continue
         k, v = line.split("=", 1)
         k = k.strip()

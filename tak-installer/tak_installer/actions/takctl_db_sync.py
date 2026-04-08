@@ -12,9 +12,6 @@ SECRETS_D = Path("/opt/tak/tools/takctl/secrets.d")
 CONF_DB = CONF_D / "db.conf"
 SECRETS_DB = SECRETS_D / "db.conf"
 
-LEGACY_SECRETS_DIR = Path("/opt/tak/tools/takctl/secrets")
-LEGACY_DB_ENV = LEGACY_SECRETS_DIR / "db.env"
-
 
 def _parse_kv_text(text: str) -> dict[str, str]:
     out: dict[str, str] = {}
@@ -34,30 +31,10 @@ def _parse_kv_text(text: str) -> dict[str, str]:
     return out
 
 
-def _parse_env_text(text: str) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for raw in str(text or "").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        k = k.strip()
-        v = v.strip()
-        if k:
-            out[k] = v
-    return out
-
-
 def _read_kv(path: Path) -> dict[str, str]:
     if not path.is_file():
         return {}
     return _parse_kv_text(path.read_text(encoding="utf-8"))
-
-
-def _read_env(path: Path) -> dict[str, str]:
-    if not path.is_file():
-        return {}
-    return _parse_env_text(path.read_text(encoding="utf-8"))
 
 
 def _write_kv(path: Path, data: dict[str, str], mode: int = 0o640) -> None:
@@ -72,36 +49,24 @@ def _write_kv(path: Path, data: dict[str, str], mode: int = 0o640) -> None:
 def _require(path: Path, key: str, data: dict[str, str]) -> str:
     val = str(data.get(key) or "").strip()
     if not val:
-        raise RuntimeError(f"takctl-db-env: missing required key {key!r} in {path}")
+        raise RuntimeError(f"takctl-db-sync: missing required key {key!r} in {path}")
     return val
 
 
 def _ensure_db_secret() -> dict[str, str]:
     if not CONF_D.is_dir():
-        raise RuntimeError(f"takctl-db-env: missing runtime conf.d: {CONF_D}")
+        raise RuntimeError(f"takctl-db-sync: missing runtime conf.d: {CONF_D}")
     if not SECRETS_D.is_dir():
-        raise RuntimeError(f"takctl-db-env: missing runtime secrets.d: {SECRETS_D}")
+        raise RuntimeError(f"takctl-db-sync: missing runtime secrets.d: {SECRETS_D}")
     if not CONF_DB.is_file():
-        raise RuntimeError(f"takctl-db-env: missing runtime DB config: {CONF_DB}")
+        raise RuntimeError(f"takctl-db-sync: missing runtime DB config: {CONF_DB}")
 
     cur = _read_kv(SECRETS_DB)
     if not (cur.get("db_password") or "").strip():
-        legacy = _read_env(LEGACY_DB_ENV)
-        db_pw = str(legacy.get("TAKCTL_DB_PASSWORD") or "").strip()
-        if not db_pw:
-            db_pw = secrets.token_urlsafe(24)
-        cur["db_password"] = db_pw
+        cur["db_password"] = secrets.token_urlsafe(24)
         _write_kv(SECRETS_DB, cur, 0o640)
         subprocess.run(["chown", "tak:tak", str(SECRETS_DB)], check=False)
-        log.info("takctl-db-env: ensured %s", SECRETS_DB)
-
-    if LEGACY_DB_ENV.exists():
-        LEGACY_DB_ENV.unlink()
-        try:
-            if LEGACY_SECRETS_DIR.is_dir() and not any(LEGACY_SECRETS_DIR.iterdir()):
-                LEGACY_SECRETS_DIR.rmdir()
-        except Exception:
-            pass
+        log.info("takctl-db-sync: ensured %s", SECRETS_DB)
 
     return cur
 
@@ -128,11 +93,11 @@ def _sync_postgres_role(cfg: dict[str, str]) -> None:
     pw = cfg["db_password"]
 
     if host not in ("127.0.0.1", "localhost"):
-        log.info("takctl-db-env: postgres sync skipped (non-local host=%s)", host)
+        log.info("takctl-db-sync: postgres sync skipped (non-local host=%s)", host)
         return
 
     if subprocess.run(["bash", "-lc", "command -v psql >/dev/null 2>&1"]).returncode != 0:
-        log.info("takctl-db-env: postgres sync skipped (psql not installed)")
+        log.info("takctl-db-sync: postgres sync skipped (psql not installed)")
         return
 
     sql = f"""
@@ -164,10 +129,10 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {user};
         stderr=subprocess.STDOUT,
     )
     if p.returncode != 0:
-        log.info("takctl-db-env: postgres sync failed (rc=%s):\n%s", p.returncode, (p.stdout or "").strip())
+        log.info("takctl-db-sync: postgres sync failed (rc=%s):\n%s", p.returncode, (p.stdout or "").strip())
         return
 
-    log.info("takctl-db-env: postgres role synced for %s on db=%s host=%s port=%s", user, db, host, port)
+    log.info("takctl-db-sync: postgres role synced for %s on db=%s host=%s port=%s", user, db, host, port)
 
 
 def _verify_login(cfg: dict[str, str]) -> None:
@@ -188,9 +153,9 @@ def _verify_login(cfg: dict[str, str]) -> None:
         stderr=subprocess.STDOUT,
     )
     if p.returncode == 0:
-        log.info("takctl-db-env: verified DB login for %s", user)
+        log.info("takctl-db-sync: verified DB login for %s", user)
     else:
-        log.info("takctl-db-env: DB login verification failed (rc=%s):\n%s", p.returncode, (p.stdout or "").strip())
+        log.info("takctl-db-sync: DB login verification failed (rc=%s):\n%s", p.returncode, (p.stdout or "").strip())
 
 
 def apply(ctx) -> None:
@@ -200,13 +165,12 @@ def apply(ctx) -> None:
 
 
 class _Action:
-    ID = "takctl-db-env"
+    ID = "takctl-db-sync"
 
     def inspect(self, ctx) -> int:
         log.info("Inspecting %s action...", self.ID)
         log.info("  runtime conf db: %s", CONF_DB)
         log.info("  runtime secrets db: %s", SECRETS_DB)
-        log.info("  legacy db env: %s", LEGACY_DB_ENV)
         return 0
 
     def apply(self, ctx) -> int:

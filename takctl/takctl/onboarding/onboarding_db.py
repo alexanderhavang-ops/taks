@@ -49,8 +49,7 @@ def maybe_db() -> Tuple[Optional[DB], Optional[str], str, str]:
     DB is optional for onboarding status.
 
     Rules (explicit, not "silent"):
-      1) Start from takctl load_config() (env + takctl.conf + defaults).
-         NOTE: load_config() also loads secrets/db.env into env first.
+      1) Start from takctl load_config() backed by runtime conf.d/secrets.d.
       2) Force db_mode=psycopg2 (web-safe).
       3) If config looks like defaults (db_user=postgres OR missing password),
          and CoreConfig.xml has a repository connection, override DB creds from CoreConfig.

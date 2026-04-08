@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUNDLE_ROOT="$ROOT"
 
-
 STATE_LOG="/var/log/taks-installer-state.log"
 
 ts_now() {
@@ -19,6 +18,13 @@ log_state() {
 
 log() {
   printf '[install] %s\n' "$*"
+}
+
+read_simple_kv() {
+  local path="$1"
+  local key="$2"
+  [ -f "$path" ] || return 1
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$path" | head -n 1 | sed -e 's/[[:space:]]*$//'
 }
 
 run_step() {
@@ -90,25 +96,26 @@ ensure_ca_signing_keystore() {
 }
 
 generate_tak_server_certs() {
-  local node_env="/etc/taks-bootstrap.d/node.env"
+  local node_conf="/etc/taks-bootstrap.d/config.d/node.conf"
   local cert_dir="/opt/tak/certs"
+  local fqdn
 
   if [ ! -d "$cert_dir" ]; then
     log "skip cert generation (missing $cert_dir)"
     return 0
   fi
 
-  if [ ! -f "$node_env" ]; then
-    log "skip cert generation (missing $node_env)"
+  if [ ! -f "$node_conf" ]; then
+    log "skip cert generation (missing $node_conf)"
     return 0
   fi
 
-  # shellcheck disable=SC1090
-  . "$node_env"
-
-  local fqdn="${TAKS_NODE_FQDN:-${TAKS_FQDN:-}}"
+  fqdn="$(read_simple_kv "$node_conf" node_fqdn || true)"
   if [ -z "$fqdn" ]; then
-    log "skip cert generation (TAKS_NODE_FQDN/TAKS_FQDN missing)"
+    fqdn="$(read_simple_kv "$node_conf" fqdn || true)"
+  fi
+  if [ -z "$fqdn" ]; then
+    log "skip cert generation (node_fqdn/fqdn missing in $node_conf)"
     return 0
   fi
 
@@ -164,11 +171,6 @@ install_base_files() {
     log "installed /etc/taks/unit.json"
   fi
 
-  if [ -f "$BUNDLE_ROOT/install/node.env" ]; then
-    install -m 0600 "$BUNDLE_ROOT/install/node.env" /etc/taks-bootstrap.d/node.env
-    log "installed /etc/taks-bootstrap.d/node.env"
-  fi
-
   if [ -d "$BUNDLE_ROOT/install/taks-bootstrap/config.d" ]; then
     find "$BUNDLE_ROOT/install/taks-bootstrap/config.d" -type f -name '*.conf' | while read -r src; do
       rel="${src#$BUNDLE_ROOT/install/taks-bootstrap/config.d/}"
@@ -191,22 +193,23 @@ install_base_files() {
 }
 
 install_bundled_tls_material() {
-  local node_env="/etc/taks-bootstrap.d/node.env"
+  local node_conf="/etc/taks-bootstrap.d/config.d/node.conf"
   local src_dir="$BUNDLE_ROOT/install/letsencrypt"
   local src_cert="$src_dir/fullchain.pem"
   local src_key="$src_dir/privkey.pem"
+  local fqdn
 
-  if [ ! -f "$node_env" ]; then
-    log "skip bundled TLS install (missing /etc/taks-bootstrap.d/node.env)"
+  if [ ! -f "$node_conf" ]; then
+    log "skip bundled TLS install (missing $node_conf)"
     return 0
   fi
 
-  # shellcheck disable=SC1090
-  . "$node_env"
-
-  local fqdn="${TAKS_NODE_FQDN:-}"
+  fqdn="$(read_simple_kv "$node_conf" node_fqdn || true)"
   if [ -z "$fqdn" ]; then
-    log "skip bundled TLS install (TAKS_NODE_FQDN missing)"
+    fqdn="$(read_simple_kv "$node_conf" fqdn || true)"
+  fi
+  if [ -z "$fqdn" ]; then
+    log "skip bundled TLS install (node_fqdn/fqdn missing in $node_conf)"
     return 0
   fi
 
@@ -232,34 +235,39 @@ install_heartbeat() {
 
   systemctl daemon-reload
 
-  if [ -f /etc/taks-bootstrap.d/node.env ]; then
+  if find /etc/taks-bootstrap.d/config.d /etc/taks-bootstrap.d/secrets.d -maxdepth 1 -type f -name '*.conf' 2>/dev/null | grep -q .; then
     systemctl enable --now taks-heartbeat.timer
     log "enabled taks-heartbeat.timer"
   else
-    log "bootstrap node.env missing, not enabling taks-heartbeat.timer"
+    log "bootstrap conf/secrets missing, not enabling taks-heartbeat.timer"
   fi
 }
 
 main() {
   log_state "install/main" "Started"
   log_state "install_base_files" "Started"
-install_base_files
-log_state "install_base_files" "Succeeded"
+  install_base_files
+  log_state "install_base_files" "Succeeded"
+
   log_state "install_bundled_tls_material" "Started"
-install_bundled_tls_material
-log_state "install_bundled_tls_material" "Succeeded"
+  install_bundled_tls_material
+  log_state "install_bundled_tls_material" "Succeeded"
+
   log_state "install_heartbeat" "Started"
-install_heartbeat
-log_state "install_heartbeat" "Succeeded"
+  install_heartbeat
+  log_state "install_heartbeat" "Succeeded"
 
   run_step "os-tuning" "$BUNDLE_ROOT/install/os-tuning.sh"
   run_step "takserver" "$BUNDLE_ROOT/install/takserver.sh"
   run_step "tak-certs-config" "$BUNDLE_ROOT/install/tak-certs-config.sh"
+
   log_state "generate_tak_server_certs" "Started"
   generate_tak_server_certs
   log_state "generate_tak_server_certs" "Succeeded"
+
   run_step "tak-certs-layout" "$BUNDLE_ROOT/install/tak-certs-layout.sh"
   run_step "tak-coreconfig-render" "$BUNDLE_ROOT/install/tak-coreconfig-render.sh"
+
   log_state "restart_takserver_if_present" "Started"
   restart_takserver_if_present
   log_state "restart_takserver_if_present" "Succeeded"

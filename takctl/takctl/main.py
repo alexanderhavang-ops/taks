@@ -65,7 +65,7 @@ def _root(
     """
     Root entrypoint. Build AppContext and attach it to Typer context.
     """
-    cfg = load_config(path="/opt/tak/tools/takctl/takctl.conf")
+    cfg = load_config()
     ctx.obj = {
         "appctx": build_context(cfg),
         "json": json,

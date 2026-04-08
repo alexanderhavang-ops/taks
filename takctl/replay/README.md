@@ -195,8 +195,8 @@ Det gör att andra framtida profiler kan läggas till separat, exempelvis andra 
 Replay ska följa samma konfigurationsmodell som övrig takctl.
 
 ### Tillåtet
-- `takctl.conf`
-- `secrets.conf`
+- `conf.d/*.conf`
+- `secrets.d/*.conf`
 
 ### Inte tillåtet
 - miljövariabler som primär configmekanism

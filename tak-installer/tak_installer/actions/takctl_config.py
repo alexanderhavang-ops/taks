@@ -18,11 +18,6 @@ DST_CONF_D = DST_ROOT / "conf.d"
 DST_SECRETS_D = DST_ROOT / "secrets.d"
 DST_CONFMETA = DST_ROOT / "confmeta"
 
-LEGACY_CONF = DST_ROOT / "takctl.conf"
-LEGACY_SECRETS = DST_ROOT / "secrets.conf"
-LEGACY_DB_ENV = DST_ROOT / "secrets" / "db.env"
-LEGACY_SECRETS_DIR = DST_ROOT / "secrets"
-
 
 def _src_root(ctx) -> Path:
     return Path(ctx.repo_root) / "takctl"
@@ -68,104 +63,23 @@ def _parse_kv_file(path: Path) -> dict[str, str]:
     return out
 
 
-def _parse_env_file(path: Path) -> dict[str, str]:
-    out: dict[str, str] = {}
-    if not path.exists():
-        return out
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        k = k.strip()
-        v = v.strip()
-        if k:
-            out[k] = v
-    return out
-
-
 def _write_simple_kv(path: Path, data: dict[str, str], mode: int) -> None:
     rows = [f"{k} = {data[k]}" for k in sorted(data.keys())]
     _write_atomic(path, "\n".join(rows) + "\n", mode)
-
-
-def _merge_simple_kv(path: Path, updates: dict[str, str], mode: int = 0o640) -> bool:
-    cur = _parse_kv_file(path)
-    changed = False
-    for k, v in updates.items():
-        v = str(v or "").strip()
-        if not v:
-            continue
-        if cur.get(k) != v:
-            cur[k] = v
-            changed = True
-    if changed or not path.exists():
-        _write_simple_kv(path, cur, mode)
-    return changed
 
 
 def _chown_tree(path: Path, *, file_mode: int = 0o640, dir_mode: int = 0o2770) -> None:
     if not path.exists():
         return
     subprocess.run(["chown", "-R", "tak:tak", str(path)], check=False)
-    subprocess.run(["bash", "-lc", f'find "{path}" -type d -exec chmod {dir_mode:o} {{}} \\; 2>/dev/null || true'], check=False)
-    subprocess.run(["bash", "-lc", f'find "{path}" -type f -exec chmod {file_mode:o} {{}} \\; 2>/dev/null || true'], check=False)
-
-
-def _remove_if_exists(path: Path) -> None:
-    if path.is_symlink() or path.is_file():
-        path.unlink()
-    elif path.is_dir():
-        shutil.rmtree(path)
-
-
-def _remove_empty_dir(path: Path) -> None:
-    try:
-        if path.is_dir() and not any(path.iterdir()):
-            path.rmdir()
-    except Exception:
-        pass
-
-
-def _migrate_legacy_runtime_conf() -> None:
-    legacy = _parse_kv_file(LEGACY_CONF)
-    if legacy:
-        dst = DST_CONF_D / "zz-legacy-import.conf"
-        _merge_simple_kv(dst, legacy)
-        log.info("takctl-config: migrated %s -> %s", LEGACY_CONF, dst)
-        _remove_if_exists(LEGACY_CONF)
-
-
-def _migrate_legacy_runtime_secrets() -> None:
-    legacy = _parse_kv_file(LEGACY_SECRETS)
-    if legacy:
-        dst = DST_SECRETS_D / "zz-legacy-import.conf"
-        _merge_simple_kv(dst, legacy)
-        log.info("takctl-config: migrated %s -> %s", LEGACY_SECRETS, dst)
-        _remove_if_exists(LEGACY_SECRETS)
-
-
-def _migrate_legacy_db_env() -> None:
-    legacy = _parse_env_file(LEGACY_DB_ENV)
-    if not legacy:
-        return
-
-    conf_updates = {
-        "db_host": legacy.get("TAKCTL_DB_HOST", ""),
-        "db_port": legacy.get("TAKCTL_DB_PORT", ""),
-        "db_name": legacy.get("TAKCTL_DB_NAME", ""),
-        "db_user": legacy.get("TAKCTL_DB_USER", ""),
-    }
-    sec_updates = {
-        "db_password": legacy.get("TAKCTL_DB_PASSWORD", ""),
-    }
-
-    _merge_simple_kv(DST_CONF_D / "db.conf", conf_updates)
-    _merge_simple_kv(DST_SECRETS_D / "db.conf", sec_updates)
-    log.info("takctl-config: migrated %s into runtime conf.d/secrets.d", LEGACY_DB_ENV)
-
-    _remove_if_exists(LEGACY_DB_ENV)
-    _remove_empty_dir(LEGACY_SECRETS_DIR)
+    subprocess.run(
+        ["bash", "-lc", f'find "{path}" -type d -exec chmod {dir_mode:o} {{}} \\; 2>/dev/null || true'],
+        check=False,
+    )
+    subprocess.run(
+        ["bash", "-lc", f'find "{path}" -type f -exec chmod {file_mode:o} {{}} \\; 2>/dev/null || true'],
+        check=False,
+    )
 
 
 def _ensure_generated_secrets() -> None:
@@ -213,9 +127,6 @@ def apply(ctx) -> None:
     )
     log.info("takctl-config: materialized %s secrets.d files into %s", n_sec, DST_SECRETS_D)
 
-    _migrate_legacy_runtime_conf()
-    _migrate_legacy_runtime_secrets()
-    _migrate_legacy_db_env()
     _ensure_generated_secrets()
 
     _chown_tree(DST_CONF_D, file_mode=0o640, dir_mode=0o2770)
@@ -244,9 +155,6 @@ def apply(ctx) -> None:
     _chown_tree(DST_CONFMETA, file_mode=0o644, dir_mode=0o2755)
     log.info("takctl-config: installed %s confmeta files into %s", n_meta, DST_CONFMETA)
 
-    _remove_if_exists(LEGACY_CONF)
-    _remove_if_exists(LEGACY_SECRETS)
-
 
 class _Action:
     ID = "takctl-config"
@@ -261,9 +169,6 @@ class _Action:
         log.info("  bootstrap secrets.d: %s", BOOTSTRAP_SECRETS_DIRS)
         log.info("  src confmeta: %s", _src_confmeta(ctx))
         log.info("  dst confmeta: %s", DST_CONFMETA)
-        log.info("  legacy conf: %s", LEGACY_CONF)
-        log.info("  legacy secrets: %s", LEGACY_SECRETS)
-        log.info("  legacy db env: %s", LEGACY_DB_ENV)
         return 0
 
     def apply(self, ctx) -> int:

@@ -9,7 +9,7 @@ from takctl.services.llm_http import http_post_json
 
 def _http_timeout_sec() -> float:
     """
-    Default LLM HTTP timeout from takctl.conf.
+    Default LLM HTTP timeout from runtime conf.d.
     Generation on CPU can exceed 90s easily.
     """
     cfg = load_config()
@@ -87,7 +87,7 @@ class LLMClient:
 def build_llm_client_from_env() -> LLMClient:
     """
     Backwards-compatible helper name.
-    Actual source of truth is takctl.conf.
+    Actual source of truth is runtime conf.d.
     """
     cfg = load_config()
     llm_url = (cfg.llm_url or "http://127.0.0.1:8090").strip()

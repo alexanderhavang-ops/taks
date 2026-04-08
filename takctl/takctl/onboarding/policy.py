@@ -37,7 +37,7 @@ class Policy:
     Legacy policy.conf loader with JSON-policy fallback.
 
     Resolution order for legacy config:
-      1) policy_dir from takctl.conf (if set)
+      1) policy_dir from runtime conf.d (if set)
       2) /opt/tak/policies/<id>/policy.conf
       3) /opt/taks/policies/<id>/policy.conf
 
@@ -49,7 +49,7 @@ class Policy:
         cfg0 = load_config()
         self.policy_id = str(policy_id or cfg0.get("default_policy_id", "") or "").strip()
         if not self.policy_id:
-            raise PolicyError("default_policy_id is empty in takctl.conf")
+            raise PolicyError("default_policy_id is empty in runtime conf.d")
 
         self.path = self._resolve_path(self.policy_id)
 

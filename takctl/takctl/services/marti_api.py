@@ -34,7 +34,7 @@ def _base_url() -> str:
     cfg = load_config()
     base = (cfg.marti_api_base or "").strip().rstrip("/")
     if not base:
-        raise RuntimeError("marti_api_base is empty in takctl.conf")
+        raise RuntimeError("marti_api_base is empty in runtime conf.d")
     return base
 
 
@@ -43,9 +43,9 @@ def _credentials() -> tuple[str, str]:
     user = (sec.marti_api_username or "").strip()
     pw = (sec.marti_api_password or "").strip()
     if not user:
-        raise RuntimeError("marti_api_username is empty in secrets.conf")
+        raise RuntimeError("marti_api_username is empty in runtime secrets.d")
     if not pw:
-        raise RuntimeError("marti_api_password is empty in secrets.conf")
+        raise RuntimeError("marti_api_password is empty in runtime secrets.d")
     return user, pw
 
 

@@ -36,40 +36,40 @@
   }
 
   async function terminateNode(id){
-    if(!confirm(CORE.t('nodes.terminate.confirm', { id }))) return;
+    if(!confirm('Terminera nod ' + id + '?\n\nTerminering innebär att du destruerar noden. DIN DATA KOMMER RADERAS. MKAY?')) return;
     try{
       const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/terminate`, {});
-      alert(`${CORE.t('nodes.terminate.requested', { id })}\n\n${JSON.stringify(j.terminate || j || {}, null, 2)}`);
+      alert('Terminering begärd för ' + id + '\n\n' + JSON.stringify(j.terminate || j || {}, null, 2));
       load();
     }catch(e){
       const d = CORE.errorDetails ? CORE.errorDetails(e) : { msg: String((e && e.message) ? e.message : e), detail: '' };
-      alert(`${CORE.t('nodes.terminate.failed', { id })}\n\n${d.msg || CORE.t('common.error')}${d.detail ? '\n\n' + d.detail : ''}`);
+      alert('Terminering misslyckades för ' + id + '\n\n' + (d.msg || CORE.t('common.error')) + (d.detail ? '\n\n' + d.detail : ''));
       throw e;
     }
   }
 
   async function snoozeNode(id){
-    if(!confirm(CORE.t('nodes.snooze.confirm', { id }))) return;
+    if(!confirm('Snooze/stoppa nod ' + id + '?\n\nDin runtime data överlever detta. Inget går förlorat på noden.\n\nKostnaden för denna nod när den sover är liten och begränsad till kostnaden för storage.')) return;
     try{
       const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/snooze`, {});
-      alert(`${CORE.t('nodes.snooze.requested', { id })}\n\n${JSON.stringify(j.snooze || j || {}, null, 2)}`);
+      alert('Snooze begärd för ' + id + '\n\n' + JSON.stringify(j.snooze || j || {}, null, 2));
       load();
     }catch(e){
       const d = CORE.errorDetails ? CORE.errorDetails(e) : { msg: String((e && e.message) ? e.message : e), detail: '' };
-      alert(`${CORE.t('nodes.snooze.failed', { id })}\n\n${d.msg || CORE.t('common.error')}${d.detail ? '\n\n' + d.detail : ''}`);
+      alert('Snooze misslyckades för ' + id + '\n\n' + (d.msg || CORE.t('common.error')) + (d.detail ? '\n\n' + d.detail : ''));
       throw e;
     }
   }
 
   async function wakeNode(id){
-    if(!confirm(CORE.t('nodes.wake.confirm', { id }))) return;
+    if(!confirm('Väck stoppad nod ' + id + '?')) return;
     try{
       const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/wake`, {});
-      alert(`${CORE.t('nodes.wake.requested', { id })}\n\n${JSON.stringify(j.wake || j || {}, null, 2)}`);
+      alert('Wake begärd för ' + id + '\n\n' + JSON.stringify(j.wake || j || {}, null, 2));
       load();
     }catch(e){
       const d = CORE.errorDetails ? CORE.errorDetails(e) : { msg: String((e && e.message) ? e.message : e), detail: '' };
-      alert(`${CORE.t('nodes.wake.failed', { id })}\n\n${d.msg || CORE.t('common.error')}${d.detail ? '\n\n' + d.detail : ''}`);
+      alert('Wake misslyckades för ' + id + '\n\n' + (d.msg || CORE.t('common.error')) + (d.detail ? '\n\n' + d.detail : ''));
       throw e;
     }
   }
@@ -104,18 +104,18 @@
     };
 
     if(st === 'stopped' || aws === 'stopped'){
-      addBtn(CORE.t('nodes.wake'), 'btn btn--secondary', () => wakeNode(n.node_id));
-      addBtn(CORE.t('nodes.terminate'), 'btn btn--danger', () => terminateNode(n.node_id));
+      addBtn('Wake', 'btn btn--secondary', () => wakeNode(n.node_id));
+      addBtn('Terminera', 'btn btn--danger', () => terminateNode(n.node_id));
       return td;
     }
 
     if(st === 'running' || st === 'stale' || st === 'booting' || aws === 'running' || aws === 'pending'){
-      addBtn(CORE.t('nodes.snooze'), 'btn btn--secondary', () => snoozeNode(n.node_id));
-      addBtn(CORE.t('nodes.terminate'), 'btn btn--danger', () => terminateNode(n.node_id));
+      addBtn('Snooze', 'btn btn--secondary', () => snoozeNode(n.node_id));
+      addBtn('Terminera', 'btn btn--danger', () => terminateNode(n.node_id));
       return td;
     }
 
-    addBtn(CORE.t('nodes.terminate'), 'btn btn--danger', () => terminateNode(n.node_id));
+    addBtn('Terminera', 'btn btn--danger', () => terminateNode(n.node_id));
     return td;
   }
 

@@ -56,7 +56,7 @@ def _alexander_append_json(tag: str, obj: Any) -> None:
 
 def _http_dump_dir() -> str:
     """
-    Debug dump dir from takctl.conf.
+    Debug dump dir from runtime conf.d.
     Reuse llm_state_dir as base and keep dumps under http-dumps/.
     Empty string disables file dumps.
     """
@@ -217,7 +217,7 @@ def http_post_json(
     JSON POST with urllib.
     Returns: (status_code, parsed_json_or_text, err)
 
-    If debug dump dir is enabled from takctl.conf, dumps request/response bytes + meta.
+    If debug dump dir is enabled from runtime conf.d, dumps request/response bytes + meta.
     Also ALWAYS appends request/response bytes + meta to /tmp/alexander.txt (best-effort).
     """
     try:

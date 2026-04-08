@@ -4,7 +4,6 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUNDLE_ROOT="$ROOT"
 
-
 STATE_LOG="/var/log/taks-installer-state.log"
 
 ts_now() {
@@ -35,28 +34,6 @@ TAK_INSTALLER="$TAKS_SOURCE_ROOT/tak-installer/tak-installer"
 
 if [ ! -f "$TAK_INSTALLER" ]; then
   fail "missing tak-installer at $TAK_INSTALLER"
-fi
-
-NODE_ENV="$BUNDLE_ROOT/install/node.env"
-if [ -f "$NODE_ENV" ]; then
-  # shellcheck disable=SC1090
-  . "$NODE_ENV"
-  log "loaded $NODE_ENV"
-else
-  log "no install/node.env present"
-fi
-
-if [ -n "${TAKS_NODE_FQDN:-}" ]; then
-  export TAKS_FQDN="${TAKS_NODE_FQDN}"
-  export FQDN="${TAKS_NODE_FQDN}"
-fi
-
-if [ -n "${TAKS_NODE_CERT_MODEL:-}" ]; then
-  export TAKS_NODE_CERT_MODEL
-fi
-
-if [ -n "${LE_EMAIL:-}" ]; then
-  export LE_EMAIL
 fi
 
 log "running tak-installer apply from extracted bundle"

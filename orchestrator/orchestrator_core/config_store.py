@@ -17,7 +17,6 @@ SECRETS_D = RUNTIME_ROOT / "secrets.d"
 CONFMETA_D = RUNTIME_ROOT / "confmeta"
 
 LEGACY_CONFIG_PATH = Path("/etc/taks/tak_orch.conf")
-LEGACY_SECRETS_PATH = Path("/etc/taks/secrets.conf")
 
 
 @dataclass
@@ -191,7 +190,6 @@ def _bootstrap_from_legacy_if_needed() -> None:
 
 
 def _load_values(*, secret: bool) -> dict[str, str]:
-    _bootstrap_from_legacy_if_needed()
     out: dict[str, str] = {}
     base = SECRETS_D if secret else CONF_D
     for p in sorted(base.glob("*.conf")):

@@ -11,6 +11,12 @@ read_trimmed_file() {
   tr -d '\r' < "$p" | sed -e 's/[[:space:]]*$//' | head -n 1
 }
 
+read_simple_kv() {
+  local path="$1"
+  local key="$2"
+  [ -f "$path" ] || return 1
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$path" | head -n 1 | sed -e 's/[[:space:]]*$//'
+}
 
 read_db_password_file() {
   local p="/etc/taks/db/martiuser_password"
@@ -69,25 +75,20 @@ PYXML
 }
 
 main() {
-  local bundle_root
-  bundle_root="$(cd "$(dirname "$0")/.." && pwd)"
-
-  local node_env="$bundle_root/install/node.env"
-  if [ -f "$node_env" ]; then
-    # shellcheck disable=SC1090
-    . "$node_env"
-  fi
-
   local taks_dir="/etc/taks"
   local db_dir="$taks_dir/db"
   local cert_dir="$taks_dir/certs"
   local cert_meta="/opt/tak/certs/cert-metadata.sh"
   local out="/opt/tak/CoreConfig.xml"
   local server_id_file="$taks_dir/server_id"
+  local bootstrap_node_conf="/etc/taks-bootstrap.d/config.d/node.conf"
 
   local unit_id fqdn private_ip db_password cert_pass cert_capass org ou org_xml ou_xml
   unit_id="$(read_trimmed_file "$taks_dir/TAKS_UNIT_ID" || true)"
-  fqdn="${TAKS_NODE_FQDN:-}"
+  fqdn="$(read_simple_kv "$bootstrap_node_conf" node_fqdn || true)"
+  if [ -z "$fqdn" ]; then
+    fqdn="$(read_simple_kv "$bootstrap_node_conf" fqdn || true)"
+  fi
   private_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   db_password="$(read_db_password_file || true)"
   if [ -z "$db_password" ]; then

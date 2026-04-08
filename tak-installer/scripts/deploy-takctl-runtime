@@ -13,8 +13,8 @@ DST_RUNTIME="${DST_RUNTIME:-/opt/tak/tools/takctl}"
 #
 # What we DO NOT want to clobber in runtime:
 # - .venv (runtime venv)
-# - secrets/ (db.env etc)
-# - takctl.conf (rendered/host-specific)
+# - secrets.d/ (runtime secret fragments)
+# - conf.d/ (runtime config fragments)
 # - takctl.audit.log (runtime log)
 # - backup/ ignite/work/ .pytest_cache/ __pycache__/ etc
 
@@ -49,7 +49,6 @@ RSYNC_OPTS=(
   --no-group
   --exclude ".venv/"
   --exclude "secrets/"
-  --exclude "takctl.conf"
   --exclude "takctl.audit.log"
   --exclude "backup/"
   --exclude "ignite/work/"

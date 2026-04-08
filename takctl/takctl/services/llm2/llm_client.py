@@ -162,7 +162,7 @@ class LlmClient:
     """
     Provider-neutral text completion interface for LLM2.
 
-    Reads only takctl.conf + secrets.conf.
+    Reads only runtime conf.d + secrets.d.
     """
 
     def __init__(self) -> None:
@@ -215,11 +215,11 @@ class LlmClient:
         try:
             if self.provider == "bedrock":
                 if not self.aws_region:
-                    raise RuntimeError("missing aws_region in takctl.conf for bedrock")
+                    raise RuntimeError("missing aws_region in runtime conf.d for bedrock")
                 if not self.bedrock_model_id:
-                    raise RuntimeError("missing bedrock_model_id in takctl.conf for bedrock")
+                    raise RuntimeError("missing bedrock_model_id in runtime conf.d for bedrock")
                 if not self.bedrock_api_key:
-                    raise RuntimeError("missing bedrock_api_key in secrets.conf for bedrock")
+                    raise RuntimeError("missing bedrock_api_key in runtime secrets.d for bedrock")
 
                 model_id = _normalize_bedrock_model_id(self.bedrock_model_id, self.aws_region)
 
@@ -286,7 +286,7 @@ class LlmClient:
                     out["ok"] = True
 
             else:
-                raise RuntimeError(f"invalid llm_provider in takctl.conf: {self.provider!r}")
+                raise RuntimeError(f"invalid llm_provider in runtime conf.d: {self.provider!r}")
 
         except Exception as e:
             out["ok"] = False
