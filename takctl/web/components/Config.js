@@ -29,6 +29,40 @@
     return j;
   }
 
+  function normalizeConfigResponse(d){
+    if (!d || typeof d !== "object") return { items: [] };
+    if (Array.isArray(d.items)) return d;
+
+    const cfg = (d.config && typeof d.config === "object") ? d.config : {};
+    const sec = (d.secrets && typeof d.secrets === "object") ? d.secrets : {};
+    const meta = (d.meta && typeof d.meta === "object") ? d.meta : {};
+
+    const items = [];
+    const seen = Object.create(null);
+
+    function pushObject(obj, isSecret){
+      Object.keys(obj).sort().forEach(function(name){
+        if (seen[name]) return;
+        seen[name] = true;
+
+        const m = (meta[name] && typeof meta[name] === "object") ? meta[name] : {};
+        items.push({
+          name: name,
+          value: obj[name],
+          secret: !!(isSecret || m.secret === true),
+          is_set: isSecret ? String(obj[name] || "").trim() !== "" : true,
+          component: m.component || "",
+          meta: m
+        });
+      });
+    }
+
+    pushObject(cfg, false);
+    pushObject(sec, true);
+
+    return Object.assign({}, d, { items: items });
+  }
+
   function cardStyle(extra){
     return Object.assign({
       border: "1px solid rgba(255,255,255,.06)",
@@ -335,7 +369,7 @@
       try{
         setLoading(true);
         const d = await fetchJson("/api/config");
-        setData(d);
+        setData(normalizeConfigResponse(d));
         setErr(null);
         setEdits({});
       }catch(ex){
@@ -360,7 +394,7 @@
         }
 
         const d = await postJson("/api/config", payload);
-        setData(d);
+        setData(normalizeConfigResponse(d));
         setEdits({});
         setSaveMsg("Saved.");
       }catch(ex){

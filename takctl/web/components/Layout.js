@@ -103,6 +103,8 @@ function Layout({ tab, setTab, health, brand, children }) {
   // Prefer the square-derived icon first (unit-current.png),
   // then fall back to svg and other extensions.
   const unitLogoSrcs = [
+    "./assets/branding/node/unit.png",
+    "./assets/branding/node/unit-parent0.png",
     "./assets/unit-current.png",
     "./assets/unit-current.svg",
     "./assets/unit-current.webp",
