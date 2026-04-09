@@ -81,6 +81,20 @@
     return x;
   }
 
+  function tdUnitLink(n){
+    const td = document.createElement('td');
+    const unit = String((n && n.unit_path) || '').trim();
+    if(unit){
+      const a = document.createElement('a');
+      a.href = '#/units/' + encodeURIComponent(unit);
+      a.textContent = unit;
+      td.appendChild(a);
+      return td;
+    }
+    td.textContent = (n && (n.hostname ?? n.node_id)) ?? '—';
+    return td;
+  }
+
   function tdActions(n){
     const td = document.createElement('td');
     td.style.whiteSpace = 'nowrap';
@@ -134,7 +148,7 @@
       const priv = n.aws_private_ip ?? n.private_ip;
 
       tr.append(
-        tdVal(n.unit_path ?? n.hostname ?? n.node_id),
+        tdUnitLink(n),
         tdVal(n.role),
         tdVal(n.fqdn),
         tdVal(inst),

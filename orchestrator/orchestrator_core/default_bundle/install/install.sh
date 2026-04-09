@@ -227,6 +227,16 @@ seed_bootstrap_branding() {
   dst_dir="/opt/taks-bootstrap/$unit_id/branding"
   mkdir -p "$dst_dir"
 
+  local src_real=""
+  local dst_real=""
+  src_real="$(cd "$src_dir" && pwd -P)"
+  dst_real="$(cd "$dst_dir" && pwd -P)"
+
+  if [ "$src_real" = "$dst_real" ]; then
+    log "bootstrap branding already materialized in $dst_dir; skip self-copy"
+    return 0
+  fi
+
   find "$dst_dir" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
   cp -a "$src_dir"/. "$dst_dir"/
 
@@ -327,6 +337,8 @@ main() {
       log_state "taks/apply" "Failed"
     fi
   fi
+
+  run_step "taks-node-health" "$BUNDLE_ROOT/install/taks-node-health.sh"
 
   log "install complete"
   log_state "install/main" "Succeeded"

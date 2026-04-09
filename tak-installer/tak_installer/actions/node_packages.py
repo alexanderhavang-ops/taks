@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 from tak_installer.log import get_logger
+from tak_installer.config_seed import BOOTSTRAP_CONFIG_DIRS
 
 log = get_logger(__name__)
 
@@ -20,7 +21,6 @@ PACKAGES = [
     "ocrmypdf",
     "certbot",
 ]
-
 
 REPLAY_PACKAGES = [
 ]
@@ -40,9 +40,22 @@ def _parse_simple_kv(path: Path) -> dict[str, str]:
 def _truthy(v: str) -> bool:
     return str(v or "").strip().lower() in {"1", "true", "yes", "on"}
 
+def _replay_cfg(ctx) -> dict[str, str]:
+    merged: dict[str, str] = {}
+
+    # source default
+    src = Path(ctx.repo_root) / "takctl" / "conf.d" / "replay.conf"
+    merged.update(_parse_simple_kv(src))
+
+    # bootstrap overlay(s) win over source defaults
+    for d in BOOTSTRAP_CONFIG_DIRS:
+        p = Path(d) / "replay.conf"
+        merged.update(_parse_simple_kv(p))
+
+    return merged
+
 def _replay_enabled(ctx) -> bool:
-    runtime_conf = Path("/opt/tak/tools/takctl/conf.d/replay.conf")
-    merged = _parse_simple_kv(runtime_conf)
+    merged = _replay_cfg(ctx)
     return _truthy(merged.get("replay_enabled", "false"))
 
 def _packages_for_ctx(ctx) -> list[str]:

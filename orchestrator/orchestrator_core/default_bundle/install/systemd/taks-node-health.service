@@ -1,0 +1,10 @@
+[Unit]
+Description=TAKS node health collector
+After=network-online.target takserver.service takctl-web.service martine-cot.service mumble-server.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/opt/taks/install/taks-node-health.sh --run

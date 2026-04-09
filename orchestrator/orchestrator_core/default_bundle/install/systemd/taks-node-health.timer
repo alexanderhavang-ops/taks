@@ -1,0 +1,12 @@
+[Unit]
+Description=Run TAKS node health collector hourly
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+RandomizedDelaySec=2min
+Persistent=true
+Unit=taks-node-health.service
+
+[Install]
+WantedBy=timers.target
