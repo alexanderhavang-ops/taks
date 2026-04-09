@@ -1,0 +1,26 @@
+{
+  "component": "onboarding",
+  "fields": {
+    "atak_qr_auto_enroll_zip_enabled": {},
+    "atak_qr_quick_connect_enabled": {},
+    "atak_qr_soft_cert_zip_enabled": {},
+
+    "itak_manual_import_warning_enabled": {},
+    "itak_qr_quick_connect_enabled": {},
+    "itak_soft_cert_zip_enabled": {},
+
+    "create_cert_with_user": {},
+
+    "reveal_client_password_on_soldier_card": {},
+    "reveal_password_default": {},
+    "reveal_truststore_password_on_soldier_card": {},
+
+    "soft_cert_include_client_password": {},
+    "soft_cert_include_truststore_password": {},
+
+    "onboarding_email_provider": {},
+    "onboarding_from_addr": {},
+    "onboarding_mode": {},
+    "onboarding_reply_to": {}
+  }
+}
