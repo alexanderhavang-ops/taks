@@ -22,7 +22,7 @@ from takctl.services.docs_paths import (
     chunks_path,
     errors_path,
 )
-from takctl.services.docs_registry import upsert_doc
+from takctl.services.docs_registry import upsert_doc, list_docs
 
 
 def iso_z(dt: datetime | None = None) -> str:
@@ -587,6 +587,31 @@ def _registry_item_from_manifest(
     return item
 
 
+
+def _find_existing_active_doc_by_sha256(sha256_hex: str) -> dict[str, Any] | None:
+    want = str(sha256_hex or "").strip().lower()
+    if not want:
+        return None
+
+    matches: list[dict[str, Any]] = []
+    for item in list_docs():
+        if not isinstance(item, dict):
+            continue
+        if not bool(item.get("active", True)):
+            continue
+        status = str(item.get("status") or "").strip().lower()
+        if status not in {"queued", "processing", "ready"}:
+            continue
+        got = str(item.get("sha256") or "").strip().lower()
+        if got == want:
+            matches.append(item)
+
+    if not matches:
+        return None
+
+    matches.sort(key=lambda x: (str(x.get("uploaded_at") or ""), str(x.get("doc_id") or "")))
+    return matches[-1]
+
 def queue_uploaded_pdf(
     *,
     temp_upload_path: Path,
@@ -597,11 +622,25 @@ def queue_uploaded_pdf(
 ) -> dict[str, Any]:
     ensure_docs_dirs()
 
+    sha = sha256_file(temp_upload_path)
+    existing = _find_existing_active_doc_by_sha256(sha)
+    if existing is not None:
+        return {
+            "ok": True,
+            "dedup": True,
+            "existing": True,
+            "doc_id": str(existing.get("doc_id") or ""),
+            "status": str(existing.get("status") or "ready"),
+            "chunk_count": int(existing.get("chunk_count") or 0),
+            "title": str(existing.get("title") or _safe_title(original_filename, title)),
+            "filename": str(existing.get("filename") or original_filename or "original.pdf"),
+            "sha256": sha,
+        }
+
     doc_id = make_doc_id()
     raw_path = _save_original_file(doc_id, temp_upload_path)
     derived_doc_dir(doc_id).mkdir(parents=True, exist_ok=True)
 
-    sha = sha256_file(raw_path)
     size_bytes = raw_path.stat().st_size
     doc_title = _safe_title(original_filename, title)
 

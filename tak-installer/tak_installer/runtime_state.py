@@ -40,15 +40,18 @@ def get_fqdn(ctx) -> str:
     """
     Canonical FQDN resolution:
       1) runtime conf.d
-      2) bootstrap config.d (first-install seed only)
+      2) bootstrap config.d
+
+    Single canonical key:
+      fqdn
     """
     for dir_path in (RUNTIME_CONF_D, BOOTSTRAP_CONF_D):
         data = _load_conf_dir(dir_path)
-        for key in ("fqdn", "node_fqdn", "tak_public_host", "public_host", "hostname"):
-            fqdn = str(data.get(key) or "").strip()
-            if fqdn:
-                return fqdn
+        fqdn = str(data.get("fqdn") or "").strip()
+        if fqdn:
+            return fqdn
 
     raise RuntimeError(
-        "FQDN not set. Checked /opt/tak/tools/takctl/conf.d and /etc/taks-bootstrap.d/config.d."
+        "FQDN not set. Checked key 'fqdn' in "
+        "/opt/tak/tools/takctl/conf.d and /etc/taks-bootstrap.d/config.d."
     )
