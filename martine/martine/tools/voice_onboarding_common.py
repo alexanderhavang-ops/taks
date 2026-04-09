@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from takctl.config import load_config, load_secrets
+from takctl.config import load_secrets
 
 
 IDENTITY_DIR = Path("/opt/tak/tools/martine/runtime/identity")
@@ -291,6 +292,21 @@ def _build_defaults(cfg: Any) -> dict[str, Any]:
     }
 
 
+
+def _pem_key_password() -> str | None:
+    sec = load_secrets()
+    for key in (
+        "martine_client_p12_pass",
+        "user_key_pass",
+        "onboarding_client_p12_default_pass",
+        "cert_pass",
+    ):
+        val = str(sec.get(key, "") or "").strip()
+        if val:
+            return val
+    return None
+
+
 def _mtls_context() -> ssl.SSLContext:
     return _tls_context()
 
@@ -306,7 +322,11 @@ def _tls_context() -> ssl.SSLContext:
     ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=str(CA_PEM))
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_REQUIRED
-    ctx.load_cert_chain(certfile=str(CERT_PEM), keyfile=str(KEY_PEM))
+    ctx.load_cert_chain(
+    certfile=str(CERT_PEM),
+    keyfile=str(KEY_PEM),
+    password=_pem_key_password(),
+)
     return ctx
 
 
