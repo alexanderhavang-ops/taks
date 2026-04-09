@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd /opt/taks
+export PYTHONPATH=/opt/taks/tak-installer${PYTHONPATH:+:$PYTHONPATH}
+exec python3 -m tak_installer.bootstrap_import_branding "$@"

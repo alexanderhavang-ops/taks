@@ -167,7 +167,7 @@ def _read_unit_chain(unit_path: str) -> List[str]:
 
 def _default_node_fqdn(unit_path: str, unit_meta: Dict[str, Any]) -> str:
     meta = unit_meta if isinstance(unit_meta, dict) else {}
-    explicit = _meta_get(meta, "node_fqdn", "taks_node_fqdn", "fqdn")
+    explicit = _meta_get(meta, "fqdn")
     if explicit:
         return explicit
     cfg = load_orch_config()
@@ -327,7 +327,6 @@ def _write_node_env(root: Path, *, unit_path: str) -> Dict[str, Any]:
 
     node_conf = {
         "fqdn": fqdn,
-        "node_fqdn": fqdn,
         "node_cert_model": cert_model,
     }
     if le_email:
