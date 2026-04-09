@@ -1132,13 +1132,9 @@
           const j = await A.callNode('/api/v2/nodes/launch');
           if(j && j.launch){
             setNodeLaunchInfo(j.launch);
-            clearInstallProgressState(node, c);
-            clearInstallProgressState(node, c);
-            setNodeActionStatus('Start begärd. Väntar på bundle-hämtning och första heartbeat…', 'ok');
+                setNodeActionStatus('Start begärd. Väntar på bundle-hämtning och första heartbeat…', 'ok');
           }else{
-            clearInstallProgressState(node, c);
-            clearInstallProgressState(node, c);
-            setNodeActionStatus('Start begärd. Väntar på första heartbeat…', 'ok');
+                setNodeActionStatus('Start begärd. Väntar på första heartbeat…', 'ok');
           }
           startNodeProgressPoll(S.getRouteUnitPath());
         }catch(e){
@@ -1161,8 +1157,6 @@
         try{
           const j = await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/wake', {});
           if(j && j.wake) setNodeLaunchInfo(j.wake);
-          clearInstallProgressState(node, c);
-          clearInstallProgressState(node, c);
           setNodeActionStatus('Wake begärd. Väntar på heartbeat…', 'ok');
           startNodeProgressPoll(S.getRouteUnitPath());
           setTimeout(function(){ render(); }, 700);
@@ -1185,8 +1179,6 @@
         try{
           const j = await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/snooze', {});
           if(j && j.snooze) setNodeLaunchInfo(j.snooze);
-          clearInstallProgressState(node, c);
-          clearInstallProgressState(node, c);
           setNodeActionStatus('Snooze begärd.', 'ok');
           setTimeout(function(){ render(); }, 700);
         }catch(e){
@@ -1207,8 +1199,6 @@
 
         try{
           await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/terminate', {});
-          clearInstallProgressState(node, c);
-          clearInstallProgressState(node, c);
           setNodeActionStatus('Terminering begärd.', 'ok');
           alert('Terminering begärd för ' + nodeId);
           setTimeout(function(){ render(); }, 700);
