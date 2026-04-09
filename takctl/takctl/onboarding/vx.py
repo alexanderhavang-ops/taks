@@ -63,7 +63,6 @@ def _channel_inner(
     extra = b""
     extra += _pb_int(1, 1)
     extra += _pb_str(2, subtitle)
-
     out = b""
     out += _pb_str(1, channel_id)
     out += _pb_str(2, channel_name)
@@ -107,69 +106,6 @@ def _server_wrapper(*, server_id: str, host: str, port: int) -> bytes:
     return _pb_bytes(1, _server_inner(server_id=server_id, host=host, port=port))
 
 
-def _normalize_channel_specs(
-    *,
-    channels: list[dict[str, Any]] | None = None,
-    channel_name: str = "",
-    server_channel_id: int = 1,
-) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    raw_items: list[dict[str, Any]] = []
-    if channels:
-        for item in channels:
-            if isinstance(item, dict):
-                raw_items.append(dict(item))
-            else:
-                raw_items.append({"name": str(item or "").strip()})
-    elif str(channel_name or "").strip():
-        raw_items.append(
-            {
-                "name": str(channel_name).strip(),
-                "subtitle": str(channel_name).strip(),
-                "server_channel_id": int(server_channel_id),
-            }
-        )
-
-    next_id = 1
-    for item in raw_items:
-        name = str(
-            item.get("name")
-            or item.get("channel_name")
-            or item.get("channel")
-            or ""
-        ).strip()
-        if not name or name in seen:
-            continue
-        seen.add(name)
-
-        subtitle = str(item.get("subtitle") or name).strip() or name
-
-        sid_raw = item.get("server_channel_id")
-        if sid_raw in (None, "", 0):
-            sid = next_id
-        else:
-            try:
-                sid = int(sid_raw)
-            except Exception:
-                sid = next_id
-
-        out.append(
-            {
-                "name": name,
-                "subtitle": subtitle,
-                "server_channel_id": sid,
-            }
-        )
-        next_id += 1
-
-    if not out:
-        raise RuntimeError("VX package requires at least one channel")
-
-    return out
-
-
 def _vx_proto(
     *,
     mission_id: str,
@@ -189,7 +125,7 @@ def _vx_proto(
             _channel_wrapper(
                 channel_id=str(ch["id"]),
                 channel_name=str(ch["name"]),
-                server_channel_id=int(ch["server_channel_id"]),
+                server_channel_id=int(ch["serverChannelId"]),
                 server_id=server_id,
                 subtitle=str(ch["subtitle"]),
             ),
@@ -211,26 +147,11 @@ def _vx_json(
     mission_id: str,
     mission_name: str,
     channels: list[dict[str, Any]],
-    host: str,
-    port: int,
 ) -> bytes:
     obj = {
         "missionId": {"uuid": mission_id},
         "name": mission_name,
-        "channels": [
-            {
-                "id": str(ch["id"]),
-                "name": str(ch["name"]),
-                "host": f"{host}:{int(port)}",
-                "missionId": mission_id,
-                "serverChannelId": int(ch["server_channel_id"]),
-                "subtitle": str(ch["subtitle"]),
-                "isMumble": True,
-                "isEngineering": False,
-                "port": -1,
-            }
-            for ch in channels
-        ],
+        "channels": channels,
         "missionType": "COMBINED",
         "missionIP": "",
         "missionPort": "-1",
@@ -261,13 +182,14 @@ def _manifest_xml(*, package_name: str, json_entry: str, proto_entry: str) -> st
 """
 
 
-def _derive_topology(ctx: dict[str, Any]) -> dict[str, Any] | None:
-    try:
-        from takctl.onboarding.voice_topology import derive_voice_topology
-        topo = derive_voice_topology(None, ctx)
-        return topo if isinstance(topo, dict) else None
-    except Exception:
-        return None
+def _topology_for_ctx(ctx: dict[str, Any]) -> dict[str, Any]:
+    from takctl.onboarding.voice_topology import derive_voice_topology
+    return derive_voice_topology(None, ctx)
+
+
+def _channel_id_map_from_topology(topo: dict[str, Any]) -> dict[str, int]:
+    names = [str(x).strip() for x in (topo.get("channels") or []) if str(x or "").strip()]
+    return {name: idx for idx, name in enumerate(names, start=1)}
 
 
 def derive_vx_params(*, username: str, groups: list[str], selection: dict | None, base: str) -> dict:
@@ -286,44 +208,51 @@ def derive_vx_params(*, username: str, groups: list[str], selection: dict | None
     if not host:
         host = "127.0.0.1"
 
-    topo = _derive_topology(ctx)
+    mission_name = ""
+    channel_names: list[str] = []
+    channel_id_map: dict[str, int] = {}
 
-    package_stem = ""
-    if groups:
-        package_stem = str(groups[0] or "").strip()
-    if not package_stem:
-        package_stem = str(ctx.get("unit") or ctx.get("battalion") or username or "taks").strip()
-
-    if topo:
-        mission_name = str(topo.get("mission_label") or package_stem or "Samband").strip()
+    try:
+        topo = _topology_for_ctx(ctx)
+        mission_name = str(topo.get("mission_label") or "").strip()
         channel_names = [str(x).strip() for x in (topo.get("seed_channels") or []) if str(x or "").strip()]
-    else:
-        mission_name = str(package_stem or "taks").strip()
+        channel_id_map = _channel_id_map_from_topology(topo)
+    except Exception:
+        topo = {}
+
+    if groups and not mission_name:
+        mission_name = str(groups[0] or "").strip()
+    if not mission_name:
+        mission_name = str(ctx.get("battalion") or ctx.get("unit") or username or "taks").strip()
+
+    if not channel_names:
         fallback = str(ctx.get("battalion_fal") or "VQ").strip() or "VQ"
         channel_names = [fallback]
 
-    if not channel_names:
-        channel_names = [str(ctx.get("battalion_fal") or "VQ").strip() or "VQ"]
+    channels: list[dict[str, Any]] = []
+    fallback_next = 1
+    for name in channel_names:
+        server_channel_id = int(channel_id_map.get(name) or 0)
+        if server_channel_id <= 0:
+            server_channel_id = fallback_next
+        fallback_next += 1
+        channels.append(
+            {
+                "name": name,
+                "subtitle": name,
+                "server_channel_id": server_channel_id,
+            }
+        )
 
-    channel_specs = [
-        {
-            "name": name,
-            "subtitle": name,
-            "server_channel_id": idx,
-        }
-        for idx, name in enumerate(channel_names, start=1)
-    ]
-
-    package_name = f"{callsign}_{package_stem}"
-
+    package_name = f"{callsign}_{mission_name.replace('Samband-', '')}"
     return {
         "package_name": package_name,
         "mission_name": mission_name,
-        "channels": channel_specs,
-        "channel_name": channel_specs[0]["name"],
+        "channels": channels,
+        "channel_name": channels[0]["name"],
         "host": host,
         "port": 64738,
-        "server_channel_id": channel_specs[0]["server_channel_id"],
+        "server_channel_id": int(channels[0]["server_channel_id"]),
     }
 
 
@@ -332,40 +261,56 @@ def write_vx_mission_zip(
     *,
     package_name: str,
     mission_name: str,
+    channels: list[dict[str, Any]] | None = None,
+    channel_name: str | None = None,
     host: str,
     port: int = 64738,
-    channels: list[dict[str, Any]] | None = None,
-    channel_name: str = "",
     server_channel_id: int = 1,
 ) -> None:
     out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    raw_channels = _normalize_channel_specs(
-        channels=channels,
-        channel_name=channel_name,
-        server_channel_id=server_channel_id,
-    )
-
     mission_id = _uuid()
     server_id = _uuid()
-
-    channel_payloads: list[dict[str, Any]] = []
-    for ch in raw_channels:
-        channel_payloads.append(
-            {
-                "id": _uuid(),
-                "name": str(ch["name"]),
-                "subtitle": str(ch["subtitle"]),
-                "server_channel_id": int(ch["server_channel_id"]),
-            }
-        )
 
     json_dir = _hex32()
     proto_dir = _hex32()
 
     json_entry = f"{json_dir}/{mission_id}"
     proto_entry = f"{proto_dir}/{mission_id}_proto"
+
+    if channels:
+        channel_payload = [
+            {
+                "id": _uuid(),
+                "name": str(ch["name"]),
+                "host": f"{host}:{int(port)}",
+                "missionId": mission_id,
+                "serverChannelId": int(ch["server_channel_id"]),
+                "subtitle": str(ch.get("subtitle") or ch["name"]),
+                "isMumble": True,
+                "isEngineering": False,
+                "port": -1,
+            }
+            for ch in channels
+        ]
+    else:
+        one_name = str(channel_name or "").strip()
+        if not one_name:
+            raise ValueError("channel_name or channels is required")
+        channel_payload = [
+            {
+                "id": _uuid(),
+                "name": one_name,
+                "host": f"{host}:{int(port)}",
+                "missionId": mission_id,
+                "serverChannelId": int(server_channel_id),
+                "subtitle": one_name,
+                "isMumble": True,
+                "isEngineering": False,
+                "port": -1,
+            }
+        ]
 
     manifest = _manifest_xml(
         package_name=package_name,
@@ -376,15 +321,13 @@ def write_vx_mission_zip(
     payload_json = _vx_json(
         mission_id=mission_id,
         mission_name=mission_name,
-        channels=channel_payloads,
-        host=host,
-        port=port,
+        channels=channel_payload,
     )
 
     payload_proto = _vx_proto(
         mission_id=mission_id,
         mission_name=mission_name,
-        channels=channel_payloads,
+        channels=channel_payload,
         server_id=server_id,
         host=host,
         port=port,

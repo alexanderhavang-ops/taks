@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import uuid
 import zipfile
+import sqlite3
 from pathlib import Path
+
+MUMBLE_DB = Path("/var/lib/mumble-server/mumble-server.sqlite")
 from typing import Any, Sequence
 from xml.sax.saxutils import escape
 
@@ -121,6 +124,30 @@ def _build_manifest_xml(
     )
 
 
+
+def _read_mumble_channel_ids() -> dict[str, int]:
+    if not MUMBLE_DB.exists():
+        return {}
+
+    con = sqlite3.connect(str(MUMBLE_DB))
+    try:
+        cur = con.cursor()
+        rows = cur.execute(
+            "select channel_id, name from channels order by channel_id"
+        ).fetchall()
+
+        out: dict[str, int] = {}
+        for channel_id, name in rows:
+            ch_name = str(name or "").strip()
+            if ch_name and ch_name not in out:
+                out[ch_name] = int(channel_id)
+        return out
+    except Exception:
+        return {}
+    finally:
+        con.close()
+
+
 def _render_voice_package(
     *,
     target_callsign: str,
@@ -140,17 +167,26 @@ def _render_voice_package(
     server_uuid = str(uuid.uuid4())
 
     channel_specs: list[dict[str, Any]] = []
-    for idx, raw_name in enumerate(channels, start=1):
+    channel_id_by_name = _read_mumble_channel_ids()
+    fallback_next = 1
+
+    for raw_name in channels:
         channel_name = str(raw_name or "").strip()
         if not channel_name:
             continue
+
+        server_channel_id = int(channel_id_by_name.get(channel_name) or 0)
+        if server_channel_id <= 0:
+            server_channel_id = fallback_next
+        fallback_next += 1
+
         channel_specs.append(
             {
                 "id": str(uuid.uuid4()),
                 "name": channel_name,
                 "host": f"{fqdn}:{int(voice_port)}",
                 "missionId": mission_uuid,
-                "serverChannelId": idx,
+                "serverChannelId": server_channel_id,
                 "subtitle": channel_name,
                 "isMumble": True,
                 "isEngineering": False,

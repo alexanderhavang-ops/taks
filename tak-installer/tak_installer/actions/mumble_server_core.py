@@ -11,6 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from tak_installer.engine import Context
+from tak_installer.runtime_state import get_fqdn
+from takctl.onboarding.policy import Policy
+from takctl.onboarding.voice_topology import derive_voice_topology
 
 
 PACKAGE = "mumble-server"
@@ -27,7 +30,24 @@ LEGACY_SECRET_FILE = LEGACY_SECRET_DIR / "murmur.conf"
 
 SECRET_KEY = "serverpassword"
 DB = Path("/var/lib/mumble-server/mumble-server.sqlite")
-DEFAULT_CHANNELS = ["VQ", "RQ", "SQ", "TQ"]
+DEFAULT_CHANNELS: list[str] = []
+
+
+def _node_unit_id(ctx: Context) -> str:
+    fqdn = str(get_fqdn(ctx) or "").strip().lower()
+    if not fqdn:
+        raise RuntimeError("mumble_server.core: missing fqdn")
+    return fqdn.split(".", 1)[0].strip()
+
+
+def _desired_channels(ctx: Context) -> list[str]:
+    unit = _node_unit_id(ctx)
+    policy = Policy()
+    topo = derive_voice_topology(policy.cfg, {"unit": unit})
+    channels = [str(x).strip() for x in (topo.get("channels") or []) if str(x or "").strip()]
+    if not channels:
+        raise RuntimeError(f"mumble_server.core: voice topology produced no channels for unit={unit}")
+    return channels
 
 
 def _run(cmd: list[str], check: bool = True, capture: bool = False) -> subprocess.CompletedProcess[str]:
@@ -316,9 +336,11 @@ def _restore(src: Path | None, dst: Path) -> None:
     _run(["sudo", "cp", "-a", str(src), str(dst)], check=True)
 
 
-def _seed_default_channels_if_empty() -> bool:
+def _seed_default_channels_if_empty(ctx: Context) -> bool:
     if not DB.exists():
         return False
+
+    desired = _desired_channels(ctx)
 
     con = sqlite3.connect(str(DB))
     try:
@@ -335,7 +357,7 @@ def _seed_default_channels_if_empty() -> bool:
             return False
 
         next_id = 1
-        for ch_name in DEFAULT_CHANNELS:
+        for ch_name in desired:
             cur.execute(
                 "insert into channels (server_id, channel_id, parent_id, name, inheritacl) values (?, ?, ?, ?, ?)",
                 (server_id, next_id, 0, ch_name, 1),
@@ -346,6 +368,21 @@ def _seed_default_channels_if_empty() -> bool:
         return True
     finally:
         con.close()
+
+
+
+def _ensure_db_read_access() -> None:
+    db_dir = DB.parent
+
+    if db_dir.exists():
+        _run(["sudo", "chgrp", "tak", str(db_dir)], check=False)
+        _run(["sudo", "chmod", "2750", str(db_dir)], check=False)
+
+        for cur in sorted(db_dir.glob("mumble-server.sqlite*")):
+            if not cur.exists():
+                continue
+            _run(["sudo", "chgrp", "tak", str(cur)], check=False)
+            _run(["sudo", "chmod", "0640", str(cur)], check=False)
 
 
 @dataclass(frozen=True)
@@ -451,7 +488,8 @@ class _Action:
 
             _run(["sudo", "systemctl", "stop", SERVICE], check=False)
             db_backup = _backup(DB)
-            seeded = _seed_default_channels_if_empty()
+            seeded = _seed_default_channels_if_empty(ctx)
+            _ensure_db_read_access()
 
             _run(["sudo", "systemctl", "enable", "--now", SERVICE], check=True)
             _run(["sudo", "systemctl", "restart", SERVICE], check=True)

@@ -145,7 +145,6 @@ def _read_simple_kv(path: Path) -> dict[str, str]:
 
 def _resolve_fqdn(cfg: Any) -> str:
     for cand in (
-        _cfg_get(cfg, "node_fqdn", ""),
         _cfg_get(cfg, "fqdn", ""),
         _cfg_get(cfg, "tak_public_host", ""),
         _cfg_get(cfg, "public_host", ""),
@@ -153,7 +152,17 @@ def _resolve_fqdn(cfg: Any) -> str:
         s = str(cand or "").strip().lower()
         if s:
             return s
-    raise RuntimeError("missing node_fqdn/fqdn in runtime conf.d")
+
+    for path in (
+        Path("/opt/tak/tools/takctl/conf.d/node.conf"),
+        Path("/opt/tak/tools/takctl/conf.d/core.conf"),
+    ):
+        rows = _read_simple_kv(path)
+        fqdn = str(rows.get("fqdn") or "").strip().lower()
+        if fqdn:
+            return fqdn
+
+    raise RuntimeError("missing fqdn in martine config and /opt/tak/tools/takctl/conf.d")
 
 
 def _resolve_ipv4(host: str) -> str:
@@ -282,6 +291,10 @@ def _build_defaults(cfg: Any) -> dict[str, Any]:
     }
 
 
+def _mtls_context() -> ssl.SSLContext:
+    return _tls_context()
+
+
 def _tls_context() -> ssl.SSLContext:
     if not CERT_PEM.exists():
         raise RuntimeError(f"missing client cert: {CERT_PEM}")
@@ -299,6 +312,36 @@ def _tls_context() -> ssl.SSLContext:
 
 def _sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _multipart_body(field_name: str, filename: str, content: bytes, content_type: str) -> tuple[str, bytes]:
+    boundary = f"----martine-{uuid.uuid4().hex}"
+    head = (
+        f"--{boundary}\r\n"
+        f'Content-Disposition: form-data; name="{field_name}"; filename="{filename}"\r\n'
+        f"Content-Type: {content_type}\r\n"
+        f"\r\n"
+    ).encode("utf-8")
+    tail = f"\r\n--{boundary}--\r\n".encode("utf-8")
+    return boundary, head + content + tail
+
+
+def _parse_upload_hash(resp_text: str) -> str:
+    m = HASH_RE.search(resp_text or "")
+    if m:
+        return str(m.group(1))
+    try:
+        raw = json.loads(resp_text)
+        if isinstance(raw, dict):
+            for key in ("hash", "sha256"):
+                val = str(raw.get(key) or "").strip()
+                if val:
+                    return val
+    except Exception:
+        pass
+    raise RuntimeError(f"could not parse missionupload hash from response: {str(resp_text)[:500]}")
+
+
 
 
 def _sha256_text(text: str) -> str:
