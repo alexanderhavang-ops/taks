@@ -132,27 +132,6 @@
 
   function groupNameForItem(item){
     if (item && item.component) return prettyComponentName(item.component);
-
-    const n = String((item && item.name) || "").toLowerCase();
-    if (n.startsWith("llm_") || n.startsWith("bedrock_") || n.startsWith("aws_")) return "LLM";
-    if (n.startsWith("replay_")) return "Simulera";
-    if (n.startsWith("martine_")) return "Martine";
-    if (n.startsWith("marti_")) return "Marti";
-    if (n.startsWith("onboarding_")) return "Onboarding";
-    if (n.startsWith("cert_")) return "Certs";
-    if (
-      n.startsWith("db_") ||
-      n.startsWith("coreconfig_") ||
-      n.startsWith("ca_") ||
-      n.startsWith("crl_") ||
-      n.startsWith("tak_") ||
-      n === "sudo_user" ||
-      n === "hostname" ||
-      n === "fqdn" ||
-      n === "battalion"
-    ) return "Core";
-    if (n.startsWith("default_policy_") || n.startsWith("policy_")) return "Policy";
-    if (n.startsWith("audit_")) return "Logging";
     return "Other";
   }
 
