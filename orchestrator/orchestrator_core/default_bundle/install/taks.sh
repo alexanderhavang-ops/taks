@@ -43,11 +43,11 @@ log "running tak-installer apply from extracted bundle"
   python3 ./tak-installer/tak-installer apply
 )
 
-if [ -x "$IMPORT_BOOTSTRAP_BRANDING" ]; then
+if [ -f "$IMPORT_BOOTSTRAP_BRANDING" ]; then
   log "importing bootstrap branding"
   (
     cd "$TAKS_SOURCE_ROOT"
-    "$IMPORT_BOOTSTRAP_BRANDING"
+    bash "$IMPORT_BOOTSTRAP_BRANDING"
   )
 else
   log "skip bootstrap branding import (missing $IMPORT_BOOTSTRAP_BRANDING)"
