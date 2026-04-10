@@ -118,38 +118,26 @@ def splash_assets_dir(path: str):
 @router.get("/api/public/brand")
 def public_brand(unit: str | None = None):
   """
-  Returns brand.json for a unit if present, otherwise the shared brand.json.
-  unit: unit_path like "forsvarsmakten/hemvarnet/46hvbat"
+  Returns brand.json for a unit if present.
+  For orchestrator itself (no unit), return an orchestrator-specific brand payload.
   """
   if unit:
     p = _unit_assets_dir(unit) / "brand.json"
-    if p.exists() and p.is_file():
+    if p.is_file():
       try:
-        return JSONResponse(json.loads(p.read_text(encoding="utf-8")))
+        return json.loads(p.read_text(encoding="utf-8"))
       except Exception:
-        pass
+        raise HTTPException(status_code=500, detail="Invalid unit brand.json")
 
-  shared = _safe_join(_SHARED_ASSETS, "brand.json")
-  if shared.exists() and shared.is_file():
-    try:
-      return JSONResponse(json.loads(shared.read_text(encoding="utf-8")))
-    except Exception:
-      raise HTTPException(status_code=500, detail="Invalid shared brand.json")
+  return {
+    "title": "taks-orchestrator",
+    "slogan": "taks-orchestrator",
+    "logos": [],
+    "login": {
+      "role": False
+    }
+  }
 
-  raise HTTPException(status_code=404)
-
-
-@router.get("/u/{unit_path:path}/assets/{relpath:path}")
-def public_unit_asset(unit_path: str, relpath: str):
-  up = _safe_unit_fs(unit_path)
-  rp = _safe_relpath(relpath)
-  root = _unit_assets_dir(up)
-  return _file_or_404(_safe_join(root, rp))
-
-
-# ---------------------------------------------------------------------
-# Auth helpers
-# ---------------------------------------------------------------------
 
 @router.get("/api/whoami")
 def whoami(req: Request):
