@@ -3,7 +3,7 @@ set -euo pipefail
 
 _orch_cfg_py(){
   local expr="${1:?missing python expr}"
-  PYTHONPATH="${BASE_DIR}/../orchestrator" python3 - "$expr" <<'PY'
+  PYTHONPATH="${BASE_DIR}/../orchestrator" orch_python - "$expr" <<'PY'
 import sys
 from orchestrator_core.config import load_orch_config
 

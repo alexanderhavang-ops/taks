@@ -7,7 +7,7 @@ orch_materialize_runtime_config(){
   local preserve_root="${1:-}"
   local state_root="/opt/tak-orch/state"
 
-  python3 - "$src_root" "$runtime_root" "$preserve_root" "$state_root" <<'PY'
+  orch_python - "$src_root" "$runtime_root" "$preserve_root" "$state_root" <<'PY'
 from __future__ import annotations
 
 import json
@@ -220,7 +220,7 @@ orch_app_install(){
   if [[ -f /opt/tak-orch/orchestrator/requirements.txt ]]; then
     /opt/tak-orch/.venv/bin/pip install -r /opt/tak-orch/orchestrator/requirements.txt >/dev/null
   else
-    /opt/tak-orch/.venv/bin/pip install "boto3" "fastapi" "uvicorn[standard]" "jinja2" "pyyaml" "python-multipart" >/dev/null
+    /opt/tak-orch/.venv/bin/pip install "boto3" "tomli" "fastapi" "uvicorn[standard]" "jinja2" "pyyaml" "python-multipart" >/dev/null
   fi
 
   install -m 0644 ${BASE_DIR}/../orchestrator/systemd/tak-orch.service /etc/systemd/system/taks-orch.service
@@ -252,7 +252,7 @@ orch_app_install(){
   install -d -m 0755 -o ubuntu -g ubuntu /opt/tak-orch/orchestrator/orchestrator_api/static/shared/takctl
   rsync -a --delete ${BASE_DIR}/../takctl/web/ /opt/tak-orch/orchestrator/orchestrator_api/static/shared/takctl/
 
-  python3 - <<'PY'
+  orch_python - <<'PY'
 import json
 from pathlib import Path
 bp = Path('/opt/tak-orch/orchestrator/orchestrator_api/static/shared/takctl/assets/brand.json')

@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+orch_python() {
+  local venv_py="/opt/tak-orch/.venv/bin/python3"
+  if [[ -x "$venv_py" ]]; then
+    "$venv_py" "$@"
+  else
+    python3 "$@"
+  fi
+}
+
+
 log(){
   printf '[%s] %s\n' "$(date --iso-8601=seconds)" "$*"
 }
@@ -40,7 +50,7 @@ TXT
 load_env(){
   local exports
   exports="$(
-    PYTHONPATH="${BASE_DIR}/../orchestrator" python3 - <<'PY'
+    PYTHONPATH="${BASE_DIR}/../orchestrator" orch_python - <<'PY'
 from orchestrator_core.config import load_orch_config
 
 cfg = load_orch_config()
