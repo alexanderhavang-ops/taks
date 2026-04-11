@@ -1,0 +1,30 @@
+[martine_voice]
+enabled = true
+
+# Mumble
+channel = TQ
+username = martine-voice
+host = 127.0.0.1
+port = 64738
+
+# STT
+provider = faster_whisper
+model = large-v3
+task = transcribe
+
+# Segmentering
+segment_mode = ptt_preferred
+max_segment_ms = 30000
+silence_split_ms = 1200
+min_segment_ms = 400
+max_buffer_ms = 45000
+
+# Output
+emit_to_file = true
+emit_cot_chat = false
+output_format = jsonl
+
+# Debug
+save_debug_wav = true
+debug_wav_max_per_hour = 60
+log_level = INFO

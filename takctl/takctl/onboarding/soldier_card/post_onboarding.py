@@ -26,6 +26,10 @@ _TEXT = {
         "voice.port": "Port",
         "voice.password": "Mumble server password",
         "voice.not_configured": "not configured",
+        "voice.iphone_title": "iPhone / iTAK",
+        "voice.iphone.body.pre": 'iTAK doesn\'t support voice. But you can download the ',
+        "voice.iphone.body.mid": '"Mumble"',
+        "voice.iphone.body.post": " app in App Store, and manually connect to the Mumble server. Server details and password are the same as shown on the card below.",
         "maps.title": "Maps",
         "maps.body": "Reserved for map packages and offline maps.",
         "addons.title": "Add-ons",
@@ -43,6 +47,10 @@ _TEXT = {
         "voice.port": "Port",
         "voice.password": "Mumble-serverlösenord",
         "voice.not_configured": "inte konfigurerat",
+        "voice.iphone_title": "iPhone / iTAK",
+        "voice.iphone.body.pre": "iTAK har inte stöd för voice. Men du kan ladda ner appen ",
+        "voice.iphone.body.mid": '"Mumble"',
+        "voice.iphone.body.post": " i App Store och ansluta manuellt till Mumble-servern. Serveruppgifter och lösenord är samma som visas längre ner på kortet.",
         "maps.title": "Kartor",
         "maps.body": "Reserverat för kartpaket och offlinekartor.",
         "addons.title": "Tillägg",
@@ -156,7 +164,7 @@ def _kv_row(*, label: str, element_id: str, value: str, lang: str | None) -> str
 
 
 def _voice_setup_block(*, lang: str | None, base: str, token: str, bump: int | str) -> str:
-    del token, bump  # voice flow is Martine-led now; keep signature stable for callers
+    del token, bump
 
     l = lang_norm(lang)
     voice_install_url = "https://play.google.com/store/apps/details?id=com.atakmap.android.gbr.vx.plugin"
@@ -170,7 +178,7 @@ def _voice_setup_block(*, lang: str | None, base: str, token: str, bump: int | s
             + f'<a href="{h(voice_install_url)}" target="_blank" rel="noopener">ATAK Plugin: Vx</a>'
             + _s(l, "voice.step1.post")
         ),
-        _s(l, "voice.step2") + "<code>Onboard me for voice</code>" if l == "en" else _s(l, "voice.step2") + "<code>Onboarda mig för voice</code>",
+        _s(l, "voice.step2") + ("<code>Onboard me for voice</code>" if l == "en" else "<code>Onboarda mig för voice</code>"),
         _s(l, "voice.step3"),
         _s(l, "voice.step4"),
     ]
@@ -180,6 +188,15 @@ def _voice_setup_block(*, lang: str | None, base: str, token: str, bump: int | s
         _kv_row(label=_s(l, "voice.port"), element_id="murmur_port_post", value=voice_port, lang=l),
         _kv_row(label=_s(l, "voice.password"), element_id="murmur_password_post", value=voice_password, lang=l),
     ]
+
+    iphone_block = (
+        f'<div style="margin-top:14px; padding-top:12px; border-top:1px solid rgba(255,255,255,0.08);">'
+        f'<div style="font-weight:600; margin-bottom:6px;">{h(_s(l, "voice.iphone_title"))}</div>'
+        f'<div class="muted">'
+        f'{h(_s(l, "voice.iphone.body.pre"))}<b>{h(_s(l, "voice.iphone.body.mid"))}</b>{h(_s(l, "voice.iphone.body.post"))}'
+        f'</div>'
+        f'</div>'
+    )
 
     return f"""
     <div class="stepcard">
@@ -196,6 +213,7 @@ def _voice_setup_block(*, lang: str | None, base: str, token: str, bump: int | s
       <div style="margin-top:14px; line-height:1.8;">
         {''.join(rows)}
       </div>
+      {iphone_block}
     </div>
     """
 

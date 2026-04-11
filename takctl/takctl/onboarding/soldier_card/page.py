@@ -312,6 +312,8 @@ def _render_full_card_section(
 
     itak_qr_quick_connect_png = f"{base}/api/onboarding/cards/{token}/packages/itak/quick-connect/qr.png?b={bump}"
     itak_qr_quick_connect_txt = f"{base}/api/onboarding/cards/{token}/packages/itak/quick-connect/qr.txt?b={bump}"
+    itak_soft_cert_qr_png = f"{base}/api/onboarding/cards/{token}/packages/itak/soft-cert/qr.png?b={bump}"
+    itak_soft_cert_qr_txt = f"{base}/api/onboarding/cards/{token}/packages/itak/soft-cert/qr.txt?b={bump}"
     itak_soft_cert_zip = f"{base}/api/onboarding/cards/{token}/packages/itak/soft-cert/package.zip"
 
     browser_card_qr = f"{base}/api/onboarding/cards/{token}/card-url/qr.png?b={bump}"
@@ -720,7 +722,10 @@ pre { white-space: pre-wrap; word-break: break-word; }
         <div class="stepcard">
           <h4>iTAK soft-cert zip</h4>
           <div class="muted">{h(t(l, "soldier.path.itak_soft_zip"))}</div>
-          <div class="dlrow" style="margin-top:12px;">
+          <div style="margin-top:10px;"><img class="qrimg" src="{h(itak_soft_cert_qr_png)}" alt="iTAK soft-cert zip QR"/></div>
+          <div class="dlrow">
+            <a class="btn" href="{h(itak_soft_cert_qr_png)}">{h(t(l, "soldier.open_qr"))}</a>
+            <a class="btn" href="{h(itak_soft_cert_qr_txt)}">{h(t(l, "soldier.open_text"))}</a>
             <a class="btn" href="{h(itak_soft_cert_zip)}">{h(t(l, "soldier.download_zip"))}</a>
           </div>
         </div>

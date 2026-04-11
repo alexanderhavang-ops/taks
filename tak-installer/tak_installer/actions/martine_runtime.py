@@ -17,6 +17,7 @@ DST_MARTINE_SERVER_ROOT = DST_MARTINE_ROOT / "martine_server"
 DST_MARTINE_BIN_ROOT = DST_MARTINE_ROOT / "bin"
 DST_MARTINE_STATE_ROOT = DST_MARTINE_ROOT / "state"
 DST_MARTINE_VENV = DST_MARTINE_ROOT / ".venv"
+DST_MARTINE_MODELS_ROOT = DST_MARTINE_STATE_ROOT / "models"
 
 RSYNC_EXCLUDES = [
     "--exclude=__pycache__/",
@@ -26,6 +27,14 @@ RSYNC_EXCLUDES = [
     "--exclude=*.swo",
     "--exclude=*~",
 ]
+
+FAST_WHISPER_MODEL_REPO_BY_NAME = {
+    "large-v3": "Systran/faster-whisper-large-v3",
+}
+
+FAST_WHISPER_MODEL_DIR_BY_NAME = {
+    "large-v3": DST_MARTINE_MODELS_ROOT / "faster-whisper-large-v3",
+}
 
 
 def _run(cmd: list[str]) -> None:
@@ -75,6 +84,7 @@ def _ensure_runtime_dirs() -> None:
     (DST_MARTINE_STATE_ROOT / "drafts").mkdir(parents=True, exist_ok=True)
     (DST_MARTINE_STATE_ROOT / "cache").mkdir(parents=True, exist_ok=True)
     (DST_MARTINE_STATE_ROOT / "logs").mkdir(parents=True, exist_ok=True)
+    DST_MARTINE_MODELS_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def _fix_runtime_perms() -> None:
@@ -83,6 +93,34 @@ def _fix_runtime_perms() -> None:
     subprocess.run(["bash", "-lc", f'find "{DST_MARTINE_ROOT}" -path "{DST_MARTINE_VENV}" -prune -o -type f -exec chmod 0660 {{}} \\;'], check=False)
     if DST_MARTINE_BIN_ROOT.exists():
         subprocess.run(["bash", "-lc", f'find "{DST_MARTINE_BIN_ROOT}" -maxdepth 1 -type f -exec chmod 0750 {{}} \\; 2>/dev/null || true'], check=False)
+
+
+def _ensure_prefetched_models(venv_py: Path) -> None:
+    for model_name, repo_id in FAST_WHISPER_MODEL_REPO_BY_NAME.items():
+        local_dir = FAST_WHISPER_MODEL_DIR_BY_NAME[model_name]
+        local_dir.parent.mkdir(parents=True, exist_ok=True)
+
+        log.info(f"martine-runtime: prefetching faster-whisper model {model_name} -> {local_dir}")
+
+        script = r'''
+from huggingface_hub import snapshot_download
+from pathlib import Path
+import sys
+
+repo_id = sys.argv[1]
+local_dir = Path(sys.argv[2])
+
+local_dir.parent.mkdir(parents=True, exist_ok=True)
+snapshot_download(
+    repo_id=repo_id,
+    local_dir=str(local_dir),
+)
+print(f"OK prefetched {repo_id} -> {local_dir}")
+'''
+        subprocess.run(
+            ["sudo", "-u", "tak", str(venv_py), "-c", script, repo_id, str(local_dir)],
+            check=True,
+        )
 
 
 def _ensure_venv() -> None:
@@ -100,9 +138,21 @@ def _ensure_venv() -> None:
     )
 
     subprocess.run(
-        ["sudo", "-u", "tak", str(venv_py), "-m", "pip", "install", "-q", "mcp", "requests", "boto3", "psycopg2-binary", "fastembed"],
+        [
+            "sudo", "-u", "tak", str(venv_py), "-m", "pip", "install", "-q",
+            "mcp",
+            "requests",
+            "boto3",
+            "psycopg2-binary",
+            "fastembed",
+            "pymumble",
+            "faster-whisper",
+            "ctranslate2",
+        ],
         check=True,
     )
+
+    _ensure_prefetched_models(venv_py)
 
 
 def apply(ctx) -> None:

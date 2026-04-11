@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import time
 import urllib.error
@@ -17,7 +16,9 @@ from tak_installer.engine import Context
 UNIT_NAME = "takctl-web.service"
 UNIT_DST = Path("/etc/systemd/system/takctl-web.service")
 DROPIN_DST_DIR = Path("/etc/systemd/system/takctl-web.service.d")
+WANTS_LINK = Path("/etc/systemd/system/multi-user.target.wants") / UNIT_NAME
 STATE_APPLY_JSON = Path("/opt/tak/takctl-state/apply.json")
+STATE_VERIFY_JSON = Path("/opt/tak/takctl-state/systemd-takctl-web.json")
 
 HEALTH_URL = "http://127.0.0.1:8080/api/health"
 
@@ -173,17 +174,90 @@ def _sync_dropins(ctx: Context) -> None:
         raise RuntimeError(out or "systemctl daemon-reload failed")
 
 
-def _short_fail_dump() -> None:
+def _unit_show_map() -> dict[str, str]:
+    rc, out = _run([
+        "systemctl", "show", UNIT_NAME,
+        "-p", "UnitFileState",
+        "-p", "LoadState",
+        "-p", "ActiveState",
+        "-p", "SubState",
+        "-p", "FragmentPath",
+        "-p", "UnitFilePreset",
+    ])
+    data: dict[str, str] = {}
+    for line in (out or "").splitlines():
+        if "=" in line:
+            k, v = line.split("=", 1)
+            data[k] = v
+    if rc != 0 and not data:
+        data["show_error"] = out or f"rc={rc}"
+    return data
+
+
+def _collect_runtime_state() -> dict[str, Any]:
+    rc_enabled, out_enabled = _run(["systemctl", "is-enabled", UNIT_NAME])
+    rc_active, out_active = _run(["systemctl", "is-active", UNIT_NAME])
+    rc_ss, out_ss = _run(["ss", "-H", "-ltnp", "sport = :8080"])
+    return {
+        "show": _unit_show_map(),
+        "is_enabled_rc": rc_enabled,
+        "is_enabled": (out_enabled or "").strip(),
+        "is_active_rc": rc_active,
+        "is_active": (out_active or "").strip(),
+        "wants_symlink_exists": WANTS_LINK.exists(),
+        "wants_symlink": str(WANTS_LINK),
+        "listen_8080_rc": rc_ss,
+        "listen_8080": bool((out_ss or "").strip()),
+        "listen_8080_out": out_ss,
+    }
+
+
+def _write_verify_state(payload: dict[str, Any]) -> None:
+    try:
+        STATE_VERIFY_JSON.parent.mkdir(parents=True, exist_ok=True)
+        tmp = STATE_VERIFY_JSON.with_suffix(".tmp")
+        tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        tmp.replace(STATE_VERIFY_JSON)
+    except Exception as e:
+        print(f"WARN: could not write verify state: {type(e).__name__}: {e}")
+
+
+def _ensure_enabled_and_started() -> tuple[int, str]:
+    commands = [
+        ["sudo", "systemctl", "daemon-reload"],
+        ["sudo", "systemctl", "reenable", UNIT_NAME],
+        ["sudo", "systemctl", "enable", UNIT_NAME],
+        ["sudo", "systemctl", "restart", UNIT_NAME],
+    ]
+    outs: list[str] = []
+    for cmd in commands:
+        rc, out = _run(cmd)
+        outs.append("$ " + " ".join(cmd))
+        if out:
+            outs.append(out)
+        if rc != 0:
+            return rc, "\n".join(outs)
+    return 0, "\n".join(outs)
+
+
+def _short_fail_dump() -> dict[str, Any]:
     print("!! takctl-web not ready (or wrong apply token). Showing status + last logs:")
-    rc, out = _run(["systemctl", "--no-pager", "--full", "status", UNIT_NAME])
-    if out:
-        print("\n".join(out.splitlines()[:60]))
+    rc_status, out_status = _run(["systemctl", "--no-pager", "--full", "status", UNIT_NAME])
+    if out_status:
+        print("\n".join(out_status.splitlines()[:80]))
     else:
-        print(f"(systemctl status failed rc={rc})")
+        print(f"(systemctl status failed rc={rc_status})")
 
     print()
-    rc, out = _run(["journalctl", "-u", UNIT_NAME, "--no-pager", "-n", "120"])
-    print(out or f"(journalctl failed rc={rc})")
+    rc_journal, out_journal = _run(["journalctl", "-u", UNIT_NAME, "--no-pager", "-n", "120"])
+    print(out_journal or f"(journalctl failed rc={rc_journal})")
+
+    return {
+        "status_rc": rc_status,
+        "status_out": out_status,
+        "journal_rc": rc_journal,
+        "journal_out": out_journal,
+    }
 
 
 @dataclass(frozen=True)
@@ -212,6 +286,9 @@ class _Action:
             if info["status"] == "differs":
                 print("  diff:")
                 print(info.get("diff") or "(no diff output)")
+
+        print("  runtime:")
+        print(json.dumps(_collect_runtime_state(), indent=2, sort_keys=True))
         return 0
 
     def apply(self, ctx: Context) -> int:
@@ -222,6 +299,7 @@ class _Action:
             return 1
 
         expected_apply_ts = _read_apply_ts_from_state()
+        before = _collect_runtime_state()
 
         print(f"Applying systemd unit: {UNIT_NAME}")
         try:
@@ -234,14 +312,54 @@ class _Action:
             print(f"ERROR: action raised exception: {self.ID}: {e}")
             return 3
 
-        rc, out = _run(["systemctl", "restart", UNIT_NAME])
+        rc, out = _ensure_enabled_and_started()
         if rc != 0:
-            print("ERROR: systemctl restart failed")
+            print("ERROR: failed to reenable/enable/restart takctl-web")
             print(out)
+            payload = {
+                "unit": UNIT_NAME,
+                "before": before,
+                "after": _collect_runtime_state(),
+                "command_out": out,
+            }
+            payload["failure_dump"] = _short_fail_dump()
+            _write_verify_state(payload)
+            return 4
+
+        after_start = _collect_runtime_state()
+        if after_start.get("is_enabled") != "enabled":
+            print("ERROR: takctl-web is not enabled after apply")
+            payload = {
+                "unit": UNIT_NAME,
+                "before": before,
+                "after": after_start,
+                "command_out": out,
+            }
+            payload["failure_dump"] = _short_fail_dump()
+            _write_verify_state(payload)
+            return 4
+
+        if not bool(after_start.get("wants_symlink_exists")):
+            print(f"ERROR: missing wants symlink after apply: {WANTS_LINK}")
+            payload = {
+                "unit": UNIT_NAME,
+                "before": before,
+                "after": after_start,
+                "command_out": out,
+            }
+            payload["failure_dump"] = _short_fail_dump()
+            _write_verify_state(payload)
             return 4
 
         if not _wait_listen_8080(WAIT_LISTEN_SEC):
-            _short_fail_dump()
+            payload = {
+                "unit": UNIT_NAME,
+                "before": before,
+                "after": _collect_runtime_state(),
+                "command_out": out,
+            }
+            payload["failure_dump"] = _short_fail_dump()
+            _write_verify_state(payload)
             return 5
 
         ok, _last_good, _last_dict = _wait_health_stable(
@@ -249,14 +367,34 @@ class _Action:
             expected_apply_ts=expected_apply_ts,
         )
         if not ok:
-            _short_fail_dump()
+            payload = {
+                "unit": UNIT_NAME,
+                "before": before,
+                "after": _collect_runtime_state(),
+                "command_out": out,
+                "last_health_dict": _last_dict,
+            }
+            payload["failure_dump"] = _short_fail_dump()
+            _write_verify_state(payload)
             return 5
+
+        final = _collect_runtime_state()
+        payload = {
+            "unit": UNIT_NAME,
+            "before": before,
+            "after": final,
+            "command_out": out,
+            "expected_apply_ts": expected_apply_ts,
+        }
+        _write_verify_state(payload)
 
         print("Applied.")
         if expected_apply_ts:
             print(f"takctl-web ready (apply_ts_utc={expected_apply_ts})")
         else:
             print("takctl-web ready")
+        print("takctl-web post-apply state:")
+        print(json.dumps(final, indent=2, sort_keys=True))
         return 0
 
 

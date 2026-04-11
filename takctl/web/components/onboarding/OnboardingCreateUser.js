@@ -331,7 +331,8 @@
         revealPassword: revealPassword,
         setEmailBusy: setEmailBusy,
         setEmailErr: setEmailErr,
-        setEmailResult: setEmailResult
+        setEmailResult: setEmailResult,
+        setResult: setResult
       });
     }
 
@@ -358,6 +359,27 @@
       (policyId ? String(policyId) : "Loading policy…");
 
     const effectivePolicyUi = _effectiveCallsignPolicy(callsignPolicyOverride, callsignPolicyDefault);
+    const createdUsername = _norm((result && result.user && result.user.username) || "");
+    const emailReady = !!(isEdit || (createdUsername && createdUsername === _norm(username)));
+    const latestCardUrl = String((emailResult && emailResult.card_url) || (result && result.card_url) || "").trim();
+
+    function _goDetail(u) {
+      const uu = _norm(u);
+      if (!uu) return;
+      try {
+        const lib2 = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
+        if (lib2 && typeof lib2.setHashRoute === "function") lib2.setHashRoute("detail", uu);
+        else window.location.hash = "#onboarding/detail:" + encodeURIComponent(uu);
+      } catch (e) {}
+    }
+
+    function _goList() {
+      try {
+        const lib2 = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
+        if (lib2 && typeof lib2.setHashRoute === "function") lib2.setHashRoute("list");
+        else window.location.hash = "#onboarding/list";
+      } catch (e) {}
+    }
 
     return h("div", { className: "page page-onboarding-create-user" },
       h("div", { className: "page-header" },
@@ -456,7 +478,7 @@
           }) : null
         ),
 
-        h("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "18px" } },
+        h("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "18px", alignItems: "center" } },
           h("button", {
             className: "btn btn-primary",
             disabled: !!busy,
@@ -465,14 +487,71 @@
 
           h("button", {
             className: "btn",
-            disabled: !!emailBusy,
+            disabled: !!emailBusy || !emailReady || !_norm(emailAddr),
+            title: !emailReady ? "Skapa användaren först" : (!_norm(emailAddr) ? "Fyll i e-post först" : ""),
             onClick: function () { doEmailLink(); }
-          }, emailBusy ? (t("btn.sending") || "Skickar...") : (t("btn.email_card_link") || "Maila kortlänk"))
+          }, emailBusy ? (t("btn.sending") || "Skickar...") : (t("btn.email_card_link") || "Maila kortlänk")),
+
+          !emailReady ? h("div", { className: "muted", style: { fontSize: "12px" } }, "Maila kortlänk blir aktiv när användaren är skapad.") : null
         ),
 
-        result ? h("pre", { style: { marginTop: "14px", whiteSpace: "pre-wrap" } }, JSON.stringify(result, null, 2)) : null,
+        (result && createdUsername) ? h("div", {
+          className: "note",
+          style: {
+            marginTop: "14px",
+            border: "1px solid rgba(80,200,120,0.35)",
+            background: "rgba(80,200,120,0.10)",
+            color: "#dff7e8"
+          }
+        },
+          h("div", { style: { fontWeight: 800, marginBottom: "6px" } }, isEdit ? "Ändringar sparade" : "Användare skapad"),
+          h("div", null, isEdit ? ("Användaren " + createdUsername + " uppdaterades.") : ("Användaren " + createdUsername + " skapades.")),
+          h("div", { style: { display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "10px" } },
+            h("button", {
+              className: "btn",
+              type: "button",
+              onClick: function () { _goDetail(createdUsername); }
+            }, "Öppna användaren"),
+            h("button", {
+              className: "btn",
+              type: "button",
+              onClick: function () { _goList(); }
+            }, "Till listan"),
+            latestCardUrl ? h("a", {
+              className: "btn",
+              href: latestCardUrl,
+              target: "_blank",
+              rel: "noopener noreferrer"
+            }, "Öppna soldatkort") : null
+          )
+        ) : null,
+
         emailErr ? h("div", { className: "alert alert-error", style: { marginTop: "14px" } }, String(emailErr)) : null,
-        emailResult ? h("pre", { style: { marginTop: "14px", whiteSpace: "pre-wrap" } }, JSON.stringify(emailResult, null, 2)) : null
+
+        emailResult ? h("div", {
+          className: "note",
+          style: {
+            marginTop: "14px",
+            border: "1px solid rgba(80,200,120,0.35)",
+            background: "rgba(80,200,120,0.10)",
+            color: "#dff7e8"
+          }
+        },
+          h("div", { style: { fontWeight: 800, marginBottom: "6px" } }, "Kortlänk mailad"),
+          h("div", null,
+            "Länk skickad till ",
+            h("code", null, String((emailResult && emailResult.email) || emailAddr || "")),
+            "."
+          ),
+          latestCardUrl ? h("div", { style: { marginTop: "10px" } },
+            h("a", {
+              className: "btn",
+              href: latestCardUrl,
+              target: "_blank",
+              rel: "noopener noreferrer"
+            }, "Öppna soldatkort")
+          ) : null
+        ) : null
       )
     );
   }

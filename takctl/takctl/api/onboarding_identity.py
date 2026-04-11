@@ -303,6 +303,120 @@ def get_user(username: str):
     return JSONResponse(out, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 
 
+
+
+def _cleanup_onboarding_state_for_user(svc, username: str) -> dict:
+    json = __import__("json")
+    shutil = __import__("shutil")
+    selection_mod = __import__("takctl.onboarding.selection", fromlist=["artifact_root"])
+    artifact_root = selection_mod.artifact_root
+
+    removed = {
+        "identity": False,
+        "record": False,
+        "card_tokens": 0,
+        "artifact_root": False,
+        "client_password_fallback": False,
+    }
+
+    u = str(username or "").strip()
+    store = getattr(svc, "store", None)
+
+    identities_dir = getattr(store, "identities_dir", None)
+    if identities_dir is not None:
+        fp = identities_dir / f"{u}.json"
+        if fp.exists():
+            fp.unlink()
+            removed["identity"] = True
+
+    users_dir = getattr(store, "users_dir", None)
+    if users_dir is not None:
+        fp = users_dir / f"{u}.json"
+        if fp.exists():
+            fp.unlink()
+            removed["record"] = True
+
+    cards_dir = getattr(store, "cards_dir", None)
+    if cards_dir is not None and cards_dir.exists():
+        for cp in sorted(cards_dir.glob("*.json")):
+            try:
+                raw = json.loads(cp.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            if str((raw or {}).get("username") or "").strip() != u:
+                continue
+            try:
+                cp.unlink()
+                removed["card_tokens"] += 1
+            except FileNotFoundError:
+                pass
+
+    fallback_pw = Path("/opt/tak/takctl-state/onboarding/identities") / f"{u}.client-password"
+    if fallback_pw.exists():
+        fallback_pw.unlink()
+        removed["client_password_fallback"] = True
+
+    try:
+        art = artifact_root(u)
+        if art.exists():
+            shutil.rmtree(art, ignore_errors=True)
+            removed["artifact_root"] = True
+    except Exception:
+        pass
+
+    return removed
+
+
+@router.post("/onboarding/users/{username}/delete")
+def delete_user(username: str):
+    u = (username or "").strip()
+    if not u:
+        raise HTTPException(status_code=400, detail="username required")
+
+    svc = build_service()
+
+    tak_user = svc.ud.get_user(u)
+    if tak_user is None:
+        raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {u}")
+
+    cert_dir = Path("/opt/tak/certs/files/04_USERS") / u
+    cert_material_present = any((cert_dir / name).exists() for name in (
+        f"{u}.pem",
+        f"{u}.key",
+        f"{u}.p12",
+        f"{u}.modern.p12",
+        f"{u}.jks",
+        ".client-password",
+    ))
+
+    cleanup = _cleanup_onboarding_state_for_user(svc, u)
+
+    um = UserMgrService()
+    try:
+        delete_out = um.user_delete(u)
+    except UserMgrError as e:
+        raise HTTPException(status_code=500, detail=f"UserManager failed: {e}")
+
+    warning = None
+    if cert_material_present:
+        warning = (
+            "User deleted and TAKS onboarding state removed, but cert revocation/CRL is not wired here yet."
+        )
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "username": u,
+            "user_deleted": True,
+            "usermgr_output": delete_out,
+            "state_cleanup": cleanup,
+            "cert_material_present": cert_material_present,
+            "warning": warning,
+        },
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
 @router.post("/onboarding/users/{username}/create")
 def create_user(req: Request, username: str, body: UserCreateIn):
     u = (username or "").strip()
@@ -631,6 +745,18 @@ def onboarding_card_html(req: Request, token: str):
     base = external_base(req).rstrip("/")
     exp = getattr(ct, "expires_at_utc", None) or getattr(ct, "expires_at", None)
     reveal = bool(getattr(ct, "reveal_password", False))
+
+    try:
+        cfg_reveal_user = str(load_config().get("reveal_user_pass_on_soldier_card", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    except Exception:
+        cfg_reveal_user = False
+
+    try:
+        cfg_reveal_default = str(load_config().get("reveal_password_default", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    except Exception:
+        cfg_reveal_default = False
+
+    reveal = bool(reveal or cfg_reveal_user or cfg_reveal_default)
 
     try:
         lang = str(load_config().get("language", "sv") or "sv").strip().lower()

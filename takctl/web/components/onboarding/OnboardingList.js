@@ -337,6 +337,59 @@
     const [selectedMap, setSelectedMap] = useState({});
     const [printMode, setPrintMode] = useState("cards");
 
+    const selectedUsers = users.map(_rowUsername).filter(function (u) { return !!u && !!selectedMap[u]; });
+    const selectedCount = selectedUsers.length;
+
+    async function bulkDeleteSelected() {
+      if (!selectedCount) return;
+
+      if (!window.confirm(
+        'Ta bort ' + String(selectedCount) + ' användare?\n\n' +
+        'Detta tar bort TAKS onboarding-state och försöker ta bort användarna i TAK via UserManager.'
+      )) {
+        return;
+      }
+
+      const ok = [];
+      const failed = [];
+      const warnings = [];
+
+      for (const username of selectedUsers) {
+        try {
+          const resp = await fetch("/api/onboarding/users/" + encodeURIComponent(username) + "/delete", {
+            method: "POST"
+          });
+
+          let data = null;
+          try {
+            data = await resp.json();
+          } catch (e) {
+            data = null;
+          }
+
+          if (!resp.ok) {
+            const msg = (data && (data.detail || data.error)) || ("Delete failed (" + String(resp.status) + ")");
+            failed.push(username + ": " + String(msg));
+            continue;
+          }
+
+          ok.push(username);
+          if (data && data.warning) warnings.push(username + ": " + String(data.warning));
+        } catch (e) {
+          failed.push(username + ": " + String((e && e.message) || e || "Delete failed"));
+        }
+      }
+
+      let msg = "";
+      msg += "Borttagna: " + String(ok.length);
+      if (ok.length) msg += "\n" + ok.join(", ");
+      if (warnings.length) msg += "\n\nVarningar:\n" + warnings.join("\n");
+      if (failed.length) msg += "\n\nMisslyckades:\n" + failed.join("\n");
+
+      window.alert(msg);
+      window.location.reload();
+    }
+
     useEffect(function () {
       const known = {};
       (users || []).forEach(function (u) {
@@ -401,6 +454,29 @@
         printMode: printMode,
         onPrintMode: setPrintMode
       }),
+      h("div", {
+        style: {
+          display: "flex",
+          gap: "10px",
+          flexWrap: "wrap",
+          alignItems: "center",
+          marginBottom: "12px"
+        }
+      },
+        h("div", { className: "muted" }, selectedCount ? (String(selectedCount) + " valda") : "Inga valda"),
+        h("button", {
+          className: "btn",
+          type: "button",
+          disabled: selectedCount < 1,
+          style: {
+            background: "#5a1f1f",
+            borderColor: "#8b2e2e",
+            color: "#fff"
+          },
+          onClick: function () { bulkDeleteSelected(); }
+        }, "Ta bort valda användare")
+      ),
+
       h(OnboardingTable, {
         rows: users,
         selectedMap: selectedMap,

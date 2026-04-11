@@ -395,6 +395,55 @@
             } catch (e) {}
           }
         }, t("btn.edit")),
+        h("button", {
+          className: "btn",
+          type: "button",
+          style: {
+            background: "#5a1f1f",
+            borderColor: "#8b2e2e",
+            color: "#fff"
+          },
+          onClick: async function () {
+            if (!username) {
+              window.alert("Saknar användarnamn.");
+              return;
+            }
+            if (!window.confirm('Ta bort användare "' + username + '"?\n\nDetta tar bort TAKS onboarding-state och försöker ta bort användaren i TAK via UserManager.')) {
+              return;
+            }
+            try {
+              var resp = await fetch("/api/onboarding/users/" + encodeURIComponent(username) + "/delete", {
+                method: "POST"
+              });
+
+              var data = null;
+              try {
+                data = await resp.json();
+              } catch (e) {
+                data = null;
+              }
+
+              if (!resp.ok) {
+                var msg = (data && (data.detail || data.error)) || ("Delete failed (" + String(resp.status) + ")");
+                throw new Error(String(msg));
+              }
+
+              if (data && data.warning) {
+                window.alert(String(data.warning));
+              }
+
+              try {
+                var lib2 = window.TaksOnboarding && window.TaksOnboarding.lib;
+                if (lib2 && typeof lib2.setHashRoute === "function") lib2.setHashRoute("list");
+                else window.location.hash = "#onboarding/list";
+              } catch (e) {
+                window.location.hash = "#onboarding/list";
+              }
+            } catch (e) {
+              window.alert(String((e && e.message) || e || "Delete failed"));
+            }
+          }
+        }, "Ta bort användare"),
         cardUrl ? h("a", {
           className: "btn",
           href: cardUrl,

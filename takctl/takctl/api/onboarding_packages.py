@@ -435,11 +435,8 @@ def token_atak_quick_connect_qr_png(req: Request, token: str):
 def token_itak_quick_connect_qr_txt(req: Request, token: str):
     svc, _, username, _ = _require_token(token)
     _mark_qr_generated(svc, username)
-    base = _resolve_public_base(req, username)
-    package_url = f"{base}/api/onboarding/cards/{token}/packages/itak/soft-cert/package.zip"
-    package_url = _url_with_qs(package_url, regen="1", via="qr")
     host, port, use_ssl = _resolve_qr_endpoint(req, username, "itak")
-    payload = qr_payload("itak", package_url, host, port=port, use_ssl=use_ssl)
+    payload = f"TAK Server,{host},{port},{'ssl' if use_ssl else 'tcp'}"
     return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 
 
@@ -447,17 +444,41 @@ def token_itak_quick_connect_qr_txt(req: Request, token: str):
 def token_itak_quick_connect_qr_png(req: Request, token: str):
     svc, _, username, _ = _require_token(token)
     _mark_qr_generated(svc, username)
-    base = _resolve_public_base(req, username)
-    package_url = f"{base}/api/onboarding/cards/{token}/packages/itak/soft-cert/package.zip"
-    package_url = _url_with_qs(package_url, regen="1", via="qr")
     host, port, use_ssl = _resolve_qr_endpoint(req, username, "itak")
-    payload = qr_payload("itak", package_url, host, port=port, use_ssl=use_ssl)
+    payload = f"TAK Server,{host},{port},{'ssl' if use_ssl else 'tcp'}"
     out = artifact_root(username) / f"{username}.itak.quick-connect.qr.png"
     write_qr_png(payload, out, size=8)
     return FileResponse(
         str(out),
         media_type="image/png",
         filename=f"{username}.itak.quick-connect.qr.png",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/itak/soft-cert/qr.txt")
+def token_itak_soft_cert_qr_txt(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+    base = _resolve_public_base(req, username)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/itak/soft-cert/package.zip"
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
+    return PlainTextResponse(package_url + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+
+
+@router.get("/onboarding/cards/{token}/packages/itak/soft-cert/qr.png")
+def token_itak_soft_cert_qr_png(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+    base = _resolve_public_base(req, username)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/itak/soft-cert/package.zip"
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
+    out = artifact_root(username) / f"{username}.itak.soft-cert.qr.png"
+    write_qr_png(package_url, out, size=8)
+    return FileResponse(
+        str(out),
+        media_type="image/png",
+        filename=f"{username}.itak.soft-cert.qr.png",
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
 
@@ -724,7 +745,10 @@ def qr_payload_txt(req: Request, username: str, client: str):
     base = _resolve_public_base(req, username)
     package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), regen="1", via="qr")
     host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
-    payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
+    if c == "itak":
+        payload = f"TAK Server,{host},{port},{'ssl' if use_ssl else 'tcp'}"
+    else:
+        payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
     return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 
@@ -740,7 +764,10 @@ def qr_payload_json(req: Request, username: str, client: str):
     base = _resolve_public_base(req, username)
     package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), regen="1", via="qr")
     host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
-    payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
+    if c == "itak":
+        payload = f"TAK Server,{host},{port},{'ssl' if use_ssl else 'tcp'}"
+    else:
+        payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
     return JSONResponse(
         {"client": c, "host": host, "port": port, "ssl": use_ssl, "package_url": package_url, "qr_payload": payload},
@@ -759,7 +786,10 @@ def qr_png(req: Request, username: str, client: str):
     base = _resolve_public_base(req, username)
     package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), regen="1", via="qr")
     host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
-    payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
+    if c == "itak":
+        payload = f"TAK Server,{host},{port},{'ssl' if use_ssl else 'tcp'}"
+    else:
+        payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
     out = artifact_root(username) / f"{username}.{c}.qr.png"
     write_qr_png(payload, out, size=8)
