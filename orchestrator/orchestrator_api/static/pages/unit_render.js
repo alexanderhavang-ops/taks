@@ -777,7 +777,7 @@
       })
     );
 
-    c.appendChild(S.spacer(8));
+    c.appendChild(S.el('div', { style: 'height:8px' }));
 
     const grid = S.el('div', { className: 'grid grid--2' });
     grid.appendChild(

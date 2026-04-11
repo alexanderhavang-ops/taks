@@ -3,6 +3,7 @@ set -euo pipefail
 
 UNIT_JSON=/etc/taks/unit.json
 INSTALL_STATE_LOG=/var/log/taks-installer-state.log
+NODE_HEALTH_JSON=/opt/tak/takctl-state/node-health.json
 
 read_runtime_values() {
   python3 - <<'PY'
@@ -114,6 +115,7 @@ payload="$(
   NODE_HOSTNAME="$NODE_HOSTNAME" \
   PRIVATE_IP="$PRIVATE_IP" \
   INSTALL_STATE_LOG="$INSTALL_STATE_LOG" \
+  NODE_HEALTH_JSON="$NODE_HEALTH_JSON" \
   python3 - <<'PY'
 from __future__ import annotations
 
@@ -247,6 +249,27 @@ def parse_install_log(path: str):
     }
 
 
+def load_node_health(path: str):
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    out = {}
+    rollup = data.get("rollup")
+    checks = data.get("checks")
+    if isinstance(rollup, dict):
+        out["services"] = rollup
+    if isinstance(checks, dict):
+        out["checks"] = checks
+    return out or None
+
+
 payload = {
     "node_id": os.environ.get("NODE_ID", ""),
     "unit_path": os.environ.get("UNIT_ID", ""),
@@ -260,6 +283,10 @@ payload = {
 install = parse_install_log(os.environ.get("INSTALL_STATE_LOG", ""))
 if install is not None:
     payload["install"] = install
+
+node_health = load_node_health(os.environ.get("NODE_HEALTH_JSON", ""))
+if node_health is not None:
+    payload.update(node_health)
 
 print(json.dumps(payload, separators=(",", ":")))
 PY

@@ -61,6 +61,11 @@ service_state() {
   systemctl is-active "$name" 2>/dev/null || true
 }
 
+service_enabled() {
+  local name="$1"
+  systemctl is-enabled "$name" 2>/dev/null || true
+}
+
 port_tcp_listening() {
   local port="$1"
   ss -ltn "( sport = :$port )" 2>/dev/null | tail -n +2 | grep -q .
@@ -145,6 +150,36 @@ check_80() {
   fi
 }
 
+check_takctl_enabled() {
+  local st
+  st="$(service_enabled takctl-web.service)"
+  if [ "$st" = "enabled" ]; then
+    add_check takctl_enabled ok critical "takctl-web.service enabled"
+  else
+    add_check takctl_enabled fail critical "takctl-web.service is-enabled=$st"
+  fi
+}
+
+check_takctl_active() {
+  local st
+  st="$(service_state takctl-web.service)"
+  if [ "$st" = "active" ]; then
+    add_check takctl_active ok critical "takctl-web.service active"
+  else
+    add_check takctl_active fail critical "takctl-web.service state=$st"
+  fi
+}
+
+check_takctl_8080_local() {
+  local code
+  code="$(http_code "http://127.0.0.1:8080/api/health")"
+  if [ "$code" = "200" ]; then
+    add_check takctl_8080_local ok critical "127.0.0.1:8080 /api/health returned 200" "{\"http_code\": 200}"
+  else
+    add_check takctl_8080_local fail critical "127.0.0.1:8080 /api/health http_code=$code" "{\"http_code\": \"${code:-000}\"}"
+  fi
+}
+
 check_443_health() {
   local fqdn="$1"
   if [ -z "$fqdn" ]; then
@@ -152,11 +187,11 @@ check_443_health() {
     return
   fi
   local code
-  code="$(http_code "https://$fqdn/api/health" --resolve "$fqdn:443:127.0.0.1")"
+  code="$(http_code "https://$fqdn/takctl/api/health" --resolve "$fqdn:443:127.0.0.1")"
   if [ "$code" = "200" ]; then
-    add_check takctl_443 ok critical "443 /api/health returned 200" "{\"http_code\": 200}"
+    add_check takctl_443 ok critical "443 /takctl/api/health returned 200" "{\"http_code\": 200}"
   else
-    add_check takctl_443 fail critical "443 /api/health http_code=$code" "{\"http_code\": \"${code:-000}\"}"
+    add_check takctl_443 fail critical "443 /takctl/api/health http_code=$code" "{\"http_code\": \"${code:-000}\"}"
   fi
 }
 
@@ -255,6 +290,55 @@ check_mumble() {
     add_check mumble warn warn "mumble-server active but 64738 not detected"
   else
     add_check mumble warn warn "mumble-server.service state=$st"
+  fi
+}
+
+check_nginx_upstream_8080_errors() {
+  local result count
+  result="$(python3 - <<'PY'
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import json
+
+path = Path("/var/log/nginx/error.log")
+now = datetime.now(timezone.utc)
+cutoff = now - timedelta(hours=6)
+count = 0
+samples = []
+
+if path.is_file():
+    for raw in path.read_text(encoding="utf-8", errors="ignore").splitlines():
+        line = raw.strip()
+        if "connect() failed" not in line:
+            continue
+        if "127.0.0.1:8080" not in line:
+            continue
+        try:
+            ts = datetime.strptime(line[:19], "%Y/%m/%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        except Exception:
+            continue
+        if ts < cutoff:
+            continue
+        count += 1
+        if len(samples) < 3:
+            samples.append(line)
+
+print(json.dumps({
+    "count_last_6h": count,
+    "samples": samples,
+}, ensure_ascii=False))
+PY
+)"
+  count="$(python3 - <<'PY' "$result"
+import json, sys
+d = json.loads(sys.argv[1])
+print(int(d.get("count_last_6h", 0)))
+PY
+)"
+  if [ "$count" -eq 0 ]; then
+    add_check nginx_upstream_8080 ok warn "no recent nginx upstream errors to 127.0.0.1:8080" "$result"
+  else
+    add_check nginx_upstream_8080 warn warn "recent nginx upstream errors to 127.0.0.1:8080 in last 6h: $count" "$result"
   fi
 }
 
@@ -459,6 +543,7 @@ write_json() {
   python3 - <<'PY' "$CHECKS_TSV" "$TMP_JSON"
 import json, sys
 from datetime import datetime, timezone
+
 rows = []
 with open(sys.argv[1], "r", encoding="utf-8") as f:
     for raw in f:
@@ -474,14 +559,22 @@ with open(sys.argv[1], "r", encoding="utf-8") as f:
         if isinstance(extra_obj, dict):
             item.update(extra_obj)
         rows.append((name, item))
+
 checks = {k: v for k, v in rows}
 critical_failed = sum(1 for _, v in rows if v["severity"] == "critical" and v["status"] == "fail")
 warn_failed = sum(1 for _, v in rows if v["severity"] != "critical" and v["status"] in {"fail", "warn"})
+status_counts = {
+    "ok": sum(1 for _, v in rows if v["status"] == "ok"),
+    "warn": sum(1 for _, v in rows if v["status"] == "warn"),
+    "fail": sum(1 for _, v in rows if v["status"] == "fail"),
+    "skip": sum(1 for _, v in rows if v["status"] == "skip"),
+}
 overall = "ok"
 if critical_failed:
     overall = "fail"
 elif warn_failed:
     overall = "warn"
+
 doc = {
     "version": 1,
     "updated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
@@ -490,10 +583,16 @@ doc = {
         "overall": overall,
         "critical_failed": critical_failed,
         "warn_failed": warn_failed,
+        "total_checks": len(rows),
+        "ok": status_counts["ok"],
+        "warn": status_counts["warn"],
+        "fail": status_counts["fail"],
+        "skip": status_counts["skip"],
         "stale": False,
     },
     "checks": checks,
 }
+
 with open(sys.argv[2], "w", encoding="utf-8") as f:
     json.dump(doc, f, indent=2, ensure_ascii=False)
     f.write("\n")
@@ -510,12 +609,16 @@ run_probe() {
   check_postgres
   check_disk_root
   check_80
+  check_takctl_enabled
+  check_takctl_active
+  check_takctl_8080_local
   check_443_health "$fqdn"
   check_8446_tls "$fqdn"
   check_8443_mtls "$fqdn"
   check_8089_cot_mtls "$fqdn"
   check_martine
   check_mumble
+  check_nginx_upstream_8080_errors
   check_cert_expiry "$fqdn"
   check_bedrock
   check_weather
