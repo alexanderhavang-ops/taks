@@ -257,6 +257,7 @@ def bundle_readiness(unit_path: str, role: str) -> Dict[str, Any]:
     missing_cert = [k for k in required_cert_keys if not str(conf_vals.get(k) or "").strip()]
 
     required_bootstrap = [
+        ("conf.d/*:default_policy_id", str(conf_vals.get("default_policy_id") or "").strip()),
         ("conf.d/*:takctl_admin_user", str(conf_vals.get("takctl_admin_user") or "").strip()),
         ("secrets.d/*:takctl_admin_password", str(sec_vals.get("takctl_admin_password") or "").strip()),
         ("secrets.d/*:cert_capass", str(sec_vals.get("cert_capass") or "").strip()),

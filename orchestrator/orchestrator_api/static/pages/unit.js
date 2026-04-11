@@ -28,7 +28,7 @@
       }
 
       const s = document.createElement('script');
-      s.src = src + '?v=20260409-unit-actions-1';
+      s.src = src + '?v=20260410-policy-20260411071549';
       s.async = false;
       s.dataset.unitSplit = src;
       s.onload = function(){

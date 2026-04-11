@@ -345,6 +345,31 @@
     row2.appendChild(S.field(CORE.t('unit.field.public_ip'), pubWrap));
     wrap.appendChild(row2);
 
+    const awsState = String((node && node.aws_state) || '').trim().toLowerCase();
+    const derivedStatus = String((node && node.derived_status) || '').trim().toLowerCase();
+    const nodeId = String((node && (node.node_id || node.fqdn || node.instance_id)) || '').trim();
+    const isStopped = !!nodeId && (awsState === 'stopped' || derivedStatus === 'stopped');
+    const isLiveish = !!nodeId && (
+      awsState === 'running' ||
+      awsState === 'pending' ||
+      derivedStatus === 'running' ||
+      derivedStatus === 'stale' ||
+      derivedStatus === 'booting'
+    );
+
+    const statusTone = isStopped ? 'warn' : (isLiveish ? 'ok' : 'muted');
+    const statusText = isStopped ? '💤 Sleeping' : (isLiveish ? '● Running' : '○ No node');
+
+    const statusWrap = S.el('div', { style: 'margin-top:12px;margin-bottom:12px' });
+    statusWrap.appendChild(S.badge(statusText, statusTone));
+    if(isStopped){
+      statusWrap.appendChild(S.el('div', {
+        style: 'margin-top:8px;padding:10px 12px;border-radius:10px;border:1px solid rgba(245,158,11,.25);background:rgba(245,158,11,.08);color:#f6d28b;font-size:12px;line-height:1.45',
+        text: 'Noden finns men är stoppad. Wake för att starta upp den igen. Quick links är avstängda medan den sover.'
+      }));
+    }
+    wrap.appendChild(statusWrap);
+
     const installBlock = renderInstallProgress(node);
     if(installBlock) wrap.appendChild(installBlock);
 
@@ -391,42 +416,55 @@
     const hb = String(S.heartbeatState(node) || '').trim().toLowerCase();
     const nodeId = String((node && (node.node_id || node.fqdn || node.instance_id)) || '').trim();
     const fqdn = String((node && node.fqdn) || '').trim();
+    const derivedStatus = String((node && node.derived_status) || '').trim().toLowerCase();
 
-    const looksRunning = !!node && (
+    const isStopped = !!nodeId && (aws === 'stopped' || derivedStatus === 'stopped');
+    const isLiveish = !!nodeId && (
       aws === 'running' ||
       aws === 'pending' ||
-      aws === 'stopping' ||
-      aws === 'shutting-down' ||
-      hb === 'online' ||
-      hb === 'stale'
+      derivedStatus === 'running' ||
+      derivedStatus === 'stale' ||
+      derivedStatus === 'booting'
     );
+
+    const statusTone = isStopped ? 'warn' : (isLiveish ? 'ok' : 'muted');
+    const statusText = isStopped ? '💤 Sleeping' : (isLiveish ? '● Running' : '○ No node');
+
+    if(isStopped){
+      c.style.border = '1px solid rgba(245, 158, 11, .38)';
+      c.style.boxShadow = '0 0 0 1px rgba(245, 158, 11, .12) inset';
+    }else if(isLiveish){
+      c.style.border = '1px solid rgba(34, 197, 94, .28)';
+      c.style.boxShadow = '0 0 0 1px rgba(34, 197, 94, .10) inset';
+    }
 
     if(fqdn){
       const linksWrap = S.el('div', { style: 'margin-top:12px' });
       linksWrap.appendChild(S.el('div', { className: 'label', text: CORE.t('unit.quick_links') }));
 
       const links = S.el('div', { className: 'card__actions', style: 'margin-top:8px' });
-      links.appendChild(S.el('a', {
-        className: 'btn',
-        href: 'https://' + fqdn + '/',
-        target: '_blank',
-        rel: 'noopener noreferrer',
-        text: 'TAKS'
-      }));
-      links.appendChild(S.el('a', {
-        className: 'btn btn--secondary',
-        href: 'https://' + fqdn + ':8446/webtak/',
-        target: '_blank',
-        rel: 'noopener noreferrer',
-        text: 'WebTAK'
-      }));
-      links.appendChild(S.el('a', {
-        className: 'btn btn--secondary',
-        href: 'https://' + fqdn + ':8446/Marti/',
-        target: '_blank',
-        rel: 'noopener noreferrer',
-        text: 'Marti'
-      }));
+
+      function quickLink(text, href, secondary){
+        if(isStopped){
+          return S.el('span', {
+            className: secondary ? 'btn btn--secondary' : 'btn',
+            style: 'opacity:.45;pointer-events:none;cursor:not-allowed',
+            title: 'Wake node to enable quick links',
+            text: text
+          });
+        }
+        return S.el('a', {
+          className: secondary ? 'btn btn--secondary' : 'btn',
+          href: href,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+          text: text
+        });
+      }
+
+      links.appendChild(quickLink('TAKS', 'https://' + fqdn + '/', false));
+      links.appendChild(quickLink('WebTAK', 'https://' + fqdn + ':8446/webtak/', true));
+      links.appendChild(quickLink('Marti', 'https://' + fqdn + ':8446/Marti/', true));
       linksWrap.appendChild(links);
       c.appendChild(linksWrap);
     }
@@ -442,20 +480,11 @@
     }));
 
     const awsState = String((node && node.aws_state) || '').trim().toLowerCase();
-    const derivedStatus = String((node && node.derived_status) || '').trim().toLowerCase();
-    const isStopped = !!nodeId && (awsState === 'stopped' || derivedStatus === 'stopped');
-    const isLiveish = !!nodeId && (
-      awsState === 'running' ||
-      awsState === 'pending' ||
-      derivedStatus === 'running' ||
-      derivedStatus === 'stale' ||
-      derivedStatus === 'booting'
-    );
 
     if(isStopped){
       actions.appendChild(S.el('button', {
         id: 'node_wake_btn',
-        className: 'btn btn--secondary',
+        className: 'btn',
         text: 'Wake',
         'data-node-id': nodeId
       }));
@@ -719,6 +748,44 @@
 
       S.el('div', { id: 'bootstrap_' + kind + '_status', className: 'muted', style: 'margin-top:8px' })
     );
+  }
+
+
+  function _effectivePolicyId(bootstrapResp){
+    try{
+      const conf = ((bootstrapResp || {}).effective || {}).conf_d || {};
+      const txt = String((conf["policy.conf"] || "")).trim();
+      if(!txt) return "";
+      const m = txt.match(/^\s*default_policy_id\s*=\s*(.+?)\s*$/m);
+      return m ? String(m[1] || '').trim() : "";
+    }catch(_e){
+      return "";
+    }
+  }
+
+  function renderPolicyCard(bootstrapResp){
+    const c = S.card('Policy');
+    const policyId = _effectivePolicyId(bootstrapResp) || '—';
+
+    c.appendChild(
+      S.el('div', {
+        className: 'muted',
+        text: tt(
+          'Effektiv policy för denna nod efter arv i conf.d.',
+          'Effective policy for this node after conf.d inheritance.'
+        )
+      })
+    );
+
+    c.appendChild(S.spacer(8));
+
+    const grid = S.el('div', { className: 'grid grid--2' });
+    grid.appendChild(
+      S.field('default_policy_id', S.el('div', { text: policyId }))
+    );
+    c.appendChild(grid);
+
+    return c;
   }
 
   function renderBootstrapCard(bootstrapResp){
@@ -1363,6 +1430,7 @@
     app.appendChild(renderHeaderCard(ctx));
     app.appendChild(renderNodeCard(node));
     app.appendChild(renderFilesCard(filesResp));
+    app.appendChild(renderPolicyCard(bootstrapResp));
     app.appendChild(renderBootstrapCard(bootstrapResp));
 
     const defaults = (window.TAKS_UNIT && window.TAKS_UNIT.launchDefaults) || {};
