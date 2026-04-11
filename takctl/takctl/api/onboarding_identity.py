@@ -303,8 +303,6 @@ def get_user(username: str):
     return JSONResponse(out, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 
 
-
-
 def _cleanup_onboarding_state_for_user(svc, username: str) -> dict:
     json = __import__("json")
     shutil = __import__("shutil")
@@ -657,6 +655,52 @@ def email_link(req: Request, username: str, body: EmailLinkIn):
     )
 
 
+@router.get("/onboarding/users/{username}/voice-live")
+def voice_live(username: str, recent_minutes: int = Query(120, ge=1, le=24 * 60)):
+    u = (username or "").strip()
+    if not u:
+        raise HTTPException(status_code=400, detail="username required")
+
+    svc = build_service()
+
+    tak_user = svc.ud.get_user(u)
+    if tak_user is None:
+        raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {u}")
+
+    db, _db_err, _db_source, _db_target = maybe_db()
+
+    try:
+        card = svc.user_card(username=u, db=db, recent_minutes=int(recent_minutes))
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Unknown user: {u}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"voice live failed: {type(e).__name__}: {e}")
+
+    voice = (card or {}).get("voice")
+    if not isinstance(voice, dict):
+        voice = {
+            "ok": False,
+            "username": u,
+            "server": {"host": None, "port": None, "connected": False},
+            "snapshot_meta": {"source": "onboarding_identity.voice_live", "generated_at": None},
+            "error": "voice data missing from user_card",
+            "user": {
+                "callsign": str(((card or {}).get("header") or {}).get("callsign") or u),
+                "connected_now": False,
+                "channel_names": [],
+                "matched_user_names": [],
+                "header_matches": [],
+            },
+            "devices": [],
+            "raw_counts": {"channels": 0, "users": 0, "devices": 0},
+        }
+
+    return JSONResponse(
+        voice,
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
 @router.get("/onboarding/cards/{token}.json")
 def onboarding_card_by_token_json(
     token: str,
@@ -776,4 +820,3 @@ def onboarding_card_html(req: Request, token: str):
         lifecycle=lifecycle,
     )
     return HTMLResponse(html, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
-

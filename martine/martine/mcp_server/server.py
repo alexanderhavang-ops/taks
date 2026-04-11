@@ -23,6 +23,7 @@ from martine.tools.osrm_geo import (
     route_alternatives_between_points,
     snap_point_to_network,
 )
+from martine.tools.plugin_onboarding import send_plugin_onboarding
 from martine.tools.voice_onboarding import send_voice_onboarding
 
 
@@ -282,7 +283,25 @@ def list_tools() -> List[Dict[str, Any]]:
                     "dry_run": {"type": "boolean"}
                 },
                 "required": [],
-                "additionalProperties": false
+                "additionalProperties": False
+            }
+        },
+        {
+            "name": "send_plugin_onboarding",
+            "description": "Create and send an ATAK plugin package to a TAK contact. If the user means themselves, use sender_callsign and sender_uid from RUN_CONTEXT.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "target_callsign": {"type": "string"},
+                    "target_uid": {"type": "string"},
+                    "sender_callsign": {"type": "string"},
+                    "sender_uid": {"type": "string"},
+                    "package_id": {"type": "string"},
+                    "registry_path": {"type": "string"},
+                    "dry_run": {"type": "boolean"}
+                },
+                "required": [],
+                "additionalProperties": False
             }
         },
         {
@@ -498,6 +517,17 @@ def call_tool(name: str, arguments: Dict[str, Any] | None = None) -> Dict[str, A
             lon=float(args.get("lon")),
             profile=str(args.get("profile", "foot")),
             number=int(args.get("number", 1)),
+        )
+
+    if name == "send_plugin_onboarding":
+        return send_plugin_onboarding(
+            target_callsign=str(args.get("target_callsign", "")),
+            target_uid=str(args.get("target_uid", "")),
+            sender_callsign=str(args.get("sender_callsign", "")),
+            sender_uid=str(args.get("sender_uid", "")),
+            package_id=str(args.get("package_id", "plugins-basic")),
+            registry_path=str(args.get("registry_path", "")),
+            dry_run=bool(args.get("dry_run", False)),
         )
 
     raise ValueError(f"unknown tool: {name}")

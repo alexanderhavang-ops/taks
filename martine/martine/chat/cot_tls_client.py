@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import socket
 import ssl
-import subprocess
 import sys
 import time
 import uuid
@@ -14,8 +14,6 @@ from typing import Any, Dict, List, Optional
 from xml.sax.saxutils import escape
 import xml.etree.ElementTree as ET
 
-from martine.agent.simple_agent import run_once
-from martine.config import load_config
 from martine.logging import get_logger, setup_martine_logging
 from martine.state.paths import ensure_state_dirs, martine_state_dir
 
@@ -40,6 +38,13 @@ BOOTSTRAP_LOOKBACK_MINUTES = 240
 TAKS_ONBOARDING_ROOT = Path("/opt/tak/takctl-state/onboarding")
 DEVICE_STATE_ROOT = TAKS_ONBOARDING_ROOT / "devices"
 
+TAKCTL_CFG_PATHS = (
+    Path("/opt/tak/tools/takctl/takctl.conf"),
+    Path("/opt/tak/tools/takctl/secrets.conf"),
+    Path("/opt/taks/takctl/takctl.conf"),
+    Path("/opt/taks/takctl/secrets.conf"),
+)
+
 
 def iso_z(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -52,12 +57,27 @@ def parse_dt(value: Any) -> Optional[datetime]:
     try:
         if s.endswith("Z"):
             s = s[:-1] + "+00:00"
+        elif len(s) >= 3 and (s[-3] == "+" or s[-3] == "-") and s[-2:].isdigit():
+            s = s + ":00"
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=timezone.utc)
         return dt.astimezone(timezone.utc)
     except Exception:
         return None
+
+
+def _iso_or_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, datetime):
+        dt = value
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        else:
+            dt = dt.astimezone(timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
+    return str(value).strip()
 
 
 def read_json(path: Path) -> Any:
@@ -98,49 +118,209 @@ def stable_hash(obj: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
-def escape_sql_literal(value: str) -> str:
-    return str(value or "").replace("'", "''")
+def _strip_quotes(v: str) -> str:
+    s = str(v or "").strip()
+    if len(s) >= 2 and ((s[0] == s[-1] == '"') or (s[0] == s[-1] == "'")):
+        return s[1:-1]
+    return s
 
 
-def psql_rows(sql: str) -> list[list[str]]:
-    cmd = [
-        "sudo",
-        "-u",
-        "postgres",
-        "psql",
-        "-d",
-        "cot",
-        "-P",
-        "pager=off",
-        "-A",
-        "-F",
-        "\t",
-        "-t",
-        "-c",
-        sql,
-    ]
-    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    if proc.returncode != 0:
-        err = (proc.stderr or "").strip()
-        if err:
-            log.warning("psql_rows_failed err=%s sql=%r", err[:500], sql[:500])
-        return []
-    out: list[list[str]] = []
-    for line in proc.stdout.splitlines():
-        s = str(line or "").rstrip("\n")
-        if not s.strip():
+def _read_simple_kv(paths: tuple[Path, ...]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for p in paths:
+        try:
+            if not p.exists():
+                continue
+            for raw in p.read_text(encoding="utf-8").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or line.startswith(";"):
+                    continue
+                if line.startswith("[") and line.endswith("]"):
+                    continue
+                if "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                key = str(k or "").strip()
+                if not key:
+                    continue
+                out[key] = _strip_quotes(v)
+        except Exception:
             continue
-        out.append(s.split("\t"))
     return out
 
 
-def psql_scalar(sql: str) -> str:
-    rows = psql_rows(sql)
+def _pg_driver():
+    try:
+        import psycopg2  # type: ignore
+
+        return "psycopg2", psycopg2
+    except Exception:
+        pass
+
+    try:
+        import psycopg  # type: ignore
+
+        return "psycopg", psycopg
+    except Exception as e:
+        raise RuntimeError("Neither psycopg2 nor psycopg is available") from e
+
+
+def _candidate_fingerprint(d: dict[str, Any]) -> str:
+    safe = {k: ("***" if "pass" in k.lower() else v) for k, v in d.items()}
+    return json.dumps(safe, sort_keys=True, default=str)
+
+
+def _build_db_candidates() -> list[dict[str, Any]]:
+    cfg = _read_simple_kv(TAKCTL_CFG_PATHS)
+
+    dbname = (
+        str(
+            cfg.get("db_name")
+            or cfg.get("database")
+            or os.environ.get("PGDATABASE")
+            or "cot"
+        ).strip()
+        or "cot"
+    )
+    host_cfg = str(cfg.get("db_host") or os.environ.get("PGHOST") or "").strip()
+    port_raw = str(cfg.get("db_port") or os.environ.get("PGPORT") or "5432").strip()
+    try:
+        port_cfg = int(port_raw)
+    except Exception:
+        port_cfg = 5432
+
+    dsn = str(
+        cfg.get("database_url")
+        or cfg.get("db_url")
+        or cfg.get("postgres_url")
+        or os.environ.get("DATABASE_URL")
+        or os.environ.get("PGURL")
+        or ""
+    ).strip()
+
+    explicit_user = str(
+        cfg.get("db_user")
+        or cfg.get("pg_user")
+        or cfg.get("postgres_user")
+        or os.environ.get("PGUSER")
+        or ""
+    ).strip()
+
+    explicit_password = str(
+        cfg.get("db_password")
+        or cfg.get("pg_password")
+        or cfg.get("postgres_password")
+        or cfg.get("password")
+        or os.environ.get("PGPASSWORD")
+        or ""
+    ).strip()
+
+    fallback_users: list[str] = []
+    for u in (
+        explicit_user,
+        os.environ.get("USER"),
+        os.environ.get("LOGNAME"),
+        "tak",
+        cfg.get("sudo_user"),
+        "postgres",
+    ):
+        s = str(u or "").strip()
+        if s and s not in fallback_users:
+            fallback_users.append(s)
+
+    candidates: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add(candidate: dict[str, Any]) -> None:
+        fp = _candidate_fingerprint(candidate)
+        if fp in seen:
+            return
+        seen.add(fp)
+        candidates.append(candidate)
+
+    if dsn:
+        add({"dsn": dsn})
+
+    if host_cfg or explicit_user or explicit_password:
+        cand: dict[str, Any] = {"dbname": dbname, "port": port_cfg}
+        if host_cfg:
+            cand["host"] = host_cfg
+        if explicit_user:
+            cand["user"] = explicit_user
+        if explicit_password:
+            cand["password"] = explicit_password
+        add(cand)
+
+    if explicit_user:
+        cand = {"dbname": dbname, "host": "/var/run/postgresql", "user": explicit_user}
+        if explicit_password:
+            cand["password"] = explicit_password
+        add(cand)
+
+    if host_cfg:
+        add({"dbname": dbname, "host": host_cfg, "port": port_cfg})
+
+    for user in fallback_users:
+        add({"dbname": dbname, "host": "/var/run/postgresql", "user": user})
+        add({"dbname": dbname, "user": user})
+
+    add({"dbname": dbname, "host": "/var/run/postgresql"})
+    add({"dbname": dbname})
+
+    return candidates
+
+
+def _connect_pg(driver_name: str, driver: Any, candidate: dict[str, Any]):
+    kwargs = dict(candidate)
+    if "dsn" in kwargs and len(kwargs) == 1:
+        conn = driver.connect(kwargs["dsn"])
+    else:
+        conn = driver.connect(**kwargs)
+    try:
+        conn.autocommit = True
+    except Exception:
+        pass
+    return conn
+
+
+def db_rows(sql: str, params: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
+    try:
+        driver_name, driver = _pg_driver()
+    except Exception as e:
+        log.warning("db_driver_unavailable err=%s", e)
+        return []
+
+    errors: list[str] = []
+    for candidate in _build_db_candidates():
+        try:
+            conn = _connect_pg(driver_name, driver, candidate)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    rows = cur.fetchall() or []
+                    return list(rows)
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            fp = _candidate_fingerprint(candidate)
+            errors.append(f"{fp}: {e.__class__.__name__}: {e}")
+
+    if errors:
+        log.warning("db_rows_failed sql=%r err=%s", sql[:500], " | ".join(errors[:3])[:1500])
+    return []
+
+
+def db_scalar(sql: str, params: tuple[Any, ...] = ()) -> str:
+    rows = db_rows(sql, params)
     if not rows:
         return ""
-    if not rows[0]:
+    row0 = rows[0]
+    if not row0:
         return ""
-    return str(rows[0][0] or "").strip()
+    return str(row0[0] or "").strip()
 
 
 def _extract_cn_from_subject_dn(subject_dn: str) -> str:
@@ -158,14 +338,15 @@ def resolve_username_for_client_uid(client_uid: str) -> str:
     uid = str(client_uid or "").strip()
     if not uid:
         return ""
-    sql = (
-        "SELECT subject_dn "
-        "FROM public.certificate "
-        f"WHERE client_uid = '{escape_sql_literal(uid)}' "
-        "ORDER BY id DESC "
-        "LIMIT 1;"
-    )
-    subject_dn = psql_scalar(sql)
+
+    sql = """
+    SELECT subject_dn
+    FROM public.certificate
+    WHERE client_uid = %s
+    ORDER BY id DESC
+    LIMIT 1;
+    """
+    subject_dn = db_scalar(sql, (uid,))
     cn = _extract_cn_from_subject_dn(subject_dn)
     if cn:
         return cn
@@ -263,23 +444,24 @@ def save_device_state(username: str, client_uid: str, state: dict[str, Any]) -> 
 
 
 def list_recent_client_devices() -> List[dict[str, Any]]:
-    sql = f"""
+    sql = """
     SELECT
       uid,
       MIN(servertime) AS first_seen,
       MAX(servertime) AS last_seen
     FROM cot_router
-    WHERE servertime >= NOW() - INTERVAL '{int(BOOTSTRAP_LOOKBACK_MINUTES)} minutes'
+    WHERE servertime >= NOW() - (%s * INTERVAL '1 minute')
       AND uid IS NOT NULL
       AND uid <> ''
-      AND uid NOT LIKE 'GeoChat.%'
-      AND uid NOT LIKE 'martine:%'
-      AND uid NOT LIKE 'replay:%'
+      AND uid NOT LIKE 'GeoChat.%%'
+      AND uid NOT LIKE 'martine:%%'
+      AND uid NOT LIKE 'replay:%%'
     GROUP BY uid
     ORDER BY MAX(servertime) DESC, uid ASC
-    LIMIT 5000;
+    LIMIT %s;
     """
-    rows = psql_rows(sql)
+    rows = db_rows(sql, (int(BOOTSTRAP_LOOKBACK_MINUTES), 5000))
+
     out: list[dict[str, Any]] = []
     for row in rows:
         if len(row) < 3:
@@ -290,8 +472,8 @@ def list_recent_client_devices() -> List[dict[str, Any]]:
         out.append(
             {
                 "client_uid": uid,
-                "first_seen_at": str(row[1] or "").strip(),
-                "last_seen_at": str(row[2] or "").strip(),
+                "first_seen_at": _iso_or_text(row[1]),
+                "last_seen_at": _iso_or_text(row[2]),
             }
         )
     return out
@@ -497,13 +679,13 @@ def maybe_process_recent_devices(sock: ssl.SSLSocket, cfg) -> None:
         prev_hash = str(state.get("chat_groups_seed_assignment_hash") or "").strip()
         if seed_channels and assignment_hash and assignment_hash != prev_hash:
             for group_name in seed_channels:
-                msg = f"Gruppchat {group_name} är nu aktiv."
+                msg = f"Martine seeding group {group_name}"
                 send_event(
                     sock,
                     build_atak_chat_xml(
                         chat_uid=cfg.chat_uid,
                         callsign=cfg.callsign,
-                        to_uid=group_name,
+                        to_uid=client_uid,
                         to_callsign=group_name,
                         message=msg,
                         parent="UserGroups",
@@ -527,6 +709,8 @@ def maybe_process_recent_devices(sock: ssl.SSLSocket, cfg) -> None:
 
 
 def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
+    from martine.agent.simple_agent import run_once
+
     log.info("incoming_xml bytes=%s", len(text.encode("utf-8", errors="ignore")))
 
     msg = parse_chat_xml(text)
@@ -598,6 +782,8 @@ def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
 
 
 def session_loop() -> None:
+    from martine.config import load_config
+
     setup_martine_logging()
     ensure_state_dirs()
     cfg = load_config()

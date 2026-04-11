@@ -11,6 +11,8 @@ from takctl.onboarding.activity_pg import (
     fetch_devices_for_usernames,
     fetch_unknown_endpoints,
 )
+from takctl.services.mumble_live import snapshot_mumble_live
+from takctl.services.mumble_match import build_voice_assignment
 
 
 def _age_human(seconds: int) -> str:
@@ -442,6 +444,72 @@ def _compute_lifecycle(
     return {"stage": stage, "label": label, "evidence": evidence}
 
 
+def _build_voice_for_user(
+    *,
+    username: str,
+    header_callsign: str,
+    devices: List[Dict[str, Any]],
+    mumble_snapshot: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    snapshot = dict(mumble_snapshot or {})
+    try:
+        return build_voice_assignment(
+            username=username,
+            header_callsign=header_callsign,
+            devices=list(devices or []),
+            mumble_snapshot=snapshot,
+        )
+    except Exception as e:
+        server = dict(snapshot.get("server") or {})
+        meta = dict(snapshot.get("meta") or {})
+        return {
+            "ok": False,
+            "username": str(username or "").strip(),
+            "server": {
+                "host": server.get("host"),
+                "port": server.get("port"),
+                "connected": bool(server.get("connected")),
+            },
+            "snapshot_meta": {
+                "source": str(meta.get("source") or "takctl.services.mumble_live"),
+                "generated_at": meta.get("generated_at"),
+            },
+            "error": f"voice assignment failed: {type(e).__name__}: {e}",
+            "user": {
+                "callsign": str(header_callsign or "").strip(),
+                "connected_now": False,
+                "channel_names": [],
+                "matched_user_names": [],
+                "header_matches": [],
+            },
+            "devices": [],
+            "raw_counts": {
+                "channels": len(list(snapshot.get("channels") or [])),
+                "users": len(list(snapshot.get("users") or [])),
+                "devices": len(list(devices or [])),
+            },
+        }
+
+
+def _build_voice_summary(voice: Dict[str, Any]) -> Dict[str, Any]:
+    server = dict((voice or {}).get("server") or {})
+    raw_counts = dict((voice or {}).get("raw_counts") or {})
+    user = dict((voice or {}).get("user") or {})
+    header_matches = list(user.get("header_matches") or [])
+
+    matched_connected_users = sum(1 for m in header_matches if bool(m.get("connected_now")))
+
+    return {
+        "server": {
+            "host": server.get("host"),
+            "port": server.get("port"),
+            "connected": bool(server.get("connected")),
+        },
+        "live_users": int(raw_counts.get("users") or 0),
+        "matched_connected_users": int(matched_connected_users),
+    }
+
+
 @dataclass(frozen=True)
 class UserOnboardingView:
     username: str
@@ -498,6 +566,17 @@ class OnboardingService:
         else:
             cert_summaries = {username: {"count": 0, "revoked_count": 0, "latest_cert": None} for username in usernames}
 
+        try:
+            mumble_snapshot = snapshot_mumble_live()
+        except Exception as e:
+            mumble_snapshot = {
+                "meta": {"source": "takctl.services.mumble_live"},
+                "server": {"host": None, "port": None, "connected": False},
+                "channels": [],
+                "users": [],
+                "error": f"snapshot failed: {type(e).__name__}: {e}",
+            }
+
         users_out: List[Dict[str, Any]] = []
 
         for r in rows:
@@ -543,6 +622,14 @@ class OnboardingService:
                 marti_client=marti_client,
             )
 
+            voice = _build_voice_for_user(
+                username=r.username,
+                header_callsign=str(header.get("callsign") or r.username),
+                devices=devices,
+                mumble_snapshot=mumble_snapshot,
+            )
+            voice_summary = _build_voice_summary(voice)
+
             users_out.append(
                 {
                     "header": header,
@@ -556,6 +643,8 @@ class OnboardingService:
                     "activity": activity,
                     "devices": devices,
                     "selection": None,
+                    "voice": voice,
+                    "voice_summary": voice_summary,
                 }
             )
 
@@ -565,6 +654,7 @@ class OnboardingService:
         seen_recently = sum(1 for u in users_out if (u.get("activity") or {}).get("seen_recently") is True)
         is_current = sum(1 for u in users_out if (u.get("activity") or {}).get("is_current") is True)
         unknown_seen_recently = sum(1 for e in unknown if e.get("seen_recently") is True)
+        voice_connected_now = sum(1 for u in users_out if bool(((u.get("voice") or {}).get("user") or {}).get("connected_now")))
 
         return {
             "summary": {
@@ -576,6 +666,7 @@ class OnboardingService:
                 "unknown_endpoints": len(unknown),
                 "unknown_seen_recently": unknown_seen_recently,
                 "recent_minutes": int(recent_minutes),
+                "voice_connected_now": voice_connected_now,
             },
             "users": users_out,
             "unknown_endpoints": unknown,
@@ -637,6 +728,25 @@ class OnboardingService:
             marti_client=marti_client,
         )
 
+        try:
+            mumble_snapshot = snapshot_mumble_live()
+        except Exception as e:
+            mumble_snapshot = {
+                "meta": {"source": "takctl.services.mumble_live"},
+                "server": {"host": None, "port": None, "connected": False},
+                "channels": [],
+                "users": [],
+                "error": f"snapshot failed: {type(e).__name__}: {e}",
+            }
+
+        voice = _build_voice_for_user(
+            username=username,
+            header_callsign=str(header.get("callsign") or username),
+            devices=devices,
+            mumble_snapshot=mumble_snapshot,
+        )
+        voice_summary = _build_voice_summary(voice)
+
         return {
             "header": header,
             "identity": identity,
@@ -648,4 +758,6 @@ class OnboardingService:
             "activity": activity,
             "devices": devices,
             "selection": sel,
+            "voice": voice,
+            "voice_summary": voice_summary,
         }

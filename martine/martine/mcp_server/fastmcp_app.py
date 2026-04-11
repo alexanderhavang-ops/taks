@@ -26,6 +26,7 @@ from martine.tools.osrm_geo import (
     route_alternatives_between_points,
     snap_point_to_network,
 )
+from martine.tools.plugin_onboarding import send_plugin_onboarding
 from martine.tools.voice_onboarding import send_voice_onboarding
 
 logging.basicConfig(
@@ -290,6 +291,31 @@ def send_voice_onboarding_tool(
         force_tcp=force_tcp,
         server_password=server_password,
         channel_passwords=channel_passwords,
+        dry_run=dry_run,
+    )
+
+
+@mcp.tool(name="send_plugin_onboarding")
+def send_plugin_onboarding_tool(
+    target_callsign: str = "",
+    target_uid: str = "",
+    sender_callsign: str = "",
+    sender_uid: str = "",
+    package_id: str = "plugins-basic",
+    registry_path: str = "",
+    dry_run: bool = False,
+) -> dict:
+    """Create and send an ATAK plugin package to a TAK contact.
+    Use this when the user asks Martine to send or install ATAK plugins.
+    If the user means themselves, pass sender_callsign/sender_uid from RUN_CONTEXT.
+    """
+    return send_plugin_onboarding(
+        target_callsign=target_callsign,
+        target_uid=target_uid,
+        sender_callsign=sender_callsign,
+        sender_uid=sender_uid,
+        package_id=package_id,
+        registry_path=registry_path,
         dry_run=dry_run,
     )
 

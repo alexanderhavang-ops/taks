@@ -16,6 +16,7 @@ def _system_prompt() -> str:
         'For doctrine, handbook, chapter, and reference-document questions, prefer the reference document tools before answering. '
         'Prefer semantic reference-doc search for broad conceptual questions, and exact/keyword search for exact names or phrases. '
         'If a user asks to be onboarded for voice, Vx, or Mumble, use the send_voice_onboarding tool rather than only describing the steps. '
+        'If a user asks to send or install ATAK plugins, use the send_plugin_onboarding tool. Default to package_id "plugins-basic" unless the user clearly asks for another registered package. '
         'Keep final answers brief and concrete. '
         'If a tool result is missing or insufficient, say so plainly.'
     )

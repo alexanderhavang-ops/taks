@@ -1,0 +1,23 @@
+{
+  "packages": {
+    "plugins-basic": {
+      "title": "ATAK plugins basic",
+      "version": "2026.04.11",
+      "description": "HVreports + Ramsor plugin pack for ATAK",
+      "atak_min_version": "",
+      "requires_user_install_confirmation": true,
+      "files": [
+        {
+          "type": "apk",
+          "path": "/opt/tak/tools/takctl/plugins/HVreports.apk",
+          "arcname": "HVreports.apk"
+        },
+        {
+          "type": "apk",
+          "path": "/opt/tak/tools/takctl/plugins/Ramsor.apk",
+          "arcname": "Ramsor.apk"
+        }
+      ]
+    }
+  }
+}

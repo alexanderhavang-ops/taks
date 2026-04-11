@@ -10,10 +10,8 @@
   const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
   function _needLib() { if (!lib) throw new Error('Missing onboarding lib: load components/onboarding/lib.js before Onboarding.js'); return lib; }
   function _colText(v){ return _needLib().colText(v); }
-  function _userUrls(username){ return _needLib().userUrls(username); }
   function _badgeForState(stateRaw){ return _needLib().badgeForState(stateRaw); }
   function _userState(row){ return _needLib().userState(row); }
-  function _deviceCount(row){ return _needLib().userDeviceCount(row); }
   function _bestDevice(row){ return _needLib().bestDevice(row); }
   function _deviceTail(device){ return _needLib().deviceTail(device); }
 
@@ -24,22 +22,98 @@
     { id: "cards_then_passwords", label: "Cards + passwords separate pages" },
   ];
 
-  const READY_PILL_STYLE = {
-    display: "inline-block",
-    padding: "3px 10px",
-    borderRadius: "999px",
-    border: "1px solid rgba(80,200,120,0.30)",
-    background: "rgba(80,200,120,0.12)",
-    color: "#dff7e8",
-    fontSize: "12px",
-    fontWeight: 700,
-    lineHeight: 1.2,
-    whiteSpace: "nowrap"
-  };
-
   function _rowUsername(u) {
     const hdr = (u && u.header) || {};
     return String(hdr.username || u.username || "");
+  }
+
+  function _onboardTone(v) {
+    const s = String(v || "").trim().toUpperCase();
+    if (s === "DOWNLOADED" || s === "COMPLETE" || s === "ACTIVE") return "good";
+    if (s === "NEW" || s === "PACKAGE_GENERATED" || s === "QR_GENERATED") return "warn";
+    if (!s) return "neutral";
+    return "neutral";
+  }
+
+  function _toneStyle(tone) {
+    if (tone === "good") {
+      return {
+        border: "1px solid rgba(80,200,120,0.45)",
+        background: "rgba(80,200,120,0.12)",
+        color: "#b8f5c8"
+      };
+    }
+    if (tone === "warn") {
+      return {
+        border: "1px solid rgba(240,190,70,0.45)",
+        background: "rgba(240,190,70,0.12)",
+        color: "#ffe29a"
+      };
+    }
+    if (tone === "bad") {
+      return {
+        border: "1px solid rgba(255,90,90,0.45)",
+        background: "rgba(255,90,90,0.12)",
+        color: "#ffb3b3"
+      };
+    }
+    return {
+      border: "1px solid rgba(255,255,255,0.16)",
+      background: "rgba(255,255,255,0.05)",
+      color: "rgba(255,255,255,0.92)"
+    };
+  }
+
+  function _pill(text, tone) {
+    const st = _toneStyle(String(tone || "neutral"));
+    return h("span", {
+      style: {
+        display: "inline-block",
+        padding: "4px 10px",
+        borderRadius: "999px",
+        fontSize: "12px",
+        fontWeight: 800,
+        letterSpacing: "0.02em",
+        whiteSpace: "nowrap",
+        border: st.border,
+        background: st.background,
+        color: st.color
+      }
+    }, String(text || "—"));
+  }
+
+  function _voiceUser(row) {
+    return ((row && row.voice) || {}).user || {};
+  }
+
+  function _voiceTone(row) {
+    const voice = _voiceUser(row);
+    const connectedNow = !!voice.connected_now;
+    const matchedNames = Array.isArray(voice.matched_user_names) ? voice.matched_user_names : [];
+    const serverConnected = !!((((row && row.voice) || {}).server || {}).connected);
+
+    if (connectedNow) return "good";
+    if (serverConnected && matchedNames.length) return "warn";
+    if (serverConnected) return "neutral";
+    return "bad";
+  }
+
+  function _voiceLabel(row) {
+    const voice = _voiceUser(row);
+    const connectedNow = !!voice.connected_now;
+    const matchedNames = Array.isArray(voice.matched_user_names) ? voice.matched_user_names : [];
+    const serverConnected = !!((((row && row.voice) || {}).server || {}).connected);
+
+    if (connectedNow) return "ANSLUTEN";
+    if (serverConnected && matchedNames.length) return "SEDD";
+    if (serverConnected) return "—";
+    return "SERVER NERE";
+  }
+
+  function _voiceChannels(row) {
+    const voice = _voiceUser(row);
+    const channels = Array.isArray(voice.channel_names) ? voice.channel_names : [];
+    return channels.length ? channels.join(", ") : "—";
   }
 
   async function _openFreshCard(username) {
@@ -233,6 +307,8 @@
           h("th", null, _t("list.onboard")),
           h("th", null, "Devices"),
           h("th", null, _t("list.state")),
+          h("th", null, "Voice"),
+          h("th", null, "Kanaler"),
           h("th", null, "Best device"),
           h("th", null, _t("list.actions"))
         )
@@ -242,13 +318,14 @@
           const hdr = (u && u.header) || {};
           const username = String(hdr.username || u.username || "");
           const groupsArr = (hdr && Array.isArray(hdr.groups)) ? hdr.groups : [];
-          const onboardRaw = (u && u.onboarding_status) || "";
-          const onboard = String(onboardRaw || "").toUpperCase();
+          const onboardRaw = String((u && u.onboarding_status) || "").toUpperCase();
           const state = _userState(u);
-          const ready = (onboard === "DOWNLOADED" && String(state || "").toLowerCase() === "current");
           const best = _bestDevice(u);
           const key = username + ":" + String((best && best.client_uid) || "");
           const bestTxt = best ? _deviceTail(best) : "—";
+          const voiceLabel = _voiceLabel(u);
+          const voiceTone = _voiceTone(u);
+          const voiceChannels = _voiceChannels(u);
 
           return h("tr", { key: key },
             h("td", null,
@@ -273,16 +350,19 @@
               }, _colText(username || "—"))
             ),
             h("td", null, _colText(groupsArr.length ? groupsArr.join(", ") : "—")),
-            h("td", null,
-              ready
-                ? h("span", { style: READY_PILL_STYLE }, _colText(onboard || "—"))
-                : _colText(onboard || "—")
-            ),
+            h("td", null, _pill(onboardRaw || "—", _onboardTone(onboardRaw))),
             h("td", null, _colText(_deviceSummary(u))),
+            h("td", null, _badgeForState(state)),
+            h("td", null, _pill(voiceLabel, voiceTone)),
             h("td", null,
-              ready
-                ? h("span", { style: READY_PILL_STYLE }, _colText(String(state || "—").toUpperCase()))
-                : _badgeForState(state)
+              h("div", {
+                style: {
+                  maxWidth: "240px",
+                  whiteSpace: "normal",
+                  overflowWrap: "anywhere",
+                  wordBreak: "break-word"
+                }
+              }, _colText(voiceChannels))
             ),
             h("td", null, _colText(bestTxt)),
             h("td", null,
@@ -302,8 +382,8 @@
                   className: "btn",
                   onClick: function () {
                     try {
-                      const lib3 = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
-                      if (lib3 && typeof lib3.setHashRoute === "function") lib3.setHashRoute("create", username);
+                      const lib2 = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
+                      if (lib2 && typeof lib2.setHashRoute === "function") lib2.setHashRoute("create", username);
                       else window.location.hash = "#onboarding/create:" + encodeURIComponent(username);
                     } catch (e) {}
                   }
@@ -371,7 +451,7 @@
         return;
       }
 
-      const okList = [];
+      const okRows = [];
       const failed = [];
       const warnings = [];
 
@@ -394,7 +474,7 @@
             continue;
           }
 
-          okList.push(username);
+          okRows.push(username);
           if (data && data.warning) warnings.push(username + ": " + String(data.warning));
         } catch (e) {
           failed.push(username + ": " + String((e && e.message) || e || "Delete failed"));
@@ -402,8 +482,8 @@
       }
 
       let msg = "";
-      msg += "Borttagna: " + String(okList.length);
-      if (okList.length) msg += "\n" + okList.join(", ");
+      msg += "Borttagna: " + String(okRows.length);
+      if (okRows.length) msg += "\n" + okRows.join(", ");
       if (warnings.length) msg += "\n\nVarningar:\n" + warnings.join("\n");
       if (failed.length) msg += "\n\nMisslyckades:\n" + failed.join("\n");
 
@@ -465,7 +545,8 @@
           unknown: _colText(summary.unknown_endpoints),
           db: (typeof meta.db_attached === "boolean") ? (meta.db_attached ? "attached" : "none") : "?",
           source: _colText((meta && meta.db_source) || "no meta")
-        })
+        }) +
+        " • Voice now: " + _colText(summary.voice_connected_now || 0)
       ),
       h(PrintToolbar, {
         rows: users,

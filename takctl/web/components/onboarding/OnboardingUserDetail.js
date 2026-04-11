@@ -59,6 +59,43 @@
     return list[0] || null;
   }
 
+  function _voiceTone(voice) {
+    var v = voice || {};
+    var connected = !!(v.user && v.user.connected_now);
+    var serverConnected = !!((v.server || {}).connected);
+    var hasMatches = !!((v.user && Array.isArray(v.user.matched_user_names) && v.user.matched_user_names.length) || false);
+    if (connected) return "good";
+    if (serverConnected && hasMatches) return "warn";
+    if (serverConnected) return "neutral";
+    return "bad";
+  }
+
+  function _voiceText(voice) {
+    var v = voice || {};
+    if (!((v.server || {}).connected)) return "Voice: server ej ansluten";
+    if (v.user && v.user.connected_now) return "Voice: ansluten nu";
+    if (v.user && Array.isArray(v.user.matched_user_names) && v.user.matched_user_names.length) return "Voice: sedd tidigare";
+    return "Voice: ingen träff";
+  }
+
+  function _deviceVoiceTone(v) {
+    var voice = (v && v.voice) || {};
+    if (voice.connected_now) return "good";
+    if ((voice.matched_n || 0) > 0) return "warn";
+    return "neutral";
+  }
+
+  function _deviceVoiceText(v) {
+    var voice = (v && v.voice) || {};
+    if (voice.connected_now) return "ANSLUTEN NU";
+    if ((voice.matched_n || 0) > 0) return "SEDD";
+    return "INGEN VOICE-TRÄFF";
+  }
+
+  function _voiceChannelsText(arr) {
+    return Array.isArray(arr) && arr.length ? arr.join(", ") : "—";
+  }
+
   function Box(props) {
     return h("div", {
       className: "box",
@@ -209,7 +246,11 @@
 
   function DeviceCard(props) {
     var d = props.device || {};
+    var voiceDevice = props.voiceDevice || {};
+    var voice = (voiceDevice && voiceDevice.voice) || {};
     var stateText = _deviceStateText(d);
+    var matches = Array.isArray(voice.matches) ? voice.matches : [];
+
     return h("div", {
       style: {
         border: "1px solid rgba(255,255,255,0.10)",
@@ -237,7 +278,8 @@
           }
         },
           h(Pill, null, _colText(d.observed_callsign || d.client_uid || "device")),
-          h(StatusBadge, { tone: cotStateTone(stateText), text: stateText })
+          h(StatusBadge, { tone: cotStateTone(stateText), text: stateText }),
+          h(StatusBadge, { tone: _deviceVoiceTone(voiceDevice), text: _deviceVoiceText(voiceDevice) })
         ),
         h("div", { className: "muted", style: { fontSize: "12px" } },
           "endpoint_id: ", _colText(d.endpoint_id)
@@ -269,7 +311,48 @@
       h(KV, { k: "Certifikat" }, _colText(d.certs_n)),
       h(KV, { k: "Revokerade cert" }, _colText(d.revoked_certs_n)),
       h(KV, { k: "CoT sedd" }, h(StatusBadge, { tone: boolTone(!!d.cot_seen), text: _yn(!!d.cot_seen) })),
-      h(KV, { k: "Sedd nyligen" }, h(StatusBadge, { tone: boolTone(!!d.seen_recently), text: _yn(!!d.seen_recently) }))
+      h(KV, { k: "Sedd nyligen" }, h(StatusBadge, { tone: boolTone(!!d.seen_recently), text: _yn(!!d.seen_recently) })),
+      h(KV, { k: "Voice-kanaler" }, _voiceChannelsText(voice.channel_names)),
+      h(KV, { k: "Voice-träffar" }, _colText(voice.matched_n || 0)),
+      h(KV, { k: "Voice bästa match" }, _colText(voice.best_match_mode || "—")),
+      matches.length ? h("div", {
+        style: {
+          marginTop: "10px",
+          paddingTop: "10px",
+          borderTop: "1px solid rgba(255,255,255,0.08)"
+        }
+      },
+        h("div", { className: "muted", style: { fontWeight: 700, marginBottom: "8px" } }, "Voice-träffar"),
+        matches.map(function (m, idx) {
+          return h("div", {
+            key: String((m && m.name) || idx),
+            style: {
+              padding: "8px 10px",
+              borderRadius: "10px",
+              background: "rgba(255,255,255,0.03)",
+              marginBottom: "8px"
+            }
+          },
+            h("div", {
+              style: {
+                display: "flex",
+                gap: "8px",
+                alignItems: "center",
+                flexWrap: "wrap",
+                marginBottom: "6px"
+              }
+            },
+              h(Pill, null, _colText(m.callsign || m.name || "voice-user")),
+              h(StatusBadge, { tone: m.connected_now ? "good" : "warn", text: m.connected_now ? "ANSLUTEN" : "SEDD" }),
+              h(StatusBadge, { tone: "neutral", text: _colText(m.match_mode || "match") })
+            ),
+            h(KV, { k: "Namn" }, _colText(m.name)),
+            h(KV, { k: "Kanal" }, _colText(m.channel_name || "—")),
+            h(KV, { k: "Session" }, _colText(m.session)),
+            h(KV, { k: "Suffix-kandidat" }, _colText(m.suffix_candidate || "—"))
+          );
+        })
+      ) : null
     );
   }
 
@@ -279,6 +362,7 @@
     var _b = useState(""), err = _b[0], setErr = _b[1];
     var _c = useState(null), userData = _c[0], setUserData = _c[1];
     var _d = useState(null), cardData = _d[0], setCardData = _d[1];
+    var _e = useState(null), voiceData = _e[0], setVoiceData = _e[1];
 
     useEffect(function () {
       var u = String(routeUsername || "").trim();
@@ -297,18 +381,22 @@
 
           var _a = await Promise.all([
             fetch(urls.api_get),
-            fetch(urls.card_json)
-          ]), rUser = _a[0], rCard = _a[1];
+            fetch(urls.card_json),
+            fetch("/api/onboarding/users/" + encodeURIComponent(u) + "/voice-live")
+          ]), rUser = _a[0], rCard = _a[1], rVoice = _a[2];
 
           var jUser = await rUser.json().catch(function () { return ({}); });
           var jCard = await rCard.json().catch(function () { return ({}); });
+          var jVoice = await rVoice.json().catch(function () { return ({}); });
 
           if (!rUser.ok) throw new Error(jUser.detail || ("HTTP " + rUser.status));
           if (!rCard.ok) throw new Error(jCard.detail || ("HTTP " + rCard.status));
+          if (!rVoice.ok) throw new Error(jVoice.detail || ("HTTP " + rVoice.status));
 
           if (!alive) return;
           setUserData(jUser || {});
           setCardData(jCard || {});
+          setVoiceData(jVoice || {});
         } catch (e) {
           if (!alive) return;
           setErr(String((e && e.message) || e || "Failed"));
@@ -341,12 +429,19 @@
     var ident = (ti && ti.identity) || {};
     var cardWrap = cardData || {};
     var card = (cardWrap && cardWrap.card) || {};
-    var meta = (cardWrap && cardWrap.meta) || {};
     var lifecycle = (card && card.lifecycle) || {};
     var activity = (card && card.activity) || {};
     var header = (card && card.header) || {};
     var marti = (card && card.marti) || {};
     var devices = Array.isArray(card.devices) ? card.devices : [];
+    var voice = voiceData || {};
+    var voiceUser = (voice && voice.user) || {};
+    var voiceDevices = Array.isArray(voice.devices) ? voice.devices : [];
+    var voiceByClientUid = {};
+    voiceDevices.forEach(function (vd) {
+      var k = String((vd && vd.client_uid) || "").trim();
+      if (k) voiceByClientUid[k] = vd;
+    });
 
     var username = String(user.username || routeUsername || "").trim();
     var groups = Array.isArray(user.groups) ? user.groups : [];
@@ -358,6 +453,10 @@
     var recentDevices = _countStates(devices, "recent");
     var staleDevices = _countStates(devices, "stale");
     var neverDevices = _countStates(devices, "never");
+    var voiceConnectedDevices = 0;
+    voiceDevices.forEach(function (vd) {
+      if (vd && vd.voice && vd.voice.connected_now) voiceConnectedDevices += 1;
+    });
 
     return h("div", null,
       h("div", { className: "card-title" }, "Adminvy — användare"),
@@ -374,7 +473,8 @@
         h(Pill, null, _colText(username)),
         h(StatusBadge, { tone: onboardTone(onboardStatus), text: "Onboarding: " + onboardStatus }),
         h(StatusBadge, { tone: cotStateTone(primaryStateText), text: "Primär device: " + primaryStateText }),
-        h(StatusBadge, { tone: devices.length ? "good" : "neutral", text: "Devices: " + String(devices.length) })
+        h(StatusBadge, { tone: devices.length ? "good" : "neutral", text: "Devices: " + String(devices.length) }),
+        h(StatusBadge, { tone: _voiceTone(voice), text: _voiceText(voice) })
       ),
 
       h("div", {
@@ -500,14 +600,32 @@
           ),
 
           h(Box, null,
+            SectionTitle("Voice / Mumble"),
+            h(KV, { k: "Server" }, h(StatusBadge, {
+              tone: ((voice.server || {}).connected) ? "good" : "bad",
+              text: ((voice.server || {}).connected) ? "ANSLUTEN" : "EJ ANSLUTEN"
+            })),
+            h(KV, { k: "Användare i voice nu" }, _colText((voice.raw_counts && voice.raw_counts.users) || 0)),
+            h(KV, { k: "Kanaler" }, _colText((voice.raw_counts && voice.raw_counts.channels) || 0)),
+            h(KV, { k: "Användaren ansluten nu" }, h(StatusBadge, {
+              tone: (voiceUser && voiceUser.connected_now) ? "good" : "neutral",
+              text: (voiceUser && voiceUser.connected_now) ? "JA" : "NEJ"
+            })),
+            h(KV, { k: "Voice-kanaler" }, _colText(_voiceChannelsText(voiceUser.channel_names))),
+            h(KV, { k: "Matchade voice-namn" }, _colText(_join(voiceUser.matched_user_names))),
+            h(KV, { k: "Devices med voice nu" }, h(StatusBadge, {
+              tone: voiceConnectedDevices ? "good" : "neutral",
+              text: String(voiceConnectedDevices)
+            }))
+          ),
+
+          h(Box, null,
             SectionTitle("Devices"),
             h(DeviceSummaryRow, { label: "Current", value: currentDevices, tone: currentDevices ? "good" : "neutral" }),
             h(DeviceSummaryRow, { label: "Recent", value: recentDevices, tone: recentDevices ? "warn" : "neutral" }),
             h(DeviceSummaryRow, { label: "Stale", value: staleDevices, tone: staleDevices ? "bad" : "neutral" }),
             h(DeviceSummaryRow, { label: "Never", value: neverDevices, tone: "neutral" })
-          ),
-
-
+          )
         )
       ),
 
@@ -520,13 +638,19 @@
             gap: "12px"
           }
         }, devices.map(function (d, idx) {
-          return h(DeviceCard, { key: String((d && d.client_uid) || idx), device: d });
+          var k = String((d && d.client_uid) || "").trim();
+          var vd = k ? (voiceByClientUid[k] || null) : null;
+          return h(DeviceCard, {
+            key: String((d && d.client_uid) || idx),
+            device: d,
+            voiceDevice: vd
+          });
         })) : h("div", { className: "muted" }, "Inga devices hittades för användaren.")
       ),
 
       h(Box, null,
         SectionTitle("Debug"),
-        h(JsonToggle, { data: { userData: userData, cardData: cardData } })
+        h(JsonToggle, { data: { userData: userData, cardData: cardData, voiceData: voiceData } })
       )
     );
   }
