@@ -30,6 +30,8 @@ class VoiceConfig:
     provider: str
     model: str
     task: str
+    inter_threads: int
+    intra_threads: int
 
     segment_mode: str
     max_segment_ms: int
@@ -70,8 +72,10 @@ def load_voice_config(paths: VoiceConfigPaths | None = None) -> VoiceConfig:
     username = _get_str(voice, "username", "martine-voice")
 
     provider = _get_str(voice, "provider", "faster_whisper")
-    model = _get_str(voice, "model", "large-v3")
+    model = _get_str(voice, "model", "small")
     task = _get_str(voice, "task", "transcribe")
+    inter_threads = _get_int(voice, "inter_threads", 1, minimum=1)
+    intra_threads = _get_int(voice, "intra_threads", 1, minimum=1)
 
     segment_mode = _get_str(voice, "segment_mode", "ptt_preferred")
     max_segment_ms = _get_int(voice, "max_segment_ms", 30000, minimum=1)
@@ -111,6 +115,8 @@ def load_voice_config(paths: VoiceConfigPaths | None = None) -> VoiceConfig:
         provider=provider,
         model=model,
         task=task,
+        inter_threads=inter_threads,
+        intra_threads=intra_threads,
 
         segment_mode=segment_mode,
         max_segment_ms=max_segment_ms,

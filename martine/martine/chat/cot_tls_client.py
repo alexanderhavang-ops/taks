@@ -5,11 +5,12 @@ import json
 import socket
 import ssl
 import subprocess
+import sys
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from xml.sax.saxutils import escape
 import xml.etree.ElementTree as ET
 
@@ -31,14 +32,20 @@ CA_PEM = f"{IDENTITY_DIR}/ca.pem"
 KEY_PASSWORD = "cert-pass-46-pass"
 
 ALL_CHAT_ROOMS = "All Chat Rooms"
+
 BOOTSTRAP_DELAY_SEC = 180
+BOOTSTRAP_POLL_INTERVAL_SEC = 30
+BOOTSTRAP_LOOKBACK_MINUTES = 240
+
+TAKS_ONBOARDING_ROOT = Path("/opt/tak/takctl-state/onboarding")
+DEVICE_STATE_ROOT = TAKS_ONBOARDING_ROOT / "devices"
 
 
 def iso_z(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def parse_iso_z(value: str | None) -> Optional[datetime]:
+def parse_dt(value: Any) -> Optional[datetime]:
     s = str(value or "").strip()
     if not s:
         return None
@@ -64,7 +71,10 @@ def read_json(path: Path) -> Any:
 
 def write_json(path: Path, obj: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(obj, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
 
 
 def cot_runtime_dir() -> Path:
@@ -74,107 +84,13 @@ def cot_runtime_dir() -> Path:
     return d
 
 
-def bootstrap_state_path() -> Path:
-    return cot_runtime_dir() / "device_bootstrap_state.json"
-
-
-def load_bootstrap_state() -> dict[str, Any]:
-    raw = read_json(bootstrap_state_path())
-    if not isinstance(raw, dict):
-        return {"version": 1, "devices": {}}
-    devices = raw.get("devices")
-    if not isinstance(devices, dict):
-        raw["devices"] = {}
-    raw.setdefault("version", 1)
-    return raw
-
-
-def save_bootstrap_state(state: dict[str, Any]) -> None:
-    write_json(bootstrap_state_path(), state)
-
-
-def make_state_key(username: str, client_uid: str) -> str:
-    u = str(username or "").strip() or "?"
-    c = str(client_uid or "").strip()
-    return f"{u}:{c}"
-
-
-def find_state_record(
-    state: dict[str, Any],
-    *,
-    client_uid: str,
-    username: str = "",
-) -> Tuple[Optional[str], Optional[dict[str, Any]]]:
-    devices = state.get("devices") or {}
-    if username:
-        k = make_state_key(username, client_uid)
-        rec = devices.get(k)
-        if isinstance(rec, dict):
-            return k, rec
-    for k, rec in devices.items():
-        if not isinstance(rec, dict):
-            continue
-        if str(rec.get("client_uid") or "").strip() == client_uid:
-            return str(k), rec
-    return None, None
-
-
-def ensure_state_record(
-    state: dict[str, Any],
-    *,
-    client_uid: str,
-    username: str,
-    observed_callsign: str,
-    now_dt: datetime,
-) -> tuple[str, dict[str, Any], bool]:
-    devices = state.setdefault("devices", {})
-    old_key, rec = find_state_record(state, client_uid=client_uid, username=username)
-    changed = False
-
-    if rec is None:
-        key = make_state_key(username, client_uid)
-        rec = {
-            "username": str(username or "").strip() or None,
-            "client_uid": client_uid,
-            "first_seen_at": iso_z(now_dt),
-            "last_seen_at": iso_z(now_dt),
-            "observed_callsign": observed_callsign or None,
-            "hello_sent_at": None,
-            "group_seed_sent_at": None,
-            "group_seed_assignment_hash": None,
-            "seed_channels": [],
-        }
-        devices[key] = rec
-        return key, rec, True
-
-    key = old_key or make_state_key(username, client_uid)
-
-    want_username = str(username or "").strip()
-    have_username = str(rec.get("username") or "").strip()
-    if want_username and want_username != have_username:
-        rec["username"] = want_username
-        changed = True
-
-    new_key = make_state_key(str(rec.get("username") or "").strip(), client_uid)
-    if new_key != key:
-        if key in devices:
-            del devices[key]
-        devices[new_key] = rec
-        key = new_key
-        changed = True
-
-    rec["last_seen_at"] = iso_z(now_dt)
-    changed = True
-
-    if not rec.get("first_seen_at"):
-        rec["first_seen_at"] = iso_z(now_dt)
-        changed = True
-
-    if observed_callsign and str(rec.get("observed_callsign") or "").strip() != observed_callsign:
-        rec["observed_callsign"] = observed_callsign
-        changed = True
-
-    return key, rec, changed
+def ensure_takctl_importable() -> None:
+    for p in (
+        "/opt/tak/tools/takctl",
+        "/opt/taks/takctl",
+    ):
+        if p not in sys.path and Path(p).exists():
+            sys.path.append(p)
 
 
 def stable_hash(obj: Any) -> str:
@@ -186,24 +102,55 @@ def escape_sql_literal(value: str) -> str:
     return str(value or "").replace("'", "''")
 
 
-def psql_scalar(sql: str) -> str:
+def psql_rows(sql: str) -> list[list[str]]:
     cmd = [
-        "sudo", "-u", "postgres",
-        "psql", "-d", "cot",
-        "-P", "pager=off",
-        "-A", "-t",
-        "-c", sql,
+        "sudo",
+        "-u",
+        "postgres",
+        "psql",
+        "-d",
+        "cot",
+        "-P",
+        "pager=off",
+        "-A",
+        "-F",
+        "\t",
+        "-t",
+        "-c",
+        sql,
     ]
     proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         err = (proc.stderr or "").strip()
         if err:
-            log.warning("psql_scalar_failed err=%s sql=%r", err[:500], sql[:500])
-        return ""
+            log.warning("psql_rows_failed err=%s sql=%r", err[:500], sql[:500])
+        return []
+    out: list[list[str]] = []
     for line in proc.stdout.splitlines():
-        s = str(line or "").strip()
-        if s:
-            return s
+        s = str(line or "").rstrip("\n")
+        if not s.strip():
+            continue
+        out.append(s.split("\t"))
+    return out
+
+
+def psql_scalar(sql: str) -> str:
+    rows = psql_rows(sql)
+    if not rows:
+        return ""
+    if not rows[0]:
+        return ""
+    return str(rows[0][0] or "").strip()
+
+
+def _extract_cn_from_subject_dn(subject_dn: str) -> str:
+    s = str(subject_dn or "").strip()
+    if not s:
+        return ""
+    for part in s.split(","):
+        part = part.strip()
+        if part.upper().startswith("CN="):
+            return part[3:].strip()
     return ""
 
 
@@ -218,35 +165,48 @@ def resolve_username_for_client_uid(client_uid: str) -> str:
         "ORDER BY id DESC "
         "LIMIT 1;"
     )
-    return psql_scalar(sql)
+    subject_dn = psql_scalar(sql)
+    cn = _extract_cn_from_subject_dn(subject_dn)
+    if cn:
+        return cn
+    return subject_dn
 
 
 def resolve_seed_plan_for_username(username: str) -> dict[str, Any]:
     u = str(username or "").strip()
     if not u:
-        return {"username": "", "callsign": "", "seed_channels": [], "assignment_hash": ""}
+        return {
+            "username": "",
+            "callsign": "",
+            "seed_channels": [],
+            "assignment_hash": "",
+        }
 
     try:
+        ensure_takctl_importable()
+
         from takctl.onboarding.service_builder import build_service
         from takctl.onboarding.voice_topology import derive_voice_topology
 
         svc = build_service()
         ident = svc.store.get_identity(u)
-        if ident is None:
-            return {"username": u, "callsign": u, "seed_channels": [], "assignment_hash": "no_identity"}
 
-        ctx = dict(getattr(ident, "ctx", {}) or {})
-        derived = dict(getattr(ident, "identity", {}) or {})
-        callsign = str(derived.get("callsign") or u).strip()
-
+        callsign = u
         seed_channels: list[str] = []
-        if ctx:
-            topo = derive_voice_topology(None, ctx)
-            seed_channels = [
-                str(x).strip()
-                for x in (topo.get("seed_channels") or [])
-                if str(x or "").strip()
-            ][:2]
+        ctx: dict[str, Any] = {}
+
+        if ident is not None:
+            ctx = dict(getattr(ident, "ctx", {}) or {})
+            derived = dict(getattr(ident, "identity", {}) or {})
+            callsign = str(derived.get("callsign") or u).strip() or u
+
+            if ctx:
+                topo = derive_voice_topology(None, ctx)
+                seed_channels = [
+                    str(x).strip()
+                    for x in (topo.get("seed_channels") or [])
+                    if str(x or "").strip()
+                ][:2]
 
         assignment_hash = stable_hash(
             {
@@ -264,7 +224,77 @@ def resolve_seed_plan_for_username(username: str) -> dict[str, Any]:
         }
     except Exception as e:
         log.exception("resolve_seed_plan_failed username=%s err=%s", u, e)
-        return {"username": u, "callsign": u, "seed_channels": [], "assignment_hash": "error"}
+        return {
+            "username": u,
+            "callsign": u,
+            "seed_channels": [],
+            "assignment_hash": "error",
+        }
+
+
+def device_state_path(username: str, client_uid: str) -> Path:
+    return DEVICE_STATE_ROOT / str(username or "").strip() / f"{str(client_uid or '').strip()}.json"
+
+
+def load_device_state(username: str, client_uid: str) -> dict[str, Any]:
+    p = device_state_path(username, client_uid)
+    raw = read_json(p)
+    if not isinstance(raw, dict):
+        return {
+            "username": str(username or "").strip(),
+            "client_uid": str(client_uid or "").strip(),
+            "hello_sent_at": None,
+            "chat_groups_seeded_at": None,
+            "chat_groups_seed_assignment_hash": None,
+            "seed_channels": [],
+        }
+    raw.setdefault("username", str(username or "").strip())
+    raw.setdefault("client_uid", str(client_uid or "").strip())
+    raw.setdefault("hello_sent_at", None)
+    raw.setdefault("chat_groups_seeded_at", None)
+    raw.setdefault("chat_groups_seed_assignment_hash", None)
+    raw.setdefault("seed_channels", [])
+    return raw
+
+
+def save_device_state(username: str, client_uid: str, state: dict[str, Any]) -> None:
+    p = device_state_path(username, client_uid)
+    write_json(p, state)
+
+
+def list_recent_client_devices() -> List[dict[str, Any]]:
+    sql = f"""
+    SELECT
+      uid,
+      MIN(servertime) AS first_seen,
+      MAX(servertime) AS last_seen
+    FROM cot_router
+    WHERE servertime >= NOW() - INTERVAL '{int(BOOTSTRAP_LOOKBACK_MINUTES)} minutes'
+      AND uid IS NOT NULL
+      AND uid <> ''
+      AND uid NOT LIKE 'GeoChat.%'
+      AND uid NOT LIKE 'martine:%'
+      AND uid NOT LIKE 'replay:%'
+    GROUP BY uid
+    ORDER BY MAX(servertime) DESC, uid ASC
+    LIMIT 5000;
+    """
+    rows = psql_rows(sql)
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        if len(row) < 3:
+            continue
+        uid = str(row[0] or "").strip()
+        if not uid:
+            continue
+        out.append(
+            {
+                "client_uid": uid,
+                "first_seen_at": str(row[1] or "").strip(),
+                "last_seen_at": str(row[2] or "").strip(),
+            }
+        )
+    return out
 
 
 def parse_chat_xml(xml_text: str):
@@ -319,40 +349,6 @@ def parse_chat_xml(xml_text: str):
         "message": message,
         "meta": {},
         "raw_xml": xml_text,
-    }
-
-
-def parse_observed_endpoint(xml_text: str, *, own_chat_uid: str, own_callsign: str) -> Optional[dict[str, str]]:
-    try:
-        root = ET.fromstring(xml_text)
-    except Exception:
-        return None
-
-    uid = str(root.attrib.get("uid") or "").strip()
-    if not uid:
-        return None
-    if uid == str(own_chat_uid or "").strip():
-        return None
-    if uid.startswith("GeoChat.") or uid.startswith("martine:"):
-        return None
-
-    detail = root.find("detail")
-    if detail is None:
-        return None
-
-    contact = detail.find("contact")
-    callsign = ""
-    if contact is not None:
-        callsign = str(contact.attrib.get("callsign") or "").strip()
-
-    if callsign == str(own_callsign or "").strip():
-        return None
-    if callsign == f"{str(own_callsign or '').strip()}-CHAT":
-        return None
-
-    return {
-        "client_uid": uid,
-        "observed_callsign": callsign,
     }
 
 
@@ -437,91 +433,44 @@ def recv_xml(sock: ssl.SSLSocket, timeout: float = 1.0) -> str | None:
     return data.decode("utf-8", errors="replace")
 
 
-def maybe_record_seen_device(xml_text: str, cfg) -> None:
-    obs = parse_observed_endpoint(
-        xml_text,
-        own_chat_uid=str(cfg.chat_uid),
-        own_callsign=str(cfg.callsign),
-    )
-    if not obs:
-        return
-
-    client_uid = str(obs.get("client_uid") or "").strip()
-    observed_callsign = str(obs.get("observed_callsign") or "").strip()
-    if not client_uid:
-        return
-
-    username = resolve_username_for_client_uid(client_uid)
+def maybe_process_recent_devices(sock: ssl.SSLSocket, cfg) -> None:
     now_dt = datetime.now(timezone.utc)
+    rows = list_recent_client_devices()
 
-    state = load_bootstrap_state()
-    key, rec, changed = ensure_state_record(
-        state,
-        client_uid=client_uid,
-        username=username,
-        observed_callsign=observed_callsign,
-        now_dt=now_dt,
-    )
-    if changed:
-        save_bootstrap_state(state)
-        log.info(
-            "bootstrap_seen key=%s username=%s client_uid=%s observed_callsign=%s",
-            key,
-            rec.get("username"),
-            client_uid,
-            observed_callsign,
-        )
-
-
-def maybe_send_bootstrap_messages(sock: ssl.SSLSocket, cfg) -> None:
-    state = load_bootstrap_state()
-    devices = state.get("devices") or {}
-    now_dt = datetime.now(timezone.utc)
-    changed = False
-
-    for key in sorted(list(devices.keys())):
-        rec = devices.get(key)
-        if not isinstance(rec, dict):
-            continue
-
-        client_uid = str(rec.get("client_uid") or "").strip()
-        username = str(rec.get("username") or "").strip()
-        observed_callsign = str(rec.get("observed_callsign") or "").strip()
-
+    for row in rows:
+        client_uid = str(row.get("client_uid") or "").strip()
         if not client_uid:
             continue
         if client_uid == str(cfg.chat_uid or "").strip():
             continue
 
-        if not username:
-            username = resolve_username_for_client_uid(client_uid)
-            if username:
-                rec["username"] = username
-                new_key = make_state_key(username, client_uid)
-                if new_key != key:
-                    del devices[key]
-                    devices[new_key] = rec
-                    key = new_key
-                changed = True
-
+        username = resolve_username_for_client_uid(client_uid)
         if not username:
             continue
 
-        first_seen_at = parse_iso_z(str(rec.get("first_seen_at") or ""))
+        first_seen_at = parse_dt(row.get("first_seen_at"))
         if first_seen_at is None:
-            rec["first_seen_at"] = iso_z(now_dt)
-            changed = True
             continue
 
         age_sec = int((now_dt - first_seen_at).total_seconds())
         if age_sec < BOOTSTRAP_DELAY_SEC:
             continue
 
-        direct_to_callsign = observed_callsign or username
+        plan = resolve_seed_plan_for_username(username)
+        recipient_callsign = str(plan.get("callsign") or username).strip() or username
+        seed_channels = [
+            str(x).strip()
+            for x in (plan.get("seed_channels") or [])
+            if str(x or "").strip()
+        ][:2]
+        assignment_hash = str(plan.get("assignment_hash") or "").strip()
 
-        if not rec.get("hello_sent_at"):
+        state = load_device_state(username, client_uid)
+        changed = False
+
+        if not state.get("hello_sent_at"):
             hello_msg = (
-                f"Hej {direct_to_callsign}. Jag är {cfg.callsign}. "
+                f"Hej {recipient_callsign}. Jag är {cfg.callsign}. "
                 "Du kan ställa frågor till mig här i chatten."
             )
             send_event(
@@ -530,33 +479,23 @@ def maybe_send_bootstrap_messages(sock: ssl.SSLSocket, cfg) -> None:
                     chat_uid=cfg.chat_uid,
                     callsign=cfg.callsign,
                     to_uid=client_uid,
-                    to_callsign=direct_to_callsign,
+                    to_callsign=recipient_callsign,
                     message=hello_msg,
                     parent="RootContactGroup",
                 ),
             )
-            rec["hello_sent_at"] = iso_z(now_dt)
+            state["hello_sent_at"] = iso_z(now_dt)
             changed = True
             log.info(
-                "bootstrap_hello_sent username=%s client_uid=%s to_callsign=%s",
+                "bootstrap_hello_sent username=%s client_uid=%s recipient=%s",
                 username,
                 client_uid,
-                direct_to_callsign,
+                recipient_callsign,
             )
             time.sleep(0.10)
 
-        plan = resolve_seed_plan_for_username(username)
-        seed_channels = [str(x).strip() for x in (plan.get("seed_channels") or []) if str(x or "").strip()][:2]
-        assignment_hash = str(plan.get("assignment_hash") or "").strip()
-
-        if rec.get("seed_channels") != seed_channels:
-            rec["seed_channels"] = seed_channels
-            changed = True
-
-        last_seed_hash = str(rec.get("group_seed_assignment_hash") or "").strip()
-        need_seed = bool(seed_channels) and assignment_hash and assignment_hash != last_seed_hash
-
-        if need_seed:
+        prev_hash = str(state.get("chat_groups_seed_assignment_hash") or "").strip()
+        if seed_channels and assignment_hash and assignment_hash != prev_hash:
             for group_name in seed_channels:
                 msg = f"Gruppchat {group_name} är nu aktiv."
                 send_event(
@@ -578,18 +517,17 @@ def maybe_send_bootstrap_messages(sock: ssl.SSLSocket, cfg) -> None:
                 )
                 time.sleep(0.10)
 
-            rec["group_seed_sent_at"] = iso_z(now_dt)
-            rec["group_seed_assignment_hash"] = assignment_hash
+            state["chat_groups_seeded_at"] = iso_z(now_dt)
+            state["chat_groups_seed_assignment_hash"] = assignment_hash
+            state["seed_channels"] = list(seed_channels)
             changed = True
 
-    if changed:
-        save_bootstrap_state(state)
+        if changed:
+            save_device_state(username, client_uid, state)
 
 
 def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
     log.info("incoming_xml bytes=%s", len(text.encode("utf-8", errors="ignore")))
-
-    maybe_record_seen_device(text, cfg)
 
     msg = parse_chat_xml(text)
     if not msg:
@@ -694,14 +632,18 @@ def session_loop() -> None:
             )
 
             last_presence = time.time()
+            last_bootstrap_poll = 0.0
 
             while True:
                 now = time.time()
+
                 if now - last_presence >= float(cfg.presence_interval_sec):
                     send_event(sock, build_presence_xml(chat_uid=cfg.chat_uid, callsign=cfg.callsign))
                     last_presence = now
 
-                maybe_send_bootstrap_messages(sock, cfg)
+                if now - last_bootstrap_poll >= float(BOOTSTRAP_POLL_INTERVAL_SEC):
+                    maybe_process_recent_devices(sock, cfg)
+                    last_bootstrap_poll = now
 
                 text = recv_xml(sock, timeout=1.0)
                 if text is None:

@@ -11,6 +11,7 @@ from .models import AudioSegment
 
 
 LOCAL_MODEL_DIR_BY_NAME = {
+    "small": Path("/opt/tak/tools/martine/state/models/faster-whisper-small"),
     "large-v3": Path("/opt/tak/tools/martine/state/models/faster-whisper-large-v3"),
 }
 
@@ -87,6 +88,8 @@ class FasterWhisperTranscriber:
             device=device,
             compute_type=compute_type,
             local_files_only=True,
+            num_workers=self.cfg.inter_threads,
+            cpu_threads=self.cfg.intra_threads,
         )
         return self._model
 

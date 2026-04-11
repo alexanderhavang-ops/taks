@@ -1,4 +1,3 @@
-
 /* global React useApi */
 (function () {
   var h = (window.h || React.createElement); window.h = h;
@@ -24,6 +23,19 @@
     { id: "cards_inline_passwords", label: "Cards + passwords same page" },
     { id: "cards_then_passwords", label: "Cards + passwords separate pages" },
   ];
+
+  const READY_PILL_STYLE = {
+    display: "inline-block",
+    padding: "3px 10px",
+    borderRadius: "999px",
+    border: "1px solid rgba(80,200,120,0.30)",
+    background: "rgba(80,200,120,0.12)",
+    color: "#dff7e8",
+    fontSize: "12px",
+    fontWeight: 700,
+    lineHeight: 1.2,
+    whiteSpace: "nowrap"
+  };
 
   function _rowUsername(u) {
     const hdr = (u && u.header) || {};
@@ -233,6 +245,7 @@
           const onboardRaw = (u && u.onboarding_status) || "";
           const onboard = String(onboardRaw || "").toUpperCase();
           const state = _userState(u);
+          const ready = (onboard === "DOWNLOADED" && String(state || "").toLowerCase() === "current");
           const best = _bestDevice(u);
           const key = username + ":" + String((best && best.client_uid) || "");
           const bestTxt = best ? _deviceTail(best) : "—";
@@ -252,17 +265,25 @@
                 style: { padding: "4px 8px" },
                 onClick: function () {
                   try {
-                    const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
-                    if (lib && typeof lib.setHashRoute === "function") lib.setHashRoute("detail", username);
+                    const lib2 = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
+                    if (lib2 && typeof lib2.setHashRoute === "function") lib2.setHashRoute("detail", username);
                     else window.location.hash = "#onboarding/detail:" + encodeURIComponent(username);
                   } catch (e) {}
                 }
               }, _colText(username || "—"))
             ),
             h("td", null, _colText(groupsArr.length ? groupsArr.join(", ") : "—")),
-            h("td", null, _colText(onboard || "—")),
+            h("td", null,
+              ready
+                ? h("span", { style: READY_PILL_STYLE }, _colText(onboard || "—"))
+                : _colText(onboard || "—")
+            ),
             h("td", null, _colText(_deviceSummary(u))),
-            h("td", null, _badgeForState(state)),
+            h("td", null,
+              ready
+                ? h("span", { style: READY_PILL_STYLE }, _colText(String(state || "—").toUpperCase()))
+                : _badgeForState(state)
+            ),
             h("td", null, _colText(bestTxt)),
             h("td", null,
               h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" } },
@@ -281,8 +302,8 @@
                   className: "btn",
                   onClick: function () {
                     try {
-                      const lib = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
-                      if (lib && typeof lib.setHashRoute === "function") lib.setHashRoute("create", username);
+                      const lib3 = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
+                      if (lib3 && typeof lib3.setHashRoute === "function") lib3.setHashRoute("create", username);
                       else window.location.hash = "#onboarding/create:" + encodeURIComponent(username);
                     } catch (e) {}
                   }
@@ -350,7 +371,7 @@
         return;
       }
 
-      const ok = [];
+      const okList = [];
       const failed = [];
       const warnings = [];
 
@@ -373,7 +394,7 @@
             continue;
           }
 
-          ok.push(username);
+          okList.push(username);
           if (data && data.warning) warnings.push(username + ": " + String(data.warning));
         } catch (e) {
           failed.push(username + ": " + String((e && e.message) || e || "Delete failed"));
@@ -381,8 +402,8 @@
       }
 
       let msg = "";
-      msg += "Borttagna: " + String(ok.length);
-      if (ok.length) msg += "\n" + ok.join(", ");
+      msg += "Borttagna: " + String(okList.length);
+      if (okList.length) msg += "\n" + okList.join(", ");
       if (warnings.length) msg += "\n\nVarningar:\n" + warnings.join("\n");
       if (failed.length) msg += "\n\nMisslyckades:\n" + failed.join("\n");
 
@@ -483,6 +504,7 @@
         onToggleOne: toggleOne,
         onToggleAllVisible: toggleAllVisible
       }),
+
       unknown && unknown.length ? h("div", { style: { marginTop: "18px" } },
         h("div", { className: "card-title", style: { fontSize: "14px" } }, _t("list.unmanaged_endpoints")),
         h(UnknownTable, { rows: unknown })

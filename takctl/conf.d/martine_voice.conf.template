@@ -9,8 +9,10 @@ port = 64738
 
 # STT
 provider = faster_whisper
-model = large-v3
+model = small
 task = transcribe
+inter_threads = 1
+intra_threads = 1
 
 # Segmentering
 segment_mode = ptt_preferred

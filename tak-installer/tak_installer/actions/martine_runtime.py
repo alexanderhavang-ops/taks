@@ -29,10 +29,12 @@ RSYNC_EXCLUDES = [
 ]
 
 FAST_WHISPER_MODEL_REPO_BY_NAME = {
+    "small": "Systran/faster-whisper-small",
     "large-v3": "Systran/faster-whisper-large-v3",
 }
 
 FAST_WHISPER_MODEL_DIR_BY_NAME = {
+    "small": DST_MARTINE_MODELS_ROOT / "faster-whisper-small",
     "large-v3": DST_MARTINE_MODELS_ROOT / "faster-whisper-large-v3",
 }
 
@@ -95,14 +97,43 @@ def _fix_runtime_perms() -> None:
         subprocess.run(["bash", "-lc", f'find "{DST_MARTINE_BIN_ROOT}" -maxdepth 1 -type f -exec chmod 0750 {{}} \\; 2>/dev/null || true'], check=False)
 
 
+def _read_kv_file(path: Path) -> dict[str, str]:
+    if not path.is_file():
+        return {}
+
+    out: dict[str, str] = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith(";") or line.startswith("["):
+            continue
+        if "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        out[k.strip().lower()] = v.strip()
+    return out
+
+
+def _selected_voice_model_name() -> str:
+    conf = _read_kv_file(Path("/opt/tak/tools/takctl/conf.d/martine_voice.conf"))
+    return conf.get("model", "small").strip() or "small"
+
+
 def _ensure_prefetched_models(venv_py: Path) -> None:
-    for model_name, repo_id in FAST_WHISPER_MODEL_REPO_BY_NAME.items():
-        local_dir = FAST_WHISPER_MODEL_DIR_BY_NAME[model_name]
-        local_dir.parent.mkdir(parents=True, exist_ok=True)
+    model_name = _selected_voice_model_name()
+    repo_id = FAST_WHISPER_MODEL_REPO_BY_NAME.get(model_name)
+    local_dir = FAST_WHISPER_MODEL_DIR_BY_NAME.get(model_name)
 
-        log.info(f"martine-runtime: prefetching faster-whisper model {model_name} -> {local_dir}")
+    if repo_id is None or local_dir is None:
+        allowed = ", ".join(sorted(FAST_WHISPER_MODEL_REPO_BY_NAME))
+        raise RuntimeError(
+            f"unsupported martine voice model '{model_name}', expected one of: {allowed}"
+        )
 
-        script = r'''
+    local_dir.parent.mkdir(parents=True, exist_ok=True)
+
+    log.info(f"martine-runtime: prefetching faster-whisper model {model_name} -> {local_dir}")
+
+    script = r'''
 from huggingface_hub import snapshot_download
 from pathlib import Path
 import sys
@@ -117,10 +148,10 @@ snapshot_download(
 )
 print(f"OK prefetched {repo_id} -> {local_dir}")
 '''
-        subprocess.run(
-            ["sudo", "-u", "tak", str(venv_py), "-c", script, repo_id, str(local_dir)],
-            check=True,
-        )
+    subprocess.run(
+        ["sudo", "-u", "tak", str(venv_py), "-c", script, repo_id, str(local_dir)],
+        check=True,
+    )
 
 
 def _ensure_venv() -> None:
