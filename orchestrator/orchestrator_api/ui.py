@@ -115,6 +115,33 @@ def splash_assets_dir(path: str):
 # Public unit branding (NO AUTH): used by splash
 # ---------------------------------------------------------------------
 
+def _unit_logo_url(unit: str) -> str:
+  up = _safe_unit_fs(unit)
+  d = _unit_assets_dir(up)
+  for name in ("logo.png", "logo.svg", "logo.webp", "logo.jpg", "logo.jpeg"):
+    fp = d / name
+    if fp.is_file():
+      return f"/units/{up}/assets/{name}"
+  return ""
+
+
+
+@router.get("/units/{unit_path:path}/assets/{relpath:path}")
+def unit_assets_public(unit_path: str, relpath: str):
+  up = _safe_unit_fs(unit_path)
+  rel = _safe_relpath(relpath)
+  root = _unit_assets_dir(up)
+  return _file_or_404(_safe_join(root, rel))
+
+
+@router.get("/u/{unit_path:path}/assets/{relpath:path}")
+def unit_assets_public_legacy(unit_path: str, relpath: str):
+  up = _safe_unit_fs(unit_path)
+  rel = _safe_relpath(relpath)
+  root = _unit_assets_dir(up)
+  return _file_or_404(_safe_join(root, rel))
+
+
 @router.get("/api/public/brand")
 def public_brand(unit: str | None = None):
   """
@@ -122,10 +149,19 @@ def public_brand(unit: str | None = None):
   For orchestrator itself (no unit), return an orchestrator-specific brand payload.
   """
   if unit:
-    p = _unit_assets_dir(unit) / "brand.json"
+    up = _safe_unit_fs(unit)
+    p = _unit_assets_dir(up) / "brand.json"
     if p.is_file():
       try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+          raise HTTPException(status_code=500, detail="Invalid unit brand.json")
+        logo_url = _unit_logo_url(up)
+        if logo_url:
+          data["logo_url"] = logo_url
+        return data
+      except HTTPException:
+        raise
       except Exception:
         raise HTTPException(status_code=500, detail="Invalid unit brand.json")
 
