@@ -495,13 +495,45 @@ check_bedrock() {
   fi
 
   model="$(detect_bedrock_model)"
-  result="$("$py" - <<'PY' "$BEDROCK_CACHE" "$model"
+  result="$("$py" - <<'PY2' "$BEDROCK_CACHE" "$model"
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
-import json, sys
+import json
+import os
+import sys
+
 cache = Path(sys.argv[1])
 model = sys.argv[2].strip()
 now = datetime.now(timezone.utc)
+
+def _strip_quotes(v: str) -> str:
+    v = (v or "").strip()
+    if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
+        v = v[1:-1]
+    return v.strip()
+
+def load_bedrock_api_key() -> str:
+    bases = [
+        Path("/opt/tak/tools/takctl/secrets.d"),
+        Path("/etc/taks-bootstrap.d/secrets.d"),
+        Path("/opt/tak/tools/takctl"),
+    ]
+    for base in bases:
+        files = sorted(base.glob("*.conf")) if base.is_dir() else ([base] if base.is_file() and base.suffix == ".conf" else [])
+        for p in files:
+            try:
+                lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
+            except Exception:
+                continue
+            for raw in lines:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = [x.strip() for x in line.split("=", 1)]
+                if k == "bedrock_api_key":
+                    return _strip_quotes(v)
+    return ""
+
 if cache.exists():
     try:
         data = json.loads(cache.read_text(encoding="utf-8"))
@@ -513,14 +545,23 @@ if cache.exists():
         raise
     except Exception:
         pass
+
+api_key = load_bedrock_api_key()
+if api_key:
+    os.environ["AWS_BEARER_TOKEN_BEDROCK"] = api_key
+
 try:
     from botocore.config import Config
     import boto3
+
     cfg = Config(connect_timeout=4, read_timeout=8, retries={"max_attempts": 1})
+
     bedrock = boto3.client("bedrock", region_name="eu-north-1", config=cfg)
     bedrock.list_foundation_models()
+
     auth_ok = True
-    auth_msg = "bedrock auth/list OK"
+    auth_msg = "bedrock auth/list OK via api_key" if api_key else "bedrock auth/list OK"
+
     if model:
         rt = boto3.client("bedrock-runtime", region_name="eu-north-1", config=cfg)
         try:
@@ -537,6 +578,7 @@ try:
     else:
         inf_ok = None
         inf_msg = "bedrock model unresolved from config"
+
     payload = {
         "updated_at": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
         "auth_ok": auth_ok,
@@ -544,6 +586,7 @@ try:
         "inference_ok": inf_ok,
         "inference_msg": inf_msg,
         "model": model or None,
+        "auth_mode": "api_key" if api_key else "aws_credentials",
     }
 except Exception as e:
     payload = {
@@ -553,33 +596,37 @@ except Exception as e:
         "inference_ok": False if model else None,
         "inference_msg": "auth failed; inference skipped" if model else "bedrock model unresolved from config",
         "model": model or None,
+        "auth_mode": "api_key" if api_key else "aws_credentials",
     }
+
 cache.parent.mkdir(parents=True, exist_ok=True)
 cache.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 print(json.dumps(payload))
-PY
+PY2
 )"
+
   local auth_ok auth_msg inf_ok inf_msg
-  auth_ok="$(python3 - <<'PY' "$result"
+  auth_ok="$(python3 - <<'PY2' "$result"
 import json, sys
 d = json.loads(sys.argv[1]); print("1" if d.get("auth_ok") else "0")
-PY
+PY2
 )"
-  auth_msg="$(python3 - <<'PY' "$result"
+  auth_msg="$(python3 - <<'PY2' "$result"
 import json, sys
 d = json.loads(sys.argv[1]); print(d.get("auth_msg", ""))
-PY
+PY2
 )"
-  inf_ok="$(python3 - <<'PY' "$result"
+  inf_ok="$(python3 - <<'PY2' "$result"
 import json, sys
 d = json.loads(sys.argv[1]); v = d.get("inference_ok"); print("null" if v is None else ("1" if v else "0"))
-PY
+PY2
 )"
-  inf_msg="$(python3 - <<'PY' "$result"
+  inf_msg="$(python3 - <<'PY2' "$result"
 import json, sys
 d = json.loads(sys.argv[1]); print(d.get("inference_msg", ""))
-PY
+PY2
 )"
+
   if [ "$auth_ok" = "1" ]; then
     add_check bedrock_auth ok warn "$auth_msg"
   else
