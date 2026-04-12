@@ -227,12 +227,45 @@ def _placeholder_card(title: str, text: str) -> str:
     """
 
 
+def _plugins_setup_block(*, lang: str | None, base: str, token: str, bump: int | str) -> str:
+    l = lang_norm(lang)
+    qr_png = f"{base}/api/onboarding/cards/{token}/packages/plugins/qr.png?b={bump}"
+    qr_txt = f"{base}/api/onboarding/cards/{token}/packages/plugins/qr.txt?b={bump}"
+    zip_url = f"{base}/api/onboarding/cards/{token}/packages/plugins/package.zip"
+
+    if l == "sv":
+        title = "ATAK-pluginer"
+        body = "Skanna QR-koden för att hämta onboarding-pluginerna till ATAK."
+        open_qr = "Öppna QR"
+        open_text = "Öppna text"
+        download_zip = "Ladda ner zip"
+    else:
+        title = "ATAK plugins"
+        body = "Scan the QR code to download the onboarding plugins for ATAK."
+        open_qr = "Open QR"
+        open_text = "Open text"
+        download_zip = "Download zip"
+
+    return f"""
+    <div class="stepcard">
+      <h4>{h(title)}</h4>
+      <div class="muted">{h(body)}</div>
+      <div style="margin-top:10px;"><img class="qrimg" src="{h(qr_png)}" alt="{h(title)} QR"/></div>
+      <div class="dlrow">
+        <a class="btn" href="{h(zip_url)}">{h(download_zip)}</a>
+        <a class="btn" href="{h(qr_png)}">{h(open_qr)}</a>
+        <a class="btn" href="{h(qr_txt)}">{h(open_text)}</a>
+      </div>
+    </div>
+    """
+
+
 def post_onboarding_block(*, lang: str | None, base: str, token: str, bump: int | str) -> str:
     l = lang_norm(lang)
     return f"""
     <div class="guidegrid">
       {_voice_setup_block(lang=l, base=base, token=token, bump=bump)}
+      {_plugins_setup_block(lang=l, base=base, token=token, bump=bump)}
       {_placeholder_card(_s(l, "maps.title"), _s(l, "maps.body"))}
-      {_placeholder_card(_s(l, "addons.title"), _s(l, "addons.body"))}
     </div>
     """

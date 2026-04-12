@@ -232,13 +232,18 @@ def token_qr_payload_txt(req: Request, token: str, client: str):
     _mark_qr_generated(svc, username)
 
     c = (client or "").strip().lower()
-    if c not in ("atak", "itak", "wintak", "vx"):
+    if c not in ("atak", "itak", "wintak", "vx", "plugins"):
         raise HTTPException(status_code=400, detail=f"unknown client: {client}")
 
     base = _resolve_public_base(req, username)
 
     if c == "vx":
         package_url = f"{base}/api/onboarding/cards/{token}/packages/vx/package.zip"
+        package_url = _url_with_qs(package_url, regen="1", via="qr")
+        host, port, use_ssl = _resolve_qr_endpoint(req, username, "atak")
+        payload = qr_payload("atak", package_url, host, port=port, use_ssl=use_ssl)
+    elif c == "plugins":
+        package_url = f"{base}/api/onboarding/cards/{token}/packages/plugins/package.zip"
         package_url = _url_with_qs(package_url, regen="1", via="qr")
         host, port, use_ssl = _resolve_qr_endpoint(req, username, "atak")
         payload = qr_payload("atak", package_url, host, port=port, use_ssl=use_ssl)
@@ -280,13 +285,18 @@ def token_qr_png(req: Request, token: str, client: str):
     _mark_qr_generated(svc, username)
 
     c = (client or "").strip().lower()
-    if c not in ("atak", "itak", "wintak", "vx"):
+    if c not in ("atak", "itak", "wintak", "vx", "plugins"):
         raise HTTPException(status_code=400, detail=f"unknown client: {client}")
 
     base = _resolve_public_base(req, username)
 
     if c == "vx":
         package_url = f"{base}/api/onboarding/cards/{token}/packages/vx/package.zip"
+        package_url = _url_with_qs(package_url, regen="1", via="qr")
+        host, port, use_ssl = _resolve_qr_endpoint(req, username, "atak")
+        payload = qr_payload("atak", package_url, host, port=port, use_ssl=use_ssl)
+    elif c == "plugins":
+        package_url = f"{base}/api/onboarding/cards/{token}/packages/plugins/package.zip"
         package_url = _url_with_qs(package_url, regen="1", via="qr")
         host, port, use_ssl = _resolve_qr_endpoint(req, username, "atak")
         payload = qr_payload("atak", package_url, host, port=port, use_ssl=use_ssl)
@@ -635,6 +645,27 @@ def _write_vx_package(out, username: str, u, base: str) -> None:
     )
 
 
+def _write_plugins_package(out, *, base: str) -> dict:
+    import shutil
+    import sys
+    from pathlib import Path
+
+    for extra in ("/opt/tak/tools/martine", "/opt/taks/martine"):
+        if extra not in sys.path and Path(extra).exists():
+            sys.path.append(extra)
+
+    from martine.tools.plugin_onboarding_common import build_plugin_package
+
+    built = build_plugin_package(
+        package_id="plugins-basic",
+        requested_by="onboarding-card-qr",
+    )
+    src = Path(str(built["artifacts"]["package_zip"]))
+    out.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, out)
+    return built
+
+
 @router.get("/onboarding/cards/{token}/packages/vx/qr.txt")
 def token_vx_qr_txt(req: Request, token: str):
     svc, _, username, _ = _require_token(token)
@@ -690,6 +721,31 @@ def token_vx_package_zip(req: Request, token: str):
         str(out),
         media_type="application/zip",
         filename=f"{username}.vx.package.zip",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/plugins/package.zip")
+def token_plugins_package_zip(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+
+    out = artifact_root(username) / "plugins" / "package.zip"
+    regen = bool_q(req, "regen", False)
+    via = (req.query_params.get("via") or "").strip().lower()
+    built = None
+
+    if regen or (not out.exists()):
+        base = _resolve_public_base(req, username)
+        built = _write_plugins_package(out, base=base)
+        _mark_package_generated(svc, username, package_type="plugins-basic", sel=(load_selection(username) or {}))
+
+    _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
+
+    filename = str(((built or {}).get("display_filename") or "ATAK-plugins-basic.zip")).strip() or "ATAK-plugins-basic.zip"
+    return FileResponse(
+        str(out),
+        media_type="application/zip",
+        filename=filename,
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
 
