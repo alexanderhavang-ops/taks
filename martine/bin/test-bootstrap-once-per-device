@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd /opt/taks
+
+python3 - <<'PY'
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+import json
+import re
+import sys
+
+sys.path.insert(0, "/opt/taks")
+sys.path.insert(0, "/opt/taks/martine")
+
+import martine.chat.cot_tls_client as mod
+
+cfg = SimpleNamespace(
+    callsign="Martine",
+    chat_uid="ANDROID-MARTINE",
+    presence_interval_sec=60,
+)
+
+TEST_UID = "ANDROID-TEST-123"
+TEST_USER = "test.user"
+
+def summarize(sent):
+    out = []
+    for xml in sent:
+        uid = None
+        room = None
+        msg = None
+
+        m = re.search(r'uid="([^"]+)"', xml)
+        if m:
+            uid = m.group(1)
+
+        m = re.search(r'chatroom="([^"]+)"', xml)
+        if m:
+            room = m.group(1)
+
+        m = re.search(r'<remarks[^>]*>(.*?)</remarks>', xml, re.S)
+        if m:
+            msg = m.group(1)
+
+        out.append({
+            "uid": uid,
+            "chatroom": room,
+            "message": msg,
+        })
+    return out
+
+with TemporaryDirectory() as td:
+    root = Path(td)
+    sent = []
+
+    def fake_send_event(sock, xml_text: str) -> None:
+        sent.append(xml_text)
+
+    mod.DEVICE_STATE_ROOT = root / "devices"
+    mod.send_event = fake_send_event
+    mod.time.sleep = lambda *_a, **_k: None
+    mod.list_recent_client_devices = lambda: [
+        {
+            "client_uid": TEST_UID,
+            "first_seen_at": "2026-04-11T10:00:00Z",
+            "last_seen_at": "2026-04-11T14:55:11Z",
+        }
+    ]
+    mod.resolve_username_for_client_uid = lambda client_uid: TEST_USER
+
+    mod.resolve_seed_plan_for_username = lambda username: {
+        "username": TEST_USER,
+        "callsign": "EAQQ9",
+        "seed_channels": ["GruppL-QQEA", "PlutL-AQ"],
+        "assignment_hash": "hash-v1",
+    }
+
+    mod.maybe_process_recent_devices(sock=None, cfg=cfg)
+    files1 = sorted((root / "devices").glob("*/*.json"))
+    events1 = summarize(sent)
+
+    sent.clear()
+    mod.maybe_process_recent_devices(sock=None, cfg=cfg)
+    files2 = sorted((root / "devices").glob("*/*.json"))
+    events2 = summarize(sent)
+
+    sent.clear()
+    mod.resolve_seed_plan_for_username = lambda username: {
+        "username": TEST_USER,
+        "callsign": "EAQQ9",
+        "seed_channels": ["GruppL-QQEA", "PlutL-BQ"],
+        "assignment_hash": "hash-v2",
+    }
+
+    mod.maybe_process_recent_devices(sock=None, cfg=cfg)
+    files3 = sorted((root / "devices").glob("*/*.json"))
+    events3 = summarize(sent)
+
+    state_path = root / "devices" / TEST_USER / f"{TEST_UID}.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+
+    print("PASS1 files_n =", len(files1))
+    print("PASS1 events_n =", len(events1))
+    print(json.dumps(events1, indent=2, ensure_ascii=False))
+    print()
+
+    print("PASS2 files_n =", len(files2))
+    print("PASS2 events_n =", len(events2))
+    print(json.dumps(events2, indent=2, ensure_ascii=False))
+    print()
+
+    print("PASS3 files_n =", len(files3))
+    print("PASS3 events_n =", len(events3))
+    print(json.dumps(events3, indent=2, ensure_ascii=False))
+    print()
+
+    print("FINAL STATE")
+    print(json.dumps(state, indent=2, ensure_ascii=False))
+    print()
+
+    assert len(files1) == 1, "pass1 should create exactly one state file"
+    assert len(events1) == 5, "pass1 should send 5 events: 1 hello + 2 contact updates + 2 seed messages"
+    assert any((e.get("message") or "").startswith("Hej EAQQ9") for e in events1), "pass1 missing hello"
+    assert sum(1 for e in events1 if e.get("message") == "[UPDATED CONTACTS]") == 2, "pass1 missing group contact updates"
+    assert sum(1 for e in events1 if (e.get("message") or "").startswith("Martine seeding group ")) == 2, "pass1 missing seed messages"
+
+    assert len(events2) == 0, "pass2 should send nothing"
+
+    assert len(events3) == 4, "pass3 should send 4 events: 2 contact updates + 2 seed messages"
+    assert not any((e.get("message") or "").startswith("Hej EAQQ9") for e in events3), "pass3 must not resend hello"
+    assert sum(1 for e in events3 if e.get("message") == "[UPDATED CONTACTS]") == 2, "pass3 missing group contact updates"
+    assert sum(1 for e in events3 if (e.get("message") or "").startswith("Martine seeding group ")) == 2, "pass3 missing reseed messages"
+
+    assert state["username"] == TEST_USER
+    assert state["client_uid"] == TEST_UID
+    assert state["hello_sent_at"]
+    assert state["chat_groups_seeded_at"]
+    assert state["chat_groups_seed_assignment_hash"] == "hash-v2"
+    assert state["seed_channels"] == ["GruppL-QQEA", "PlutL-BQ"]
+
+    print("OK bootstrap regression passed")
+PY
