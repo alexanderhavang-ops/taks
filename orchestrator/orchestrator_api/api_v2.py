@@ -587,9 +587,20 @@ def nodes_heartbeat(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     for k in ("private_ip", "public_ip", "public_dns", "fqdn", "hostname"):
         if k in req:
             extra[k] = req.get(k)
-    for k in ("install", "services", "checks"):
-        if isinstance(req.get(k), dict):
-            extra[k] = req.get(k)
+
+    if isinstance(req.get("install"), dict):
+        extra["install"] = req.get("install")
+
+    if isinstance(req.get("services"), dict):
+        extra["services"] = req.get("services")
+
+    if isinstance(req.get("checks"), list):
+        extra["checks"] = req.get("checks")
+    elif isinstance(req.get("checks"), dict):
+        extra["checks"] = req.get("checks")
+
+    if isinstance(req.get("node_health"), dict):
+        extra["node_health"] = req.get("node_health")
 
     rec = touch_heartbeat(node_id, status=status, extra=extra)
     return {"ok": True, "node_id": node_id, "last_seen_ts": rec.get("last_seen_ts"), "status": rec.get("status")}

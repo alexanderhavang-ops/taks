@@ -34,6 +34,32 @@ def derive_grammar(policy_id: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
     """
     ctx = dict(ctx or {})
 
+    pid = _s(policy_id).lower()
+    if pid and pid != "hemvarnet":
+        unit = _s(ctx.get("unit")) or pid.upper()
+        n = _s(ctx.get("n"))
+        callsign = f"{unit}{n}" if unit and n else unit
+        if not callsign:
+            callsign = pid.upper()
+
+        return {
+            "callsign": callsign,
+            "team": _s(ctx.get("team")) or "Blue",
+            "atak_role_type": _s(ctx.get("atak_role_type")) or None,
+            "callsign_policy_effective": "GENERIC",
+            "callsign_variants": {
+                "GENERIC": callsign,
+                "FAL": "",
+                "FALFAL": "",
+                "FAL_TAK": ""
+            },
+            "callsign_structural": {
+                "policy_id": pid,
+                "unit": unit or None,
+                "n": n or None
+            },
+        }
+
     # Use policy_cfg from ctx if caller provided it; otherwise derive best-effort only.
     policy_cfg = ctx.get("policy_cfg")
 

@@ -106,6 +106,13 @@ admin_ca() {
   printf '%s' "/opt/tak/tools/takctl/state/admin_identity/ca.pem"
 }
 
+admin_key_usable_without_passphrase() {
+  local key
+  key="$(admin_key)"
+  [ -n "$key" ] || return 1
+  openssl pkey -in "$key" -noout -passin pass: >/dev/null 2>&1
+}
+
 check_takserver_service() {
   local st
   st="$(service_state takserver.service)"
@@ -216,13 +223,28 @@ check_8446_tls() {
 check_8443_mtls() {
   local fqdn="$1"
   if [ -z "$fqdn" ]; then
-    add_check tak_8443_mtls warn critical "fqdn missing"
+    add_check tak_8443_mtls warn warn "fqdn missing"
     return
   fi
+
   if ! have_admin_identity; then
-    add_check tak_8443_mtls warn critical "admin identity missing for mTLS probe"
+    if port_tcp_listening 8443; then
+      add_check tak_8443_mtls warn warn "8443 listening, but admin identity missing for mTLS probe"
+    else
+      add_check tak_8443_mtls fail critical "8443 not listening and admin identity missing for mTLS probe"
+    fi
     return
   fi
+
+  if ! admin_key_usable_without_passphrase; then
+    if port_tcp_listening 8443; then
+      add_check tak_8443_mtls warn warn "8443 listening, but admin key is passphrase-protected; mTLS probe skipped"
+    else
+      add_check tak_8443_mtls fail critical "8443 not listening and admin key is passphrase-protected; mTLS probe skipped"
+    fi
+    return
+  fi
+
   local pem key ca code
   pem="$(admin_pem)"
   key="$(admin_key)"
@@ -243,32 +265,74 @@ check_8443_mtls() {
 check_8089_cot_mtls() {
   local fqdn="$1"
   if [ -z "$fqdn" ]; then
-    add_check cot_8089_mtls warn critical "fqdn missing"
+    add_check cot_8089_mtls warn warn "fqdn missing"
+    return
+  fi
+  if ! port_tcp_listening 8089; then
+    add_check cot_8089_mtls fail critical "8089 not listening"
     return
   fi
   if ! have_admin_identity; then
-    add_check cot_8089_mtls warn critical "admin identity missing for CoT mTLS probe"
+    add_check cot_8089_mtls warn warn "admin identity missing for CoT mTLS probe"
     return
   fi
-  local pem key ca uid now payload rc
+
+  local pem key ca keypass result ok msg
   pem="$(admin_pem)"
   key="$(admin_key)"
   ca="$(admin_ca)"
-  uid="health-$(hostname)-$(date +%s)"
-  now="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-  payload="<event version=\"2.0\" uid=\"$uid\" type=\"t-x-c-t\" time=\"$now\" start=\"$now\" stale=\"$now\" how=\"h-g-i-g-o\"/>"
-  rc=0
-  printf '%s' "$payload" | timeout 8 openssl s_client \
-    -quiet \
-    -connect 127.0.0.1:8089 \
-    -servername "$fqdn" \
-    -cert "$pem" \
-    -key "$key" \
-    -CAfile "$ca" >/dev/null 2>&1 || rc=$?
-  if [ "$rc" -eq 0 ]; then
-    add_check cot_8089_mtls ok critical "8089 mTLS connect + CoT write OK"
+  keypass="$(client_key_passphrase || true)"
+
+  if [ -z "$keypass" ]; then
+    add_check cot_8089_mtls warn warn "8089 listening, but no client key passphrase found in secrets.d; CoT mTLS probe skipped"
+    return
+  fi
+
+  result="$(python3 - <<'PY2' "$fqdn" "$pem" "$key" "$ca" "$keypass"
+import json
+import socket
+import ssl
+import sys
+import time
+
+fqdn, pem, key, ca, keypass = sys.argv[1:6]
+uid = f"health-{socket.gethostname()}-{int(time.time())}"
+now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+payload = f'<event version="2.0" uid="{uid}" type="t-x-c-t" time="{now}" start="{now}" stale="{now}" how="h-g-i-g-o"/>'.encode("utf-8")
+
+try:
+    ctx = ssl.create_default_context(ssl.Purpose.SERVER_AUTH, cafile=ca)
+    ctx.check_hostname = True
+    ctx.load_cert_chain(certfile=pem, keyfile=key, password=keypass)
+    with socket.create_connection(("127.0.0.1", 8089), timeout=8) as raw:
+        with ctx.wrap_socket(raw, server_hostname=fqdn) as tls:
+            tls.settimeout(8)
+            tls.sendall(payload)
+            try:
+                tls.shutdown(socket.SHUT_WR)
+            except Exception:
+                pass
+    print(json.dumps({"ok": True, "msg": "8089 mTLS connect + CoT write OK"}))
+except Exception as e:
+    print(json.dumps({"ok": False, "msg": f"{type(e).__name__}: {e}"}))
+PY2
+)"
+
+  ok="$(python3 - <<'PY2' "$result"
+import json, sys
+print("1" if json.loads(sys.argv[1]).get("ok") else "0")
+PY2
+)"
+  msg="$(python3 - <<'PY2' "$result"
+import json, sys
+print(json.loads(sys.argv[1]).get("msg", ""))
+PY2
+)"
+
+  if [ "$ok" = "1" ]; then
+    add_check cot_8089_mtls ok warn "$msg"
   else
-    add_check cot_8089_mtls fail critical "8089 mTLS/CoT probe failed rc=$rc" "{\"rc\": $rc}"
+    add_check cot_8089_mtls fail warn "$msg"
   fi
 }
 

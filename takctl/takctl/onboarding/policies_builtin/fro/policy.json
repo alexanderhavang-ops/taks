@@ -1,0 +1,66 @@
+{
+  "id": "fro",
+  "name": "FRO",
+  "title": "Frivilliga Radioorganisationen",
+  "version": "0.1",
+  "identity_fields": [
+    {
+      "key": "unit",
+      "label": "Unit",
+      "type": "text",
+      "required": true,
+      "default": "fro"
+    },
+    {
+      "key": "n",
+      "label": "Number",
+      "type": "text",
+      "required": true,
+      "default": "1"
+    },
+    {
+      "key": "team",
+      "label": "Team color",
+      "type": "select",
+      "required": true,
+      "default": "Blue",
+      "options": [
+        "Black",
+        "White",
+        "Orange",
+        "Magenta",
+        "Cyan",
+        "Purple",
+        "Blue",
+        "Maroon",
+        "Green",
+        "Yellow",
+        "Red"
+      ]
+    },
+    {
+      "key": "atak_role_type",
+      "label": "ATAK Role (My Role)",
+      "type": "select",
+      "required": true,
+      "default": "Team Member",
+      "options": [
+        "Team Member",
+        "Team Lead",
+        "HQ"
+      ]
+    },
+    {
+      "key": "remarks",
+      "label": "Remarks",
+      "type": "text",
+      "required": false,
+      "default": "#fro"
+    }
+  ],
+  "group_fields": [],
+  "config_fields": [],
+  "defaults": {
+    "allow_callsign_change": true
+  }
+}

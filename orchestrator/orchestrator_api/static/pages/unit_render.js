@@ -215,7 +215,6 @@
       return String((step && step.name) || '') !== 'install/main';
     });
     const events = Array.isArray(install.events) ? install.events : [];
-    const state = String(summary.state || 'unknown');
     const visualState = installVisualState(summary);
     const pct = Math.max(0, Math.min(100, Number(summary.progress_pct || 0)));
     const total = Number(summary.total_steps || 0);
@@ -233,8 +232,21 @@
       style: 'display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'
     });
     head.appendChild(S.el('div', { className: 'label', text: 'Installation' }));
-    head.appendChild(S.badge(installStateLabel(visualState), installStateKind(visualState)));
+    head.appendChild(lightPill(installStateKind(visualState), installStateLabel(visualState)));
     wrap.appendChild(head);
+
+    const metaBits = [];
+    if(total > 0) metaBits.push(completed + '/' + total + ' steg klara');
+    if(failed > 0) metaBits.push(failed + ' fel');
+    if(running > 0) metaBits.push(running + ' pågår');
+    if(incomplete > 0) metaBits.push(incomplete + ' oavslutade');
+    if(summary.last_event_ts) metaBits.push('senast ' + summary.last_event_ts);
+    wrap.appendChild(S.el('div', { className: 'muted', text: metaBits.join(' • ') || 'Ingen installationsdata' }));
+
+    const details = S.el('details', { style: 'margin-top:2px' });
+    details.appendChild(S.el('summary', { text: 'Visa installationsdetaljer' }));
+
+    const inner = S.el('div', { style: 'display:grid;gap:10px;margin-top:10px' });
 
     const barOuter = S.el('div', {
       style: 'height:10px;border-radius:999px;background:rgba(255,255,255,0.10);overflow:hidden'
@@ -242,21 +254,15 @@
     barOuter.appendChild(S.el('div', {
       style: 'height:100%;border-radius:999px;width:' + pct + '%;background:' + installBarColor(visualState)
     }));
-    wrap.appendChild(barOuter);
+    inner.appendChild(barOuter);
 
-    const metaBits = [];
-    if(total > 0) metaBits.push(completed + '/' + total + ' steg klara');
-    if(running > 0) metaBits.push(running + ' pågår');
-    if(incomplete > 0) metaBits.push(incomplete + ' saknar slutstatus');
-    if(failed > 0) metaBits.push(failed + ' fel');
-    if(summary.last_event_ts) metaBits.push('senast ' + summary.last_event_ts);
-    wrap.appendChild(S.el('div', { className: 'muted', text: metaBits.join(' • ') || 'Ingen installationsdata' }));
-
-    if(incomplete > 0){
-      wrap.appendChild(S.el('div', {
+    if(incomplete > 0 || failed > 0){
+      inner.appendChild(S.el('div', {
         className: 'muted',
         style: 'padding:8px 10px;border:1px solid rgba(220,38,38,0.35);border-radius:10px;background:rgba(220,38,38,0.08)',
-        text: 'Installationen är inte komplett: vissa delsteg saknar avslutande status i loggen.'
+        text: failed > 0
+          ? 'Installationen har fel. Fäll ut stegen nedan för att se var det gick fel.'
+          : 'Installationen är inte komplett: vissa delsteg saknar avslutande status i loggen.'
       }));
     }
 
@@ -270,13 +276,13 @@
           style: 'display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid rgba(255,255,255,0.06);border-radius:10px;background:rgba(255,255,255,0.02)'
         });
         row.appendChild(S.el('code', { style: 'word-break:break-word;white-space:normal', text: step.name || '—' }));
-        row.appendChild(S.badge(installStateLabel(step.state || step.status || 'unknown'), installStateKind(step.state || step.status)));
+        row.appendChild(lightPill(installStateKind(step.state || step.status || 'unknown'), installStateLabel(step.state || step.status || 'unknown')));
         row.appendChild(S.el('div', { className: 'muted', text: step.last_ts || '—' }));
         stepsWrap.appendChild(row);
       });
 
       stepsDetails.appendChild(stepsWrap);
-      wrap.appendChild(stepsDetails);
+      inner.appendChild(stepsDetails);
     }
 
     if(events.length){
@@ -292,12 +298,291 @@
         });
         row.appendChild(S.el('div', { className: 'muted', text: ev.ts || '—' }));
         row.appendChild(S.el('code', { style: 'word-break:break-word;white-space:normal', text: (ev.name || '—') + ' • ' + (ev.status || '—') }));
-        row.appendChild(S.badge(installStateLabel(ev.state || 'unknown'), installStateKind(ev.state)));
+        row.appendChild(lightPill(installStateKind(ev.state || 'unknown'), installStateLabel(ev.state || 'unknown')));
         logBox.appendChild(row);
       });
 
       eventsDetails.appendChild(logBox);
-      wrap.appendChild(eventsDetails);
+      inner.appendChild(eventsDetails);
+    }
+
+    details.appendChild(inner);
+    wrap.appendChild(details);
+
+    return wrap;
+  }
+
+  function healthKind(status){
+    const s = String(status || '').trim().toLowerCase();
+    if(s === 'ok') return 'ok';
+    if(s === 'warn') return 'warn';
+    if(s === 'fail' || s === 'error' || s === 'red') return 'err';
+    if(s === 'skip' || s === 'skipped' || s === 'unknown') return 'muted';
+    return 'muted';
+  }
+
+  function healthLabel(status){
+    const s = String(status || '').trim().toLowerCase();
+    if(s === 'ok') return 'OK';
+    if(s === 'warn') return 'Varning';
+    if(s === 'fail' || s === 'error' || s === 'red') return 'Fel';
+    if(s === 'skip' || s === 'skipped') return 'Skip';
+    if(s === 'unknown') return 'Okänd';
+    return String(status || 'Okänd');
+  }
+
+  function severityKind(severity){
+    const s = String(severity || '').trim().toLowerCase();
+    if(s === 'critical') return 'err';
+    if(s === 'warn' || s === 'warning') return 'warn';
+    if(s === 'info') return 'muted';
+    return 'muted';
+  }
+
+  function severityLabel(severity){
+    const s = String(severity || '').trim().toLowerCase();
+    if(s === 'critical') return 'Kritisk';
+    if(s === 'warn' || s === 'warning') return 'Varning';
+    if(s === 'info') return 'Info';
+    return String(severity || '—');
+  }
+
+  function lightColors(kind){
+    const k = String(kind || '').trim().toLowerCase();
+    if(k === 'ok') return {
+      dot: '#22c55e',
+      bg: 'rgba(34,197,94,.10)',
+      border: 'rgba(34,197,94,.28)',
+      glow: 'rgba(34,197,94,.45)'
+    };
+    if(k === 'warn') return {
+      dot: '#f59e0b',
+      bg: 'rgba(245,158,11,.10)',
+      border: 'rgba(245,158,11,.28)',
+      glow: 'rgba(245,158,11,.45)'
+    };
+    if(k === 'err') return {
+      dot: '#ef4444',
+      bg: 'rgba(239,68,68,.10)',
+      border: 'rgba(239,68,68,.28)',
+      glow: 'rgba(239,68,68,.45)'
+    };
+    return {
+      dot: 'rgba(255,255,255,.45)',
+      bg: 'rgba(255,255,255,.05)',
+      border: 'rgba(255,255,255,.16)',
+      glow: 'rgba(255,255,255,.18)'
+    };
+  }
+
+  function lightPill(kind, text){
+    const c = lightColors(kind);
+    const wrap = S.el('span', {
+      style: 'display:inline-flex;align-items:center;gap:8px;padding:6px 10px;border-radius:999px;border:1px solid ' + c.border + ';background:' + c.bg + ';white-space:nowrap'
+    });
+    wrap.appendChild(S.el('span', {
+      style: 'display:inline-block;width:10px;height:10px;border-radius:999px;background:' + c.dot + ';box-shadow:0 0 10px ' + c.glow
+    }));
+    wrap.appendChild(S.el('span', { style: 'font-weight:700', text: text || '—' }));
+    return wrap;
+  }
+
+  function healthNameLabel(name){
+    const raw = String(name || '').trim();
+    if(!raw) return '—';
+    return raw.replace(/[_-]+/g, ' ');
+  }
+
+  function healthSortRank(status){
+    const s = String(status || '').trim().toLowerCase();
+    if(s === 'fail' || s === 'error' || s === 'red') return 0;
+    if(s === 'warn') return 1;
+    if(s === 'ok') return 2;
+    if(s === 'skip' || s === 'skipped' || s === 'unknown') return 3;
+    return 4;
+  }
+
+  function severitySortRank(severity){
+    const s = String(severity || '').trim().toLowerCase();
+    if(s === 'critical') return 0;
+    if(s === 'warn' || s === 'warning') return 1;
+    if(s === 'info') return 2;
+    return 3;
+  }
+
+  function bindAccordion(detailsEl, groupName){
+    if(!detailsEl || !detailsEl.addEventListener) return;
+    detailsEl.addEventListener('toggle', function(){
+      if(!detailsEl.open) return;
+      const root = detailsEl.parentElement;
+      if(!root || !root.querySelectorAll) return;
+      root.querySelectorAll('details[data-accordion-group="' + groupName + '"]').forEach(function(other){
+        if(other !== detailsEl) other.open = false;
+      });
+    });
+  }
+
+  function collectNodeHealth(node){
+    const nodeHealth = (node && node.node_health && typeof node.node_health === 'object') ? node.node_health : null;
+    const rollup = (nodeHealth && nodeHealth.rollup && typeof nodeHealth.rollup === 'object')
+      ? nodeHealth.rollup
+      : ((node && node.services && typeof node.services === 'object') ? node.services : null);
+
+    const rawChecks = (nodeHealth && nodeHealth.checks != null)
+      ? nodeHealth.checks
+      : (node ? node.checks : null);
+
+    const checks = [];
+    if(Array.isArray(rawChecks)){
+      rawChecks.forEach(function(item, idx){
+        if(!item || typeof item !== 'object') return;
+        const name = String(item.name || item.id || ('check_' + idx)).trim();
+        checks.push({
+          name: name,
+          status: String(item.status || ''),
+          severity: String(item.severity || ''),
+          summary: String(item.summary || item.message || ''),
+        });
+      });
+    }else if(rawChecks && typeof rawChecks === 'object'){
+      Object.keys(rawChecks).forEach(function(name){
+        const item = rawChecks[name] || {};
+        checks.push({
+          name: name,
+          status: String(item.status || ''),
+          severity: String(item.severity || ''),
+          summary: String(item.summary || item.message || ''),
+        });
+      });
+    }
+
+    checks.sort(function(a, b){
+      const sa = severitySortRank(a.severity);
+      const sb = severitySortRank(b.severity);
+      if(sa !== sb) return sa - sb;
+      const ra = healthSortRank(a.status);
+      const rb = healthSortRank(b.status);
+      if(ra !== rb) return ra - rb;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+
+    return { rollup: rollup, checks: checks };
+  }
+
+  function renderNodeHealth(node){
+    const data = collectNodeHealth(node);
+    const rollup = data.rollup || {};
+    const checks = Array.isArray(data.checks) ? data.checks : [];
+    if(!rollup && !checks.length) return null;
+
+    const wrap = S.el('section', {
+      'data-node-health': '1',
+      style: 'display:grid;gap:10px;margin-top:2px;padding:14px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:rgba(255,255,255,0.02)'
+    });
+
+    const overall = String((rollup && rollup.overall) || '').trim().toLowerCase();
+    const head = S.el('div', {
+      style: 'display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'
+    });
+    head.appendChild(S.el('div', { className: 'label', text: 'Nodhälsa' }));
+    head.appendChild(lightPill(healthKind(overall), healthLabel(overall || 'unknown')));
+    wrap.appendChild(head);
+
+    const bits = [];
+    if(rollup && typeof rollup.total_checks === 'number') bits.push(String(rollup.total_checks) + ' checks');
+    if(rollup && typeof rollup.fail === 'number' && rollup.fail > 0) bits.push(String(rollup.fail) + ' fel');
+    if(rollup && typeof rollup.warn === 'number' && rollup.warn > 0) bits.push(String(rollup.warn) + ' varningar');
+    if(rollup && typeof rollup.ok === 'number' && rollup.ok > 0) bits.push(String(rollup.ok) + ' ok');
+    if(rollup && typeof rollup.skip === 'number' && rollup.skip > 0) bits.push(String(rollup.skip) + ' skip');
+    if(rollup && rollup.stale) bits.push('stale');
+    wrap.appendChild(S.el('div', { className: 'muted', text: bits.join(' • ') || 'Ingen health-rollup rapporterad' }));
+
+    if(checks.length){
+      const details = S.el('details', { style: 'margin-top:2px' });
+      details.appendChild(S.el('summary', { text: 'Visa tjänster' }));
+
+      const body = S.el('div', { style: 'display:grid;gap:10px;margin-top:10px' });
+
+      const groups = [
+        { key: 'critical', label: 'Kritisk', kind: 'err', items: [] },
+        { key: 'warn', label: 'Varning', kind: 'warn', items: [] },
+        { key: 'info', label: 'Info', kind: 'muted', items: [] },
+        { key: 'other', label: 'Övrigt', kind: 'muted', items: [] },
+      ];
+
+      checks.forEach(function(item){
+        const sev = String(item.severity || '').trim().toLowerCase();
+        if(sev === 'critical'){
+          groups[0].items.push(item);
+        }else if(sev === 'warn' || sev === 'warning'){
+          groups[1].items.push(item);
+        }else if(sev === 'info'){
+          groups[2].items.push(item);
+        }else{
+          groups[3].items.push(item);
+        }
+      });
+
+      groups.forEach(function(group){
+        if(!group.items.length) return;
+
+        const gDetails = S.el('details', {
+          style: 'border:1px solid rgba(255,255,255,0.06);border-radius:10px;background:rgba(255,255,255,0.02)'
+        });
+        if(group.key === 'critical') gDetails.open = true;
+
+        const gSummary = S.el('summary', {
+          style: 'display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;cursor:pointer'
+        });
+        gSummary.appendChild(S.el('div', { style: 'font-weight:700', text: group.label + ' (' + group.items.length + ')' }));
+        gSummary.appendChild(lightPill(group.kind, group.label));
+        gDetails.appendChild(gSummary);
+
+        const list = S.el('div', { style: 'display:grid;gap:8px;padding:10px 12px 12px 12px;border-top:1px solid rgba(255,255,255,0.06)' });
+
+        group.items.forEach(function(item, idx){
+          const row = S.el('details', {
+            'data-accordion-group': 'node-health-checks-' + group.key,
+            style: 'border:1px solid rgba(255,255,255,0.06);border-radius:10px;background:rgba(255,255,255,0.02)'
+          });
+
+          const summary = S.el('summary', {
+            style: 'display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;cursor:pointer;list-style:none'
+          });
+
+          const left = S.el('div', { style: 'min-width:0' });
+          left.appendChild(S.el('div', {
+            style: 'font-weight:700;word-break:break-word;white-space:normal',
+            text: healthNameLabel(item.name)
+          }));
+          summary.appendChild(left);
+          summary.appendChild(lightPill(healthKind(item.status), healthLabel(item.status)));
+          row.appendChild(summary);
+
+          const detail = S.el('div', {
+            style: 'padding:0 12px 12px 12px;border-top:1px solid rgba(255,255,255,0.06);display:grid;gap:8px'
+          });
+          detail.appendChild(S.el('div', {
+            className: 'muted',
+            style: 'padding-top:10px;word-break:break-word;white-space:normal',
+            text: item.summary || 'Ingen detalj rapporterad'
+          }));
+          detail.appendChild(S.el('div', {
+            className: 'muted',
+            text: 'Check-id: ' + (item.name || ('check_' + idx))
+          }));
+          row.appendChild(detail);
+
+          bindAccordion(row, 'node-health-checks-' + group.key);
+          list.appendChild(row);
+        });
+
+        gDetails.appendChild(list);
+        body.appendChild(gDetails);
+      });
+
+      details.appendChild(body);
+      wrap.appendChild(details);
     }
 
     return wrap;
@@ -372,6 +657,9 @@
 
     const installBlock = renderInstallProgress(node);
     if(installBlock) wrap.appendChild(installBlock);
+
+    const healthBlock = renderNodeHealth(node);
+    if(healthBlock) wrap.appendChild(healthBlock);
 
     const details = S.el('details', { style: 'margin-top:4px' });
     details.appendChild(S.el('summary', { text: CORE.t('unit.advanced_node_details') }));

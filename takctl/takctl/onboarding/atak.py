@@ -347,7 +347,9 @@ def write_atak_cert_package_zip(out_zip: Path, username: str, req: Request, incl
 
     connect = f"{host}:{port}" + (":ssl" if use_ssl else "")
 
-    policy_id = q(req, "policy_id", None) or sel_ctx.get("policy_id") or "hemvarnet"
+    from takctl.onboarding.policy_registry import default_policy_id
+    default_pid = default_policy_id()
+    policy_id = q(req, "policy_id", None) or sel_ctx.get("policy_id") or default_pid
     ctx = dict(sel_ctx)
 
     overrides = {
@@ -620,7 +622,9 @@ def write_itak_soft_cert_zip(out_zip: Path, username: str, req: Request, base: s
 
     connect = f"{host}:{port}" + (":ssl" if use_ssl else "")
 
-    policy_id = q(req, "policy_id", None) or sel_ctx.get("policy_id") or "hemvarnet"
+    from takctl.onboarding.policy_registry import default_policy_id
+    default_pid = default_policy_id()
+    policy_id = q(req, "policy_id", None) or sel_ctx.get("policy_id") or default_pid
     ctx = dict(sel_ctx)
 
     overrides = {

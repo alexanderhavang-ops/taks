@@ -76,6 +76,11 @@ class Policy:
         cfg0 = load_config()
         base = str(cfg0.get("policy_dir", "") or "").strip()
         candidates = []
+
+        here = Path(__file__).resolve()
+        pkg_root = here.parents[2]
+        repo_root = here.parents[3] if len(here.parents) > 3 else pkg_root.parent
+
         if base:
             candidates.append(Path(base) / policy_id / "policy.conf")
             candidates.append(Path(base) / f"{policy_id}.conf")
@@ -85,13 +90,20 @@ class Policy:
             [
                 Path("/opt/tak/policies") / policy_id / "policy.conf",
                 Path("/opt/taks/policies") / policy_id / "policy.conf",
+                pkg_root / "policies" / policy_id / "policy.conf",
+                repo_root / "policies" / policy_id / "policy.conf",
             ]
         )
 
+        seen = set()
         for p in candidates:
+            sp = str(p)
+            if sp in seen:
+                continue
+            seen.add(sp)
             try:
                 if p.is_file():
-                    return str(p)
+                    return sp
             except Exception:
                 continue
 

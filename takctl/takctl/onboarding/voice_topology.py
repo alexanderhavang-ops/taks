@@ -86,16 +86,51 @@ def _seed_channels_from_ctx(derived: dict[str, Any]) -> list[str]:
 
 def derive_voice_topology(policy_cfg, ctx: dict[str, Any] | None) -> dict[str, Any]:
     """
-    Hemvärnet battalion voice topology, rendered as a FLAT list for Mumble.
+    Voice topology for the current policy.
 
-    Model:
-      BatL-$BATALIONFAL            e.g. VW
-      PlutL-P$BATTALION_SECOND     e.g. PW
-      KompL-$COMPANYFAL            e.g. QW
-      PlutL-$PLATOONFAL            e.g. AQ
-      GruppL-$COMPANYFAL$GROUPFAL  e.g. QWEA
+    Hemvärnet:
+      BatL-$BATALIONFAL
+      PlutL-P$BATTALION_SECOND
+      KompL-$COMPANYFAL
+      PlutL-$PLATOONFAL
+      GruppL-$COMPANYFAL$GROUPFAL
+
+    Other policies:
+      simple generic flat channel set based on unit name only
     """
     base_ctx = dict(ctx or {})
+
+    policy_id = _s(base_ctx.get("policy_id")).lower()
+    if not policy_id:
+        try:
+            if "meta" in policy_cfg:
+                meta = policy_cfg["meta"]
+                policy_id = _s(meta.get("id") or meta.get("policy_id")).lower()
+        except Exception:
+            policy_id = ""
+
+    if policy_id and policy_id != "hemvarnet":
+        unit_label = _unit_label(base_ctx, None)
+        channels = _uniq([
+            f"Org-{unit_label}",
+            "Ledning",
+            "Samverkan",
+        ])
+        return {
+            "policy_family": policy_id,
+            "render_mode": "flat",
+            "mission_label": f"Radio-{unit_label}",
+            "unit": unit_label,
+            "channels": channels,
+            "relations": {
+                ch: {
+                    "kind": "generic",
+                    "logical_parent": None,
+                } for ch in channels
+            },
+            "seed_channels": channels[:2],
+            "channel_count": len(channels),
+        }
     derived = derive_fal_ctx(policy_cfg, base_ctx)
     merged = dict(base_ctx)
     merged.update(derived)

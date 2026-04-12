@@ -148,7 +148,7 @@ main() {
         <input auth="anonymous" _name="replayudp" protocol="udp" port="6969"/>
         <connector port="8443" _name="https"/>
         <connector port="8444" useFederationTruststore="true" _name="fed_https"/>
-        <connector port="8447" clientAuth="false" _name="cert_https"/>
+        <connector port="8446" clientAuth="false" _name="cert_https" keystore="PKCS12" keystoreFile="certs/files/02_SERVER/takserver-le-8446.p12" keystorePass="${cert_pass}" enableWebtak="false"/>
         <announce/>
     </network>
     <auth>

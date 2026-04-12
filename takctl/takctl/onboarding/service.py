@@ -52,7 +52,13 @@ def _iso_or_none(dt: Any) -> Optional[str]:
 
 def _policy_id_from_ctx(ctx: Dict[str, Any]) -> Optional[str]:
     v = (ctx or {}).get("policy_id")
-    return str(v) if v is not None and str(v).strip() else None
+    if v is not None and str(v).strip():
+        return str(v)
+    try:
+        from takctl.onboarding.policy_registry import default_policy_id
+        return default_policy_id()
+    except Exception:
+        return None
 
 
 def _derive_if_missing(*, policy_id: Optional[str], ctx: Dict[str, Any], derived: Dict[str, Any]) -> Dict[str, Any]:

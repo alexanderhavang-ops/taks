@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd /opt/taks
-export PYTHONPATH=/opt/taks/tak-installer${PYTHONPATH:+:$PYTHONPATH}
+
+SELF_DIR="$(cd "$(dirname "$0")" && pwd -P)"
+TAK_INSTALLER_ROOT="$(cd "$SELF_DIR/.." && pwd -P)"
+TAKS_SOURCE_ROOT="$(cd "$TAK_INSTALLER_ROOT/.." && pwd -P)"
+
+cd "$TAKS_SOURCE_ROOT"
+export PYTHONPATH="$TAK_INSTALLER_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 exec python3 -m tak_installer.bootstrap_import_branding "$@"

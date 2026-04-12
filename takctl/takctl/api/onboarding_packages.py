@@ -1031,7 +1031,7 @@ def onboarding_generate_submit(
     path_C: str | None = Form(default=None),
     path_itak: str | None = Form(default=None),
     path_wintak: str | None = Form(default=None),
-    policy_id: str = Form(default="hemvarnet"),
+    policy_id: str = Form(default=""),
     unit: str = Form(default=""),
     n: str = Form(default=""),
     role: str = Form(default="member"),
@@ -1058,7 +1058,7 @@ def onboarding_generate_submit(
         "generated_at_utc": now_utc_iso(),
         "paths": paths,
         "ctx": {
-            "policy_id": (policy_id or "hemvarnet").strip(),
+            "policy_id": (policy_id or "").strip(),
             "unit": (unit or "").strip(),
             "n": (n or "").strip(),
             "role": (role or "member").strip(),

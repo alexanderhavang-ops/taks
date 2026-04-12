@@ -15,6 +15,8 @@ from orchestrator_core.unit_bootstrap import (
     write_local_file,
 )
 
+from orchestrator_core.policy_caps import describe_unit_policy
+
 from .api_v2 import require_operator
 
 router = APIRouter(prefix="/api/v2/units")
@@ -60,6 +62,7 @@ def get_unit_bootstrap(unit_path: str, request: Request) -> Dict[str, Any]:
     return {
         "ok": True,
         "unit": unit_id,
+        "policy": describe_unit_policy(unit_id),
         "local": {
             "conf_d": local_conf,
             "secrets_d": local_sec,

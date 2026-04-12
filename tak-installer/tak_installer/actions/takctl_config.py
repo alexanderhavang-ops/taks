@@ -82,6 +82,35 @@ def _chown_tree(path: Path, *, file_mode: int = 0o640, dir_mode: int = 0o2770) -
     )
 
 
+def _load_conf_dir(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not path.exists():
+        return out
+    for f in sorted(path.glob("*.conf")):
+        out.update(_parse_kv_file(f))
+    return out
+
+
+def _ensure_policy_derived_runtime() -> None:
+    conf = _load_conf_dir(DST_CONF_D)
+    policy_id = str(conf.get("default_policy_id") or "").strip().lower()
+    if not policy_id:
+        raise RuntimeError("takctl-config: default_policy_id missing after conf.d materialization")
+
+    replay_enabled = "true" if policy_id == "hemvarnet" else "false"
+
+    replay_path = DST_CONF_D / "replay.conf"
+    replay = _parse_kv_file(replay_path)
+    replay["replay_enabled"] = replay_enabled
+    _write_simple_kv(replay_path, replay, 0o640)
+
+    log.info(
+        "takctl-config: derived replay.conf from default_policy_id=%s (replay_enabled=%s)",
+        policy_id,
+        replay_enabled,
+    )
+
+
 def _ensure_generated_secrets() -> None:
     certs_path = DST_SECRETS_D / "certs.conf"
     certs = _parse_kv_file(certs_path)
@@ -128,6 +157,7 @@ def apply(ctx) -> None:
     log.info("takctl-config: materialized %s secrets.d files into %s", n_sec, DST_SECRETS_D)
 
     _ensure_generated_secrets()
+    _ensure_policy_derived_runtime()
 
     _chown_tree(DST_CONF_D, file_mode=0o640, dir_mode=0o2770)
     _chown_tree(DST_SECRETS_D, file_mode=0o640, dir_mode=0o2770)

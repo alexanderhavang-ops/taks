@@ -43,7 +43,7 @@ def _node_unit_id(ctx: Context) -> str:
 def _desired_channels(ctx: Context) -> list[str]:
     unit = _node_unit_id(ctx)
     policy = Policy()
-    topo = derive_voice_topology(policy.cfg, {"unit": unit})
+    topo = derive_voice_topology(policy.cfg, {"unit": unit, "policy_id": policy.policy_id})
     channels = [str(x).strip() for x in (topo.get("channels") or []) if str(x or "").strip()]
     if not channels:
         raise RuntimeError(f"mumble_server.core: voice topology produced no channels for unit={unit}")

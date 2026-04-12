@@ -231,13 +231,15 @@ class UserCreateIn(BaseModel):
 
 
 class IdentityDeriveIn(BaseModel):
-    policy_id: str = Field(default="hemvarnet")
+    policy_id: str = Field(default="")
     ctx: Dict[str, Any] = Field(default_factory=dict)
 
 
 @router.post("/onboarding/derive")
 def derive_identity(body: IdentityDeriveIn):
-    policy_id = (body.policy_id or "hemvarnet").strip() or "hemvarnet"
+    from takctl.onboarding.policy_registry import default_policy_id
+    default_pid = default_policy_id()
+    policy_id = (body.policy_id or default_pid).strip() or default_pid
     ctx = dict(body.ctx or {})
     try:
         pol = Policy(policy_id=policy_id)
@@ -464,7 +466,9 @@ def create_user(req: Request, username: str, body: UserCreateIn):
         raise HTTPException(status_code=500, detail=f"User not found after create/update in UserAuthenticationFile.xml: {u}")
 
     ctx = dict(body.ctx or {})
-    policy_id = (ctx.get("policy_id") or "hemvarnet").strip() or "hemvarnet"
+    from takctl.onboarding.policy_registry import default_policy_id
+    default_pid = default_policy_id()
+    policy_id = (ctx.get("policy_id") or default_pid).strip() or default_pid
     try:
         pol = Policy(policy_id=policy_id)
         ident = pol.resolve_identity(ctx)

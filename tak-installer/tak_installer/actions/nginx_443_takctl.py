@@ -89,15 +89,15 @@ class Nginx443TakctlAction:
     }}
 
     # ------------------------------------------------------------
-    # Logout endpoint (forces browser to drop cached Basic Auth)
-    # UI navigates to /logout?next=/
-    # Returning 401 with WWW-Authenticate triggers re-auth.
+    # Legacy logout endpoint.
+    # Keep direct /logout hits harmless: expire session cookie and go home.
+    # Current UI uses /api/logout instead.
     # ------------------------------------------------------------
     location = /logout {{
         add_header Cache-Control "no-store" always;
         add_header Pragma "no-cache" always;
-        add_header WWW-Authenticate 'Basic realm="takctl"' always;
-        return 401;
+        add_header Set-Cookie "takctl_session=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax" always;
+        return 302 /;
     }}
 
     # Everything else -> TAKS backend

@@ -82,9 +82,15 @@ function TakServerLinks() {
 function LangAndSessionControls() {
   const t = (window.t && typeof window.t === "function") ? window.t : (k => String(k || ""));
 
-  function logout() {
-    const next = encodeURIComponent("/");
-    window.location.href = "/logout?next=" + next;
+  async function logout() {
+    try {
+      await fetch("/api/logout", {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+    } catch (_) {}
+    window.location.replace("/");
   }
 
   return h("div", { style: { display: "flex", gap: "10px", alignItems: "center" } },

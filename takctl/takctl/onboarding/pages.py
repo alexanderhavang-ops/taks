@@ -18,7 +18,8 @@ def render_generate_page(*, username: str, groups: list[str], base: str, sel: di
         return "checked" if on else ""
 
     ctx = sel.get("ctx", {}) or {}
-    policy_id = ctx.get("policy_id", "hemvarnet")
+    from takctl.onboarding.policy_registry import default_policy_id
+    policy_id = ctx.get("policy_id") or default_policy_id()
     unit = ctx.get("unit", "")
     n = ctx.get("n", "")
     role = ctx.get("role", "member")

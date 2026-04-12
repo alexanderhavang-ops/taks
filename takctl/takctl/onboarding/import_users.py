@@ -175,7 +175,8 @@ def _ctx_from_row(row: Dict[str, str]) -> Dict[str, Any]:
             ctx[k] = v
 
     if "policy_id" not in ctx:
-        ctx["policy_id"] = "hemvarnet"
+        from takctl.onboarding.policy_registry import default_policy_id
+        ctx["policy_id"] = default_policy_id()
 
     return ctx
 
@@ -261,7 +262,9 @@ def _apply_row(
     if tak_user is None:
         raise RuntimeError(f"user not found after create/update in UserAuthenticationFile.xml: {username}")
 
-    policy_id = str(ctx.get("policy_id") or "hemvarnet").strip() or "hemvarnet"
+    from takctl.onboarding.policy_registry import default_policy_id
+    default_pid = default_policy_id()
+    policy_id = str(ctx.get("policy_id") or default_pid).strip() or default_pid
     ident_out: Dict[str, Any] = {}
     try:
         pol = Policy(policy_id=policy_id)
