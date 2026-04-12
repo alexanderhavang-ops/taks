@@ -11,10 +11,12 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape
 
 
 _ALLOWED_FILE_TYPES = {"apk", "zip", "file"}
 _PACKAGE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._ -]+")
 
 
 def _utc_now() -> datetime:
@@ -93,6 +95,11 @@ def _write_json(path: Path, data: Any) -> None:
     path.write_text(_json_dumps(data), encoding="utf-8")
 
 
+def _write_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
 def _normalize_package_id(package_id: str) -> str:
     value = (package_id or "").strip()
     if not value:
@@ -102,6 +109,25 @@ def _normalize_package_id(package_id: str) -> str:
             "invalid package_id; expected lowercase [a-z0-9._-], 1..128 chars"
         )
     return value
+
+
+def _safe_filename_token(text: str, fallback: str) -> str:
+    s = str(text or "").strip()
+    s = _SAFE_FILENAME_RE.sub("-", s)
+    s = re.sub(r"\s+", "-", s).strip("-. ")
+    return s or fallback
+
+
+def _stable_manifest_uid(package_id: str) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"taks:plugin-onboarding:{package_id}"))
+
+
+def _friendly_display_filename(raw: dict[str, Any], title: str, package_id: str) -> str:
+    explicit = str(raw.get("filename") or "").strip()
+    if explicit:
+        return explicit if explicit.lower().endswith(".zip") else explicit + ".zip"
+    base = _safe_filename_token(title or package_id, package_id)
+    return f"{base}.zip"
 
 
 def load_registry(registry_path: Path | None = None) -> dict[str, Any]:
@@ -182,10 +208,15 @@ def resolve_package(
                 "type": ftype,
                 "source_path": str(src),
                 "arcname": arcname,
+                "zip_entry": f"plugins/{arcname}",
                 "size_bytes": src.stat().st_size,
                 "sha256": _sha256_file(src),
             }
         )
+
+    manifest_uid = str(raw.get("uid") or "").strip() or _stable_manifest_uid(package_id)
+    display_name = str(raw.get("display_name") or title).strip() or title or package_id
+    display_filename = _friendly_display_filename(raw, display_name, package_id)
 
     return {
         "package_id": package_id,
@@ -196,10 +227,40 @@ def resolve_package(
         "requires_user_install_confirmation": bool(
             raw.get("requires_user_install_confirmation", True)
         ),
+        "on_receive_import": bool(raw.get("on_receive_import", True)),
+        "on_receive_delete": bool(raw.get("on_receive_delete", False)),
+        "manifest_uid": manifest_uid,
+        "display_name": display_name,
+        "display_filename": display_filename,
         "registry_path": str(registry_file),
         "files": resolved_files,
         "raw": raw,
     }
+
+
+def _render_manifest_xml(package: dict[str, Any]) -> str:
+    lines = [
+        '<MissionPackageManifest version="2">',
+        "  <Configuration>",
+        f'    <Parameter name="uid" value="{escape(str(package["manifest_uid"]))}"/>',
+        f'    <Parameter name="name" value="{escape(str(package["display_filename"]))}"/>',
+        f'    <Parameter name="onReceiveImport" value="{"true" if package["on_receive_import"] else "false"}"/>',
+        f'    <Parameter name="onReceiveDelete" value="{"true" if package["on_receive_delete"] else "false"}"/>',
+        "  </Configuration>",
+        "  <Contents>",
+    ]
+    for item in package["files"]:
+        lines.append(
+            f'    <Content ignore="false" zipEntry="{escape(str(item["zip_entry"]))}"/>'
+        )
+    lines.extend(
+        [
+            "  </Contents>",
+            "</MissionPackageManifest>",
+            "",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def build_plugin_package(
@@ -216,7 +277,8 @@ def build_plugin_package(
     run_dir = _mkdir(root / run_id)
     artifacts_dir = _mkdir(run_dir / "artifacts")
 
-    manifest = {
+    manifest_xml = _render_manifest_xml(package)
+    manifest_json = {
         "kind": "plugin_pack",
         "package_id": package["package_id"],
         "title": package["title"],
@@ -226,10 +288,16 @@ def build_plugin_package(
         "requires_user_install_confirmation": package["requires_user_install_confirmation"],
         "generated_at": _utc_now().isoformat(),
         "requested_by": requested_by,
+        "manifest_uid": package["manifest_uid"],
+        "display_name": package["display_name"],
+        "display_filename": package["display_filename"],
+        "on_receive_import": package["on_receive_import"],
+        "on_receive_delete": package["on_receive_delete"],
         "files": [
             {
                 "type": item["type"],
                 "arcname": item["arcname"],
+                "zip_entry": item["zip_entry"],
                 "size_bytes": item["size_bytes"],
                 "sha256": item["sha256"],
             }
@@ -237,16 +305,26 @@ def build_plugin_package(
         ],
     }
 
-    package_zip = artifacts_dir / "package.zip"
+    package_zip = artifacts_dir / package["display_filename"]
     with zipfile.ZipFile(
         package_zip,
         mode="w",
         compression=zipfile.ZIP_DEFLATED,
         compresslevel=9,
     ) as zf:
-        zf.writestr("manifest.json", _json_dumps(manifest))
+        zf.writestr("MANIFEST/manifest.xml", manifest_xml)
         for item in package["files"]:
-            zf.write(item["source_path"], arcname=f"payload/{item['arcname']}")
+            zf.write(item["source_path"], arcname=item["zip_entry"])
+
+    _write_json(run_dir / "request.json", {
+        "package_id": package_id,
+        "requested_by": requested_by,
+        "registry_path": str(registry_path or default_registry_path()),
+        "state_root": str(root),
+        "generated_at": manifest_json["generated_at"],
+    })
+    _write_json(run_dir / "manifest.json", manifest_json)
+    _write_text(run_dir / "manifest.xml", manifest_xml)
 
     result = {
         "ok": True,
@@ -258,24 +336,21 @@ def build_plugin_package(
         "requested_by": requested_by,
         "registry_path": package["registry_path"],
         "run_dir": str(run_dir),
+        "manifest_uid": package["manifest_uid"],
+        "display_name": package["display_name"],
+        "display_filename": package["display_filename"],
+        "on_receive_import": package["on_receive_import"],
+        "on_receive_delete": package["on_receive_delete"],
         "artifacts": {
             "package_zip": str(package_zip),
-            "manifest_path_in_zip": "manifest.json",
+            "manifest_xml_path": str(run_dir / "manifest.xml"),
+            "manifest_xml_path_in_zip": "MANIFEST/manifest.xml",
         },
-        "files": manifest["files"],
-        "generated_at": manifest["generated_at"],
+        "files": manifest_json["files"],
+        "generated_at": manifest_json["generated_at"],
     }
 
-    _write_json(run_dir / "request.json", {
-        "package_id": package_id,
-        "requested_by": requested_by,
-        "registry_path": str(registry_path or default_registry_path()),
-        "state_root": str(root),
-        "generated_at": manifest["generated_at"],
-    })
-    _write_json(run_dir / "manifest.json", manifest)
     _write_json(run_dir / "result.json", result)
-
     return result
 
 
@@ -301,7 +376,7 @@ def _cmd_resolve(args: argparse.Namespace) -> int:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Build plugin onboarding package artifacts without touching voice onboarding."
+        description="Build ATAK plugin onboarding packages with MANIFEST/manifest.xml."
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 

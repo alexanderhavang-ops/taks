@@ -85,8 +85,22 @@ def send_plugin_onboarding(
         upload_resp_path = state_dir / f"{_safe_slug(target_callsign)}_{_safe_slug(package_id)}.upload.txt"
         zip_path = Path(str(built["artifacts"]["package_zip"]))
 
-        display_name = str(built.get("title") or package_id).strip() or package_id
-        display_filename = f"{package_id}.zip"
+        display_name = str(built.get("display_name") or built.get("title") or package_id).strip() or package_id
+        display_filename = str(built.get("display_filename") or zip_path.name).strip() or zip_path.name
+
+        user_message_en = (
+            "I'm sending you the onboarding plugins for this server. "
+            "If prompted, just tap Install and Yes — this should be quick and painless. "
+            "On some devices, especially Samsung, you may need to temporarily disable Auto Blocker "
+            "in Security & Privacy before Android allows the APK installs."
+        )
+
+        user_message_sv = (
+            "Jag skickar onboarding-pluginerna för den här servern. "
+            "Om du får en fråga, tryck bara på Installera och Ja — det här ska gå snabbt och smidigt. "
+            "På vissa enheter, särskilt Samsung, kan du behöva stänga av Auto Blocker tillfälligt "
+            "under Säkerhet och integritet innan Android tillåter installation av APK-filerna."
+        )
 
         out: dict[str, Any] = {
             "ok": True,
@@ -98,10 +112,21 @@ def send_plugin_onboarding(
             "mission_name": display_name,
             "plugin_setup": {
                 "requires_user_install_confirmation": True,
+                "user_message_en": user_message_en,
+                "user_message_sv": user_message_sv,
+                "user_guidance_en": [
+                    "Open the hamburger menu in ATAK.",
+                    "Open Data Packages.",
+                    f"Open the package {display_name}.",
+                    "Install the APKs one by one by tapping them.",
+                    "If installation is blocked on Samsung/One UI, temporarily disable Auto Blocker in Security & Privacy.",
+                ],
                 "user_guidance_sv": [
-                    "ATAK ska hämta paketet via fileshare-länken.",
-                    "Om Android frågar om installation av plugin/APK behöver användaren normalt godkänna installationen.",
-                    "Om ATAK inte importerar automatiskt, öppna mottaget paket manuellt i ATAK.",
+                    "Öppna hamburgermenyn i ATAK.",
+                    "Öppna Data Packages.",
+                    f"Öppna paketet {display_name}.",
+                    "Installera APK:erna en och en genom att trycka på dem.",
+                    "Om installation blockeras på Samsung/One UI: stäng av Auto Blocker tillfälligt under Säkerhet och integritet.",
                 ],
             },
             "artifacts": {
@@ -112,7 +137,8 @@ def send_plugin_onboarding(
                 "display_name": display_name,
                 "registry_path": registry_path or str(built.get("registry_path") or ""),
                 "build_result_path": str(state_dir / "result.json"),
-                "manifest_path": str(state_dir / "manifest.json"),
+                "manifest_json_path": str(state_dir / "manifest.json"),
+                "manifest_xml_path": str(state_dir / "manifest.xml"),
             },
             "package_build": built,
         }

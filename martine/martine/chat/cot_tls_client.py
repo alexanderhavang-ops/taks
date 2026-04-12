@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import socket
 import ssl
 import sys
@@ -38,13 +37,6 @@ BOOTSTRAP_LOOKBACK_MINUTES = 240
 TAKS_ONBOARDING_ROOT = Path("/opt/tak/takctl-state/onboarding")
 DEVICE_STATE_ROOT = TAKS_ONBOARDING_ROOT / "devices"
 
-TAKCTL_CFG_PATHS = (
-    Path("/opt/tak/tools/takctl/takctl.conf"),
-    Path("/opt/tak/tools/takctl/secrets.conf"),
-    Path("/opt/taks/takctl/takctl.conf"),
-    Path("/opt/taks/takctl/secrets.conf"),
-)
-
 
 def iso_z(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -65,19 +57,6 @@ def parse_dt(value: Any) -> Optional[datetime]:
         return dt.astimezone(timezone.utc)
     except Exception:
         return None
-
-
-def _iso_or_text(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, datetime):
-        dt = value
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
-        else:
-            dt = dt.astimezone(timezone.utc)
-        return dt.isoformat().replace("+00:00", "Z")
-    return str(value).strip()
 
 
 def read_json(path: Path) -> Any:
@@ -108,6 +87,7 @@ def ensure_takctl_importable() -> None:
     for p in (
         "/opt/tak/tools/takctl",
         "/opt/taks/takctl",
+        "/opt/taks",
     ):
         if p not in sys.path and Path(p).exists():
             sys.path.append(p)
@@ -118,209 +98,235 @@ def stable_hash(obj: Any) -> str:
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
 
+def stable_group_id(group_name: str, recipient_uid: str, chat_uid: str) -> str:
+    payload = {
+        "group_name": str(group_name or "").strip(),
+        "members": sorted(
+            [
+                str(recipient_uid or "").strip(),
+                str(chat_uid or "").strip(),
+            ]
+        ),
+    }
+    h = hashlib.sha1(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()[:32]
+    return f"{h[0:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}"
+
+
 def _strip_quotes(v: str) -> str:
     s = str(v or "").strip()
-    if len(s) >= 2 and ((s[0] == s[-1] == '"') or (s[0] == s[-1] == "'")):
+    if len(s) >= 2 and ((s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'")):
         return s[1:-1]
     return s
 
 
-def _read_simple_kv(paths: tuple[Path, ...]) -> dict[str, str]:
+def _read_kv_file(path: Path) -> dict[str, str]:
     out: dict[str, str] = {}
-    for p in paths:
-        try:
-            if not p.exists():
-                continue
-            for raw in p.read_text(encoding="utf-8").splitlines():
-                line = raw.strip()
-                if not line or line.startswith("#") or line.startswith(";"):
-                    continue
-                if line.startswith("[") and line.endswith("]"):
-                    continue
-                if "=" not in line:
-                    continue
-                k, v = line.split("=", 1)
-                key = str(k or "").strip()
-                if not key:
-                    continue
-                out[key] = _strip_quotes(v)
-        except Exception:
+    if not path.exists() or not path.is_file():
+        return out
+
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except Exception:
+        return out
+
+    for line in lines:
+        s = str(line or "").strip()
+        if not s or s.startswith("#") or s.startswith(";"):
             continue
+        if s.startswith("[") and s.endswith("]"):
+            continue
+        if "=" not in s:
+            continue
+        k, v = s.split("=", 1)
+        key = str(k or "").strip()
+        val = _strip_quotes(v)
+        if key:
+            out[key] = val
     return out
+
+
+def _iter_kv_candidate_files() -> list[Path]:
+    out: list[Path] = []
+
+    def add_file(p: Path) -> None:
+        if p.exists() and p.is_file() and p not in out:
+            out.append(p)
+
+    def add_dir(d: Path) -> None:
+        if not d.exists() or not d.is_dir():
+            return
+        for p in sorted(d.iterdir()):
+            if not p.is_file():
+                continue
+            name = p.name
+            if name.startswith("."):
+                continue
+            if name.endswith(".template") or name.endswith(".example") or ".bak." in name:
+                continue
+            add_file(p)
+
+    for root in (
+        Path("/opt/taks/takctl"),
+        Path("/opt/tak/tools/takctl"),
+    ):
+        add_file(root / "takctl.conf")
+        add_file(root / "secrets.conf")
+        add_dir(root / "conf.d")
+        add_dir(root / "secrets.d")
+
+    return out
+
+
+def _cfg_first(cfg: dict[str, str], *keys: str, default: str = "") -> str:
+    for key in keys:
+        v = str(cfg.get(key, "") or "").strip()
+        if v:
+            return v
+    return default
+
+
+def load_takctl_db_config() -> dict[str, Any]:
+    merged: dict[str, str] = {}
+    loaded_from: list[str] = []
+
+    for path in _iter_kv_candidate_files():
+        vals = _read_kv_file(path)
+        if vals:
+            merged.update(vals)
+            loaded_from.append(str(path))
+
+    host = _cfg_first(
+        merged,
+        "db_host",
+        "pg_host",
+        "postgres_host",
+        default="127.0.0.1",
+    )
+    port_s = _cfg_first(
+        merged,
+        "db_port",
+        "pg_port",
+        "postgres_port",
+        default="5432",
+    )
+    dbname = _cfg_first(
+        merged,
+        "db_name",
+        "pg_database",
+        "postgres_db",
+        default="cot",
+    )
+    user = _cfg_first(
+        merged,
+        "db_user",
+        "db_readonly_user",
+        "db_ro_user",
+        "readonly_db_user",
+        "readonly_user",
+        "pg_user",
+        "postgres_user",
+        default="takctl_ro",
+    )
+    password = _cfg_first(
+        merged,
+        "db_password",
+        "db_readonly_password",
+        "db_ro_password",
+        "readonly_db_password",
+        "readonly_password",
+        "pg_password",
+        "postgres_password",
+        default="",
+    )
+
+    try:
+        port = int(str(port_s or "5432").strip())
+    except Exception:
+        port = 5432
+
+    cfg = {
+        "host": host,
+        "port": port,
+        "dbname": dbname,
+        "user": user,
+        "password": password,
+        "loaded_from": loaded_from,
+    }
+
+    redacted = dict(cfg)
+    redacted["password"] = "***" if str(password or "").strip() else ""
+    log.info("load_takctl_db_config cfg=%s", redacted)
+
+    if not str(password or "").strip():
+        log.warning("load_takctl_db_config_no_password cfg=%s", redacted)
+
+    return cfg
 
 
 def _pg_driver():
     try:
         import psycopg2  # type: ignore
-
-        return "psycopg2", psycopg2
+        return ("psycopg2", psycopg2)
     except Exception:
         pass
 
     try:
         import psycopg  # type: ignore
-
-        return "psycopg", psycopg
-    except Exception as e:
-        raise RuntimeError("Neither psycopg2 nor psycopg is available") from e
-
-
-def _candidate_fingerprint(d: dict[str, Any]) -> str:
-    safe = {k: ("***" if "pass" in k.lower() else v) for k, v in d.items()}
-    return json.dumps(safe, sort_keys=True, default=str)
-
-
-def _build_db_candidates() -> list[dict[str, Any]]:
-    cfg = _read_simple_kv(TAKCTL_CFG_PATHS)
-
-    dbname = (
-        str(
-            cfg.get("db_name")
-            or cfg.get("database")
-            or os.environ.get("PGDATABASE")
-            or "cot"
-        ).strip()
-        or "cot"
-    )
-    host_cfg = str(cfg.get("db_host") or os.environ.get("PGHOST") or "").strip()
-    port_raw = str(cfg.get("db_port") or os.environ.get("PGPORT") or "5432").strip()
-    try:
-        port_cfg = int(port_raw)
-    except Exception:
-        port_cfg = 5432
-
-    dsn = str(
-        cfg.get("database_url")
-        or cfg.get("db_url")
-        or cfg.get("postgres_url")
-        or os.environ.get("DATABASE_URL")
-        or os.environ.get("PGURL")
-        or ""
-    ).strip()
-
-    explicit_user = str(
-        cfg.get("db_user")
-        or cfg.get("pg_user")
-        or cfg.get("postgres_user")
-        or os.environ.get("PGUSER")
-        or ""
-    ).strip()
-
-    explicit_password = str(
-        cfg.get("db_password")
-        or cfg.get("pg_password")
-        or cfg.get("postgres_password")
-        or cfg.get("password")
-        or os.environ.get("PGPASSWORD")
-        or ""
-    ).strip()
-
-    fallback_users: list[str] = []
-    for u in (
-        explicit_user,
-        os.environ.get("USER"),
-        os.environ.get("LOGNAME"),
-        "tak",
-        cfg.get("sudo_user"),
-        "postgres",
-    ):
-        s = str(u or "").strip()
-        if s and s not in fallback_users:
-            fallback_users.append(s)
-
-    candidates: list[dict[str, Any]] = []
-    seen: set[str] = set()
-
-    def add(candidate: dict[str, Any]) -> None:
-        fp = _candidate_fingerprint(candidate)
-        if fp in seen:
-            return
-        seen.add(fp)
-        candidates.append(candidate)
-
-    if dsn:
-        add({"dsn": dsn})
-
-    if host_cfg or explicit_user or explicit_password:
-        cand: dict[str, Any] = {"dbname": dbname, "port": port_cfg}
-        if host_cfg:
-            cand["host"] = host_cfg
-        if explicit_user:
-            cand["user"] = explicit_user
-        if explicit_password:
-            cand["password"] = explicit_password
-        add(cand)
-
-    if explicit_user:
-        cand = {"dbname": dbname, "host": "/var/run/postgresql", "user": explicit_user}
-        if explicit_password:
-            cand["password"] = explicit_password
-        add(cand)
-
-    if host_cfg:
-        add({"dbname": dbname, "host": host_cfg, "port": port_cfg})
-
-    for user in fallback_users:
-        add({"dbname": dbname, "host": "/var/run/postgresql", "user": user})
-        add({"dbname": dbname, "user": user})
-
-    add({"dbname": dbname, "host": "/var/run/postgresql"})
-    add({"dbname": dbname})
-
-    return candidates
-
-
-def _connect_pg(driver_name: str, driver: Any, candidate: dict[str, Any]):
-    kwargs = dict(candidate)
-    if "dsn" in kwargs and len(kwargs) == 1:
-        conn = driver.connect(kwargs["dsn"])
-    else:
-        conn = driver.connect(**kwargs)
-    try:
-        conn.autocommit = True
+        return ("psycopg", psycopg)
     except Exception:
         pass
-    return conn
+
+    raise RuntimeError("Neither psycopg2 nor psycopg is installed")
 
 
 def db_rows(sql: str, params: tuple[Any, ...] = ()) -> list[tuple[Any, ...]]:
     try:
-        driver_name, driver = _pg_driver()
+        _driver_name, driver = _pg_driver()
     except Exception as e:
-        log.warning("db_driver_unavailable err=%s", e)
+        log.warning("db_rows_no_driver err=%s", e)
         return []
 
-    errors: list[str] = []
-    for candidate in _build_db_candidates():
-        try:
-            conn = _connect_pg(driver_name, driver, candidate)
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(sql, params)
-                    rows = cur.fetchall() or []
-                    return list(rows)
-            finally:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-        except Exception as e:
-            fp = _candidate_fingerprint(candidate)
-            errors.append(f"{fp}: {e.__class__.__name__}: {e}")
+    cfg = load_takctl_db_config()
 
-    if errors:
-        log.warning("db_rows_failed sql=%r err=%s", sql[:500], " | ".join(errors[:3])[:1500])
-    return []
+    conn_kwargs: dict[str, Any] = {
+        "dbname": cfg.get("dbname") or "cot",
+        "host": cfg.get("host") or "127.0.0.1",
+        "port": int(cfg.get("port") or 5432),
+        "user": cfg.get("user") or "takctl_ro",
+    }
+    if str(cfg.get("password") or "").strip():
+        conn_kwargs["password"] = str(cfg.get("password") or "")
+
+    try:
+        conn = driver.connect(**conn_kwargs)
+        try:
+            cur = conn.cursor()
+            try:
+                cur.execute(sql, params)
+                rows = cur.fetchall() or []
+                return list(rows)
+            finally:
+                cur.close()
+        finally:
+            conn.close()
+    except Exception as e:
+        redacted = dict(conn_kwargs)
+        if "password" in redacted:
+            redacted["password"] = "***"
+        log.warning("db_rows_failed sql=%r err=%s: %s", sql, redacted, e)
+        return []
 
 
 def db_scalar(sql: str, params: tuple[Any, ...] = ()) -> str:
     rows = db_rows(sql, params)
     if not rows:
         return ""
-    row0 = rows[0]
-    if not row0:
+    row = rows[0]
+    if not row:
         return ""
-    return str(row0[0] or "").strip()
+    return str(row[0] or "").strip()
 
 
 def _extract_cn_from_subject_dn(subject_dn: str) -> str:
@@ -340,11 +346,11 @@ def resolve_username_for_client_uid(client_uid: str) -> str:
         return ""
 
     sql = """
-    SELECT subject_dn
-    FROM public.certificate
-    WHERE client_uid = %s
-    ORDER BY id DESC
-    LIMIT 1;
+        SELECT subject_dn
+        FROM public.certificate
+        WHERE client_uid = %s
+        ORDER BY id DESC
+        LIMIT 1;
     """
     subject_dn = db_scalar(sql, (uid,))
     cn = _extract_cn_from_subject_dn(subject_dn)
@@ -445,23 +451,22 @@ def save_device_state(username: str, client_uid: str, state: dict[str, Any]) -> 
 
 def list_recent_client_devices() -> List[dict[str, Any]]:
     sql = """
-    SELECT
-      uid,
-      MIN(servertime) AS first_seen,
-      MAX(servertime) AS last_seen
-    FROM cot_router
-    WHERE servertime >= NOW() - (%s * INTERVAL '1 minute')
-      AND uid IS NOT NULL
-      AND uid <> ''
-      AND uid NOT LIKE 'GeoChat.%%'
-      AND uid NOT LIKE 'martine:%%'
-      AND uid NOT LIKE 'replay:%%'
-    GROUP BY uid
-    ORDER BY MAX(servertime) DESC, uid ASC
-    LIMIT %s;
+        SELECT
+          uid,
+          MIN(servertime) AS first_seen,
+          MAX(servertime) AS last_seen
+        FROM cot_router
+        WHERE servertime >= NOW() - (%s * INTERVAL '1 minute')
+          AND uid IS NOT NULL
+          AND uid <> ''
+          AND uid NOT LIKE 'GeoChat.%%'
+          AND uid NOT LIKE 'martine:%%'
+          AND uid NOT LIKE 'replay:%%'
+        GROUP BY uid
+        ORDER BY MAX(servertime) DESC, uid ASC
+        LIMIT %s;
     """
     rows = db_rows(sql, (int(BOOTSTRAP_LOOKBACK_MINUTES), 5000))
-
     out: list[dict[str, Any]] = []
     for row in rows:
         if len(row) < 3:
@@ -469,11 +474,13 @@ def list_recent_client_devices() -> List[dict[str, Any]]:
         uid = str(row[0] or "").strip()
         if not uid:
             continue
+        first_seen = row[1]
+        last_seen = row[2]
         out.append(
             {
                 "client_uid": uid,
-                "first_seen_at": _iso_or_text(row[1]),
-                "last_seen_at": _iso_or_text(row[2]),
+                "first_seen_at": iso_z(first_seen) if isinstance(first_seen, datetime) else str(first_seen or "").strip(),
+                "last_seen_at": iso_z(last_seen) if isinstance(last_seen, datetime) else str(last_seen or "").strip(),
             }
         )
     return out
@@ -507,11 +514,15 @@ def parse_chat_xml(xml_text: str):
     if chatgrp is not None:
         uid0 = str(chatgrp.attrib.get("uid0") or "").strip()
         uid1 = str(chatgrp.attrib.get("uid1") or "").strip()
+        uid2 = str(chatgrp.attrib.get("uid2") or "").strip()
         chat_id = str(chatgrp.attrib.get("id") or "").strip()
+
         if to_uid and uid1 == to_uid:
             sender_uid = uid0
         elif to_uid and uid0 == to_uid:
             sender_uid = uid1
+        elif to_uid and uid2 == to_uid:
+            sender_uid = uid0 or uid1
         elif chat_id and uid0 and chat_id == uid1:
             sender_uid = uid0
 
@@ -586,6 +597,87 @@ def build_atak_chat_xml(
         f'<link uid="{escape(chat_uid)}" type="a-f-G-U-C" relation="p-p"/>'
         f'<__serverdestination destinations="127.0.0.1:4242:tcp:{escape(chat_uid)}"/>'
         f'<remarks source="{escape(remarks_source)}" to="{escape(target_uid)}" time="{time_s}">{escape(message)}</remarks>'
+        f'</detail>'
+        f'</event>'
+    )
+
+
+def build_group_contacts_update_xml(
+    *,
+    chat_uid: str,
+    callsign: str,
+    recipient_uid: str,
+    recipient_callsign: str,
+    group_name: str,
+) -> str:
+    now_dt = datetime.now(timezone.utc)
+    time_s = iso_z(now_dt)
+    stale_s = iso_z(now_dt + timedelta(minutes=15))
+    message_id = str(uuid.uuid4())
+    group_uid = stable_group_id(group_name, recipient_uid, chat_uid)
+
+    return (
+        f'<event version="2.0" uid="GeoChat.{escape(chat_uid)}.{escape(group_uid)}.{escape(message_id)}" '
+        f'type="b-t-f" how="h-g-i-g-o" time="{time_s}" start="{time_s}" stale="{stale_s}">'
+        f'<point lat="55.429800" lon="13.826700" hae="0.0" ce="9999999.0" le="9999999.0"/>'
+        f'<detail>'
+        f'<__chat parent="UserGroups" groupOwner="true" messageId="{escape(message_id)}" '
+        f'chatroom="{escape(group_name)}" id="{escape(group_uid)}" senderCallsign="{escape(callsign)}">'
+        f'<chatgrp uid0="{escape(chat_uid)}" uid1="{escape(recipient_uid)}" id="{escape(group_uid)}"/>'
+        f'<hierarchy>'
+        f'<group uid="UserGroups" name="Groups">'
+        f'<group uid="{escape(group_uid)}" name="{escape(group_name)}">'
+        f'<contact uid="{escape(recipient_uid)}" name="{escape(recipient_callsign)}"/>'
+        f'<contact uid="{escape(chat_uid)}" name="{escape(callsign)}"/>'
+        f'</group>'
+        f'</group>'
+        f'</hierarchy>'
+        f'</__chat>'
+        f'<link uid="{escape(chat_uid)}" type="a-f-G-U-C" relation="p-p"/>'
+        f'<__serverdestination destinations="127.0.0.1:4242:tcp:{escape(chat_uid)}"/>'
+        f'<remarks source="BAO.F.ATAK.{escape(chat_uid)}" time="{time_s}">[UPDATED CONTACTS]</remarks>'
+        f'<marti><dest callsign="{escape(recipient_callsign)}"/></marti>'
+        f'</detail>'
+        f'</event>'
+    )
+
+
+def build_group_seed_message_xml(
+    *,
+    chat_uid: str,
+    callsign: str,
+    recipient_uid: str,
+    recipient_callsign: str,
+    group_name: str,
+    message: str,
+) -> str:
+    now_dt = datetime.now(timezone.utc)
+    time_s = iso_z(now_dt)
+    stale_s = iso_z(now_dt + timedelta(minutes=15))
+    message_id = str(uuid.uuid4())
+    group_uid = stable_group_id(group_name, recipient_uid, chat_uid)
+
+    return (
+        f'<event version="2.0" uid="GeoChat.{escape(chat_uid)}.{escape(group_uid)}.{escape(message_id)}" '
+        f'type="b-t-f" how="h-g-i-g-o" time="{time_s}" start="{time_s}" stale="{stale_s}">'
+        f'<point lat="55.429800" lon="13.826700" hae="0.0" ce="9999999.0" le="9999999.0"/>'
+        f'<detail>'
+        f'<__chat parent="UserGroups" groupOwner="false" messageId="{escape(message_id)}" '
+        f'chatroom="{escape(group_name)}" id="{escape(group_uid)}" senderCallsign="{escape(callsign)}">'
+        f'<chatgrp uid0="{escape(chat_uid)}" uid1="{escape(recipient_uid)}" id="{escape(group_uid)}"/>'
+        f'<hierarchy>'
+        f'<group uid="UserGroups" name="Groups">'
+        f'<group uid="{escape(group_uid)}" name="{escape(group_name)}">'
+        f'<contact uid="{escape(recipient_uid)}" name="{escape(recipient_callsign)}"/>'
+        f'<contact uid="{escape(chat_uid)}" name="{escape(callsign)}"/>'
+        f'</group>'
+        f'</group>'
+        f'</hierarchy>'
+        f'</__chat>'
+        f'<link uid="{escape(chat_uid)}" type="a-f-G-U-C" relation="p-p"/>'
+        f'<__serverdestination destinations="127.0.0.1:4242:tcp:{escape(chat_uid)}"/>'
+        f'<remarks source="BAO.F.ATAK.{escape(chat_uid)}" time="{time_s}">{escape(message)}</remarks>'
+        f'<marti><dest callsign="{escape(recipient_callsign)}"/></marti>'
         f'</detail>'
         f'</event>'
     )
@@ -679,16 +771,27 @@ def maybe_process_recent_devices(sock: ssl.SSLSocket, cfg) -> None:
         prev_hash = str(state.get("chat_groups_seed_assignment_hash") or "").strip()
         if seed_channels and assignment_hash and assignment_hash != prev_hash:
             for group_name in seed_channels:
-                msg = f"Martine seeding group {group_name}"
                 send_event(
                     sock,
-                    build_atak_chat_xml(
+                    build_group_contacts_update_xml(
                         chat_uid=cfg.chat_uid,
                         callsign=cfg.callsign,
-                        to_uid=client_uid,
-                        to_callsign=group_name,
-                        message=msg,
-                        parent="UserGroups",
+                        recipient_uid=client_uid,
+                        recipient_callsign=recipient_callsign,
+                        group_name=group_name,
+                    ),
+                )
+                time.sleep(0.10)
+
+                send_event(
+                    sock,
+                    build_group_seed_message_xml(
+                        chat_uid=cfg.chat_uid,
+                        callsign=cfg.callsign,
+                        recipient_uid=client_uid,
+                        recipient_callsign=recipient_callsign,
+                        group_name=group_name,
+                        message=f"Martine seeding group {group_name}",
                     ),
                 )
                 log.info(
@@ -708,6 +811,19 @@ def maybe_process_recent_devices(sock: ssl.SSLSocket, cfg) -> None:
             save_device_state(username, client_uid, state)
 
 
+def _is_message_for_martine(msg: dict[str, Any], cfg) -> bool:
+    to_uid = str(msg.get("to_uid") or "").strip()
+    to_callsign = str(msg.get("to_callsign") or "").strip()
+    my_uid = str(cfg.chat_uid or "").strip()
+    my_callsign = str(cfg.callsign or "").strip()
+
+    if to_uid and my_uid and to_uid == my_uid:
+        return True
+    if to_callsign and my_callsign and to_callsign == my_callsign:
+        return True
+    return False
+
+
 def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
     from martine.agent.simple_agent import run_once
 
@@ -717,7 +833,8 @@ def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
     if not msg:
         log.info("incoming_xml ignored=parse_chat_xml_none")
         return
-    if str(msg.get("to_callsign") or "") != cfg.callsign:
+
+    if not _is_message_for_martine(msg, cfg):
         log.info(
             "incoming_chat ignored wrong_recipient to_callsign=%s expected=%s from_callsign=%s uid=%s",
             msg.get("to_callsign"),
@@ -743,12 +860,14 @@ def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
         msg.get("to_callsign"),
         question[:500],
     )
+
     result = run_once(
         question,
         sender_uid=str(msg.get("from_uid") or "").strip(),
         sender_callsign=str(msg.get("from_callsign") or "").strip(),
     )
     answer = str(result.get("answer") or "").strip()
+
     log.info(
         "agent_result ok=%s run_id=%s error=%s answer_preview=%r",
         result.get("ok"),
@@ -756,6 +875,7 @@ def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
         result.get("error"),
         answer[:500],
     )
+
     if not answer:
         answer = f"Jag kunde inte svara just nu. Fel: {result.get('error') or 'okänt fel'}"
 
