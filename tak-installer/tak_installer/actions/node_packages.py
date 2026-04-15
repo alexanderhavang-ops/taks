@@ -19,7 +19,6 @@ PACKAGES = [
     "tesseract-ocr-swe",
     "tesseract-ocr-eng",
     "ocrmypdf",
-    "certbot",
 ]
 
 REPLAY_PACKAGES = [

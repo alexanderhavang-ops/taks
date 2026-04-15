@@ -162,11 +162,56 @@ def _ensure_secrets() -> tuple[str, str, str]:
     return martine_user_password, martine_client_p12_pass, martine_truststore_p12_pass
 
 
+BOOT_NODE_CONF = Path("/etc/taks-bootstrap.d/config.d/node.conf")
+
+
+def _read_simple_kv_optional(path: Path, key: str) -> str:
+    if not path.exists():
+        return ""
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        if k.strip() != key:
+            continue
+        v = v.strip()
+        if len(v) >= 2 and ((v[0] == '"' and v[-1] == '"') or (v[0] == "'" and v[-1] == "'")):
+            v = v[1:-1].strip()
+        return v
+    return ""
+
+
+def _default_martine_rw_group() -> str:
+    for key in ("unit_path", "node_unit_path", "unit_name", "node_name", "unit_id"):
+        v = _read_simple_kv_optional(BOOT_NODE_CONF, key).strip().strip("/")
+        if v:
+            return v
+    for key in ("node_fqdn", "fqdn"):
+        v = _read_simple_kv_optional(BOOT_NODE_CONF, key).strip()
+        if v:
+            return v.split(".", 1)[0].strip()
+    return "__ANON__"
+
+
+def _configured_groups(cfg, key: str) -> list[str]:
+    raw = str(cfg.get(key, "") or "").strip()
+    if key == "martine_groups_rw" and raw == "__ANON__":
+        raw = ""
+    groups = _split_groups(raw)
+    if groups:
+        return groups
+    if key == "martine_groups_rw":
+        g = _default_martine_rw_group().strip()
+        return [g] if g else []
+    return []
+
+
 def _ensure_user(cfg, user_password: str) -> None:
     username = (cfg.get("martine_username", "martine") or "martine").strip() or "martine"
-    groups_rw = _split_groups(cfg.get("martine_groups_rw", ""))
-    groups_in = _split_groups(cfg.get("martine_groups_in", ""))
-    groups_out = _split_groups(cfg.get("martine_groups_out", ""))
+    groups_rw = _configured_groups(cfg, "martine_groups_rw")
+    groups_in = _configured_groups(cfg, "martine_groups_in")
+    groups_out = _configured_groups(cfg, "martine_groups_out")
 
     current = _load_userauth_user(username)
     if current is not None:
@@ -247,9 +292,9 @@ def _bind_user_to_cert(cfg, cert_pem_path: Path, user_password: str) -> None:
         print("[martine-identity] bind_user_to_cert skip fingerprint-present")
         return
 
-    groups_rw = _split_groups(cfg.get("martine_groups_rw", ""))
-    groups_in = _split_groups(cfg.get("martine_groups_in", ""))
-    groups_out = _split_groups(cfg.get("martine_groups_out", ""))
+    groups_rw = _configured_groups(cfg, "martine_groups_rw")
+    groups_in = _configured_groups(cfg, "martine_groups_in")
+    groups_out = _configured_groups(cfg, "martine_groups_out")
 
     _wait_for_usermgr_ready()
     um = UserMgrService()
@@ -291,7 +336,8 @@ def _install_runtime_identity(cfg, cert_p12_path: Path, cert_pem_path: Path) -> 
     shutil.copy2(ca_pem_src, ca_pem_dst)
 
     for p in (client_p12_dst, trust_p12_dst, client_pem_dst, client_key_dst, ca_pem_dst):
-        p.chmod(0o600)
+        shutil.chown(p, user="root", group="tak")
+        p.chmod(0o640)
 
     print(f"[martine-identity] runtime identity installed under {RUNTIME_ID_DIR}")
 

@@ -13,6 +13,7 @@ STATE_FILE = STATE_ROOT / "imported.json"
 TOPLEVEL_COPY_NAMES = {
     "files.json",
     "branding.json",
+    "brand.json",
 }
 
 
@@ -112,6 +113,13 @@ def import_branding() -> int:
             summary["files"] = json.loads(files_json.read_text(encoding="utf-8"))
         except Exception:
             summary["files_json_error"] = f"failed to parse {files_json}"
+
+    brand_json = src_dir / "brand.json"
+    if brand_json.is_file():
+        try:
+            summary["brand"] = json.loads(brand_json.read_text(encoding="utf-8"))
+        except Exception:
+            summary["brand_json_error"] = f"failed to parse {brand_json}"
 
     STATE_FILE.write_text(
         json.dumps(summary, indent=2, ensure_ascii=False) + "\n",

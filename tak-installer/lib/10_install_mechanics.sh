@@ -11,7 +11,6 @@ pkg_install_online(){
     nginx \
     xmlstarlet \
     msmtp-mta \
-    certbot python3-certbot-nginx
 }
 
 require_offline_bundle(){

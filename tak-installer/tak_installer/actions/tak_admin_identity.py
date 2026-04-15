@@ -237,7 +237,8 @@ def _install_runtime_identity(username: str, cert_p12_path: Path, cert_pem_path:
     shutil.copy2(ca_pem_src, ca_pem_dst)
 
     for path in (client_p12_dst, trust_p12_dst, client_pem_dst, client_key_dst, ca_pem_dst):
-        path.chmod(0o600)
+        shutil.chown(path, user="root", group="tak")
+        path.chmod(0o640)
 
     META_PATH.write_text(
         json.dumps(
