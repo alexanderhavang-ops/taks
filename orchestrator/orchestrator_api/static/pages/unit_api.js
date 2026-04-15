@@ -59,6 +59,13 @@
     );
   }
 
+  async function seedCriticalBootstrap(unitPath, role){
+    const url =
+      '/api/v2/units/' + encodeURIComponent(unitPath) + '/bootstrap/seed-critical' +
+      '?role=' + encodeURIComponent(role || 'tak-node');
+    return await CORE.api('POST', url, {});
+  }
+
   async function deleteUnitBootstrapFile(unitPath, kind, name){
     const r = await fetch(
       '/api/v2/units/' + encodeURIComponent(unitPath) + '/bootstrap/file' +
@@ -83,25 +90,14 @@
   }
 
   async function uploadLogo(unitPath, file){
-    const fd = new FormData();
-    fd.append('file', file);
+    const base = String(unitPath || '').split('/').pop() || 'unit';
+    const name = base + '.png';
 
-    const r = await fetch(
-      '/api/v2/units/' + encodeURIComponent(unitPath) + '/logo',
-      { method: 'POST', body: fd, credentials: 'include' }
-    );
-
-    if(r.ok) return;
-
-    let msg = '';
-    try{
-      const j = await r.json();
-      msg = (j && j.detail) ? String(j.detail) : JSON.stringify(j);
-    }catch(_){
-      try { msg = (await r.text() || '').trim(); }
-      catch(__) { msg = ''; }
+    if(!file || !String(file.name || '').toLowerCase().endsWith('.png')){
+      throw new Error('Only .png allowed for branding');
     }
-    throw new Error(msg || ('HTTP ' + r.status));
+
+    return await uploadUnitFile(unitPath, 'branding', name, file);
   }
 
   async function uploadUnitFile(unitPath, subtree, name, file){
@@ -190,8 +186,7 @@
   function setLogoFallback(imgEl, unitPath){
     if(!imgEl) return;
     const tries = [
-      '/u/' + encodeURIComponent(unitPath) + '/assets/logo.svg',
-      '/u/' + encodeURIComponent(unitPath) + '/assets/logo.png',
+      '/u/' + encodeURIComponent(unitPath) + '/branding/current.png?ts=' + Date.now(),
       '/assets/taks-logo.svg'
     ];
     function next(){
@@ -216,6 +211,7 @@
     loadUnitBootstrapFiles,
     loadUnitBootstrapFile,
     saveUnitBootstrapFile,
+    seedCriticalBootstrap,
     deleteUnitBootstrapFile,
     saveBrand,
     uploadLogo,

@@ -119,15 +119,62 @@ def send_voice_onboarding(
                 "select_mission_label": mission_label,
                 "assign_controls": ["VS1", "VS2"],
                 "available_channels": channel_names,
+                "server_password_required_for_manual_entry": bool(server_password),
                 "mumble_server_password_may_need_manual_entry": bool(server_password),
                 "mumble_server_password": server_password,
+                "summary_sv": (
+                    f"Voice-onboarding skickad till {target_callsign}. "
+                    f"Server: {fqdn}:{voice_port}. Mission: {mission_label}. "
+                    f"Kanaler: {', '.join(channel_names)}. "
+                    + (
+                        f"Mumble-lösenord: {server_password}."
+                        if server_password
+                        else "Inget Mumble-lösenord är konfigurerat."
+                    )
+                ),
+                "summary_en": (
+                    f"Voice onboarding sent to {target_callsign}. "
+                    f"Server: {fqdn}:{voice_port}. Mission: {mission_label}. "
+                    f"Channels: {', '.join(channel_names)}. "
+                    + (
+                        f"Mumble password: {server_password}."
+                        if server_password
+                        else "No Mumble password is configured."
+                    )
+                ),
                 "user_guidance_sv": [
                     "Importen sker normalt automatiskt i bakgrunden; du behöver normalt inte öppna paketet manuellt.",
                     f"Gå till Settings -> TAK Voice och välj missionen {mission_label}.",
                     "Kontrollera att VS1 och VS2 är mappade till lämpliga kanaler från listan.",
                     "Om ATAK/Vx frågar efter Mumble-lösenord, skriv in serverlösenordet som visas här.",
                 ],
+                "user_guidance_en": [
+                    "The import normally happens automatically in the background; you usually do not need to open the package manually.",
+                    f"Go to Settings -> TAK Voice and select the mission {mission_label}.",
+                    "Make sure VS1 and VS2 are mapped to appropriate channels from the list.",
+                    "If ATAK/Vx asks for the Mumble password, enter the server password shown here.",
+                ],
             },
+            "operator_message_sv": (
+                f"Voice-onboarding skickad till {target_callsign}. "
+                f"Server {fqdn}:{voice_port}. Mission {mission_label}. "
+                f"Kanaler: {', '.join(channel_names)}. "
+                + (
+                    f"Mumble-lösenord: {server_password}."
+                    if server_password
+                    else "Inget Mumble-lösenord är konfigurerat."
+                )
+            ),
+            "operator_message_en": (
+                f"Voice onboarding sent to {target_callsign}. "
+                f"Server {fqdn}:{voice_port}. Mission {mission_label}. "
+                f"Channels: {', '.join(channel_names)}. "
+                + (
+                    f"Mumble password: {server_password}."
+                    if server_password
+                    else "No Mumble password is configured."
+                )
+            ),
             "artifacts": {
                 "state_dir": str(state_dir),
                 "spec_path": rendered["spec_path"],

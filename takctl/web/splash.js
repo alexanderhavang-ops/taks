@@ -43,6 +43,26 @@
     return BASE + "assets/logo" + n + "." + ext;
   }
 
+  function appendImg(host, src, alt) {
+    if (!host || !src) return;
+
+    var img = document.createElement("img");
+    img.className = "brandchain-logo inst";
+    img.alt = alt || "brand";
+    img.src = src;
+    img.onerror = function () {
+      this.style.display = "none";
+    };
+    host.appendChild(img);
+  }
+
+  function appendNodeBranding(host) {
+    if (!host) return;
+
+    appendImg(host, BASE + "assets/branding/node/unit-parent0.png", "parent brand");
+    appendImg(host, BASE + "assets/branding/node/unit.png", "unit brand");
+  }
+
   function renderBrandLogos() {
     var host = document.getElementById("__brand_logos");
     if (!host) return;
@@ -52,7 +72,11 @@
     fetch(BRAND, { cache: "no-store" })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (b) {
-        if (!b) { setSlogan("TAKS"); return; }
+        if (!b) {
+          setSlogan("TAKS");
+          if (!UNIT) appendNodeBranding(host);
+          return;
+        }
 
         setSlogan(b.slogan);
 
@@ -64,13 +88,17 @@
           if (rf) {
             var wantRole = true;
             if (b && b.login && b.login.role === false) wantRole = false;
-            // hide the whole field wrapper (the parent .field)
             var wrap = rf.closest ? rf.closest(".field") : null;
             if (wrap) wrap.style.display = wantRole ? "" : "none";
             else rf.style.display = wantRole ? "" : "none";
           }
         } catch (_) {}
 
+        // Node login page: keep big TAKS hero, show imported node/unit logos underneath.
+        if (!UNIT) {
+          appendNodeBranding(host);
+          return;
+        }
 
         if (!b.logos || !b.logos.length) return;
 
@@ -86,7 +114,6 @@
           var ext = (it && it.ext) ? String(it.ext).toLowerCase() : "";
           if (!ext) ext = "svg";
 
-          // Prefer unit asset if unit is set; fallback to shared
           var primary = (UNIT ? logoUrlUnit(n, ext) : logoUrlShared(n, ext));
           img.src = primary;
 
@@ -118,6 +145,7 @@
       })
       .catch(function () {
         setSlogan("TAKS");
+        if (!UNIT) appendNodeBranding(host);
       });
   }
 
@@ -125,7 +153,6 @@
     var u = $("__u"), r = $("__r"), p = $("__p"), go = $("__go");
     if (!u || !p || !go) return;
 
-    // Keep role sticky for now (UI freshness / faster iteration)
     try {
       if (r) r.value = (localStorage.getItem("taks_role") || "");
     } catch (_) {}
@@ -158,7 +185,6 @@
         var msg = "Login failed";
         try {
           if (e && e.message) {
-            // If backend returned JSON, message may contain it. Try to extract detail.
             var t = String(e.message || "");
             try {
               var j = JSON.parse(t);

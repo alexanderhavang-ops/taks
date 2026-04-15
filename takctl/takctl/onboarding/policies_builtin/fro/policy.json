@@ -61,6 +61,9 @@
   "group_fields": [],
   "config_fields": [],
   "defaults": {
-    "allow_callsign_change": true
+    "allow_callsign_change": true,
+    "identity_mode": "generic",
+    "callsign_policy_default": "GENERIC",
+    "show_callsign_policy_controls": false
   }
 }

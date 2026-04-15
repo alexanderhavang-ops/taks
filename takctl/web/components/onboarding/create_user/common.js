@@ -188,7 +188,7 @@
 
   function isValidPolicyId(x) {
     const s = String(x || "").trim().toUpperCase();
-    return s === "FAL" || s === "FALFAL" || s === "FAL_TAK" || s === "FALSPECIAL";
+    return s === "GENERIC" || s === "FAL" || s === "FALFAL" || s === "FAL_TAK" || s === "FALSPECIAL";
   }
 
   function normalizePolicyId(x) {

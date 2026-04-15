@@ -14,21 +14,49 @@ from takctl.onboarding.qrencode import write_qr_png
 from takctl.onboarding.http import external_base, forwarded_host_only, bool_q
 from takctl.onboarding.selection import artifact_root, load_selection, save_selection
 from takctl.onboarding.atak import (
+    qr_payload,
+    now_utc_iso,
+    atak_package_url,
+    atak_package_creds_url,
+    itak_package_url,
+)
+from takctl.onboarding.atak_quickconnect import (
     atak_enroll_payload,
     atak_enroll_creds_payload,
     atak_enroll_payload_values,
-    qr_payload,
-    write_atak_auto_enroll_zip,
-    write_atak_soft_cert_zip,
-    write_itak_soft_cert_zip,
-    now_utc_iso,
 )
+from takctl.onboarding.itak_quickconnect import qr_payload as itak_qr_payload
+from takctl.onboarding.atak_autoenroll import write_atak_auto_enroll_zip
+from takctl.onboarding.atak_softcert import write_atak_soft_cert_zip
+from takctl.onboarding.itak_softcert import write_itak_soft_cert_zip
 from takctl.onboarding.pages import render_generate_page, render_card_page
 from takctl.onboarding.vx import write_vx_mission_zip, derive_vx_params
 from takctl.config import load_config
 
 
 router = APIRouter(tags=["onboarding"])
+
+
+DEFAULT_CARD_TOKEN_TTL_SEC = 86400
+
+
+def _card_link_ttl_sec() -> int:
+    cfg = load_config()
+    for key in (
+        "onboarding_card_token_ttl_sec",
+        "onboarding_card_ttl_sec",
+        "onboarding_print_card_ttl_sec",
+    ):
+        raw = str(cfg.get(key, "") or "").strip()
+        if not raw:
+            continue
+        try:
+            v = int(raw)
+            if v >= 60:
+                return v
+        except Exception:
+            pass
+    return DEFAULT_CARD_TOKEN_TTL_SEC
 
 def _external_req_url(req) -> str:
     """Proxy-safe external URL for this request (scheme+host from forwarded headers)."""
@@ -319,40 +347,13 @@ def token_qr_png(req: Request, token: str, client: str):
 
 
 
-def _onboarding_mode_label() -> str:
-    try:
-        raw = str(load_config().get("onboarding_mode", "") or "").strip().lower()
-    except Exception:
-        raw = ""
-    if raw in ("auto-enroll", "cert-creation"):
-        return "auto-enroll" if raw == "auto-enroll" else "cert"
-    try:
-        legacy = str(load_config().get("create_cert_with_user", "") or "").strip().lower()
-    except Exception:
-        legacy = ""
-    return "cert" if legacy in ("1", "true", "yes", "y", "on") else "auto-enroll"
-
-
-def _pw_embed_label(key: str, short: str) -> str:
-    try:
-        raw = str(load_config().get(key, "") or "").strip().lower()
-    except Exception:
-        raw = ""
-    on = raw in ("1", "true", "yes", "y", "on")
-    return f"{short}-in" if on else f"{short}-out"
-
-
 def _package_filename(username: str, client: str, flavor: str | None = None) -> str:
-    mode = _onboarding_mode_label()
-    trust = _pw_embed_label("soft_cert_include_truststore_password", "trustpw")
-    clientpw = _pw_embed_label("soft_cert_include_client_password", "clientpw")
     u = (username or "").strip() or "user"
     c = (client or "").strip().lower() or "client"
     f = ((flavor or "").strip().lower())
     parts = [u, c]
     if f:
         parts.append(f)
-    parts.extend([mode, trust, clientpw])
     return ".".join(parts) + ".zip"
 
 
@@ -446,7 +447,7 @@ def token_itak_quick_connect_qr_txt(req: Request, token: str):
     svc, _, username, _ = _require_token(token)
     _mark_qr_generated(svc, username)
     host, port, use_ssl = _resolve_qr_endpoint(req, username, "itak")
-    payload = f"TAK Server,{host},{port},{'ssl' if use_ssl else 'tcp'}"
+    payload = itak_qr_payload("", host, port=port, use_ssl=use_ssl)
     return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
 
 
@@ -455,7 +456,7 @@ def token_itak_quick_connect_qr_png(req: Request, token: str):
     svc, _, username, _ = _require_token(token)
     _mark_qr_generated(svc, username)
     host, port, use_ssl = _resolve_qr_endpoint(req, username, "itak")
-    payload = f"TAK Server,{host},{port},{'ssl' if use_ssl else 'tcp'}"
+    payload = itak_qr_payload("", host, port=port, use_ssl=use_ssl)
     out = artifact_root(username) / f"{username}.itak.quick-connect.qr.png"
     write_qr_png(payload, out, size=8)
     return FileResponse(
@@ -609,6 +610,21 @@ def token_itak_soft_cert_package_zip(req: Request, token: str):
         filename=_package_filename(username, "itak", "soft-cert"),
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
+
+
+@router.get("/onboarding/cards/{token}/packages/atak/package.zip")
+def token_atak_package_zip(req: Request, token: str):
+    return token_atak_auto_enroll_package_zip(req, token)
+
+
+@router.get("/onboarding/cards/{token}/packages/itak/package.zip")
+def token_itak_package_zip(req: Request, token: str):
+    return token_itak_soft_cert_package_zip(req, token)
+
+
+@router.get("/onboarding/cards/{token}/packages/wintak/package.zip")
+def token_wintak_package_zip(req: Request, token: str):
+    return token_atak_auto_enroll_package_zip(req, token)
 
 
 def _resolve_public_base(req: Request, username: str) -> str:
@@ -802,7 +818,7 @@ def qr_payload_txt(req: Request, username: str, client: str):
     package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), regen="1", via="qr")
     host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
     if c == "itak":
-        payload = f"TAK Server,{host},{port},{'ssl' if use_ssl else 'tcp'}"
+        payload = itak_qr_payload("", host, port=port, use_ssl=use_ssl)
     else:
         payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
@@ -821,7 +837,7 @@ def qr_payload_json(req: Request, username: str, client: str):
     package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), regen="1", via="qr")
     host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
     if c == "itak":
-        payload = f"TAK Server,{host},{port},{'ssl' if use_ssl else 'tcp'}"
+        payload = itak_qr_payload("", host, port=port, use_ssl=use_ssl)
     else:
         payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
@@ -843,7 +859,7 @@ def qr_png(req: Request, username: str, client: str):
     package_url = _url_with_qs((itak_package_url(base, username) if c == "itak" else atak_package_url(base, username)), regen="1", via="qr")
     host, port, use_ssl = _resolve_qr_endpoint(req, username, c)
     if c == "itak":
-        payload = f"TAK Server,{host},{port},{'ssl' if use_ssl else 'tcp'}"
+        payload = itak_qr_payload("", host, port=port, use_ssl=use_ssl)
     else:
         payload = qr_payload(c, package_url, host, port=port, use_ssl=use_ssl)
 
@@ -1032,15 +1048,14 @@ def atak_package_zip(req: Request, username: str):
     regen = (req.query_params.get("regen") or "").strip().lower() in ("1", "true", "yes", "y", "on")
     base = external_base(req)
     if regen or (not out.exists()):
-        write_atak_package_zip(out, username, req, include_creds=False, base=base)
-        _mark_package_generated(svc, username, package_type="atak", sel=(load_selection(username) or {}))
-    # Stage-gate: serving package counts as download
+        write_atak_auto_enroll_zip(out, username, req, include_creds=False, base=base)
+        _mark_package_generated(svc, username, package_type="atak-auto-enroll", sel=(load_selection(username) or {}))
     via = (req.query_params.get("via") or "").strip()
     _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
     return FileResponse(
         str(out),
         media_type="application/zip",
-        filename=_package_filename(username, "atak"),
+        filename=_package_filename(username, "atak", "auto-enroll"),
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
 
@@ -1052,15 +1067,33 @@ def atak_package_creds_zip(req: Request, username: str):
     regen = (req.query_params.get("regen") or "").strip().lower() in ("1", "true", "yes", "y", "on")
     base = external_base(req)
     if regen or (not out.exists()):
-        write_atak_package_zip(out, username, req, include_creds=True, base=base)
-        _mark_package_generated(svc, username, package_type="atak", sel=(load_selection(username) or {}))
-    # Stage-gate: serving package counts as download
+        write_atak_auto_enroll_zip(out, username, req, include_creds=True, base=base)
+        _mark_package_generated(svc, username, package_type="atak-auto-enroll", sel=(load_selection(username) or {}))
     via = (req.query_params.get("via") or "").strip()
     _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
     return FileResponse(
         str(out),
         media_type="application/zip",
-        filename=f"{username}.atak.package-creds.zip",
+        filename=_package_filename(username, "atak", "package-creds"),
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/users/{username}/packages/itak/package.zip")
+def itak_package_zip(req: Request, username: str):
+    svc, _, username = _require_user(username)
+    out = artifact_root(username) / "itak" / "package.zip"
+    regen = (req.query_params.get("regen") or "").strip().lower() in ("1", "true", "yes", "y", "on")
+    base = external_base(req)
+    if regen or (not out.exists()):
+        write_itak_soft_cert_zip(out, username, req, base=base)
+        _mark_package_generated(svc, username, package_type="itak-soft-cert", sel=(load_selection(username) or {}))
+    via = (req.query_params.get("via") or "").strip()
+    _mark_downloaded(svc, username, download_url=_external_req_url(req), via=via)
+    return FileResponse(
+        str(out),
+        media_type="application/zip",
+        filename=_package_filename(username, "itak", "soft-cert"),
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
 
@@ -1138,6 +1171,24 @@ def onboarding_generate_submit(
 
 @router.get("/onboarding/users/{username}/card")
 def onboarding_card(req: Request, username: str):
+    # Admin entry point: issue a public soldier card and redirect to it.
+    svc, u, username = _require_user(username)
+
+    ttl_sec = _card_link_ttl_sec()
+
+    # Safe default: request reveal_password=True, but soldier page will only show
+    # a password if TAKS actually knows it (origin=taks + password_known).
+    # Prefer store compat wrapper (ttl_sec), fall back to issue_card_token(ttl_hours)
+    if hasattr(svc.store, "create_card_token"):
+        ct = svc.store.create_card_token(username=username, ttl_sec=ttl_sec, reveal_password=True)
+    else:
+        ttl_hours = max(1, int((int(ttl_sec) + 3599) // 3600))
+        ct = svc.store.issue_card_token(username=username, ttl_hours=ttl_hours, reveal_password=True)
+
+    base = external_base(req).rstrip("/")
+    return RedirectResponse(url=f"{base}/api/onboarding/cards/{ct.token}", status_code=303)
+
+def onboarding_card(req: Request, username: str):
     # Admin entry point: issue a short-lived public soldier card and redirect to it.
     svc, u, username = _require_user(username)
 
@@ -1178,3 +1229,102 @@ def preview_packages(username: str):
         {"user": {"username": username, "groups": list(u.groups)}, "packages": matrix},
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
+
+
+# --- TAKS library mission packages ---
+
+def _library_relpaths_from_built(built: dict | None) -> list[str]:
+    out: list[str] = []
+    for row in list((built or {}).get("files") or []):
+        rel = str((row or {}).get("relpath") or "").strip()
+        if rel:
+            out.append(rel)
+    return out
+
+
+def _write_plugins_package(out, *, base: str) -> dict:
+    del base
+    from takctl.onboarding.library_mission_package import write_library_mission_package
+    return write_library_mission_package(
+        out,
+        subtree="plugins",
+        display_name="ATAK plugins basic",
+        display_filename="ATAK-plugins-basic.zip",
+    )
+
+
+def _write_maps_package(out, *, base: str) -> dict:
+    del base
+    from takctl.onboarding.library_mission_package import write_library_mission_package
+    return write_library_mission_package(
+        out,
+        subtree="maps",
+        display_name="ATAK maps basic",
+        display_filename="ATAK-maps-basic.zip",
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/maps/package/qr.txt")
+def token_maps_package_qr_txt(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+    base = _resolve_public_base(req, username)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/maps/package.zip"
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
+    host, port, use_ssl = _resolve_qr_endpoint(req, username, "atak")
+    payload = qr_payload("atak", package_url, host, port=port, use_ssl=use_ssl)
+    return PlainTextResponse(payload + "\n", headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+
+
+@router.get("/onboarding/cards/{token}/packages/maps/package/qr.png")
+def token_maps_package_qr_png(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    _mark_qr_generated(svc, username)
+    base = _resolve_public_base(req, username)
+    package_url = f"{base}/api/onboarding/cards/{token}/packages/maps/package.zip"
+    package_url = _url_with_qs(package_url, regen="1", via="qr")
+    host, port, use_ssl = _resolve_qr_endpoint(req, username, "atak")
+    payload = qr_payload("atak", package_url, host, port=port, use_ssl=use_ssl)
+    out = artifact_root(username) / "maps" / f"{username}.maps.token.qr.png"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    write_qr_png(payload, out, size=8)
+    return FileResponse(
+        str(out),
+        media_type="image/png",
+        filename=f"{username}.maps.token.qr.png",
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+
+
+@router.get("/onboarding/cards/{token}/packages/maps/package.zip")
+def token_maps_package_zip(req: Request, token: str):
+    svc, _, username, _ = _require_token(token)
+    out = artifact_root(username) / "maps" / "package.zip"
+    base = _resolve_public_base(req, username)
+
+    built = None
+    if bool_q(req, "regen", False) or not out.exists():
+        _mark_pending(svc, username)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        built = _write_maps_package(out, base=base)
+        _mark_package_generated(
+            svc,
+            username,
+            package_type="maps-basic",
+            sel=(load_selection(username) or {}),
+        )
+
+    filename = str(((built or {}).get("display_filename") or "ATAK-maps-basic.zip")).strip() or "ATAK-maps-basic.zip"
+    _mark_downloaded(
+        svc,
+        username,
+        download_url=_external_req_url(req),
+        via=(req.query_params.get("via") or "").strip(),
+    )
+    return FileResponse(
+        str(out),
+        media_type="application/zip",
+        filename=filename,
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
+

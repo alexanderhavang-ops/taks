@@ -110,19 +110,76 @@ def _base_from_card_url(card_url: str) -> str:
     return f"{u.scheme}://{u.netloc}"
 
 
+def _json_dict(path: Path) -> dict:
+    try:
+        if path.exists() and path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except Exception:
+        pass
+    return {}
+
+
 def _read_brand() -> dict:
-    candidates = [
+    merged: dict = {}
+
+    shared_candidates = [
         Path("/opt/tak/tools/takctl/web/assets/brand.json"),
         Path("/opt/taks/takctl/web/assets/brand.json"),
         Path("/opt/taks/web/assets/brand.json"),
     ]
-    for p in candidates:
-        try:
-            if p.exists():
-                return json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return {}
+    for candidate in shared_candidates:
+        data = _json_dict(candidate)
+        if data:
+            merged.update(data)
+            break
+
+    node_candidates = [
+        Path("/opt/tak/tools/takctl/web/assets/branding/node/brand.json"),
+        Path("/opt/tak/tools/takctl/assets/branding/node/brand.json"),
+    ]
+    for candidate in node_candidates:
+        data = _json_dict(candidate)
+        if data:
+            merged.update(data)
+            break
+
+    return merged
+
+
+def _unit_label() -> str:
+    for candidate in (
+        Path("/etc/taks/unit.json"),
+    ):
+        data = _json_dict(candidate)
+        for key in ("title", "display_name", "displayName", "name", "unit_title", "unit_name"):
+            value = str(data.get(key) or "").strip()
+            if value:
+                return value
+        value = str(data.get("unit_path") or data.get("unit") or "").strip()
+        if value:
+            return value
+
+    brand = _read_brand()
+    for key in ("title", "display_name", "displayName", "name", "unit_title", "unit_name"):
+        value = str(brand.get(key) or "").strip()
+        if value:
+            return value
+
+    imported = _json_dict(Path("/opt/tak/tools/takctl/state/branding/imported.json"))
+    imported_brand = imported.get("brand")
+    if isinstance(imported_brand, dict):
+        for key in ("title", "display_name", "displayName", "name", "unit_title", "unit_name"):
+            value = str(imported_brand.get(key) or "").strip()
+            if value:
+                return value
+
+    value = str(imported.get("unit_id") or "").strip()
+    if value:
+        return value
+
+    return ""
 
 
 def _branding(card_url: str) -> dict[str, str]:
@@ -133,10 +190,9 @@ def _branding(card_url: str) -> dict[str, str]:
     return {
         "base": base,
         "taks_logo_url": f"{base}/assets/taks-logo.png",
-        "unit_logo_url": f"{base}/assets/unit-current.png",
+        "unit_logo_url": f"{base}/assets/branding/node/unit.png",
         "slogan": slogan,
     }
-
 
 def _card_qr_url(card_url: str) -> str:
     base = _base_from_card_url(card_url)
@@ -146,12 +202,26 @@ def _card_qr_url(card_url: str) -> str:
     return f"{base}/api/onboarding/cards/{token}/card-url/qr.png"
 
 
+def _norm_lang(lang: str | None) -> str:
+    raw = str(lang or "").strip().lower()
+    if not raw:
+        return _default_lang()
+    if raw.startswith("en"):
+        return "en"
+    return "sv"
+
+
+def _headline(lang: str) -> str:
+    unit = _unit_label()
+    if _norm_lang(lang) == "en":
+        return f"Welcome to {unit}" if unit else "Welcome to your unit"
+    return f"Välkommen till {unit}" if unit else "Välkommen till ditt förband"
+
+
 def _lang_copy(lang: str) -> dict[str, str]:
-    if (lang or "").lower().startswith("en"):
+    if _norm_lang(lang) == "en":
         return {
-            "subject": "Welcome to TAKS",
             "eyebrow": "TAKS ONBOARDING",
-            "headline": "Welcome to your unit",
             "lead": "Your onboarding card is ready. Open the link below to start your setup in ATAK, iTAK, or in a browser.",
             "cta": "Open soldier card",
             "expires": "This link may expire, so use it soon.",
@@ -163,9 +233,7 @@ def _lang_copy(lang: str) -> dict[str, str]:
             "footer": "This message was sent by TAKS onboarding.",
         }
     return {
-        "subject": "Välkommen till TAKS",
         "eyebrow": "TAKS ONBOARDING",
-        "headline": "Välkommen till ditt förband",
         "lead": "Ditt soldatkort är klart. Öppna länken nedan för att starta onboarding i ATAK, iTAK eller i webbläsare.",
         "cta": "Öppna soldatkort",
         "expires": "Länken kan gå ut, så använd den så snart som möjligt.",
@@ -179,18 +247,20 @@ def _lang_copy(lang: str) -> dict[str, str]:
 
 
 def _subject(username: str, lang: str) -> str:
-    c = _lang_copy(lang)
-    return f"{c['subject']} — {username}"
-
+    head = _headline(lang)
+    user = str(username or "").strip()
+    return f"{head} — {user}" if user else head
 
 def _text_body(*, username: str, card_url: str, lang: str) -> str:
     c = _lang_copy(lang)
     b = _branding(card_url)
+    headline = _headline(lang)
+    subject = _subject(username, lang)
     slogan = f"{b['slogan']}\n\n" if b["slogan"] else ""
     return (
-        f"{c['subject']}\n"
+        f"{subject}\n\n"
         f"{slogan}"
-        f"{c['headline']}\n\n"
+        f"{headline}\n\n"
         f"{c['username']}: {username}\n\n"
         f"{c['lead']}\n\n"
         f"{card_url}\n\n"
@@ -199,11 +269,12 @@ def _text_body(*, username: str, card_url: str, lang: str) -> str:
         f"/TAKS\n"
     )
 
-
 def _html_body(*, username: str, card_url: str, lang: str) -> str:
     c = _lang_copy(lang)
     b = _branding(card_url)
     qr_url = _card_qr_url(card_url)
+    headline = _headline(lang)
+    subject = _subject(username, lang)
 
     slogan_html = (
         f'<div style="margin-top:8px;font-size:12px;letter-spacing:0.12em;'
@@ -212,15 +283,15 @@ def _html_body(*, username: str, card_url: str, lang: str) -> str:
     )
 
     return f"""<!doctype html>
-<html lang="{h(lang)}">
+<html lang="{h(_norm_lang(lang))}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{h(c["subject"])}</title>
+  <title>{h(subject)}</title>
 </head>
 <body style="margin:0;padding:0;background:#0b0f14;color:#e8edf5;font-family:Arial,Helvetica,sans-serif;">
   <div style="display:none;max-height:0;overflow:hidden;opacity:0;">
-    {h(c["headline"])} — {h(username)}
+    {h(headline)} — {h(username)}
   </div>
 
   <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#0b0f14;">
@@ -250,7 +321,7 @@ def _html_body(*, username: str, card_url: str, lang: str) -> str:
               </div>
 
               <div style="margin-top:10px;font-size:32px;line-height:1.15;font-weight:800;color:#f5f7fb;">
-                {h(c["headline"])}
+                {h(headline)}
               </div>
 
               <div style="margin-top:14px;font-size:16px;line-height:1.6;color:#d4dbea;">
@@ -324,7 +395,6 @@ def _html_body(*, username: str, card_url: str, lang: str) -> str:
 </body>
 </html>
 """
-
 
 def _send_via_sendmail(*, to_addr: str, username: str, card_url: str, lang: str) -> dict:
     msg = EmailMessage()

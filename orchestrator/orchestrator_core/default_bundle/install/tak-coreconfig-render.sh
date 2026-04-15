@@ -5,7 +5,16 @@ log() {
   printf '[tak-coreconfig-render] %s\n' "$*"
 }
 
-read_trimmed_file() {
+die() {
+  printf '[tak-coreconfig-render] ERROR: %s\n' "$*" >&2
+  exit 1
+}
+
+require_root() {
+  [ "$(id -u)" -eq 0 ] || die "must run as root"
+}
+
+read_trimmed_file_optional() {
   local p="$1"
   [ -f "$p" ] || return 1
   tr -d '\r' < "$p" | sed -e 's/[[:space:]]*$//' | head -n 1
@@ -14,43 +23,33 @@ read_trimmed_file() {
 read_simple_kv() {
   local path="$1"
   local key="$2"
-  [ -f "$path" ] || return 1
+  [ -f "$path" ] || die "required file missing: $path"
   sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$path" | head -n 1 | sed -e 's/[[:space:]]*$//'
-}
-
-read_db_password_file() {
-  local p="/etc/taks/db/martiuser_password"
-  [ -f "$p" ] || return 1
-  tr -d '\r' < "$p" | sed -e 's/[[:space:]]*$//' | head -n 1
-}
-
-write_db_password_file() {
-  local value="$1"
-  install -d -m 700 /etc/taks/db
-  umask 077
-  printf '%s\n' "$value" > /etc/taks/db/martiuser_password
-}
-
-sync_martiuser_password() {
-  local pw="$1"
-  command -v psql >/dev/null 2>&1 || return 0
-  sudo -u postgres psql -d postgres -v ON_ERROR_STOP=1 >/dev/null <<EOF
-ALTER ROLE martiuser WITH PASSWORD '${pw}';
-EOF
 }
 
 read_shell_assignment() {
   local p="$1"
   local key="$2"
-  [ -f "$p" ] || return 1
+  [ -f "$p" ] || die "required file missing: $p"
   local v
   v="$(sed -n "s/^${key}=//p" "$p" | head -n 1)"
-  [ -n "$v" ] || return 1
+  [ -n "$v" ] || die "missing shell assignment ${key} in $p"
   case "$v" in
     \"*\") v="${v#\"}"; v="${v%\"}" ;;
     \'*\') v="${v#\'}"; v="${v%\'}" ;;
   esac
   printf '%s\n' "$v"
+}
+
+require_boot_fqdn() {
+  local boot_conf="/etc/taks-bootstrap.d/config.d/node.conf"
+  local fqdn=""
+  fqdn="$(read_simple_kv "$boot_conf" node_fqdn || true)"
+  if [ -z "$fqdn" ]; then
+    fqdn="$(read_simple_kv "$boot_conf" fqdn || true)"
+  fi
+  [ -n "$fqdn" ] || die "missing node_fqdn/fqdn in $boot_conf"
+  printf '%s\n' "$fqdn"
 }
 
 xml_escape() {
@@ -74,53 +73,172 @@ if m:
 PYXML
 }
 
+generate_db_password() {
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex 24
+    return 0
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - <<'PY'
+import secrets
+print(secrets.token_hex(24))
+PY
+    return 0
+  fi
+  if command -v uuidgen >/dev/null 2>&1; then
+    printf '%s%s\n' "$(uuidgen | tr -d '-')" "$(uuidgen | tr -d '-')"
+    return 0
+  fi
+  die "cannot generate db password (need openssl, python3, or uuidgen)"
+}
+
+sync_martiuser_password() {
+  local pw="$1"
+  command -v psql >/dev/null 2>&1 || die "psql missing"
+
+  sudo -u postgres psql -d postgres -v ON_ERROR_STOP=1 --set=pw="$pw" >/dev/null <<'PSQL'
+ALTER ROLE martiuser WITH PASSWORD :'pw';
+PSQL
+}
+
+verify_coreconfig_keystores() {
+  local cfg="/opt/tak/CoreConfig.xml"
+  [ -f "$cfg" ] || die "missing CoreConfig.xml: $cfg"
+  command -v keytool >/dev/null 2>&1 || die "keytool missing"
+  command -v uuidgen >/dev/null 2>&1 || die "uuidgen missing"
+
+  python3 - "$cfg" <<'PYXML' | while IFS=$'\t' read -r ctx role storetype path storepass alias keypass; do
+import sys
+import xml.etree.ElementTree as ET
+
+cfg = sys.argv[1]
+ns = {"m": "http://bbn.com/marti/xml/config"}
+root = ET.parse(cfg).getroot()
+items = []
+
+def add(ctx, role, storetype, path, storepass, alias="", keypass=""):
+    storetype = (storetype or "").strip() or "JKS"
+    path = (path or "").strip()
+    storepass = "" if storepass is None else str(storepass)
+    alias = "" if alias is None else str(alias)
+    keypass = "" if keypass is None else str(keypass)
+    if path and storepass:
+        items.append((ctx, role, storetype, path, storepass, alias, keypass))
+
+for elem in root.findall(".//m:connector", ns):
+    name = elem.attrib.get("_name", "")
+    add(f"connector:{name}", "keystore",
+        elem.attrib.get("keystore"),
+        elem.attrib.get("keystoreFile"),
+        elem.attrib.get("keystorePass"))
+
+for elem in root.findall(".//m:jwt/m:keystore", ns):
+    add("jwt", "keystore",
+        elem.attrib.get("type"),
+        elem.attrib.get("file"),
+        elem.attrib.get("password"),
+        elem.attrib.get("keyAlias"),
+        elem.attrib.get("keyPassword"))
+
+tls_i = 0
+for elem in root.findall(".//m:tls", ns):
+    tls_i += 1
+    add(f"tls:{tls_i}:keystore", "keystore",
+        elem.attrib.get("keystore"),
+        elem.attrib.get("keystoreFile"),
+        elem.attrib.get("keystorePass"),
+        elem.attrib.get("keystoreKeyAlias"),
+        elem.attrib.get("keystoreKeyPass"))
+    add(f"tls:{tls_i}:truststore", "truststore",
+        elem.attrib.get("truststore"),
+        elem.attrib.get("truststoreFile"),
+        elem.attrib.get("truststorePass"))
+
+for elem in root.findall(".//m:TAKServerCAConfig", ns):
+    add("TAKServerCAConfig", "keystore",
+        elem.attrib.get("keystore"),
+        elem.attrib.get("keystoreFile"),
+        elem.attrib.get("keystorePass"),
+        elem.attrib.get("keyAlias"),
+        elem.attrib.get("keystorePass"))
+
+seen = set()
+for row in items:
+    if row in seen:
+        continue
+    seen.add(row)
+    print("\t".join(row))
+PYXML
+    [ -n "${ctx:-}" ] || continue
+
+    local abs="$path"
+    if [[ "$abs" != /* ]]; then
+      abs="/opt/tak/$abs"
+    fi
+
+    [ -f "$abs" ] || die "CoreConfig store missing for $ctx: $abs"
+
+    if ! keytool -list -storetype "$storetype" -keystore "$abs" -storepass "$storepass" >/dev/null 2>&1; then
+      die "CoreConfig store/password mismatch for $ctx: $path (type=$storetype)"
+    fi
+
+    if [ "$role" = "keystore" ] && [ -n "$alias" ]; then
+      if ! keytool -list -storetype "$storetype" -keystore "$abs" -storepass "$storepass" -alias "$alias" >/dev/null 2>&1; then
+        die "CoreConfig alias missing/mismatch for $ctx: $path alias=$alias"
+      fi
+    fi
+
+    if [ "$role" = "keystore" ] && [ -n "$alias" ] && [ -n "$keypass" ]; then
+      tmpdir="$(mktemp -d /tmp/tak-keytest.XXXXXX)"
+      tmpdst="$tmpdir/out.p12"
+      tmppass="$(uuidgen | tr -d '-')"
+      if ! keytool -importkeystore \
+          -noprompt \
+          -srckeystore "$abs" \
+          -srcstoretype "$storetype" \
+          -srcstorepass "$storepass" \
+          -srcalias "$alias" \
+          -srckeypass "$keypass" \
+          -destkeystore "$tmpdst" \
+          -deststoretype PKCS12 \
+          -deststorepass "$tmppass" \
+          -destkeypass "$tmppass" >/dev/null 2>&1; then
+        rm -rf "$tmpdir"
+        die "CoreConfig key alias/password mismatch for $ctx: $path alias=$alias"
+      fi
+      rm -rf "$tmpdir"
+    fi
+
+    log "verified $ctx -> $path"
+  done
+}
+
 main() {
+  require_root
+
   local taks_dir="/etc/taks"
-  local db_dir="$taks_dir/db"
-  local cert_dir="$taks_dir/certs"
   local cert_meta="/opt/tak/certs/cert-metadata.sh"
   local out="/opt/tak/CoreConfig.xml"
   local server_id_file="$taks_dir/server_id"
-  local bootstrap_node_conf="/etc/taks-bootstrap.d/config.d/node.conf"
 
-  local unit_id fqdn private_ip db_password cert_pass cert_capass org ou org_xml ou_xml
-  unit_id="$(read_trimmed_file "$taks_dir/TAKS_UNIT_ID" || true)"
-  fqdn="$(read_simple_kv "$bootstrap_node_conf" node_fqdn || true)"
-  if [ -z "$fqdn" ]; then
-    fqdn="$(read_simple_kv "$bootstrap_node_conf" fqdn || true)"
-  fi
+  local fqdn private_ip db_password cert_pass cert_capass org ou org_xml ou_xml
+  local server_store_rel server_store_abs cert_https_store_rel cert_https_store_abs
+
+  fqdn="$(require_boot_fqdn)"
+
   private_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  db_password="$(read_db_password_file || true)"
-  if [ -z "$db_password" ]; then
-    db_password="$(extract_db_password || true)"
-  fi
-  cert_pass="$(read_shell_assignment "$cert_meta" PASS || read_trimmed_file "$cert_dir/PASS" || true)"
-  cert_capass="$(read_shell_assignment "$cert_meta" CAPASS || read_trimmed_file "$cert_dir/CAPASS" || true)"
-  org="$(read_shell_assignment "$cert_meta" ORGANIZATION || read_trimmed_file "$cert_dir/ORGANIZATION" || true)"
-  ou="$(read_shell_assignment "$cert_meta" ORGANIZATIONAL_UNIT || read_trimmed_file "$cert_dir/ORGANIZATIONAL_UNIT" || true)"
+  [ -n "$private_ip" ] || die "unable to determine private IP"
 
-  if [ -z "$fqdn" ]; then
-    fqdn="$(hostname -f 2>/dev/null || true)"
-  fi
-  if [ -z "$fqdn" ]; then
-    fqdn="$(hostname -s 2>/dev/null || true)"
-  fi
-  if [ -z "$unit_id" ]; then
-    unit_id="$(hostname -s 2>/dev/null || true)"
-  fi
-  if [ -z "$private_ip" ]; then
-    private_ip="127.0.0.1"
-  fi
+  db_password="$(extract_db_password || true)"
   if [ -z "$db_password" ]; then
-    db_password="atakatak"
+    db_password="$(generate_db_password)"
   fi
-  write_db_password_file "$db_password"
-  if [ -z "$cert_pass" ]; then
-    cert_pass="atakatak"
-  fi
-  if [ -z "$cert_capass" ]; then
-    cert_capass="$cert_pass"
-  fi
+  [ -n "$db_password" ] || die "missing martiuser db password"
+
+  cert_pass="$(read_shell_assignment "$cert_meta" PASS)"
+  cert_capass="$(read_shell_assignment "$cert_meta" CAPASS)"
+  org="$(read_shell_assignment "$cert_meta" ORGANIZATION)"
+  ou="$(read_shell_assignment "$cert_meta" ORGANIZATIONAL_UNIT)"
 
   mkdir -p "$taks_dir"
   if [ ! -f "$server_id_file" ]; then
@@ -128,14 +246,19 @@ main() {
   fi
 
   local server_id
-  server_id="$(read_trimmed_file "$server_id_file" || true)"
-  if [ -z "$server_id" ]; then
-    server_id="$(uuidgen | tr -d '\r\n')"
-    printf '%s\n' "$server_id" > "$server_id_file"
-  fi
+  server_id="$(read_trimmed_file_optional "$server_id_file" || true)"
+  [ -n "$server_id" ] || die "server_id missing in $server_id_file"
 
   org_xml="$(printf '%s' "$org" | xml_escape)"
   ou_xml="$(printf '%s' "$ou" | xml_escape)"
+
+  server_store_rel="certs/files/02_SERVER/takserver-${fqdn}.p12"
+  server_store_abs="/opt/tak/${server_store_rel}"
+  [ -f "$server_store_abs" ] || die "missing server store: $server_store_abs"
+
+  cert_https_store_rel="certs/files/03_PUBLIC/takserver-le-8446.p12"
+  cert_https_store_abs="/opt/tak/${cert_https_store_rel}"
+  [ -f "$cert_https_store_abs" ] || die "missing 8446 public LE store: $cert_https_store_abs"
 
   mkdir -p /opt/tak
 
@@ -148,10 +271,10 @@ main() {
         <input auth="anonymous" _name="replayudp" protocol="udp" port="6969"/>
         <connector port="8443" _name="https"/>
         <connector port="8444" useFederationTruststore="true" _name="fed_https"/>
-        <connector port="8446" clientAuth="false" _name="cert_https" keystore="PKCS12" keystoreFile="certs/files/02_SERVER/takserver-le-8446.p12" keystorePass="${cert_pass}" enableWebtak="false"/>
+        <connector port="8446" clientAuth="false" _name="cert_https" keystore="PKCS12" keystoreFile="${cert_https_store_rel}" keystorePass="${cert_pass}" enableWebtak="true"/>
         <announce/>
     </network>
-    <auth>
+    <auth x509useGroupCache="true">
         <File location="UserAuthenticationFile.xml"/>
     </auth>
     <submission ignoreStaleMessages="false" validateXml="false"/>
@@ -202,7 +325,7 @@ main() {
         <jwt>
             <keystore
                 type="PKCS12"
-                file="certs/files/02_SERVER/takserver-${unit_id,,}.jks"
+                file="${server_store_rel}"
                 password="${cert_pass}"
                 keyAlias="${fqdn}"
                 keyPassword="${cert_pass}"/>
@@ -210,7 +333,7 @@ main() {
 
         <tls
             keystore="PKCS12"
-            keystoreFile="certs/files/02_SERVER/takserver-${unit_id,,}.jks"
+            keystoreFile="${server_store_rel}"
             keystoreKeyAlias="${fqdn}"
             keystoreKeyPass="${cert_pass}"
             keystorePass="${cert_pass}"
@@ -223,10 +346,10 @@ main() {
         </tls>
     </security>
     <federation missionFederationDisruptionToleranceRecencySeconds="43200">
-        <federation-server port="9000" v1enabled="false" v2port="9001" v2enabled="true" webBaseUrl="https://${fqdn}:8443/Marti">
+        <federation-server port="9000" v1enabled="false" v2port="9001" v2enabled="true" webBaseUrl="https://${fqdn}:8446/Marti">
             <tls
                 keystore="PKCS12"
-                keystoreFile="certs/files/02_SERVER/takserver-${unit_id,,}.jks"
+                keystoreFile="${server_store_rel}"
                 keystorePass="${cert_pass}"
                 keystoreKeyAlias="${fqdn}"
                 keystoreKeyPass="${cert_pass}"
@@ -266,11 +389,15 @@ EOF2
 
   chmod 640 "$out"
   chown tak:tak "$out" 2>/dev/null || true
-  sync_martiuser_password "$db_password" || true
+
+  sync_martiuser_password "$db_password"
+  verify_coreconfig_keystores
+
   log "wrote $out"
   log "  fqdn=${fqdn}"
   log "  private_ip=${private_ip}"
-  log "  unit_id=${unit_id}"
+  log "  server_store=${server_store_rel}"
+  log "  public_8446_store=${cert_https_store_rel}"
   log "  server_id=${server_id}"
 }
 

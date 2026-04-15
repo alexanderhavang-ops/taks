@@ -27,6 +27,26 @@ read_simple_kv() {
   sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$path" | head -n 1 | sed -e 's/[[:space:]]*$//'
 }
 
+read_trimmed_file() {
+  local p="$1"
+  [ -f "$p" ] || return 1
+  tr -d '\r' < "$p" | sed -e 's/[[:space:]]*$//' | head -n 1
+}
+
+read_shell_assignment() {
+  local p="$1"
+  local key="$2"
+  [ -f "$p" ] || return 1
+  local v
+  v="$(sed -n "s/^${key}=//p" "$p" | head -n 1)"
+  [ -n "$v" ] || return 1
+  case "$v" in
+    \"*\") v="${v#\"}"; v="${v%\"}" ;;
+    \'*\') v="${v#\'}"; v="${v%\'}" ;;
+  esac
+  printf '%s\n' "$v"
+}
+
 run_step() {
   local name="$1"
   local path="$2"
@@ -40,6 +60,17 @@ run_step() {
   log "running $name: $path"
   bash "$path"
   log_state "$name" "Succeeded"
+}
+
+install_keystore_file() {
+  local src="$1"
+  local dst="$2"
+  mkdir -p "$(dirname "$dst")"
+  if getent group tak >/dev/null 2>&1; then
+    install -m 0640 -o root -g tak "$src" "$dst"
+  else
+    install -m 0640 "$src" "$dst"
+  fi
 }
 
 ensure_ca_signing_keystore() {
@@ -93,6 +124,7 @@ ensure_ca_signing_keystore() {
       -alias "$alias" \
       -noprompt
   )
+
 }
 
 generate_tak_server_certs() {
@@ -146,6 +178,110 @@ EOT
 
   ensure_ca_signing_keystore
 }
+
+normalize_server_keystores() {
+  local node_conf="/etc/taks-bootstrap.d/config.d/node.conf"
+  local cert_dir="/opt/tak/certs"
+  local files_dir="$cert_dir/files"
+  local fqdn=""
+  local cert_pass=""
+  local src_key src_pem dst_p12 dst_jks alias
+  local tmpdir=""
+  local tmppass=""
+  local check_p12=""
+
+  if [ ! -d "$files_dir" ]; then
+    log "skip server keystore normalization (missing $files_dir)"
+    return 0
+  fi
+
+  if [ ! -f "$node_conf" ]; then
+    log "skip server keystore normalization (missing $node_conf)"
+    return 0
+  fi
+
+  fqdn="$(read_simple_kv "$node_conf" node_fqdn || true)"
+  if [ -z "$fqdn" ]; then
+    fqdn="$(read_simple_kv "$node_conf" fqdn || true)"
+  fi
+  if [ -z "$fqdn" ]; then
+    log "skip server keystore normalization (node_fqdn/fqdn missing in $node_conf)"
+    return 0
+  fi
+
+  if [ ! -f "$cert_dir/cert-metadata.sh" ]; then
+    log "skip server keystore normalization (missing $cert_dir/cert-metadata.sh)"
+    return 0
+  fi
+
+  # shellcheck disable=SC1090
+  . "$cert_dir/cert-metadata.sh"
+  cert_pass="${PASS:-atakatak}"
+  alias="$fqdn"
+
+  src_key="$files_dir/$fqdn.key"
+  src_pem="$files_dir/$fqdn.pem"
+  dst_p12="$files_dir/$fqdn.p12"
+  dst_jks="$files_dir/$fqdn.jks"
+
+  if [ ! -f "$src_key" ] || [ ! -f "$src_pem" ]; then
+    log "skip server keystore normalization (missing $src_key or $src_pem)"
+    return 0
+  fi
+
+  log "normalizing server keystores for $fqdn with canonical alias/storepass/keypass"
+
+  tmpdir="$(mktemp -d)"
+  cleanup_normalize_server_keystores() {
+    local d="${tmpdir:-}"
+    trap - RETURN
+    [ -n "$d" ] && rm -rf "$d"
+  }
+  trap cleanup_normalize_server_keystores RETURN
+
+  openssl pkcs12 -legacy -export \
+    -in "$src_pem" \
+    -inkey "$src_key" \
+    -passin "pass:$cert_pass" \
+    -out "$tmpdir/$fqdn.p12" \
+    -name "$alias" \
+    -passout "pass:$cert_pass"
+
+  keytool -importkeystore \
+    -noprompt \
+    -srckeystore "$tmpdir/$fqdn.p12" \
+    -srcstoretype PKCS12 \
+    -srcstorepass "$cert_pass" \
+    -srcalias "$alias" \
+    -srckeypass "$cert_pass" \
+    -destkeystore "$tmpdir/$fqdn.jks" \
+    -deststoretype JKS \
+    -deststorepass "$cert_pass" \
+    -destkeypass "$cert_pass" \
+    -destalias "$alias" >/dev/null
+
+  tmppass="$(uuidgen | tr -d '-')"
+  check_p12="$tmpdir/check.p12"
+
+  keytool -importkeystore \
+    -noprompt \
+    -srckeystore "$tmpdir/$fqdn.p12" \
+    -srcstoretype PKCS12 \
+    -srcstorepass "$cert_pass" \
+    -srcalias "$alias" \
+    -srckeypass "$cert_pass" \
+    -destkeystore "$check_p12" \
+    -deststoretype PKCS12 \
+    -deststorepass "$tmppass" \
+    -destkeypass "$tmppass" >/dev/null
+
+  install_keystore_file "$tmpdir/$fqdn.p12" "$dst_p12"
+  install_keystore_file "$tmpdir/$fqdn.jks" "$dst_jks"
+
+  log "server keystores normalized: $dst_p12 and $dst_jks"
+}
+
+
 
 restart_takserver_if_present() {
   if systemctl list-unit-files --type=service --no-pager | grep -q '^takserver\.service'; then
@@ -319,6 +455,10 @@ main() {
   log_state "generate_tak_server_certs" "Started"
   generate_tak_server_certs
   log_state "generate_tak_server_certs" "Succeeded"
+
+  log_state "normalize_server_keystores" "Started"
+  normalize_server_keystores
+  log_state "normalize_server_keystores" "Succeeded"
 
   run_step "tak-certs-layout" "$BUNDLE_ROOT/install/tak-certs-layout.sh"
   run_step "tak-coreconfig-render" "$BUNDLE_ROOT/install/tak-coreconfig-render.sh"

@@ -39,42 +39,54 @@
 
     const setCfg = props.setCfg;
 
+    const policyId = String((policy && (policy.policy_id || policy.id)) || "").trim().toLowerCase();
+    const isGenericIdentityPolicy = !!policyId && policyId !== "hemvarnet";
+
     return h("div", null,
       h("div", { style: { fontWeight: 700, marginBottom: "10px" } }, t("tab.advanced")),
 
       h("div", { className: "grid", style: { gridTemplateColumns: "1fr", gap: "12px" } },
 
-        h(Field, { label: _L("Anropssignalspolicy (global standard)", "Callsign policy (global default)") },
-          h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } },
-            h(PolicySelect, {
-              value: callsignPolicyDefault,
-              onChange: function (v) {
-                const vv = normalizePolicyId(v) || "FAL_TAK";
-                setCallsignPolicyDefault(vv);
-                lsSet(lsKeyDefaultCallsignPolicy, vv);
-              },
-              includeDefaultOption: false
-            }),
-            h("span", { className: "muted", style: { fontSize: "12px" } },
-              _L("Lagrad i webbläsaren (lokalt)", "Stored in browser (local)")
+        isGenericIdentityPolicy
+          ? h("div", { className: "muted", style: { fontSize: "12px" } },
+              _L(
+                "Denna policy använder fri/generisk identitet utan FAL/FALFAL/FAL-TAK.",
+                "This policy uses flat/generic identity without FAL/FALFAL/FAL-TAK."
+              )
             )
-          )
-        ),
+          : h(Field, { label: _L("Anropssignalspolicy (global standard)", "Callsign policy (global default)") },
+              h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } },
+                h(PolicySelect, {
+                  value: callsignPolicyDefault,
+                  onChange: function (v) {
+                    const vv = normalizePolicyId(v) || "FAL_TAK";
+                    setCallsignPolicyDefault(vv);
+                    lsSet(lsKeyDefaultCallsignPolicy, vv);
+                  },
+                  includeDefaultOption: false
+                }),
+                h("span", { className: "muted", style: { fontSize: "12px" } },
+                  _L("Lagrad i webbläsaren (lokalt)", "Stored in browser (local)")
+                )
+              )
+            ),
 
-        h(Field, { label: _L("Anropssignalspolicy override (denna användare)", "Callsign policy override (this user)") },
-          h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } },
-            h(PolicySelect, {
-              value: callsignPolicyOverride,
-              onChange: function (v) { setCallsignPolicyOverride(normalizePolicyId(v) || ""); },
-              includeDefaultOption: true
-            }),
-            h("span", { className: "muted", style: { fontSize: "12px" } },
-              callsignPolicyOverride
-                ? _L("Överskriver global", "Overrides global")
-                : _L("Använder global", "Uses global")
-            )
-          )
-        ),
+        isGenericIdentityPolicy
+          ? null
+          : h(Field, { label: _L("Anropssignalspolicy override (denna användare)", "Callsign policy override (this user)") },
+              h("div", { style: { display: "flex", gap: "10px", alignItems: "center", flexWrap: "wrap" } },
+                h(PolicySelect, {
+                  value: callsignPolicyOverride,
+                  onChange: function (v) { setCallsignPolicyOverride(normalizePolicyId(v) || ""); },
+                  includeDefaultOption: true
+                }),
+                h("span", { className: "muted", style: { fontSize: "12px" } },
+                  callsignPolicyOverride
+                    ? _L("Överskriver global", "Overrides global")
+                    : _L("Använder global", "Uses global")
+                )
+              )
+            ),
 
         h(Field, { label: _L("TTL (sek)", "TTL (sec)") },
           h("input", Object.assign({}, LP, {

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 
+from orchestrator_core.bundles import bundle_readiness
+from orchestrator_core.policy_caps import describe_unit_policy
 from orchestrator_core.unit_bootstrap import (
     delete_local_file,
     effective_file_texts,
@@ -14,8 +17,6 @@ from orchestrator_core.unit_bootstrap import (
     local_file_texts,
     write_local_file,
 )
-
-from orchestrator_core.policy_caps import describe_unit_policy
 
 from .api_v2 import require_operator
 
@@ -45,6 +46,108 @@ def _validate_scope(scope: str) -> str:
     if s not in ("local", "effective"):
         raise HTTPException(status_code=400, detail=f"invalid scope: {scope}")
     return s
+
+
+def _parse_present_keys(text: str) -> set[str]:
+    out: set[str] = set()
+    for raw in str(text or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith(";"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            continue
+        if "=" not in line:
+            continue
+        k, _ = line.split("=", 1)
+        k = k.strip()
+        if k:
+            out.add(k)
+    return out
+
+
+def _effective_policy_id(unit_id: str) -> str:
+    conf = effective_file_texts(unit_id, secret=False)
+    txt = str(conf.get("policy.conf") or "")
+    for raw in txt.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith(";") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        if k.strip() == "default_policy_id":
+            return str(v or "").strip()
+    return ""
+
+
+def _seed_plan_for_missing(unit_id: str, missing: List[str]) -> Dict[str, Dict[str, Dict[str, str]]]:
+    missing_set = {str(x).strip() for x in (missing or []) if str(x).strip()}
+    policy_id = _effective_policy_id(unit_id)
+
+    conf_d: Dict[str, Dict[str, str]] = {}
+    secrets_d: Dict[str, Dict[str, str]] = {}
+
+    if "conf.d/*:default_policy_id" in missing_set:
+        conf_d.setdefault("policy.conf", {})["default_policy_id"] = policy_id
+
+    cert_conf_keys = [
+        "cert_country",
+        "cert_state",
+        "cert_city",
+        "cert_organization",
+    ]
+    cert_conf_missing = [k for k in cert_conf_keys if k in missing_set]
+    if cert_conf_missing:
+        target = conf_d.setdefault("certs.conf", {})
+        for k in cert_conf_missing:
+            target[k] = ""
+
+    if "conf.d/*:takctl_admin_user" in missing_set:
+        conf_d.setdefault("takctl.conf", {})["takctl_admin_user"] = ""
+
+    if "secrets.d/*:takctl_admin_password" in missing_set:
+        secrets_d.setdefault("takctl.conf", {})["takctl_admin_password"] = ""
+
+    cert_secret_keys = [
+        "secrets.d/*:cert_capass",
+        "secrets.d/*:cert_pass",
+    ]
+    cert_secret_missing = [k for k in cert_secret_keys if k in missing_set]
+    if cert_secret_missing:
+        target = secrets_d.setdefault("certs.conf", {})
+        for full_key in cert_secret_missing:
+            key = full_key.split(":", 1)[1]
+            target[key] = ""
+
+    if "secrets.d/*:serverpassword" in missing_set:
+        secrets_d.setdefault("murmur.conf", {})["serverpassword"] = ""
+
+    return {
+        "conf_d": conf_d,
+        "secrets_d": secrets_d,
+    }
+
+
+def _merge_seed_content(existing: str, kv: Dict[str, str]) -> tuple[str, List[str]]:
+    text = str(existing or "")
+    present = _parse_present_keys(text)
+    added: List[str] = []
+
+    lines_to_add: List[str] = []
+    if not text.strip():
+        lines_to_add.append("# seeded by orchestrator UI")
+
+    for key, value in kv.items():
+        if key in present:
+            continue
+        lines_to_add.append(f"{key} = {value}")
+        added.append(key)
+
+    if not added:
+        return text, added
+
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += "\n".join(lines_to_add) + "\n"
+    return text, added
 
 
 @router.get("/{unit_path}/bootstrap")
@@ -78,6 +181,75 @@ def get_unit_bootstrap(unit_path: str, request: Request) -> Dict[str, Any]:
     }
 
 
+@router.post("/{unit_path}/bootstrap/seed-critical")
+def seed_unit_bootstrap_critical(unit_path: str, request: Request, role: str = "tak-node") -> Dict[str, Any]:
+    require_operator(request)
+    unit_id = _validate_unit_id(unit_path)
+
+    readiness_before = bundle_readiness(unit_id, role)
+    missing_before = [str(x).strip() for x in (readiness_before.get("missing") or []) if str(x).strip()]
+    plan = _seed_plan_for_missing(unit_id, missing_before)
+
+    out: Dict[str, Any] = {
+        "ok": True,
+        "unit": unit_id,
+        "role": role,
+        "seeded": {
+            "conf_d": [],
+            "secrets_d": [],
+        },
+        "skipped": [],
+        "readiness_before": readiness_before,
+    }
+
+    handled_missing: set[str] = set()
+
+    for kind_name, files in plan.items():
+        secret = kind_name == "secrets_d"
+        for name, kv in files.items():
+            try:
+                p = local_file_path(unit_id, secret=secret, name=name)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
+            existing = p.read_text(encoding="utf-8") if p.exists() and p.is_file() else ""
+            merged, added_keys = _merge_seed_content(existing, kv)
+            if added_keys:
+                dst = write_local_file(unit_id, secret=secret, name=name, content=merged)
+                out["seeded"][kind_name].append({
+                    "name": name,
+                    "path": str(dst),
+                    "added_keys": added_keys,
+                })
+            else:
+                out["seeded"][kind_name].append({
+                    "name": name,
+                    "path": str(p),
+                    "added_keys": [],
+                })
+
+            for key in kv.keys():
+                if kind_name == "conf_d" and key == "default_policy_id":
+                    handled_missing.add("conf.d/*:default_policy_id")
+                elif kind_name == "conf_d" and key == "takctl_admin_user":
+                    handled_missing.add("conf.d/*:takctl_admin_user")
+                elif kind_name == "conf_d":
+                    handled_missing.add(key)
+                elif kind_name == "secrets_d" and key == "takctl_admin_password":
+                    handled_missing.add("secrets.d/*:takctl_admin_password")
+                elif kind_name == "secrets_d" and key in ("cert_capass", "cert_pass"):
+                    handled_missing.add(f"secrets.d/*:{key}")
+                elif kind_name == "secrets_d" and key == "serverpassword":
+                    handled_missing.add("secrets.d/*:serverpassword")
+
+    for item in missing_before:
+        if item not in handled_missing:
+            out["skipped"].append(item)
+
+    out["readiness_after"] = bundle_readiness(unit_id, role)
+    return out
+
+
 @router.get("/{unit_path}/bootstrap/files")
 def list_unit_bootstrap_files(unit_path: str, request: Request) -> JSONResponse:
     require_operator(request)
@@ -95,7 +267,7 @@ def list_unit_bootstrap_files(unit_path: str, request: Request) -> JSONResponse:
                 "local": name in local,
                 "effective": name in effective,
                 "sources": sources.get(name, []),
-                "bytes": len(effective.get(name, local.get(name).read_text(encoding='utf-8') if name in local else '')),
+                "bytes": len(effective.get(name, local.get(name).read_text(encoding="utf-8") if name in local else "")),
             })
         return items
 

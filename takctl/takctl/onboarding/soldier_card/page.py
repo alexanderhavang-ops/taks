@@ -40,11 +40,9 @@ def _cfg_str(cfg, key: str, default: str = "") -> str:
     return str(v).strip()
 
 
-def _onboarding_mode(cfg) -> str:
-    raw = _cfg_str(cfg, "onboarding_mode", "").lower()
-    if raw in ("auto-enroll", "cert-creation"):
-        return raw
-    return "cert-creation" if _cfg_bool(cfg, "create_cert_with_user", True) else "auto-enroll"
+def _show_soft_cert_paths(cfg) -> bool:
+    del cfg
+    return True
 
 
 def _read_user_client_password(username: str) -> str:
@@ -283,8 +281,7 @@ def _render_full_card_section(
     l = lang_norm(lang)
 
     cfg = load_config()
-    onboarding_mode = _onboarding_mode(cfg)
-    create_cert_with_user = (onboarding_mode == "cert-creation")
+    show_soft_cert_paths = _show_soft_cert_paths(cfg)
 
     soft_cert_include_client_password = _cfg_bool(cfg, "soft_cert_include_client_password", False)
     soft_cert_include_truststore_password = _cfg_bool(cfg, "soft_cert_include_truststore_password", False)
@@ -326,9 +323,9 @@ def _render_full_card_section(
 
     truststore_password = None
     client_password = None
-    if create_cert_with_user and (not soft_cert_include_truststore_password) and reveal_truststore_password_on_soldier_card:
+    if (not soft_cert_include_truststore_password) and reveal_truststore_password_on_soldier_card:
         truststore_password = _read_runtime_ca_password() or None
-    if create_cert_with_user and (not soft_cert_include_client_password) and reveal_client_password_on_soldier_card:
+    if (not soft_cert_include_client_password) and reveal_client_password_on_soldier_card:
         client_password = _read_user_client_password(username) or _read_runtime_user_cert_password() or None
 
     creds_html = password_block(
@@ -340,7 +337,7 @@ def _render_full_card_section(
         client_password=client_password,
     )
 
-    if create_cert_with_user:
+    if show_soft_cert_paths:
         mode_label = "soft-cert / cert-creation"
         mode_summary_html = (
             f'<div class="meta" style="margin-top:8px;">'
@@ -852,10 +849,10 @@ pre { white-space: pre-wrap; word-break: break-word; }
     hero_logo_html = f"""
     <div style="margin:12px 0 10px 0;">
       <img
-        src="/assets/unit-current.png?b={bump}"
+        src="/assets/branding/node/unit.png?b={bump}"
         alt="Unit"
         style="display:block;width:auto;height:56px;max-width:220px;"
-        onerror="this.onerror=null;this.src='/assets/unit-current.svg?b={bump}';"
+        onerror="this.onerror=null;this.src='/assets/branding/node/unit.png?b={bump}';"
       />
     </div>
     """

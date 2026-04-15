@@ -38,6 +38,7 @@ def _gen_strong_password(length: int = 20) -> str:
     return "".join(chars)
 
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, List
@@ -59,6 +60,8 @@ from takctl.config import load_config
 
 router = APIRouter(tags=["onboarding"])
 
+DEFAULT_CARD_TOKEN_TTL_SEC = 86400
+
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
@@ -71,12 +74,36 @@ def _cfg_bool(name: str, default: bool = False) -> bool:
     return raw in ("1", "true", "yes", "y", "on")
 
 
-def _onboarding_mode() -> str:
-    raw = str(load_config().get("onboarding_mode", "") or "").strip().lower()
-    if raw in ("auto-enroll", "cert-creation"):
-        return raw
-    return "cert-creation" if _cfg_bool("create_cert_with_user", False) else "auto-enroll"
+def _cfg_int(name: str, default: int) -> int:
+    raw = str(load_config().get(name, "") or "").strip()
+    if not raw:
+        return int(default)
+    try:
+        return int(raw)
+    except Exception:
+        return int(default)
 
+
+def _card_link_ttl_sec() -> int:
+    for key in (
+        "onboarding_card_token_ttl_sec",
+        "onboarding_card_ttl_sec",
+        "onboarding_print_card_ttl_sec",
+    ):
+        raw = str(load_config().get(key, "") or "").strip()
+        if not raw:
+            continue
+        try:
+            v = int(raw)
+            if v >= 60:
+                return v
+        except Exception:
+            pass
+    return DEFAULT_CARD_TOKEN_TTL_SEC
+
+
+def _cert_creation_gate_enabled() -> bool:
+    return True
 
 def _user_cert_pem_path(username: str) -> Path:
     u = (username or "").strip()
@@ -87,7 +114,7 @@ def _ensure_user_cert(username: str) -> Path | None:
     u = (username or "").strip()
     if not u:
         return None
-    if _onboarding_mode() != "cert-creation":
+    if not _cert_creation_gate_enabled():
         return None
 
     cert_pem = _user_cert_pem_path(u)
@@ -136,14 +163,266 @@ def _create_card_token_compat(store, *, username: str, ttl_sec: int, reveal_pass
     )
 
 
-def _card_token_json(ct) -> Dict[str, Any]:
-    return {
-        "token": ct.token,
-        "username": ct.username,
-        "expires_at": ct.expires_at_utc.isoformat().replace("+00:00", "Z"),
-        "reveal_password": bool(ct.reveal_password),
-    }
 
+def _card_token_token(ct) -> str:
+    if isinstance(ct, dict):
+        return str(ct.get("token") or "").strip()
+    return str(getattr(ct, "token", "") or "").strip()
+
+
+def _card_token_username(ct) -> str:
+    if isinstance(ct, dict):
+        return str(ct.get("username") or ct.get("user") or "").strip()
+    return str(getattr(ct, "username", None) or getattr(ct, "user", None) or "").strip()
+
+
+def _card_token_reveal_password(ct) -> bool:
+    if isinstance(ct, dict):
+        return bool(ct.get("reveal_password", False))
+    return bool(getattr(ct, "reveal_password", False))
+
+
+def _card_token_expires_at(ct) -> Optional[datetime]:
+    if isinstance(ct, dict):
+        raw = ct.get("expires_at_utc")
+        if raw is None:
+            raw = ct.get("expires_at")
+    else:
+        raw = getattr(ct, "expires_at_utc", None)
+        if raw is None:
+            raw = getattr(ct, "expires_at", None)
+
+    if raw is None:
+        return None
+
+    if isinstance(raw, datetime):
+        dt = raw
+    else:
+        txt = str(raw or "").strip()
+        if not txt:
+            return None
+        if txt.endswith("Z"):
+            txt = txt[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(txt)
+        except Exception:
+            return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _card_token_is_expired(ct) -> bool:
+    exp = _card_token_expires_at(ct)
+    return bool(exp is not None and exp <= _now_utc())
+
+
+def _load_card_token_any(svc, token: str):
+    t = str(token or "").strip()
+    if not t:
+        return None
+
+    store = getattr(svc, "store", None)
+    cards_dir = getattr(store, "cards_dir", None)
+
+    if cards_dir is not None:
+        p = Path(cards_dir) / f"{t}.json"
+        if p.exists():
+            try:
+                raw = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                raw = None
+            if isinstance(raw, dict):
+                raw.setdefault("token", t)
+                return raw
+
+    getter = getattr(store, "get_card_token", None)
+    if callable(getter):
+        try:
+            return getter(t)
+        except Exception:
+            return None
+
+    return None
+
+
+def _expired_card_payload(ct) -> Dict[str, Any]:
+    exp = _card_token_expires_at(ct)
+    out: Dict[str, Any] = {
+        "ok": False,
+        "error": "expired_card_token",
+        "expired": True,
+        "token": _card_token_token(ct),
+        "username": _card_token_username(ct),
+        "reveal_password": _card_token_reveal_password(ct),
+    }
+    if exp is not None:
+        out["expires_at"] = exp.isoformat().replace("+00:00", "Z")
+    return out
+
+
+def _render_expired_card_page(*, base: str, lang: str, username: str, expires_at_utc: Optional[datetime]) -> str:
+    sv = str(lang or "sv").strip().lower().startswith("sv")
+
+    title = "Kortet har löpt ut" if sv else "This card has expired"
+    body = (
+        "Länken är inte längre giltig. Be avsändaren skapa och skicka ett nytt onboardingkort."
+        if sv else
+        "This link is no longer valid. Ask the sender to issue and send a new onboarding card."
+    )
+    user_label = "Användare" if sv else "User"
+    exp_label = "Giltigt till" if sv else "Valid until"
+    help_text = (
+        "QR-koder och nedladdningar på gamla kort ska inte längre användas."
+        if sv else
+        "QR codes and downloads from old cards should no longer be used."
+    )
+    exp_txt = "okänt" if sv else "unknown"
+    if expires_at_utc is not None:
+        exp_txt = expires_at_utc.strftime("%Y-%m-%d %H:%M UTC")
+
+    logo_url = f"{base}/assets/branding/node/unit.png"
+
+    return f"""<!doctype html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>{title}</title>
+<style>
+body {{
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #f3f4f6;
+  color: #111827;
+}}
+.wrap {{
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}}
+.card {{
+  width: 100%;
+  max-width: 760px;
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+}}
+.top {{
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+  background: linear-gradient(180deg, #1f2937 0%, #111827 100%);
+  color: #fff;
+  border-bottom: 3px solid #b08d2f;
+}}
+.top img {{
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}}
+.eyebrow {{
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+  font-weight: 700;
+}}
+.title {{
+  font-size: 30px;
+  line-height: 1.05;
+  font-weight: 900;
+  margin-top: 4px;
+}}
+.body {{
+  padding: 24px;
+}}
+.lead {{
+  font-size: 18px;
+  line-height: 1.45;
+  margin: 0 0 18px 0;
+}}
+.meta {{
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  gap: 10px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+  background: #fafafa;
+}}
+.label {{
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7280;
+  font-weight: 800;
+}}
+.value {{
+  font-size: 15px;
+  word-break: break-word;
+}}
+.note {{
+  margin-top: 18px;
+  font-size: 14px;
+  color: #4b5563;
+}}
+.badge {{
+  margin-left: auto;
+  border: 1px solid rgba(255,255,255,0.28);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: #fde68a;
+}}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="top">
+        <img src="{logo_url}" alt="Unit logo"/>
+        <div>
+          <div class="eyebrow">TAKS</div>
+          <div class="title">{title}</div>
+        </div>
+        <div class="badge">EXPIRED</div>
+      </div>
+      <div class="body">
+        <p class="lead">{body}</p>
+        <div class="meta">
+          <div class="label">{user_label}</div>
+          <div class="value">{username or "—"}</div>
+          <div class="label">{exp_label}</div>
+          <div class="value">{exp_txt}</div>
+        </div>
+        <div class="note">{help_text}</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>"""
+
+
+def _card_token_json(ct) -> Dict[str, Any]:
+    exp = _card_token_expires_at(ct)
+    out = {
+        "token": _card_token_token(ct),
+        "username": _card_token_username(ct),
+        "reveal_password": _card_token_reveal_password(ct),
+    }
+    if exp is not None:
+        out["expires_at"] = exp.isoformat().replace("+00:00", "Z")
+    return out
 
 def _identity_out(ident, *, password_value: Optional[str] = None) -> Optional[Dict[str, Any]]:
     if ident is None:
@@ -208,15 +487,13 @@ class IdentityUpsertIn(BaseModel):
 
 
 class CardTokenCreateIn(BaseModel):
-    ttl_sec: int = Field(default=3600, ge=60, le=7 * 24 * 3600)
+    ttl_sec: Optional[int] = Field(default=None, ge=60, le=7 * 24 * 3600)
     reveal_password: bool = Field(default=False)
-
 
 class EmailLinkIn(BaseModel):
     email: str = Field(default="")
-    ttl_sec: int = Field(default=3600, ge=60, le=7 * 24 * 3600)
+    ttl_sec: Optional[int] = Field(default=None, ge=60, le=7 * 24 * 3600)
     reveal_password: bool = Field(default=True)
-
 
 class UserCreateIn(BaseModel):
     password: Optional[str] = Field(default=None)
@@ -226,9 +503,8 @@ class UserCreateIn(BaseModel):
     groups_out: List[str] = Field(default_factory=list)
     ctx: Dict[str, Any] = Field(default_factory=dict)
     endpoints: Dict[str, Any] = Field(default_factory=dict)
-    ttl_sec: int = Field(default=600, ge=60, le=7 * 24 * 3600)
+    ttl_sec: Optional[int] = Field(default=None, ge=60, le=7 * 24 * 3600)
     reveal_password: bool = Field(default=True)
-
 
 class IdentityDeriveIn(BaseModel):
     policy_id: str = Field(default="")
@@ -508,7 +784,7 @@ def create_user(req: Request, username: str, body: UserCreateIn):
         req,
         svc,
         username=u,
-        ttl_sec=int(body.ttl_sec),
+        ttl_sec=(_card_link_ttl_sec() if body.ttl_sec is None else int(body.ttl_sec)),
         reveal_password=bool(body.reveal_password),
     )
 
@@ -586,7 +862,7 @@ def create_card_token(req: Request, username: str, body: CardTokenCreateIn):
             req,
             svc,
             username=username,
-            ttl_sec=int(body.ttl_sec),
+            ttl_sec=(_card_link_ttl_sec() if body.ttl_sec is None else int(body.ttl_sec)),
             reveal_password=bool(body.reveal_password),
         )
     except RuntimeError as e:
@@ -621,7 +897,7 @@ def email_link(req: Request, username: str, body: EmailLinkIn):
             req,
             svc,
             username=username,
-            ttl_sec=int(body.ttl_sec),
+            ttl_sec=(_card_link_ttl_sec() if body.ttl_sec is None else int(body.ttl_sec)),
             reveal_password=bool(body.reveal_password),
         )
         email_status = send_onboarding_email(
@@ -706,6 +982,7 @@ def voice_live(username: str, recent_minutes: int = Query(120, ge=1, le=24 * 60)
 
 
 @router.get("/onboarding/cards/{token}.json")
+
 def onboarding_card_by_token_json(
     token: str,
     recent_minutes: int = Query(120, ge=1, le=24 * 60),
@@ -715,28 +992,34 @@ def onboarding_card_by_token_json(
         raise HTTPException(status_code=400, detail="token required")
 
     svc = build_service()
-    db, db_err, db_source, db_target = maybe_db()
 
-    ct = svc.store.get_card_token(token)
+    ct = _load_card_token_any(svc, token)
     if ct is None:
         raise HTTPException(status_code=404, detail="Unknown card token")
-    if ct.expires_at_utc <= _now_utc():
-        raise HTTPException(status_code=404, detail="Expired card token")
+
+    if _card_token_is_expired(ct):
+        return JSONResponse(
+            _expired_card_payload(ct),
+            status_code=410,
+            headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+        )
+
+    username = _card_token_username(ct)
+    if not username:
+        raise HTTPException(status_code=404, detail="Unknown card token")
+
+    db, _db_err, _db_source, _db_target = maybe_db()
 
     try:
-        card = svc.user_card(username=ct.username, db=db, recent_minutes=int(recent_minutes))
+        card = svc.user_card(username=username, db=db, recent_minutes=int(recent_minutes))
     except KeyError:
-        raise HTTPException(status_code=404, detail=f"Unknown user: {ct.username}")
+        raise HTTPException(status_code=404, detail=f"Unknown user: {username}")
 
     if isinstance(card, dict):
-        card["card_token"] = {
-            "token": ct.token,
-            "expires_at": ct.expires_at_utc.isoformat().replace("+00:00", "Z"),
-            "reveal_password": bool(ct.reveal_password),
-        }
+        card["card_token"] = _card_token_json(ct)
 
-    if bool(ct.reveal_password):
-        ident = svc.store.get_identity(ct.username)
+    if bool(_card_token_reveal_password(ct)):
+        ident = svc.store.get_identity(username)
         if ident is not None and bool(ident.password_known):
             if isinstance(card, dict):
                 card["taks_identity"] = {
@@ -754,21 +1037,45 @@ def onboarding_card_by_token_json(
                 except Exception:
                     pass
 
-    return JSONResponse(card, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
-
+    return JSONResponse(
+        card,
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
 
 @router.get("/onboarding/cards/{token}")
+
 def onboarding_card_html(req: Request, token: str):
     svc = build_service()
 
-    ct = svc.store.get_card_token(token)
+    ct = _load_card_token_any(svc, token)
     if not ct:
         raise HTTPException(status_code=404, detail="Not Found")
 
-    username = getattr(ct, "username", None) or getattr(ct, "user", None) or ""
-    username = str(username).strip()
+    username = _card_token_username(ct)
     if not username:
         raise HTTPException(status_code=404, detail="Not Found")
+
+    exp = _card_token_expires_at(ct)
+
+    try:
+        lang = str(load_config().get("language", "sv") or "sv").strip().lower()
+    except Exception:
+        lang = "sv"
+
+    base = external_base(req).rstrip("/")
+
+    if _card_token_is_expired(ct):
+        html = _render_expired_card_page(
+            base=base,
+            lang=lang,
+            username=username,
+            expires_at_utc=exp,
+        )
+        return HTMLResponse(
+            html,
+            status_code=410,
+            headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+        )
 
     db, _db_err, _db_source, _db_target = maybe_db()
 
@@ -790,9 +1097,7 @@ def onboarding_card_html(req: Request, token: str):
     ident = svc.store.get_identity(username)
     sel = load_selection(username) or {}
 
-    base = external_base(req).rstrip("/")
-    exp = getattr(ct, "expires_at_utc", None) or getattr(ct, "expires_at", None)
-    reveal = bool(getattr(ct, "reveal_password", False))
+    reveal = bool(_card_token_reveal_password(ct))
 
     try:
         cfg_reveal_user = str(load_config().get("reveal_user_pass_on_soldier_card", "") or "").strip().lower() in ("1", "true", "yes", "y", "on")
@@ -805,11 +1110,6 @@ def onboarding_card_html(req: Request, token: str):
         cfg_reveal_default = False
 
     reveal = bool(reveal or cfg_reveal_user or cfg_reveal_default)
-
-    try:
-        lang = str(load_config().get("language", "sv") or "sv").strip().lower()
-    except Exception:
-        lang = "sv"
 
     html = render_soldier_card_page(
         lang=lang,
@@ -824,3 +1124,4 @@ def onboarding_card_html(req: Request, token: str):
         lifecycle=lifecycle,
     )
     return HTMLResponse(html, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})
+

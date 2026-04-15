@@ -26,7 +26,85 @@ IDENTITY_DIR = "/opt/tak/tools/martine/runtime/identity"
 CERT_PEM = f"{IDENTITY_DIR}/client.pem"
 KEY_PEM = f"{IDENTITY_DIR}/client.key"
 CA_PEM = f"{IDENTITY_DIR}/ca.pem"
-KEY_PASSWORD = "cert-pass-46-pass"
+CERT_METADATA = "/opt/tak/certs/cert-metadata.sh"
+MARTINE_SECRETS_CONF = "/opt/tak/tools/takctl/secrets.d/martine.conf"
+LEGACY_KEY_PASSWORD = "cert-pass-46-pass"
+
+def _strip_quotes(v: str) -> str:
+    s = str(v or "").strip()
+    if len(s) >= 2 and ((s[0] == '"' and s[-1] == '"') or (s[0] == "'" and s[-1] == "'")):
+        return s[1:-1]
+    return s
+
+def _read_simple_kv(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not path.exists() or not path.is_file():
+        return out
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except Exception:
+        return out
+    for raw in lines:
+        line = str(raw or "").strip()
+        if not line or line.startswith("#") or line.startswith(";") or "=" not in line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            continue
+        k, v = line.split("=", 1)
+        key = str(k or "").strip()
+        val = _strip_quotes(v)
+        if key:
+            out[key] = val
+    return out
+
+def _cert_password_candidates() -> list[str | None]:
+    vals: list[str | None] = [None]
+
+    martine_kv = _read_simple_kv(Path(MARTINE_SECRETS_CONF))
+    for key in ("martine_client_p12_pass", "martine_truststore_p12_pass"):
+        v = str(martine_kv.get(key, "") or "").strip()
+        if v:
+            vals.append(v)
+
+    try:
+        for raw in Path(CERT_METADATA).read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if not line.startswith("PASS="):
+                continue
+            v = line.split("=", 1)[1].strip()
+            v = _strip_quotes(v)
+            if v:
+                vals.append(v)
+            break
+    except Exception:
+        pass
+
+    vals.append(LEGACY_KEY_PASSWORD)
+
+    out: list[str | None] = []
+    seen = set()
+    for v in vals:
+        if v in seen:
+            continue
+        seen.add(v)
+        out.append(v)
+    return out
+
+def _load_client_chain(ctx: ssl.SSLContext) -> None:
+    last = None
+    for pw in _cert_password_candidates():
+        try:
+            if pw is None:
+                ctx.load_cert_chain(certfile=CERT_PEM, keyfile=KEY_PEM)
+            else:
+                ctx.load_cert_chain(certfile=CERT_PEM, keyfile=KEY_PEM, password=pw)
+            return
+        except (ssl.SSLError, OSError, ValueError) as e:
+            last = e
+    if last is not None:
+        raise last
+    ctx.load_cert_chain(certfile=CERT_PEM, keyfile=KEY_PEM)
+
 
 ALL_CHAT_ROOMS = "All Chat Rooms"
 
@@ -575,6 +653,7 @@ def build_atak_chat_xml(
     to_callsign: str,
     message: str,
     parent: str = "RootContactGroup",
+    sender_callsign_override: str = "",
 ) -> str:
     now_dt = datetime.now(timezone.utc)
     time_s = iso_z(now_dt)
@@ -584,6 +663,7 @@ def build_atak_chat_xml(
     target_uid = str(to_uid or room).strip() or room
     uid = f"GeoChat.{chat_uid}.{target_uid}.{message_id}"
     remarks_source = f"BAO.F.ATAK.{chat_uid}"
+    visible_callsign = str(sender_callsign_override or callsign).strip() or callsign
 
     return (
         f'<event version="2.0" uid="{escape(uid)}" type="b-t-f" how="h-g-i-g-o" '
@@ -591,7 +671,7 @@ def build_atak_chat_xml(
         f'<point lat="55.429800" lon="13.826700" hae="0.0" ce="9999999.0" le="9999999.0"/>'
         f'<detail>'
         f'<__chat parent="{escape(parent)}" groupOwner="false" messageId="{escape(message_id)}" '
-        f'chatroom="{escape(room)}" id="{escape(target_uid)}" senderCallsign="{escape(callsign)}">'
+        f'chatroom="{escape(room)}" id="{escape(target_uid)}" senderCallsign="{escape(visible_callsign)}">'
         f'<chatgrp uid0="{escape(chat_uid)}" uid1="{escape(target_uid)}" id="{escape(target_uid)}"/>'
         f'</__chat>'
         f'<link uid="{escape(chat_uid)}" type="a-f-G-U-C" relation="p-p"/>'
@@ -688,7 +768,7 @@ def ssl_context() -> ssl.SSLContext:
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_REQUIRED
     ctx.load_verify_locations(cafile=CA_PEM)
-    ctx.load_cert_chain(certfile=CERT_PEM, keyfile=KEY_PEM, password=KEY_PASSWORD)
+    _load_client_chain(ctx)
     return ctx
 
 

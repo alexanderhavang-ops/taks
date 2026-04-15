@@ -22,10 +22,7 @@
 # Main onboarding mode used when creating the user/card defaults.
 #   auto-enroll   = username/password enrollment flow
 #   cert-creation = create client cert + soft-cert package flow
-onboarding_mode = cert-creation
 
-# Backward-compatibility legacy flag. Prefer onboarding_mode.
-create_cert_with_user = true
 
 # -----------------------------------------------------------------------------
 # Global soft-cert security policy
@@ -76,6 +73,15 @@ itak_soft_cert_zip_enabled = true
 # iTAK QR import is currently unreliable in this deployment, so prefer:
 # Networking -> Servers -> + -> Upload server package
 itak_manual_import_warning_enabled = true
+
+# -----------------------------------------------------------------------------
+# Soldier card links / token lifetime
+# -----------------------------------------------------------------------------
+
+# Lifetime for tokenized soldier-card links used in email and print-pack output.
+# Default 86400 = 24h. After expiry the link should fail closed.
+# Legacy key onboarding_print_card_ttl_sec is still honored if explicitly set.
+onboarding_card_token_ttl_sec = 86400
 
 # -----------------------------------------------------------------------------
 # Email delivery

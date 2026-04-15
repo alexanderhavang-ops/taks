@@ -53,6 +53,7 @@
       alt: 'logo',
       style: 'max-width:100%;max-height:100%;object-fit:contain'
     });
+    logoImg.onerror = function(){ this.style.display = 'none'; };
     logoBox.appendChild(logoImg);
     row.appendChild(logoBox);
 
@@ -92,7 +93,7 @@
     logoCol.appendChild(S.el('input', {
       id: 'brand_logo_file',
       type: 'file',
-      accept: '.png,.jpg,.jpeg,.svg',
+      accept: '.png',
       style: 'display:none'
     }));
     logoCol.appendChild(S.el('div', {
@@ -137,11 +138,13 @@
     row.appendChild(body);
     c.appendChild(row);
 
-    if(ctx.logoUrl){
-      logoImg.src = ctx.logoUrl;
-    }else{
-      A.setLogoFallback(logoImg, ctx.unitPath);
-    }
+    logoImg.onerror = function(){ this.style.display = 'none'; };
+
+    const effectiveLogoUrl = (ctx.logoUrl && String(ctx.logoUrl).trim())
+      ? String(ctx.logoUrl).trim()
+      : ('/u/' + encodeURIComponent(ctx.unitPath) + '/branding/current.png');
+    logoImg.src = effectiveLogoUrl + (effectiveLogoUrl.indexOf('?') >= 0 ? '&' : '?') + 'ts=' + Date.now();
+    logoImg.style.display = '';
 
     return c;
   }
@@ -153,6 +156,7 @@
     if(s === 'completed_with_warnings') return 'err';
     if(s === 'failed') return 'err';
     if(s === 'running' || s === 'incomplete') return 'warn';
+    if(s === 'stale') return 'warn';
     return 'muted';
   }
 
@@ -164,6 +168,7 @@
     if(s === 'failed') return 'Fel';
     if(s === 'running') return 'Pågår';
     if(s === 'incomplete') return 'Oavslutad';
+    if(s === 'stale') return 'Senast känd';
     return 'Okänd';
   }
 
@@ -174,6 +179,7 @@
     if(s === 'completed_with_warnings') return '#dc2626';
     if(s === 'failed') return '#dc2626';
     if(s === 'running' || s === 'incomplete') return '#d97706';
+    if(s === 'stale') return '#d97706';
     return 'rgba(255,255,255,0.28)';
   }
 
@@ -215,7 +221,9 @@
       return String((step && step.name) || '') !== 'install/main';
     });
     const events = Array.isArray(install.events) ? install.events : [];
-    const visualState = installVisualState(summary);
+    const snap = nodeStatusSnapshot(node);
+    const stale = !!snap.stale;
+    const visualState = stale ? 'stale' : installVisualState(summary);
     const pct = Math.max(0, Math.min(100, Number(summary.progress_pct || 0)));
     const total = Number(summary.total_steps || 0);
     const completed = Number(summary.completed_steps || 0);
@@ -240,6 +248,7 @@
     if(failed > 0) metaBits.push(failed + ' fel');
     if(running > 0) metaBits.push(running + ' pågår');
     if(incomplete > 0) metaBits.push(incomplete + ' oavslutade');
+    if(stale) metaBits.push('senast känd');
     if(summary.last_event_ts) metaBits.push('senast ' + summary.last_event_ts);
     wrap.appendChild(S.el('div', { className: 'muted', text: metaBits.join(' • ') || 'Ingen installationsdata' }));
 
@@ -255,6 +264,16 @@
       style: 'height:100%;border-radius:999px;width:' + pct + '%;background:' + installBarColor(visualState)
     }));
     inner.appendChild(barOuter);
+
+    if(stale){
+      inner.appendChild(S.el('div', {
+        className: 'muted',
+        style: 'padding:8px 10px;border:1px solid rgba(245,158,11,0.35);border-radius:10px;background:rgba(245,158,11,0.08)',
+        text: snap.hb === 'lost'
+          ? 'Heartbeat är förlorad. Installationen nedan visas som senast kända värden.'
+          : 'Heartbeat är gammal. Installationen nedan kan vara inaktuell.'
+      }));
+    }
 
     if(incomplete > 0 || failed > 0){
       inner.appendChild(S.el('div', {
@@ -316,6 +335,7 @@
     const s = String(status || '').trim().toLowerCase();
     if(s === 'ok') return 'ok';
     if(s === 'warn') return 'warn';
+    if(s === 'stale') return 'warn';
     if(s === 'fail' || s === 'error' || s === 'red') return 'err';
     if(s === 'skip' || s === 'skipped' || s === 'unknown') return 'muted';
     return 'muted';
@@ -325,6 +345,7 @@
     const s = String(status || '').trim().toLowerCase();
     if(s === 'ok') return 'OK';
     if(s === 'warn') return 'Varning';
+    if(s === 'stale') return 'Senast känd';
     if(s === 'fail' || s === 'error' || s === 'red') return 'Fel';
     if(s === 'skip' || s === 'skipped') return 'Skip';
     if(s === 'unknown') return 'Okänd';
@@ -422,6 +443,107 @@
     });
   }
 
+  function nodeHeartbeatStatus(node){
+    return String(S.heartbeatState(node) || '').trim().toLowerCase();
+  }
+
+  function nodeStatusSnapshot(node){
+    const awsState = String((node && node.aws_state) || '').trim().toLowerCase();
+    const derivedStatus = String((node && node.derived_status) || '').trim().toLowerCase();
+    const nodeId = String((node && (node.node_id || node.fqdn || node.instance_id)) || '').trim();
+    const hb = nodeHeartbeatStatus(node);
+    const hasNode = !!nodeId;
+    const isStopped = hasNode && (awsState === 'stopped' || derivedStatus === 'stopped');
+    const isBooting = hasNode && (awsState === 'pending' || derivedStatus === 'booting');
+    const isRunning = hasNode && (
+      awsState === 'running' ||
+      derivedStatus === 'running' ||
+      derivedStatus === 'stale'
+    );
+
+    if(!hasNode){
+      return {
+        tone: 'muted',
+        text: '○ No node',
+        detail: '',
+        stale: false,
+        hb: hb,
+        awsState: awsState,
+        derivedStatus: derivedStatus,
+      };
+    }
+
+    if(isStopped){
+      return {
+        tone: 'warn',
+        text: '💤 Sleeping',
+        detail: 'Noden finns men är stoppad. Wake för att starta upp den igen. Quick links är avstängda medan den sover.',
+        stale: false,
+        hb: hb,
+        awsState: awsState,
+        derivedStatus: derivedStatus,
+      };
+    }
+
+    if(hb === 'lost'){
+      return {
+        tone: 'err',
+        text: '● Unreachable',
+        detail: 'AWS-instansen kör men heartbeat är förlorad. Installation och nodhälsa nedan visas som senast kända värden.',
+        stale: true,
+        hb: hb,
+        awsState: awsState,
+        derivedStatus: derivedStatus,
+      };
+    }
+
+    if(hb === 'stale'){
+      return {
+        tone: 'warn',
+        text: '◔ Stale',
+        detail: 'Heartbeat är gammal. Installation och nodhälsa nedan kan vara inaktuella.',
+        stale: true,
+        hb: hb,
+        awsState: awsState,
+        derivedStatus: derivedStatus,
+      };
+    }
+
+    if(isBooting){
+      return {
+        tone: 'warn',
+        text: '◔ Booting',
+        detail: 'Instans startar. Väntar på första färska heartbeat.',
+        stale: false,
+        hb: hb,
+        awsState: awsState,
+        derivedStatus: derivedStatus,
+      };
+    }
+
+    if(isRunning){
+      return {
+        tone: 'ok',
+        text: '● Running',
+        detail: '',
+        stale: false,
+        hb: hb,
+        awsState: awsState,
+        derivedStatus: derivedStatus,
+      };
+    }
+
+    return {
+      tone: 'muted',
+      text: '◌ Unknown',
+      detail: 'Det finns nodmetadata men ingen pålitlig aktuell nodstatus ännu.',
+      stale: true,
+      hb: hb,
+      awsState: awsState,
+      derivedStatus: derivedStatus,
+    };
+  }
+
   function collectNodeHealth(node){
     const nodeHealth = (node && node.node_health && typeof node.node_health === 'object') ? node.node_health : null;
     const rollup = (nodeHealth && nodeHealth.rollup && typeof nodeHealth.rollup === 'object')
@@ -475,12 +597,16 @@
     const checks = Array.isArray(data.checks) ? data.checks : [];
     if(!rollup && !checks.length) return null;
 
+    const snap = nodeStatusSnapshot(node);
+    const stale = !!snap.stale || !!(rollup && rollup.stale);
+
     const wrap = S.el('section', {
       'data-node-health': '1',
       style: 'display:grid;gap:10px;margin-top:2px;padding:14px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:rgba(255,255,255,0.02)'
     });
 
-    const overall = String((rollup && rollup.overall) || '').trim().toLowerCase();
+    const overallRaw = String((rollup && rollup.overall) || '').trim().toLowerCase();
+    const overall = stale ? 'stale' : overallRaw;
     const head = S.el('div', {
       style: 'display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'
     });
@@ -494,8 +620,18 @@
     if(rollup && typeof rollup.warn === 'number' && rollup.warn > 0) bits.push(String(rollup.warn) + ' varningar');
     if(rollup && typeof rollup.ok === 'number' && rollup.ok > 0) bits.push(String(rollup.ok) + ' ok');
     if(rollup && typeof rollup.skip === 'number' && rollup.skip > 0) bits.push(String(rollup.skip) + ' skip');
-    if(rollup && rollup.stale) bits.push('stale');
+    if(stale) bits.push('senast känd');
     wrap.appendChild(S.el('div', { className: 'muted', text: bits.join(' • ') || 'Ingen health-rollup rapporterad' }));
+
+    if(stale){
+      wrap.appendChild(S.el('div', {
+        className: 'muted',
+        style: 'padding:8px 10px;border:1px solid rgba(245,158,11,0.35);border-radius:10px;background:rgba(245,158,11,0.08)',
+        text: snap.hb === 'lost'
+          ? 'Heartbeat är förlorad. Nodhälsa visas som senast kända värden tills ny heartbeat kommer in.'
+          : 'Heartbeat är gammal. Nodhälsa visas som senast kända värden tills ny heartbeat kommer in.'
+      }));
+    }
 
     if(checks.length){
       const details = S.el('details', { style: 'margin-top:2px' });
@@ -630,27 +766,17 @@
     row2.appendChild(S.field(CORE.t('unit.field.public_ip'), pubWrap));
     wrap.appendChild(row2);
 
-    const awsState = String((node && node.aws_state) || '').trim().toLowerCase();
-    const derivedStatus = String((node && node.derived_status) || '').trim().toLowerCase();
-    const nodeId = String((node && (node.node_id || node.fqdn || node.instance_id)) || '').trim();
-    const isStopped = !!nodeId && (awsState === 'stopped' || derivedStatus === 'stopped');
-    const isLiveish = !!nodeId && (
-      awsState === 'running' ||
-      awsState === 'pending' ||
-      derivedStatus === 'running' ||
-      derivedStatus === 'stale' ||
-      derivedStatus === 'booting'
-    );
-
-    const statusTone = isStopped ? 'warn' : (isLiveish ? 'ok' : 'muted');
-    const statusText = isStopped ? '💤 Sleeping' : (isLiveish ? '● Running' : '○ No node');
+    const snap = nodeStatusSnapshot(node);
 
     const statusWrap = S.el('div', { style: 'margin-top:12px;margin-bottom:12px' });
-    statusWrap.appendChild(S.badge(statusText, statusTone));
-    if(isStopped){
+    statusWrap.appendChild(S.badge(snap.text, snap.tone));
+    if(snap.detail){
+      const boxBorder = snap.tone === 'err' ? 'rgba(239,68,68,.25)' : 'rgba(245,158,11,.25)';
+      const boxBg = snap.tone === 'err' ? 'rgba(239,68,68,.08)' : 'rgba(245,158,11,.08)';
+      const boxFg = snap.tone === 'err' ? '#fecaca' : '#f6d28b';
       statusWrap.appendChild(S.el('div', {
-        style: 'margin-top:8px;padding:10px 12px;border-radius:10px;border:1px solid rgba(245,158,11,.25);background:rgba(245,158,11,.08);color:#f6d28b;font-size:12px;line-height:1.45',
-        text: 'Noden finns men är stoppad. Wake för att starta upp den igen. Quick links är avstängda medan den sover.'
+        style: 'margin-top:8px;padding:10px 12px;border-radius:10px;border:1px solid ' + boxBorder + ';background:' + boxBg + ';color:' + boxFg + ';font-size:12px;line-height:1.45',
+        text: snap.detail
       }));
     }
     wrap.appendChild(statusWrap);
@@ -715,13 +841,17 @@
       derivedStatus === 'booting'
     );
 
-    const statusTone = isStopped ? 'warn' : (isLiveish ? 'ok' : 'muted');
-    const statusText = isStopped ? '💤 Sleeping' : (isLiveish ? '● Running' : '○ No node');
+    const snap = nodeStatusSnapshot(node);
+    const statusTone = snap.tone;
+    const statusText = snap.text;
 
-    if(isStopped){
+    if(statusTone === 'err'){
+      c.style.border = '1px solid rgba(239, 68, 68, .38)';
+      c.style.boxShadow = '0 0 0 1px rgba(239, 68, 68, .12) inset';
+    }else if(statusTone === 'warn'){
       c.style.border = '1px solid rgba(245, 158, 11, .38)';
       c.style.boxShadow = '0 0 0 1px rgba(245, 158, 11, .12) inset';
-    }else if(isLiveish){
+    }else if(statusTone === 'ok'){
       c.style.border = '1px solid rgba(34, 197, 94, .28)';
       c.style.boxShadow = '0 0 0 1px rgba(34, 197, 94, .10) inset';
     }
@@ -1073,6 +1203,23 @@
     );
     c.appendChild(grid);
 
+    c.appendChild(S.el('div', { style: 'height:10px' }));
+
+    c.appendChild(S.el('div', { className: 'card__actions' },
+      S.el('button', {
+        id: 'bootstrap_seed_critical_btn',
+        className: 'btn btn--secondary',
+        type: 'button',
+        text: tt('Seed critical keys', 'Seed critical keys')
+      })
+    ));
+
+    c.appendChild(S.el('div', {
+      id: 'bootstrap_seed_critical_status',
+      className: 'muted',
+      style: 'margin-top:8px'
+    }));
+
     return c;
   }
 
@@ -1110,6 +1257,33 @@
     effTa.value = name ? String(effective[name] || '') : '';
     const chain = name ? (sources[name] || []) : [];
     srcEl.textContent = name ? (tt('Källor i arvskedjan: ', 'Sources in inheritance chain: ') + (chain.length ? chain.join(' → ') : tt('inga', 'none'))) : '';
+  }
+
+  function wirePolicyActions(unitPath){
+    const btn = S.byId('bootstrap_seed_critical_btn');
+    const status = S.byId('bootstrap_seed_critical_status');
+    if(!btn || !status) return;
+
+    btn.onclick = async function(){
+      btn.disabled = true;
+      status.className = 'muted';
+      status.textContent = tt('Seedar kritiska nycklar…', 'Seeding critical keys…');
+      try{
+        const j = await A.seedCriticalBootstrap(unitPath, 'tak-node');
+        const confAdded = ((((j || {}).seeded || {}).conf_d) || []).length;
+        const secAdded = ((((j || {}).seeded || {}).secrets_d) || []).length;
+        status.className = 'ok';
+        status.textContent =
+          tt('Klart. conf.d: ', 'Done. conf.d: ') + confAdded +
+          ', secrets.d: ' + secAdded;
+        await render();
+      }catch(e){
+        status.className = 'err';
+        status.textContent = String(e && e.message ? e.message : e);
+      }finally{
+        btn.disabled = false;
+      }
+    };
   }
 
   function wireBootstrapActions(unitPath, bootstrapResp){
@@ -1445,9 +1619,10 @@
             logoStatus.className = 'ok';
           }
           if(logoImg){
-            logoImg.src = '/u/' + encodeURIComponent(ctx.unitPath) + '/assets/logo.png?ts=' + Date.now();
+            logoImg.src = '/u/' + encodeURIComponent(ctx.unitPath) + '/branding/current.png?ts=' + Date.now();
             logoImg.style.display = '';
           }
+          window.location.reload();
         }catch(e){
           if(logoStatus){
             logoStatus.textContent = String(e && e.message ? e.message : e);
@@ -1736,6 +1911,7 @@
     wireBrandActions(ctx);
     wireNodeActions();
     wireFileActions(unitPath);
+    wirePolicyActions(unitPath);
     wireBootstrapActions(unitPath, bootstrapResp);
   }
 

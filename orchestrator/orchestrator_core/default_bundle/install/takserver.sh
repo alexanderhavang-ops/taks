@@ -153,17 +153,14 @@ start_postgres() {
 }
 
 start_takserver() {
+  log "deferring takserver start until cert layout + CoreConfig render are complete"
   if systemctl list-unit-files --type=service --no-pager | grep -q '^takserver\.service'; then
-    log "starting takserver via systemctl"
     systemctl enable takserver || true
-    systemctl restart takserver || systemctl start takserver
     return 0
   fi
 
   if [ -x /etc/init.d/takserver ]; then
-    log "starting takserver via /etc/init.d"
     update-rc.d takserver defaults >/dev/null 2>&1 || true
-    service takserver restart || service takserver start || /etc/init.d/takserver restart || /etc/init.d/takserver start
     return 0
   fi
 

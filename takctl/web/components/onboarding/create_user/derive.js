@@ -18,6 +18,7 @@
     const deriveLastKeyRef = props.deriveLastKeyRef;
     const callsignDirtyRef = props.callsignDirtyRef;
 
+    const unit = norm(ctxForDerive && ctxForDerive.unit);
     const battalion = norm(ctxForDerive && ctxForDerive.battalion);
     const battalion_fal = norm(ctxForDerive && ctxForDerive.battalion_fal);
     const company = norm(ctxForDerive && ctxForDerive.company);
@@ -26,16 +27,21 @@
     const n = norm(ctxForDerive && ctxForDerive.n);
     const team = norm(ctxForDerive && ctxForDerive.team);
 
-    const effectivePolicy = effectiveCallsignPolicy(callsignPolicyOverride, callsignPolicyDefault);
+    const isGenericPolicy = String(policyId || "").trim().toLowerCase() !== "hemvarnet";
+    const effectivePolicy = isGenericPolicy ? "GENERIC" : effectiveCallsignPolicy(callsignPolicyOverride, callsignPolicyDefault);
 
-    const hasBatt = !!(battalion_fal || battalion);
-    const hierOk =
+    const hasBasis = isGenericPolicy
+      ? !!unit
+      : !!(battalion_fal || battalion);
+
+    const hierOk = isGenericPolicy || (
       (!company && !platoon && !group) ||
       ( company && !platoon && !group) ||
       ( company &&  platoon && !group) ||
-      ( company &&  platoon &&  group);
+      ( company &&  platoon &&  group)
+    );
 
-    if (!policyId || !n || !hasBatt || !hierOk) {
+    if (!policyId || !n || !hasBasis || !hierOk) {
       setDerived(null);
       setDerivedErr("");
       setDeriveBusy(false);
@@ -46,6 +52,7 @@
     }
 
     const key = deriveKey(policyId, {
+      unit: unit,
       battalion: battalion,
       battalion_fal: battalion_fal,
       company: company,
@@ -74,6 +81,7 @@
             body: JSON.stringify({
               policy_id: String(policyId),
               ctx: {
+                unit: unit,
                 battalion: battalion,
                 battalion_fal: battalion_fal,
                 company: company,

@@ -11,7 +11,12 @@ fi
 
 export PYTHONPATH="/opt/tak/tools/takctl:/opt/tak/tools/martine:/opt/taks/takctl:/opt/taks/martine"
 
-sudo -u tak env PYTHONPATH="$PYTHONPATH" /opt/tak/tools/takctl/.venv/bin/python3 - "$PHASE" "$DOMAIN" <<'PY'
+RUN_AS=()
+if [ "$(id -un)" != "tak" ]; then
+  RUN_AS=(sudo -u tak)
+fi
+
+"${RUN_AS[@]}" env PYTHONPATH="$PYTHONPATH" /opt/tak/tools/takctl/.venv/bin/python3 - "$PHASE" "$DOMAIN" <<'PY'
 from __future__ import annotations
 
 import json

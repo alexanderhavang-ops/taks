@@ -51,6 +51,15 @@ def _first_existing(paths: list[Path]) -> Path | None:
     return None
 
 
+def _path_has_files(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    for p in path.rglob("*"):
+        if p.is_file():
+            return True
+    return False
+
+
 def default_registry_path() -> Path:
     env = os.environ.get("TAKS_PLUGIN_ONBOARDING_REGISTRY", "").strip()
     if env:
@@ -80,6 +89,24 @@ def default_state_root() -> Path:
         if existing_parent == candidates[1].parent:
             return candidates[1]
     return candidates[0]
+
+
+def default_plugin_library_dir() -> Path:
+    env = os.environ.get("TAKS_PLUGIN_ONBOARDING_LIBRARY_DIR", "").strip()
+    if env:
+        return Path(env)
+
+    candidates = [
+        Path("/opt/tak/tools/takctl/data/library/plugins"),
+        Path("/opt/tak/tools/takctl/plugins"),
+    ]
+
+    for p in candidates:
+        if _path_has_files(p):
+            return p
+
+    existing = _first_existing(candidates)
+    return existing if existing is not None else candidates[0]
 
 
 def _load_json(path: Path) -> Any:
@@ -147,11 +174,83 @@ def load_registry(registry_path: Path | None = None) -> dict[str, Any]:
     }
 
 
+def _file_type_for_path(path: Path) -> str:
+    ext = path.suffix.lower()
+    if ext == ".apk":
+        return "apk"
+    if ext == ".zip":
+        return "zip"
+    return "file"
+
+
+def _resolve_plugins_basic_from_library(package_id: str) -> dict[str, Any] | None:
+    if package_id != "plugins-basic":
+        return None
+
+    library_dir = default_plugin_library_dir()
+    if not library_dir.exists():
+        return None
+
+    resolved_files: list[dict[str, Any]] = []
+    for src in sorted(library_dir.rglob("*")):
+        if not src.is_file():
+            continue
+        rel = src.relative_to(library_dir)
+        if any(str(part).startswith(".") for part in rel.parts):
+            continue
+        arcname = rel.as_posix()
+        if not arcname:
+            continue
+        resolved_files.append(
+            {
+                "type": _file_type_for_path(src),
+                "source_path": str(src),
+                "arcname": arcname,
+                "zip_entry": f"plugins/{arcname}",
+                "size_bytes": src.stat().st_size,
+                "sha256": _sha256_file(src),
+            }
+        )
+
+    if not resolved_files:
+        return None
+
+    display_name = "ATAK plugins basic"
+    display_filename = "ATAK-plugins-basic.zip"
+
+    return {
+        "package_id": package_id,
+        "title": display_name,
+        "version": _utc_now().strftime("%Y.%m.%d"),
+        "description": f"Dynamic plugin pack from {library_dir}",
+        "atak_min_version": "",
+        "requires_user_install_confirmation": True,
+        "on_receive_import": True,
+        "on_receive_delete": False,
+        "manifest_uid": _stable_manifest_uid(package_id),
+        "display_name": display_name,
+        "display_filename": display_filename,
+        "registry_path": f"dynamic:{library_dir}",
+        "files": resolved_files,
+        "raw": {
+            "title": display_name,
+            "filename": display_filename,
+            "source": "library",
+            "library_dir": str(library_dir),
+        },
+    }
+
+
 def resolve_package(
     package_id: str,
     registry_path: Path | None = None,
 ) -> dict[str, Any]:
     package_id = _normalize_package_id(package_id)
+
+    dynamic = _resolve_plugins_basic_from_library(package_id)
+    if dynamic is not None:
+        return dynamic
+
     reg = load_registry(registry_path=registry_path)
     packages = reg["packages"]
     raw = packages.get(package_id)
@@ -319,7 +418,7 @@ def build_plugin_package(
     _write_json(run_dir / "request.json", {
         "package_id": package_id,
         "requested_by": requested_by,
-        "registry_path": str(registry_path or default_registry_path()),
+        "registry_path": package["registry_path"],
         "state_root": str(root),
         "generated_at": manifest_json["generated_at"],
     })

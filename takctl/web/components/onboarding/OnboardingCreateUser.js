@@ -218,6 +218,11 @@
                 if (f.default !== undefined) out[k] = f.default;
               }
             }
+            const batt = _norm(out.battalion);
+            if (!_norm(out.battalion_fal) && batt) {
+              const mappedFal = _battalionToFal(j || null, batt);
+              if (mappedFal) out.battalion_fal = mappedFal;
+            }
             return out;
           });
 
@@ -358,7 +363,10 @@
       (policy && (policy.name || policy.policy_id)) ? String(policy.name || policy.policy_id) :
       (policyId ? String(policyId) : "Loading policy…");
 
-    const effectivePolicyUi = _effectiveCallsignPolicy(callsignPolicyOverride, callsignPolicyDefault);
+    const isGenericIdentityPolicy = String(policyId || "").trim().toLowerCase() !== "hemvarnet";
+    const effectivePolicyUi = isGenericIdentityPolicy
+      ? "GENERIC"
+      : _effectiveCallsignPolicy(callsignPolicyOverride, callsignPolicyDefault);
     const createdUsername = _norm((result && result.user && result.user.username) || "");
     const emailReady = !!(isEdit || (createdUsername && createdUsername === _norm(username)));
     const latestCardUrl = String((emailResult && emailResult.card_url) || (result && result.card_url) || "").trim();

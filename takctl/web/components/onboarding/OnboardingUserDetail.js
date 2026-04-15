@@ -61,21 +61,20 @@
 
   function _voiceTone(voice) {
     var v = voice || {};
-    var connected = !!(v.user && v.user.connected_now);
-    var serverConnected = !!((v.server || {}).connected);
-    var hasMatches = !!((v.user && Array.isArray(v.user.matched_user_names) && v.user.matched_user_names.length) || false);
+    var user = v.user || {};
+    var connected = !!user.connected_now;
+    var hasMatches = !!(Array.isArray(user.matched_user_names) && user.matched_user_names.length);
     if (connected) return "good";
-    if (serverConnected && hasMatches) return "warn";
-    if (serverConnected) return "neutral";
-    return "bad";
+    if (hasMatches) return "warn";
+    return "neutral";
   }
 
   function _voiceText(voice) {
     var v = voice || {};
-    if (!((v.server || {}).connected)) return "Voice: server ej ansluten";
-    if (v.user && v.user.connected_now) return "Voice: ansluten nu";
-    if (v.user && Array.isArray(v.user.matched_user_names) && v.user.matched_user_names.length) return "Voice: sedd tidigare";
-    return "Voice: ingen träff";
+    var user = v.user || {};
+    if (user.connected_now) return "Voice: ansluten nu";
+    if (Array.isArray(user.matched_user_names) && user.matched_user_names.length) return "Voice: sedd tidigare";
+    return "Voice: ingen koppling";
   }
 
   function _deviceVoiceTone(v) {
@@ -600,23 +599,20 @@
           ),
 
           h(Box, null,
-            SectionTitle("Voice / Mumble"),
-            h(KV, { k: "Server" }, h(StatusBadge, {
-              tone: ((voice.server || {}).connected) ? "good" : "bad",
-              text: ((voice.server || {}).connected) ? "ANSLUTEN" : "EJ ANSLUTEN"
-            })),
-            h(KV, { k: "Användare i voice nu" }, _colText((voice.raw_counts && voice.raw_counts.users) || 0)),
-            h(KV, { k: "Kanaler" }, _colText((voice.raw_counts && voice.raw_counts.channels) || 0)),
-            h(KV, { k: "Användaren ansluten nu" }, h(StatusBadge, {
-              tone: (voiceUser && voiceUser.connected_now) ? "good" : "neutral",
-              text: (voiceUser && voiceUser.connected_now) ? "JA" : "NEJ"
-            })),
-            h(KV, { k: "Voice-kanaler" }, _colText(_voiceChannelsText(voiceUser.channel_names))),
-            h(KV, { k: "Matchade voice-namn" }, _colText(_join(voiceUser.matched_user_names))),
-            h(KV, { k: "Devices med voice nu" }, h(StatusBadge, {
-              tone: voiceConnectedDevices ? "good" : "neutral",
-              text: String(voiceConnectedDevices)
-            }))
+            (function () {
+              var matchedNames = Array.isArray(voiceUser.matched_user_names) ? voiceUser.matched_user_names : [];
+              var channelNames = Array.isArray(voiceUser.channel_names) ? voiceUser.channel_names : [];
+              var statusTone = (voiceUser && voiceUser.connected_now) ? "good" : (matchedNames.length ? "warn" : "neutral");
+              var statusText = (voiceUser && voiceUser.connected_now) ? "ANSLUTEN NU" : (matchedNames.length ? "SEDD TIDIGARE" : "INGEN KOPPLING");
+
+              return [
+                SectionTitle("Voice"),
+                h(KV, { k: "Status" }, h(StatusBadge, { tone: statusTone, text: statusText })),
+                matchedNames.length ? h(KV, { k: "Matchade voice-namn" }, _colText(_join(matchedNames))) : null,
+                channelNames.length ? h(KV, { k: "Voice-kanaler" }, _colText(_voiceChannelsText(channelNames))) : null,
+                h(KV, { k: "Devices anslutna i voice nu" }, _colText(voiceConnectedDevices))
+              ];
+            })()
           ),
 
           h(Box, null,

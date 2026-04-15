@@ -15,7 +15,6 @@ from takctl.onboarding.service_builder import build_service
 from takctl.onboarding.emailer import send_onboarding_email
 from takctl.onboarding.selection import load_selection, save_selection
 from takctl.config import load_config
-from takctl.onboarding.selection import load_selection
 from takctl.onboarding.soldier_card.page import render_soldier_card_page, render_soldier_card_print_pack
 
 router = APIRouter(tags=["onboarding"])
@@ -58,8 +57,8 @@ def _unit_title_from_card(card: dict) -> str:
 
 
 def _logo_html(base: str) -> str:
-    png_url = f"{base}/assets/unit-current.png"
-    svg_url = f"{base}/assets/unit-current.svg"
+    png_url = f"{base}/assets/branding/node/unit.png"
+    svg_url = f"{base}/assets/branding/node/unit.png"
     return (
         f'<img class="unit-logo" src="{_esc(png_url)}" '
         f'onerror="this.onerror=null;this.src=\'{_esc(svg_url)}\';" '
@@ -97,6 +96,32 @@ def _record_onboarding_email(username: str, *, email: str, card_url: str, print_
         save_selection(username, sel)
     except Exception:
         pass
+
+
+def _cfg_int(cfg: Any, key: str, default: int) -> int:
+    try:
+        raw = str(cfg.get(key, "") or "").strip()
+    except Exception:
+        raw = ""
+    if not raw:
+        return int(default)
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return int(default)
+
+
+def _card_link_ttl_sec(cfg: Any) -> int:
+    try:
+        raw = str(cfg.get("onboarding_card_token_ttl_sec", "") or "").strip()
+    except Exception:
+        raw = ""
+    if raw:
+        try:
+            return max(1, int(raw))
+        except Exception:
+            pass
+    return _cfg_int(cfg, "onboarding_print_card_ttl_sec", 86400)
 
 
 def _issue_card_link_base(base: str, svc, *, username: str, ttl_sec: int, reveal_password: bool) -> dict[str, Any]:
@@ -525,7 +550,7 @@ async def onboarding_email_pack(req: Request):
     base = external_base(req).rstrip("/")
     cfg = load_config()
     lang = str(cfg.get("language", "sv") or "sv").strip().lower()
-    ttl_sec = int(cfg.get("onboarding_print_card_ttl_sec", 600) or 600)
+    ttl_sec = _card_link_ttl_sec(cfg)
 
     sent = 0
     failed = 0
@@ -610,7 +635,7 @@ async def onboarding_print_pack(req: Request, payload: str = Form(...)):
 
     cfg = load_config()
     lang = str(cfg.get("language", "sv") or "sv").strip().lower()
-    ttl_sec = int(getattr(cfg, "onboarding_print_card_ttl_sec", 600) or 600)
+    ttl_sec = _card_link_ttl_sec(cfg)
 
     sections_cards: list[str] = []
     sections_passwords: list[str] = []

@@ -11,6 +11,7 @@ from takctl.config_store import load_runtime_config_view
 WEB_DIR = Path("/opt/tak/tools/takctl/web")
 USER_UPLOADS_DIR = Path("/opt/tak/tools/takctl/user-uploads")
 BRAND_JSON = Path("/opt/tak/tools/takctl/assets/brand.json")
+NODE_BRAND_JSON = WEB_DIR / "assets" / "branding" / "node" / "brand.json"
 
 
 def _is_within(path: Path, root: Path) -> bool:
@@ -102,6 +103,10 @@ def mount_static_and_pages(app: FastAPI) -> None:
     # public brand endpoint (no auth)
     @app.get("/api/public/brand")
     async def public_brand(unit: str | None = None):
+        import json
+
+        data = {}
+
         candidates = [
             BRAND_JSON,
             (WEB_DIR / "assets" / "brand.json"),
@@ -110,24 +115,33 @@ def mount_static_and_pages(app: FastAPI) -> None:
         for bp in candidates:
             try:
                 if bp.exists() and bp.is_file():
-                    data = json.loads(bp.read_text(encoding="utf-8"))
-                    if not isinstance(data, dict):
-                        data = {}
-
-                    login = data.get("login")
-                    if not isinstance(login, dict):
-                        login = {}
-                    data["login"] = login
-                    if "role" not in login:
-                        login["role"] = False
-
-                    return JSONResponse(data)
+                    loaded = json.loads(bp.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        data = loaded
+                        break
             except Exception:
                 raise HTTPException(status_code=500, detail="Invalid brand.json")
 
-        raise HTTPException(status_code=404, detail="Not Found")
+        if unit is None:
+            try:
+                if NODE_BRAND_JSON.exists() and NODE_BRAND_JSON.is_file():
+                    loaded = json.loads(NODE_BRAND_JSON.read_text(encoding="utf-8"))
+                    if isinstance(loaded, dict):
+                        merged = dict(data)
+                        merged.update(loaded)
+                        data = merged
+            except Exception:
+                raise HTTPException(status_code=500, detail="Invalid node brand.json")
 
-    # orchestrator-compatible unit assets (no auth)
+        login = data.get("login")
+        if not isinstance(login, dict):
+            login = {}
+        data["login"] = login
+        if "role" not in login:
+            login["role"] = False
+
+        return data
+
     @app.get("/u/{unit_path:path}/assets/{relpath:path}")
     async def public_unit_asset(unit_path: str, relpath: str):
         if relpath.startswith("/") or relpath.startswith("..") or "/.." in relpath:

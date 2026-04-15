@@ -115,13 +115,31 @@ def splash_assets_dir(path: str):
 # Public unit branding (NO AUTH): used by splash
 # ---------------------------------------------------------------------
 
+def _unit_branding_dir(unit: str) -> Path:
+  up = _safe_unit_fs(unit)
+  d = _state_dir() / "units" / up / "files" / "branding"
+  d.mkdir(parents=True, exist_ok=True)
+  return d
+
+def _unit_brand_meta_path(unit: str) -> Path:
+  up = _safe_unit_fs(unit)
+  return _unit_branding_dir(up) / "brand.json"
+
+def _legacy_unit_brand_meta_path(unit: str) -> Path:
+  up = _safe_unit_fs(unit)
+  return _unit_assets_dir(up) / "brand.json"
+
+def _current_branding_png(unit: str) -> Path | None:
+  up = _safe_unit_fs(unit)
+  d = _unit_branding_dir(up)
+  pngs = sorted(p for p in d.iterdir() if p.is_file() and p.suffix.lower() == ".png")
+  return pngs[0] if pngs else None
+
 def _unit_logo_url(unit: str) -> str:
   up = _safe_unit_fs(unit)
-  d = _unit_assets_dir(up)
-  for name in ("logo.png", "logo.svg", "logo.webp", "logo.jpg", "logo.jpeg"):
-    fp = d / name
-    if fp.is_file():
-      return f"/units/{up}/assets/{name}"
+  fp = _current_branding_png(up)
+  if fp is not None:
+    return f"/u/{up}/branding/current.png"
   return ""
 
 
@@ -142,6 +160,24 @@ def unit_assets_public_legacy(unit_path: str, relpath: str):
   return _file_or_404(_safe_join(root, rel))
 
 
+@router.get("/units/{unit_path:path}/branding/current.png")
+def unit_branding_current(unit_path: str):
+  up = _safe_unit_fs(unit_path)
+  fp = _current_branding_png(up)
+  if fp is None:
+    raise HTTPException(status_code=404, detail="No branding png")
+  return _file_or_404(fp)
+
+
+@router.get("/u/{unit_path:path}/branding/current.png")
+def unit_branding_current_legacy(unit_path: str):
+  up = _safe_unit_fs(unit_path)
+  fp = _current_branding_png(up)
+  if fp is None:
+    raise HTTPException(status_code=404, detail="No branding png")
+  return _file_or_404(fp)
+
+
 @router.get("/api/public/brand")
 def public_brand(unit: str | None = None):
   """
@@ -150,20 +186,24 @@ def public_brand(unit: str | None = None):
   """
   if unit:
     up = _safe_unit_fs(unit)
-    p = _unit_assets_dir(up) / "brand.json"
-    if p.is_file():
+    data = {}
+
+    for brand_path in (_unit_brand_meta_path(up), _legacy_unit_brand_meta_path(up)):
+      if not brand_path.is_file():
+        continue
       try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-          raise HTTPException(status_code=500, detail="Invalid unit brand.json")
-        logo_url = _unit_logo_url(up)
-        if logo_url:
-          data["logo_url"] = logo_url
-        return data
-      except HTTPException:
-        raise
+        raw = json.loads(brand_path.read_text(encoding="utf-8"))
       except Exception:
         raise HTTPException(status_code=500, detail="Invalid unit brand.json")
+      if not isinstance(raw, dict):
+        raise HTTPException(status_code=500, detail="Invalid unit brand.json")
+      data = raw
+      break
+
+    logo_url = _unit_logo_url(up)
+    if logo_url:
+      data["logo_url"] = logo_url
+    return data
 
   return {
     "title": "taks-orchestrator",
@@ -278,19 +318,19 @@ async def upload_unit_logo(unit_path: str, file: UploadFile = File(...), req: Re
     up = _safe_unit_fs(unit_path)
     ext = (file.filename or "").split(".")[-1].lower()
 
-    if ext not in ("svg", "png"):
-        raise HTTPException(status_code=400, detail="Only svg or png allowed")
+    if ext != "png":
+        raise HTTPException(status_code=400, detail="Only png allowed")
 
-    d = _unit_assets_dir(up)
+    d = _unit_branding_dir(up)
+    d.mkdir(parents=True, exist_ok=True)
 
-    # remove existing logos
-    for f in d.glob("logo.*"):
+    for f in d.glob("*.png"):
         try:
             f.unlink()
         except Exception:
             pass
 
-    dst = d / f"logo.{ext}"
+    dst = d / f"{Path(up).name}.png"
 
     with dst.open("wb") as out:
         while True:
@@ -299,7 +339,7 @@ async def upload_unit_logo(unit_path: str, file: UploadFile = File(...), req: Re
                 break
             out.write(chunk)
 
-    return {"ok": True, "unit": up, "file": dst.name}
+    return {"ok": True, "unit": up, "file": str(dst.name), "canonical_subtree": "branding"}
 
 
 # ---------------------------------------------------------------------
@@ -316,26 +356,38 @@ def save_unit_brand(unit_path: str, body: UnitBrandSave, req: Request):
     raise HTTPException(status_code=401)
 
   up = _safe_unit_fs(unit_path)
-  d = _unit_assets_dir(up)
-  bp = d / "brand.json"
+  bp = _unit_brand_meta_path(up)
+  legacy_bp = _legacy_unit_brand_meta_path(up)
 
   current = {}
-  if bp.exists() and bp.is_file():
+  for src in (bp, legacy_bp):
+    if not src.exists() or not src.is_file():
+      continue
     try:
-      current = json.loads(bp.read_text(encoding="utf-8"))
-      if not isinstance(current, dict):
-        current = {}
+      raw = json.loads(src.read_text(encoding="utf-8"))
+      if isinstance(raw, dict):
+        current = raw
+        break
     except Exception:
-      current = {}
+      pass
 
   current["slogan"] = str(body.slogan or "").strip()
   current["symbol"] = str(body.symbol or "").strip()
 
+  bp.parent.mkdir(parents=True, exist_ok=True)
   bp.write_text(json.dumps(current, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+  if legacy_bp.exists() and legacy_bp.is_file() and legacy_bp != bp:
+    try:
+      legacy_bp.rename(legacy_bp.with_name(legacy_bp.name + ".legacy"))
+    except Exception:
+      pass
 
   return JSONResponse({
     "ok": True,
     "unit": up,
     "brand": current,
+    "canonical_subtree": "branding",
+    "path": "brand.json",
   })
 

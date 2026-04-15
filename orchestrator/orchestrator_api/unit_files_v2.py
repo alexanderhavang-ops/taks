@@ -237,6 +237,18 @@ async def upload_unit_file(
     relname = _validate_relname(name)
 
     root = _subtree_root(unit_id, subtree)
+
+    if subtree == "branding":
+        relname = str(relname).split("/")[-1]
+        if not str(relname).lower().endswith(".png"):
+            raise HTTPException(status_code=400, detail="branding subtree only accepts .png")
+        root.mkdir(parents=True, exist_ok=True)
+        for old in root.glob("*.png"):
+            try:
+                old.unlink()
+            except Exception:
+                pass
+
     dst = root / relname
     dst.parent.mkdir(parents=True, exist_ok=True)
 

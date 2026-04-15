@@ -36,6 +36,8 @@
     const cfg = (d.config && typeof d.config === "object") ? d.config : {};
     const sec = (d.secrets && typeof d.secrets === "object") ? d.secrets : {};
     const meta = (d.meta && typeof d.meta === "object") ? d.meta : {};
+    const cfgOwners = (d.config_owners && typeof d.config_owners === "object") ? d.config_owners : {};
+    const secOwners = (d.secret_owners && typeof d.secret_owners === "object") ? d.secret_owners : {};
 
     const items = [];
     const seen = Object.create(null);
@@ -46,12 +48,14 @@
         seen[name] = true;
 
         const m = (meta[name] && typeof meta[name] === "object") ? meta[name] : {};
+        const owner = isSecret ? secOwners[name] : cfgOwners[name];
         items.push({
           name: name,
           value: obj[name],
           secret: !!(isSecret || m.secret === true),
           is_set: isSecret ? String(obj[name] || "").trim() !== "" : true,
-          component: m.component || "",
+          owner: owner || "",
+          component: owner || m.component || "",
           meta: m
         });
       });
@@ -131,6 +135,7 @@
   }
 
   function groupNameForItem(item){
+    if (item && item.owner) return prettyComponentName(item.owner);
     if (item && item.component) return prettyComponentName(item.component);
     return "Other";
   }

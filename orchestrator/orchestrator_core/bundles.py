@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import json
 import os
-import tarfile
 import shutil
+import tarfile
+import tempfile
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Sequence
+
+from orchestrator_core.branding_resolver import materialize_branding_bundle
+from orchestrator_core.bundle_verify import verify_bundle_tree
 from orchestrator_core.config import load_orch_config, load_secrets_config
 from orchestrator_core.unit_bootstrap import effective_bootstrap_for_bundle
-from orchestrator_core.branding_resolver import materialize_branding_bundle
-import tempfile
-import subprocess
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 
-SUBTREES = ("packages", "branding", "users", "plugins", "maps", "missions", "misc")
+UI_SUBTREES = ("branding", "packages", "users", "plugins", "maps", "missions", "misc", "logos")
 
 REPO_EXCLUDE_NAMES = {
     ".git",
@@ -29,14 +29,20 @@ REPO_EXCLUDE_NAMES = {
     "rendered",
     "artifacts",
 }
+
 REPO_EXCLUDE_SUFFIXES = {
     ".pyc",
     ".pyo",
     ".swp",
     ".tmp",
+    ".orig",
+    ".rej",
     ".tar.gz",
     ".zip",
 }
+
+FORBIDDEN_NAME_FRAGMENTS = (".bak.",)
+FORBIDDEN_NAME_SUFFIXES = ("~",)
 
 
 def _state_dir() -> Path:
@@ -187,6 +193,12 @@ def _default_node_cert_model(unit_meta: Dict[str, Any]) -> str:
     return str(cfg.nodes.default_cert_model).strip()
 
 
+def _default_le_email(unit_meta: Dict[str, Any]) -> str:
+    meta = unit_meta if isinstance(meta := unit_meta, dict) else {}
+    explicit = _meta_get(meta, "le_email", "letsencrypt_email")
+    if explicit:
+        return explicit
+    return ""
 
 
 def _unit_cert_ou(unit_path: str) -> str:
@@ -194,96 +206,134 @@ def _unit_cert_ou(unit_path: str) -> str:
     return safe.split("/")[-1].strip() or safe
 
 
-def _parse_simple_conf(text: str) -> Dict[str, str]:
-    out: Dict[str, str] = {}
-    for raw in str(text or "").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        out[str(k).strip()] = str(v).strip()
-    return out
-
-
 def _render_simple_conf(rows: Dict[str, str]) -> str:
     keys = sorted(rows.keys())
     return "".join(f"{k} = {rows[k]}\n" for k in keys if str(rows[k]).strip() != "")
 
 
-def _bundle_has_takserver_deb(unit_path: str, role: str) -> bool:
-    pats = ("takserver_*_all.deb",)
-
-    roots = [
-        default_bundle_dir() / "packages",
-        role_bundle_overlay_dir(role) / "packages",
-        unit_bundle_overlay_dir(unit_path) / "packages",
-        unit_files_root(unit_path) / "packages",
-    ]
-
-    for root in roots:
-        if not root.exists():
-            continue
-        for pat in pats:
-            if any(root.glob(pat)):
-                return True
+def _is_junk_name(name: str) -> bool:
+    if not name:
+        return False
+    if name in REPO_EXCLUDE_NAMES:
+        return True
+    if any(fragment in name for fragment in FORBIDDEN_NAME_FRAGMENTS):
+        return True
+    if any(name.endswith(suffix) for suffix in FORBIDDEN_NAME_SUFFIXES):
+        return True
     return False
 
 
-def _flatten_component_values(items: Dict[str, Any]) -> Dict[str, str]:
-    out: Dict[str, str] = {}
-    for _name, obj in sorted((items or {}).items()):
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                out[str(k).strip()] = str(v).strip()
-        else:
-            out.update(_parse_simple_conf(str(obj)))
-    return out
+def _should_skip_repo_dir(name: str) -> bool:
+    return _is_junk_name(name) or name in REPO_EXCLUDE_NAMES
 
 
-def bundle_readiness(unit_path: str, role: str) -> Dict[str, Any]:
-    data = effective_bootstrap_for_bundle(unit_path)
-    conf_d = (data.get("conf_d") or {}) if isinstance(data, dict) else {}
-    secrets_d = (data.get("secrets_d") or {}) if isinstance(data, dict) else {}
+def _should_skip_repo_file(name: str) -> bool:
+    if _is_junk_name(name):
+        return True
+    suffixes = Path(name).suffixes
+    joined = "".join(suffixes[-2:]) if len(suffixes) >= 2 else ""
+    if joined in REPO_EXCLUDE_SUFFIXES:
+        return True
+    if suffixes and suffixes[-1] in REPO_EXCLUDE_SUFFIXES:
+        return True
+    return False
 
-    conf_vals = _flatten_component_values(conf_d)
-    sec_vals = _flatten_component_values(secrets_d)
 
-    required_cert_keys = (
-        "cert_country",
-        "cert_state",
-        "cert_city",
-        "cert_organization",
+def _reset_dir(path: Path) -> None:
+    if path.exists():
+        shutil.rmtree(path)
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def _copy_file(src: Path, dst: Path) -> int:
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    return src.stat().st_size
+
+
+def _copy_tree_filtered(src: Path, dst: Path) -> Dict[str, Any]:
+    files = 0
+    bytes_total = 0
+
+    if not src.exists():
+        return {"src": str(src), "files": 0, "bytes": 0, "exists": False}
+
+    for cur_root, dirnames, filenames in os.walk(src):
+        cur = Path(cur_root)
+        rel_dir = cur.relative_to(src)
+
+        dirnames[:] = sorted(d for d in dirnames if not _should_skip_repo_dir(d))
+        out_dir = dst / rel_dir
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        for name in sorted(filenames):
+            if _should_skip_repo_file(name):
+                continue
+            src_file = cur / name
+            out_file = out_dir / name
+            bytes_total += _copy_file(src_file, out_file)
+            files += 1
+
+    return {"src": str(src), "files": files, "bytes": bytes_total, "exists": True}
+
+
+def _copy_tree_into(
+    src: Path,
+    dst: Path,
+    *,
+    skip_file_predicate=None,
+) -> Dict[str, Any]:
+    files = 0
+    bytes_total = 0
+
+    if not src.exists():
+        return {"src": str(src), "files": 0, "bytes": 0, "exists": False}
+
+    for cur_root, dirnames, filenames in os.walk(src):
+        cur = Path(cur_root)
+        rel_dir = cur.relative_to(src)
+
+        dirnames[:] = sorted(d for d in dirnames if not _should_skip_repo_dir(d))
+        out_dir = dst / rel_dir
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        for name in sorted(filenames):
+            if _should_skip_repo_file(name):
+                continue
+            rel_file = rel_dir / name
+            if skip_file_predicate is not None and skip_file_predicate(rel_file):
+                continue
+            src_file = cur / name
+            out_file = out_dir / name
+            bytes_total += _copy_file(src_file, out_file)
+            files += 1
+
+    return {"src": str(src), "files": files, "bytes": bytes_total, "exists": True}
+
+
+def _copy_repo_snapshot(dst_root: Path) -> Dict[str, Any]:
+    src = repo_root_dir()
+    dst = dst_root / "taks-source"
+    _reset_dir(dst)
+    result = _copy_tree_filtered(src, dst)
+    result.update(
+        {
+            "kind": "repo_snapshot",
+            "dst": "taks-source",
+        }
     )
-    missing_cert = [k for k in required_cert_keys if not str(conf_vals.get(k) or "").strip()]
+    return result
 
-    required_bootstrap = [
-        ("conf.d/*:default_policy_id", str(conf_vals.get("default_policy_id") or "").strip()),
-        ("conf.d/*:takctl_admin_user", str(conf_vals.get("takctl_admin_user") or "").strip()),
-        ("secrets.d/*:takctl_admin_password", str(sec_vals.get("takctl_admin_password") or "").strip()),
-        ("secrets.d/*:cert_capass", str(sec_vals.get("cert_capass") or "").strip()),
-        ("secrets.d/*:cert_pass", str(sec_vals.get("cert_pass") or "").strip()),
-        ("secrets.d/*:serverpassword", str(sec_vals.get("serverpassword") or "").strip()),
+
+def _subtree_source_dirs(unit_path: str, role: str, subtree: str) -> List[Path]:
+    dirs: List[Path] = [
+        default_bundle_dir() / subtree,
+        role_bundle_overlay_dir(role) / subtree,
     ]
-
-    missing: List[str] = []
-    if not _bundle_has_takserver_deb(unit_path, role):
-        missing.append("takserver_deb")
-    missing.extend(missing_cert)
-    missing.extend([name for name, value in required_bootstrap if not value])
-
-    return {
-        "ok": len(missing) == 0,
-        "missing": missing,
-        "derived": {
-            "cert_organizational_unit": _unit_cert_ou(unit_path),
-        },
-    }
-def _default_le_email(unit_meta: Dict[str, Any]) -> str:
-    meta = unit_meta if isinstance(unit_meta, dict) else {}
-    explicit = _meta_get(meta, "le_email", "letsencrypt_email")
-    if explicit:
-        return explicit
-    return ""
+    for src_unit in _read_unit_chain(unit_path):
+        dirs.append(unit_files_root(src_unit) / subtree)
+    dirs.append(unit_bundle_overlay_dir(unit_path) / subtree)
+    return dirs
 
 
 def _write_unit_config(root: Path, *, unit_path: str, role: str) -> Path:
@@ -354,90 +404,26 @@ def _write_node_env(root: Path, *, unit_path: str) -> Dict[str, Any]:
     }
 
 
-def _copy_wildcard_tls_material(root: Path) -> Dict[str, Any]:
-    cfg = load_orch_config()
-    cert_domain = str(cfg.letsencrypt.wildcard_zone).strip().strip(".")
-    if not cert_domain:
-        raise ValueError("letsencrypt.wildcard_zone is required for WILDCARD_DNS_01 bundle mode")
-
-    src_dir = Path(cfg.letsencrypt.artifact_cert_dir)
-    src_cert = src_dir / "fullchain.pem"
-    src_key = src_dir / "privkey.pem"
-
-    if not src_cert.is_file():
-        raise ValueError(f"wildcard artifact cert missing: {src_cert}")
-    if not src_key.is_file():
-        raise ValueError(f"wildcard artifact key missing: {src_key}")
-
-    dst_dir = root / "install" / "letsencrypt"
-    dst_dir.mkdir(parents=True, exist_ok=True)
-
-    dst_cert = dst_dir / "fullchain.pem"
-    dst_key = dst_dir / "privkey.pem"
-
-    dst_cert.write_bytes(src_cert.read_bytes())
-    dst_key.write_bytes(src_key.read_bytes())
-
-    return {
-        "kind": "wildcard_tls_material",
-        "src_cert": str(src_cert),
-        "src_key": str(src_key),
-        "dst_cert": "install/letsencrypt/fullchain.pem",
-        "dst_key": "install/letsencrypt/privkey.pem",
-        "files": 2,
-        "bytes": dst_cert.stat().st_size + dst_key.stat().st_size,
-    }
-
-
-def _copy_tree(src: Path, dst: Path) -> Dict[str, Any]:
-    files = 0
-    bytes_total = 0
-    exists = src.exists()
-
-    if not exists:
-        return {"src": str(src), "files": 0, "bytes": 0, "exists": False}
-
-    for p in sorted(src.rglob("*")):
-        rel = p.relative_to(src)
-        out = dst / rel
-        if p.is_dir():
-            out.mkdir(parents=True, exist_ok=True)
-            continue
-        if p.is_file():
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(p.read_bytes())
-            files += 1
-            bytes_total += p.stat().st_size
-
-    return {"src": str(src), "files": files, "bytes": bytes_total, "exists": True}
-
-
-
-
 def _write_effective_bootstrap(root: Path, *, unit_path: str) -> Dict[str, Any]:
     data = effective_bootstrap_for_bundle(unit_path)
-    eff = ((data or {}).get("effective") or {})
-    conf_d = (eff.get("conf_d") or {}) if isinstance(eff, dict) else {}
+    conf_d = dict((data.get("conf_d") or {}) if isinstance(data, dict) else {})
+    secrets_d = dict((data.get("secrets_d") or {}) if isinstance(data, dict) else {})
 
-    if isinstance(conf_d, dict):
-        certs_text = str(conf_d.get("certs.conf") or "")
-        certs = _parse_simple_conf(certs_text)
-        certs["cert_organizational_unit"] = _unit_cert_ou(unit_path)
-        conf_d["certs.conf"] = _render_simple_conf(certs)
-        certs = _parse_simple_conf(str(conf_d.get("certs.conf") or ""))
-        certs.pop("cert_organizational_unit", None)
-        certs["cert_organizational_unit"] = _unit_cert_ou(unit_path)
-        conf_d["certs.conf"] = _render_simple_conf(certs)
+    certs = dict(conf_d.get("certs.conf") or {})
+    certs["cert_organizational_unit"] = _unit_cert_ou(unit_path)
+    conf_d["certs.conf"] = certs
+
     files = 0
     bytes_total = 0
 
-    for kind, subdir in (("conf_d", "config.d"), ("secrets_d", "secrets.d")):
-        items = data.get(kind) or {}
+    for items, subdir in ((conf_d, "config.d"), (secrets_d, "secrets.d")):
+        if not isinstance(items, dict):
+            continue
         for name, kv in sorted(items.items()):
             dst = root / "install" / "taks-bootstrap" / subdir / name
             dst.parent.mkdir(parents=True, exist_ok=True)
-            rows = [f"{k} = {v}" for k, v in kv.items()]
-            dst.write_text("\n".join(rows) + "\n", encoding="utf-8")
+            content = _render_simple_conf(dict(kv or {}))
+            dst.write_text(content, encoding="utf-8")
             files += 1
             bytes_total += dst.stat().st_size
 
@@ -449,48 +435,44 @@ def _write_effective_bootstrap(root: Path, *, unit_path: str) -> Dict[str, Any]:
         "bytes": bytes_total,
     }
 
-def _copy_repo_snapshot(dst_root: Path) -> Dict[str, Any]:
-    src = repo_root_dir()
-    dst = dst_root / "taks-source"
-    dst.mkdir(parents=True, exist_ok=True)
 
-    files = 0
+def _find_letsencrypt_artifact_dir(unit_path: str) -> Path:
+    unit_meta = _read_unit_meta(unit_path)
+    fqdn = _default_node_fqdn(unit_path, unit_meta)
+    cfg = load_orch_config()
+
+    base = Path(cfg.letsencrypt.artifact_cert_dir)
+    candidates = [
+        base / fqdn,
+        base,
+    ]
+
+    for cand in candidates:
+        if (cand / "fullchain.pem").is_file() and (cand / "privkey.pem").is_file():
+            return cand
+
+    tried = ", ".join(str(c) for c in candidates)
+    raise ValueError(f"missing letsencrypt artifact cert pair for {fqdn}; tried: {tried}")
+
+
+def _copy_letsencrypt_tls_material(root: Path, *, unit_path: str) -> Dict[str, Any]:
+    src_dir = _find_letsencrypt_artifact_dir(unit_path)
+    dst_dir = root / "install" / "letsencrypt"
+    _reset_dir(dst_dir)
+
+    dst_cert = dst_dir / "fullchain.pem"
+    dst_key = dst_dir / "privkey.pem"
     bytes_total = 0
-
-    for cur_root, dirnames, filenames in os.walk(src):
-        cur = Path(cur_root)
-        rel_dir = cur.relative_to(src)
-
-        dirnames[:] = sorted(
-            d for d in dirnames
-            if d not in REPO_EXCLUDE_NAMES
-        )
-
-        out_dir = dst / rel_dir
-        out_dir.mkdir(parents=True, exist_ok=True)
-
-        for name in sorted(filenames):
-            if name in REPO_EXCLUDE_NAMES:
-                continue
-
-            src_file = cur / name
-            if src_file.suffix in REPO_EXCLUDE_SUFFIXES:
-                continue
-
-            rel = src_file.relative_to(src)
-            out = dst / rel
-            out.parent.mkdir(parents=True, exist_ok=True)
-            out.write_bytes(src_file.read_bytes())
-            files += 1
-            bytes_total += src_file.stat().st_size
+    bytes_total += _copy_file(src_dir / "fullchain.pem", dst_cert)
+    bytes_total += _copy_file(src_dir / "privkey.pem", dst_key)
 
     return {
-        "src": str(src),
-        "kind": "repo_snapshot",
-        "dst": "taks-source",
-        "files": files,
+        "kind": "letsencrypt_tls_material",
+        "src_dir": str(src_dir),
+        "dst_cert": "install/letsencrypt/fullchain.pem",
+        "dst_key": "install/letsencrypt/privkey.pem",
+        "files": 2,
         "bytes": bytes_total,
-        "exists": True,
     }
 
 
@@ -511,11 +493,16 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
                 cur.mkdir(parents=True, exist_ok=True)
 
             src_root = unit_files_root(up)
-            src_branding = src_root / "branding"
+            src_branding = src_root / "files" / "branding"
+            legacy_src_branding = src_root / "branding"
             src_conf = src_root / "config.d" / "branding.conf"
 
-            if src_branding.is_dir():
-                shutil.copytree(src_branding, cur / "branding", dirs_exist_ok=True)
+            effective_src_branding = src_branding
+            if not effective_src_branding.is_dir() and legacy_src_branding.is_dir():
+                effective_src_branding = legacy_src_branding
+
+            if effective_src_branding.is_dir():
+                shutil.copytree(effective_src_branding, cur / "branding", dirs_exist_ok=True)
 
             if src_conf.is_file():
                 conf_d = cur / "config.d"
@@ -527,14 +514,13 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
                     "unit_path": up,
                     "staged_unit_dir": str(cur),
                     "src_root": str(src_root),
-                    "branding_dir": str(src_branding) if src_branding.exists() else "",
+                    "branding_dir": str(effective_src_branding) if effective_src_branding.exists() else "",
                     "conf_file": str(src_conf) if src_conf.exists() else "",
                 }
             )
 
         out_dir = root / "branding"
-        if out_dir.exists():
-            shutil.rmtree(out_dir)
+        _reset_dir(out_dir)
 
         manifest = materialize_branding_bundle(
             tree_root=stage_root,
@@ -558,6 +544,34 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
                 }
             )
 
+        effective_brand_meta = {}
+        effective_brand_meta_source = ""
+
+        for item in reversed(mounted):
+            src_root_raw = str(item.get("src_root") or "").strip()
+            if not src_root_raw:
+                continue
+            mounted_src_root = Path(src_root_raw)
+
+            for candidate in (
+                mounted_src_root / "files" / "branding" / "brand.json",
+                mounted_src_root / "assets" / "brand.json",
+                mounted_src_root / "branding" / "brand.json",
+            ):
+                if not candidate.is_file():
+                    continue
+                try:
+                    loaded = json.loads(candidate.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if isinstance(loaded, dict):
+                    effective_brand_meta = loaded
+                    effective_brand_meta_source = str(candidate)
+                    break
+
+            if effective_brand_meta:
+                break
+
         sanitized_manifest = {
             "mode": "png-chain",
             "unit_path": unit_path,
@@ -566,10 +580,19 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
             "files": sanitized_files,
         }
 
+        if effective_brand_meta_source:
+            sanitized_manifest["brand_meta_source"] = effective_brand_meta_source
+
         (out_dir / "files.json").write_text(
             json.dumps(sanitized_manifest, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
+
+        if effective_brand_meta:
+            (out_dir / "brand.json").write_text(
+                json.dumps(effective_brand_meta, indent=2, ensure_ascii=False) + "\n",
+                encoding="utf-8",
+            )
 
         return {
             "generated": "branding",
@@ -578,9 +601,156 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
             "mounted": mounted,
             "effective_count": int(manifest.get("effective_count", 0)),
             "files": sanitized_files,
+            "brand_meta_source": effective_brand_meta_source,
         }
     finally:
         shutil.rmtree(stage_root, ignore_errors=True)
+
+
+def _materialize_generic_subtree(root: Path, *, unit_path: str, role: str, subtree: str) -> Dict[str, Any]:
+    dst = root / subtree
+    _reset_dir(dst)
+
+    sources = _subtree_source_dirs(unit_path, role, subtree)
+    copied: List[Dict[str, Any]] = []
+    total_files = 0
+    total_bytes = 0
+
+    for src in sources:
+        item = _copy_tree_into(src, dst)
+        total_files += int(item.get("files", 0))
+        total_bytes += int(item.get("bytes", 0))
+        if item.get("exists"):
+            copied.append(item)
+
+    return {
+        "generated": subtree,
+        "kind": "effective_subtree",
+        "subtree": subtree,
+        "sources": copied,
+        "files": total_files,
+        "bytes": total_bytes,
+    }
+
+
+def _is_takserver_deb_path(rel_file: Path) -> bool:
+    return rel_file.name.startswith("takserver_") and rel_file.name.endswith("_all.deb")
+
+
+def _select_takserver_deb(sources: Sequence[Path]) -> Path:
+    chosen: Optional[Path] = None
+
+    for src in sources:
+        if not src.exists():
+            continue
+        matches = [p for p in sorted(src.rglob("takserver_*_all.deb")) if p.is_file() and not _should_skip_repo_file(p.name)]
+        if len(matches) > 1:
+            names = ", ".join(str(p.relative_to(src)) for p in matches)
+            raise ValueError(f"packages subtree has multiple takserver debs in {src}: {names}")
+        if len(matches) == 1:
+            chosen = matches[0]
+
+    if chosen is None:
+        raise ValueError("packages subtree missing takserver_*_all.deb across all sources")
+
+    return chosen
+
+
+def _materialize_packages_subtree(root: Path, *, unit_path: str, role: str) -> Dict[str, Any]:
+    dst = root / "packages"
+    _reset_dir(dst)
+
+    sources = _subtree_source_dirs(unit_path, role, "packages")
+    chosen_deb = _select_takserver_deb(sources)
+
+    copied: List[Dict[str, Any]] = []
+    total_files = 0
+    total_bytes = 0
+
+    for src in sources:
+        item = _copy_tree_into(src, dst, skip_file_predicate=_is_takserver_deb_path)
+        total_files += int(item.get("files", 0))
+        total_bytes += int(item.get("bytes", 0))
+        if item.get("exists"):
+            copied.append(item)
+
+    total_bytes += _copy_file(chosen_deb, dst / chosen_deb.name)
+    total_files += 1
+
+    debs = sorted(dst.glob("takserver_*_all.deb"))
+    if len(debs) != 1:
+        raise ValueError(f"materialized packages subtree must contain exactly one takserver deb, found {len(debs)}")
+
+    return {
+        "generated": "packages",
+        "kind": "effective_packages",
+        "sources": copied,
+        "selected_takserver_deb": chosen_deb.name,
+        "files": total_files,
+        "bytes": total_bytes,
+    }
+
+
+def _materialize_bundle_tree(root: Path, *, unit_path: str, role: str) -> Dict[str, Any]:
+    root.mkdir(parents=True, exist_ok=True)
+
+    overlays: List[Dict[str, Any]] = []
+
+    overlays.append(_copy_tree_filtered(default_bundle_dir(), root))
+
+    if load_orch_config().bundles.include_taks_source:
+        overlays.append(_copy_repo_snapshot(root))
+
+    overlays.append(_copy_tree_filtered(role_bundle_overlay_dir(role), root))
+    overlays.append(_copy_tree_filtered(unit_bundle_overlay_dir(unit_path), root))
+
+    overlays.append({"generated": "config/unit.json", "kind": "unit_config", "path": str(_write_unit_config(root, unit_path=unit_path, role=role))})
+    overlays.append(_write_node_env(root, unit_path=unit_path))
+    overlays.append(_write_effective_bootstrap(root, unit_path=unit_path))
+
+    for subtree in UI_SUBTREES:
+        if subtree == "branding":
+            overlays.append(_write_effective_branding(root, unit_path=unit_path))
+        elif subtree == "packages":
+            overlays.append(_materialize_packages_subtree(root, unit_path=unit_path, role=role))
+        else:
+            overlays.append(_materialize_generic_subtree(root, unit_path=unit_path, role=role, subtree=subtree))
+
+    overlays.append(_copy_letsencrypt_tls_material(root, unit_path=unit_path))
+
+    return {
+        "bundle_root": str(root),
+        "overlays": overlays,
+    }
+
+
+def bundle_readiness(unit_path: str, role: str) -> Dict[str, Any]:
+    up = _safe_unit_fs(unit_path)
+    role = str(role or "").strip() or "tak-node"
+
+    derived = {
+        "cert_organizational_unit": _unit_cert_ou(up),
+        "fqdn": _default_node_fqdn(up, _read_unit_meta(up)),
+        "node_cert_model": _default_node_cert_model(_read_unit_meta(up)),
+    }
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="taks-bundle-readiness-") as td:
+            root = Path(td) / up
+            _materialize_bundle_tree(root, unit_path=up, role=role)
+            report = verify_bundle_tree(root, unit_path=up, role=role)
+            report["derived"] = {**derived, **dict(report.get("derived") or {})}
+            report["missing"] = list(report.get("errors") or [])
+            return report
+    except Exception as e:
+        msg = str(e)
+        return {
+            "ok": False,
+            "missing": [msg],
+            "errors": [msg],
+            "warnings": [],
+            "derived": derived,
+        }
 
 
 def build_bundle_from_state(unit_path: str, role: str, bundle_name: Optional[str] = None) -> Dict[str, Any]:
@@ -591,57 +761,21 @@ def build_bundle_from_state(unit_path: str, role: str, bundle_name: Optional[str
     rendered_dir = rendered_bundles_dir()
     tar_path = rendered_dir / bundle_name
 
-    overlays: List[Dict[str, Any]] = []
-
     with tempfile.TemporaryDirectory(prefix="taks-bundle-") as td:
         root = Path(td) / up
-        root.mkdir(parents=True, exist_ok=True)
+        materialized = _materialize_bundle_tree(root, unit_path=up, role=role)
+        report = verify_bundle_tree(root, unit_path=up, role=role)
+        if not bool(report.get("ok")):
+            errors = "; ".join(str(x) for x in (report.get("errors") or []))
+            raise RuntimeError(f"bundle verify failed for {up}: {errors}")
 
-        default_src = default_bundle_dir()
-        overlays.append(_copy_tree(default_src, root))
-
-        overlays.append(_copy_repo_snapshot(root))
-
-        role_src = role_bundle_overlay_dir(role)
-        overlays.append(_copy_tree(role_src, root))
-
-        unit_overlay = unit_bundle_overlay_dir(up)
-        overlays.append(_copy_tree(unit_overlay, root))
-
-        for src_unit in _read_unit_chain(up):
-            files_root = unit_files_root(src_unit)
-            for subtree in SUBTREES:
-                if subtree == "branding":
-                    continue
-                src = files_root / subtree
-                dst = root / subtree
-                item = _copy_tree(src, dst)
-                item["unit"] = src_unit
-                item["subtree"] = subtree
-                item["inherited"] = (src_unit != up)
-                overlays.append(item)
-
-        _write_unit_config(root, unit_path=up, role=role)
-        overlays.append({"generated": "config/unit.json", "kind": "unit_config"})
-
-        overlays.append(_write_node_env(root, unit_path=up))
-
-        overlays.append(_write_effective_bootstrap(root, unit_path=up))
-        overlays.append(_write_effective_branding(root, unit_path=up))
-
-        unit_meta = _read_unit_meta(up)
-        cert_model = _default_node_cert_model(unit_meta)
-        if cert_model == "WILDCARD_DNS_01":
-            overlays.append(_copy_wildcard_tls_material(root))
-
-        subprocess.run(
-            ["tar", "-C", str(root.parent), "-czf", str(tar_path), up],
-            check=True,
-        )
+        with tarfile.open(tar_path, "w:gz") as tf:
+            tf.add(root, arcname=up)
 
     return {
         "bundle_name": bundle_name,
         "tar_path": str(tar_path),
         "manifest_path": str(tar_path),
-        "overlays": overlays,
+        "overlays": materialized.get("overlays") or [],
+        "verify": report,
     }

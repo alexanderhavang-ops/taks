@@ -294,5 +294,7 @@ def runtime_public_state() -> dict[str, Any]:
         "secrets_source_kind": sec.source_kind,
         "config": dict(cfg.values),
         "secrets": dict(sec.values),
+        "config_owners": dict(cfg.owners),
+        "secret_owners": dict(sec.owners),
         "meta": dict(cfg.meta),
     }
