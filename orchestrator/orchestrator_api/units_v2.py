@@ -9,15 +9,18 @@ from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from orchestrator_core.units_state import create_unit as core_create_unit
 
 
 router = APIRouter(prefix="/api/v2/units")
 
 
 def _validate_unit_id(s: str, *, field: str) -> str:
-    s = str(s or "").strip().lower()
+    s = str(s or "").strip()
     if not s:
         raise HTTPException(status_code=400, detail=f"{field} is required")
+    if s != s.lower():
+        raise HTTPException(status_code=400, detail=f"{field} must be lowercase")
     if "/" in s:
         raise HTTPException(status_code=400, detail=f"{field} must be a single id (no '/')")
     if s in (".", "..") or ".." in s:
@@ -26,7 +29,7 @@ def _validate_unit_id(s: str, *, field: str) -> str:
 
 
 def _validate_parent_id(s: str) -> str:
-    s = str(s or "").strip().lower()
+    s = str(s or "").strip()
     if not s:
         return ""
     return _validate_unit_id(s, field="parent_path")
@@ -75,9 +78,9 @@ def _write_json(p: Path, obj: Dict[str, Any]) -> None:
 
 def _normalize_unit_record(unit_id: str, j: Dict[str, Any]) -> Dict[str, Any]:
     return {
-        "unit_path": str(j.get("unit_path", unit_id) or unit_id).strip().lower(),
+        "unit_path": str(j.get("unit_path", unit_id) or unit_id).strip(),
         "title": j.get("title", unit_id),
-        "parent_path": str(j.get("parent_path", "") or "").strip().lower(),
+        "parent_path": str(j.get("parent_path", "") or "").strip(),
         "created_ts": int(j.get("created_ts") or 0),
         "updated_ts": int(j.get("updated_ts") or 0),
         "meta": j.get("meta") or {},
@@ -95,7 +98,9 @@ def _list_units() -> List[Dict[str, Any]]:
         if not uj.exists():
             continue
         j = _read_json(uj)
-        out.append(_normalize_unit_record(d.name.lower(), j))
+        if d.name != d.name.lower():
+            continue
+        out.append(_normalize_unit_record(d.name, j))
     return out
 
 
@@ -118,17 +123,12 @@ async def create_unit(req: Request) -> JSONResponse:
     if uj.exists():
         raise HTTPException(status_code=409, detail="unit already exists")
 
-    now = _now()
-    j = {
-        "unit_path": unit_id,
-        "title": title,
-        "parent_path": parent_id,
-        "created_ts": now,
-        "updated_ts": now,
-        "meta": meta,
-        "overlay_files": 0,
-    }
-    _write_json(uj, j)
+    j = core_create_unit(
+        unit_path=unit_id,
+        title=title,
+        parent_path=parent_id,
+        meta=meta if isinstance(meta, dict) else {},
+    )
     return JSONResponse(_normalize_unit_record(unit_id, j))
 
 

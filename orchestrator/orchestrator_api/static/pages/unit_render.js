@@ -1448,6 +1448,7 @@
   function renderFilesCard(filesResp){
     const c = S.card('Enhetsfiler');
     const subtrees = (filesResp && filesResp.subtrees) ? filesResp.subtrees : {};
+    const subtreeErrors = (filesResp && filesResp.subtree_errors) ? filesResp.subtree_errors : {};
     const order = ['packages', 'branding', 'users', 'plugins', 'maps', 'missions', 'misc'];
 
     const top = S.el('div', { className: 'grid grid--6', style: 'margin-top:10px' });
@@ -1486,10 +1487,17 @@
 
     order.forEach(function(name){
       const arr = Array.isArray(subtrees[name]) ? subtrees[name] : [];
+      const subtreeError = String((subtreeErrors && subtreeErrors[name]) || '').trim();
       const box = S.el('div', { className: 'card', style: 'margin-top:14px' });
       box.appendChild(S.el('div', { className: 'card__title', text: subtreeLabel(name) }));
 
-      if(!arr.length){
+      if(subtreeError){
+        box.appendChild(S.el('div', {
+          className: 'err',
+          style: 'margin-top:8px;white-space:normal;word-break:break-word',
+          text: subtreeError
+        }));
+      }else if(!arr.length){
         box.appendChild(S.el('div', { className: 'muted', text: 'Tomt.' }));
       }else{
         const list = S.el('div', { style: 'display:grid;gap:8px' });
@@ -1524,6 +1532,22 @@
               className: 'muted',
               style: 'margin-top:4px',
               text: 'lokal för ' + String(item.source_unit)
+            }));
+          }
+
+          if(item.slot){
+            left.appendChild(S.el('div', {
+              className: 'muted',
+              style: 'margin-top:4px',
+              text: 'slot ' + String(item.slot)
+            }));
+          }
+
+          if(item.source_name && item.source_name !== item.path){
+            left.appendChild(S.el('div', {
+              className: 'muted',
+              style: 'margin-top:4px',
+              text: 'källa: ' + String(item.source_name)
             }));
           }
 
@@ -1834,6 +1858,174 @@
     });
   }
 
+  function unitTabsApi(){
+    return (window.TAKS_UNIT && window.TAKS_UNIT.tabs) || null;
+  }
+
+  function findCardByTitle(root, title){
+    const want = String(title || '').trim().toLowerCase();
+    if(!root || !root.querySelectorAll) return null;
+
+    const titles = root.querySelectorAll('.card__title');
+    for(let i = 0; i < titles.length; i++){
+      const t = titles[i];
+      if(String(t.textContent || '').trim().toLowerCase() !== want) continue;
+      let p = t;
+      while(p && p.tagName && String(p.tagName).toLowerCase() !== 'section'){
+        p = p.parentElement;
+      }
+      return p || t.parentElement || null;
+    }
+    return null;
+  }
+
+  function markValidationTarget(el, message){
+    if(!el) return;
+    el.setAttribute('data-validation-target', '1');
+    el.style.border = '1px solid rgba(220,38,38,0.65)';
+    if(!el.style.borderRadius) el.style.borderRadius = '12px';
+    el.style.boxShadow = '0 0 0 1px rgba(220,38,38,0.14) inset';
+
+    if(message){
+      el.appendChild(S.el('div', {
+        className: 'err',
+        style: 'margin-top:10px;white-space:normal',
+        text: message
+      }));
+    }
+  }
+
+  function annotateFilesValidation(card, validation){
+    const issues = (((validation || {}).tabs || {}).files || {}).issues || [];
+    if(!issues.length || !card) return;
+    const target = findCardByTitle(card, 'Packages') || card;
+    markValidationTarget(target, issues[0].message);
+  }
+
+  function annotateConfigValidation(root, validation){
+    const issues = (((validation || {}).tabs || {}).config || {}).issues || [];
+    if(!issues.length || !root) return;
+    const target = findCardByTitle(root, 'secrets.d') || root;
+    markValidationTarget(target, issues[0].message + ' Fix this in secrets.d before boot.');
+  }
+
+  function annotateNodeValidation(card, validation){
+    const issues = (((validation || {}).tabs || {}).node || {}).issues || [];
+    if(!issues.length || !card) return;
+
+    const inp = card.querySelector('#node_fqdn');
+    if(inp){
+      inp.style.border = '1px solid rgba(220,38,38,0.65)';
+      markValidationTarget(inp.parentElement || inp, issues[0].message);
+      return;
+    }
+
+    markValidationTarget(card, issues[0].message);
+  }
+
+  function flashFirstValidationTarget(root){
+    if(!root || !root.querySelector) return;
+    const el = root.querySelector('[data-validation-target="1"]');
+    if(!el) return;
+
+    try{
+      el.scrollIntoView({ block: 'nearest' });
+    }catch(_e){}
+
+    const prev = el.style.boxShadow || '';
+    el.style.boxShadow = '0 0 0 3px rgba(220,38,38,0.24)';
+    setTimeout(function(){
+      el.style.boxShadow = prev || '0 0 0 1px rgba(220,38,38,0.14) inset';
+    }, 1200);
+  }
+
+  function populateLaunchDefaults(){
+    const defaults = (window.TAKS_UNIT && window.TAKS_UNIT.launchDefaults) || {};
+    const setText = function(id, value){
+      const x = S.byId(id);
+      if(x) x.textContent = String(value || '—');
+    };
+    setText('node_default_region', defaults.region);
+    setText('node_default_ami', defaults.ami);
+    setText('node_default_subnet', defaults.subnet_id);
+    setText('node_default_sg', defaults.security_group_id);
+    setText('node_default_profile', defaults.instance_profile);
+    setText('node_default_key', defaults.ssh_key_name);
+  }
+
+  function renderOverviewTab(node, validation, tabs){
+    const wrap = S.el('div', { style: 'display:grid;gap:14px' });
+
+    const intro = S.card('Overview');
+    intro.appendChild(S.el('div', {
+      className: validation.ready ? 'ok' : 'err',
+      text: validation.ready ? 'Ready to boot.' : 'Blocked until the red issues are fixed.'
+    }));
+    if(!validation.ready){
+      intro.appendChild(S.el('div', {
+        className: 'muted',
+        style: 'margin-top:8px',
+        text: 'Use the red tabs to fix files and config before starting the node.'
+      }));
+    }
+    wrap.appendChild(intro);
+
+    if(node){
+      wrap.appendChild(renderNodeSummary(node));
+    }
+
+    if(validation.tabs.files.blockers || validation.tabs.files.warnings){
+      wrap.appendChild(tabs.renderIssueSummary('Files validation', validation.tabs.files));
+    }
+    if(validation.tabs.config.blockers || validation.tabs.config.warnings){
+      wrap.appendChild(tabs.renderIssueSummary('Config validation', validation.tabs.config));
+    }
+    if(validation.tabs.node.blockers || validation.tabs.node.warnings){
+      wrap.appendChild(tabs.renderIssueSummary('Node validation', validation.tabs.node));
+    }
+
+    return wrap;
+  }
+
+  function renderNodeTab(node, validation, tabs){
+    const wrap = S.el('div', { style: 'display:grid;gap:14px' });
+
+    if(validation.tabs.node.blockers || validation.tabs.node.warnings){
+      wrap.appendChild(tabs.renderIssueSummary('Node validation', validation.tabs.node));
+    }
+
+    const card = renderNodeCard(node);
+    annotateNodeValidation(card, validation);
+    wrap.appendChild(card);
+    return wrap;
+  }
+
+  function renderFilesTab(filesResp, validation, tabs){
+    const wrap = S.el('div', { style: 'display:grid;gap:14px' });
+    wrap.appendChild(tabs.renderIssueSummary('Files validation', validation.tabs.files));
+    const card = renderFilesCard(filesResp);
+    annotateFilesValidation(card, validation);
+    wrap.appendChild(card);
+    return wrap;
+  }
+
+  function renderConfigTab(bootstrapResp, validation, tabs){
+    const wrap = S.el('div', { style: 'display:grid;gap:14px' });
+
+    wrap.appendChild(tabs.renderIssueSummary('Config validation', validation.tabs.config));
+
+    const policyCard = renderPolicyCard(bootstrapResp);
+    const bootstrapCard = renderBootstrapCard(bootstrapResp);
+
+    const holder = S.el('div', { style: 'display:grid;gap:14px' });
+    holder.appendChild(policyCard);
+    holder.appendChild(bootstrapCard);
+    annotateConfigValidation(holder, validation);
+
+    wrap.appendChild(holder);
+    return wrap;
+  }
+
   async function render(container){
     const app = container || S.byId('page') || S.byId('app');
     if(!app) return;
@@ -1888,32 +2080,73 @@
     };
 
     const node = A.findNodeForUnit(nodesResp, unitPath);
+    const tabs = unitTabsApi();
+
+    if(!tabs){
+      S.clear(app);
+      app.appendChild(renderHeaderCard(ctx));
+      app.appendChild(renderNodeCard(node));
+      app.appendChild(renderFilesCard(filesResp));
+      app.appendChild(renderPolicyCard(bootstrapResp));
+      app.appendChild(renderBootstrapCard(bootstrapResp));
+      populateLaunchDefaults();
+      wireBrandActions(ctx);
+      wireNodeActions();
+      wireFileActions(unitPath);
+      wirePolicyActions(unitPath);
+      wireBootstrapActions(unitPath, bootstrapResp);
+      return;
+    }
+
+    const validation = tabs.computeValidation(node, filesResp, bootstrapResp);
+    let activeTab = String(window.TAKS_UNIT.activeUnitTab || '').trim();
+    if(!/^(overview|node|files|config)$/.test(activeTab)){
+      activeTab = tabs.firstBadTab(validation);
+    }
+    window.TAKS_UNIT.activeUnitTab = activeTab;
 
     S.clear(app);
     app.appendChild(renderHeaderCard(ctx));
-    app.appendChild(renderNodeCard(node));
-    app.appendChild(renderFilesCard(filesResp));
-    app.appendChild(renderPolicyCard(bootstrapResp));
-    app.appendChild(renderBootstrapCard(bootstrapResp));
+    app.appendChild(tabs.renderReadinessCard(validation));
 
-    const defaults = (window.TAKS_UNIT && window.TAKS_UNIT.launchDefaults) || {};
-    const setText = function(id, value){
-      const x = S.byId(id);
-      if(x) x.textContent = String(value || '—');
-    };
-    setText('node_default_region', defaults.region);
-    setText('node_default_ami', defaults.ami);
-    setText('node_default_subnet', defaults.subnet_id);
-    setText('node_default_sg', defaults.security_group_id);
-    setText('node_default_profile', defaults.instance_profile);
-    setText('node_default_key', defaults.ssh_key_name);
+    app.appendChild(tabs.renderTabBar(activeTab, validation, function(nextTab){
+      window.TAKS_UNIT.activeUnitTab = nextTab;
+      render(app);
+    }));
+
+    const content = S.el('div', { style: 'display:grid;gap:14px;margin-top:14px' });
+    let activeRoot = null;
+
+    if(activeTab === 'overview'){
+      activeRoot = renderOverviewTab(node, validation, tabs);
+    }else if(activeTab === 'node'){
+      activeRoot = renderNodeTab(node, validation, tabs);
+    }else if(activeTab === 'files'){
+      activeRoot = renderFilesTab(filesResp, validation, tabs);
+    }else{
+      activeRoot = renderConfigTab(bootstrapResp, validation, tabs);
+    }
+
+    content.appendChild(activeRoot);
+    app.appendChild(content);
 
     wireBrandActions(ctx);
-    wireNodeActions();
-    wireFileActions(unitPath);
-    wirePolicyActions(unitPath);
-    wireBootstrapActions(unitPath, bootstrapResp);
+
+    if(activeTab === 'node'){
+      populateLaunchDefaults();
+      wireNodeActions();
+    }else if(activeTab === 'files'){
+      wireFileActions(unitPath);
+    }else if(activeTab === 'config'){
+      wirePolicyActions(unitPath);
+      wireBootstrapActions(unitPath, bootstrapResp);
+    }
+
+    if(validation.tabs[activeTab] && (validation.tabs[activeTab].blockers > 0 || validation.tabs[activeTab].warnings > 0)){
+      setTimeout(function(){ flashFirstValidationTarget(content); }, 0);
+    }
   }
 
   window.TAKS_UNIT.render = render;
+
 })();

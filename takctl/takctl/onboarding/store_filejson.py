@@ -53,18 +53,7 @@ def _card_token_ttl_sec() -> int:
         cfg = load_config()
     except Exception:
         return DEFAULT_CARD_TOKEN_TTL_SEC
-
-    try:
-        raw = str(cfg.get("onboarding_card_token_ttl_sec", "") or "").strip()
-    except Exception:
-        raw = ""
-    if raw:
-        try:
-            return max(1, int(raw))
-        except Exception:
-            pass
-
-    return _cfg_int(cfg, "onboarding_print_card_ttl_sec", DEFAULT_CARD_TOKEN_TTL_SEC)
+    return _cfg_int(cfg, "onboarding_card_token_ttl_sec", DEFAULT_CARD_TOKEN_TTL_SEC)
 
 
 @dataclass(frozen=True)

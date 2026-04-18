@@ -59,7 +59,7 @@
                 h(PolicySelect, {
                   value: callsignPolicyDefault,
                   onChange: function (v) {
-                    const vv = normalizePolicyId(v) || "FAL_TAK";
+                    const vv = normalizePolicyId(v) || "FALFAL";
                     setCallsignPolicyDefault(vv);
                     lsSet(lsKeyDefaultCallsignPolicy, vv);
                   },

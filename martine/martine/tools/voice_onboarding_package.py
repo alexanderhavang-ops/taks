@@ -148,6 +148,51 @@ def _read_mumble_channel_ids() -> dict[str, int]:
         con.close()
 
 
+def _resolve_channel_name_and_id(
+    requested_name: str,
+    channel_id_by_name: dict[str, int],
+    fallback_next: int,
+) -> tuple[str, int]:
+    raw = str(requested_name or "").strip()
+    if not raw:
+        return "", 0
+
+    # exact
+    if raw in channel_id_by_name:
+        return raw, int(channel_id_by_name[raw])
+
+    # exact, case-insensitive
+    raw_l = raw.lower()
+    for name, channel_id in channel_id_by_name.items():
+        n = str(name or "").strip()
+        if n.lower() == raw_l:
+            return n, int(channel_id)
+
+    # bare unit -> Org-<unit>
+    org_name = f"Org-{raw}"
+    if org_name in channel_id_by_name:
+        return org_name, int(channel_id_by_name[org_name])
+
+    org_l = org_name.lower()
+    for name, channel_id in channel_id_by_name.items():
+        n = str(name or "").strip()
+        if n.lower() == org_l:
+            return n, int(channel_id)
+
+    # allow reverse alias too
+    if raw_l.startswith("org-"):
+        bare = raw[4:]
+        if bare in channel_id_by_name:
+            return bare, int(channel_id_by_name[bare])
+        bare_l = bare.lower()
+        for name, channel_id in channel_id_by_name.items():
+            n = str(name or "").strip()
+            if n.lower() == bare_l:
+                return n, int(channel_id)
+
+    return raw, int(fallback_next)
+
+
 def _render_voice_package(
     *,
     target_callsign: str,
@@ -171,13 +216,15 @@ def _render_voice_package(
     fallback_next = 1
 
     for raw_name in channels:
-        channel_name = str(raw_name or "").strip()
-        if not channel_name:
+        requested_name = str(raw_name or "").strip()
+        if not requested_name:
             continue
 
-        server_channel_id = int(channel_id_by_name.get(channel_name) or 0)
-        if server_channel_id <= 0:
-            server_channel_id = fallback_next
+        channel_name, server_channel_id = _resolve_channel_name_and_id(
+            requested_name,
+            channel_id_by_name,
+            fallback_next,
+        )
         fallback_next += 1
 
         channel_specs.append(
@@ -186,7 +233,7 @@ def _render_voice_package(
                 "name": channel_name,
                 "host": f"{fqdn}:{int(voice_port)}",
                 "missionId": mission_uuid,
-                "serverChannelId": server_channel_id,
+                "serverChannelId": int(server_channel_id),
                 "subtitle": channel_name,
                 "isMumble": True,
                 "isEngineering": False,
@@ -280,3 +327,4 @@ def _render_voice_package(
         "manifest_name": manifest_name,
         "mission_uuid": mission_uuid,
     }
+

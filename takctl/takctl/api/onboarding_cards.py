@@ -112,16 +112,7 @@ def _cfg_int(cfg: Any, key: str, default: int) -> int:
 
 
 def _card_link_ttl_sec(cfg: Any) -> int:
-    try:
-        raw = str(cfg.get("onboarding_card_token_ttl_sec", "") or "").strip()
-    except Exception:
-        raw = ""
-    if raw:
-        try:
-            return max(1, int(raw))
-        except Exception:
-            pass
-    return _cfg_int(cfg, "onboarding_print_card_ttl_sec", 86400)
+    return _cfg_int(cfg, "onboarding_card_token_ttl_sec", 86400)
 
 
 def _issue_card_link_base(base: str, svc, *, username: str, ttl_sec: int, reveal_password: bool) -> dict[str, Any]:

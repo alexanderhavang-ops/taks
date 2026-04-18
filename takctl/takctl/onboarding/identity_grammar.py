@@ -141,8 +141,10 @@ def derive_grammar(policy_id: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
         effective = "FAL_TAK"
     elif raw == "FALFAL":
         effective = "FALFAL"
-    else:
+    elif raw == "FAL":
         effective = "FAL"
+    else:
+        effective = "FALFAL"
 
     callsign = variants.get(effective, "") or ""
     if not callsign:

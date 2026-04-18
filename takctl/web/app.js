@@ -16,6 +16,7 @@ function App() {
     martine: true,
     replay: true,
     documents: true,
+    health: true,
     logs: true,
     config: true
   };
@@ -27,6 +28,7 @@ function App() {
     tab === "martine" && h(MartineView),
     tab === "replay" && h(ReplayView),
     tab === "documents" && h(DocumentsPage),
+    tab === "health" && h(HealthView),
     tab === "logs" && h(LogsViewerView),
     tab === "config" && h(ConfigView)
   );
@@ -38,4 +40,3 @@ if (ReactDOM && typeof ReactDOM.createRoot === "function") {
 } else {
   ReactDOM.render(h(App), __rootEl);
 }
-

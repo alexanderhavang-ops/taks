@@ -3,9 +3,12 @@
   window.TAKS_UNIT = window.TAKS_UNIT || {};
   const S = window.TAKS_UNIT.shared;
 
+  let _unitsCache = null;
+
   async function loadUnitFromList(unitPath){
     const uResp = await CORE.api('GET', '/api/v2/units');
     const items = (uResp && Array.isArray(uResp.items)) ? uResp.items : [];
+    _unitsCache = items;
     const u = items.find(function(x){ return String(x.unit_path || '') === unitPath; });
     return u || { unit_path: unitPath, title: unitPath, parent_path: '' };
   }
@@ -15,6 +18,14 @@
   }
 
   async function loadNodes(){
+    if(!Array.isArray(_unitsCache)){
+      try{
+        const uResp = await CORE.api('GET', '/api/v2/units');
+        _unitsCache = (uResp && Array.isArray(uResp.items)) ? uResp.items : [];
+      }catch(_){
+        _unitsCache = [];
+      }
+    }
     return await CORE.api('GET', '/api/v2/nodes');
   }
 
@@ -168,19 +179,51 @@
 
   function findNodeForUnit(nodesResp, unitPath){
     const items = (nodesResp && Array.isArray(nodesResp.items)) ? nodesResp.items : [];
-    const matches = items.filter(function(n){
-      return String(n.unit_path || '').trim() === String(unitPath || '').trim();
-    });
+    const want = String(unitPath || '').trim();
 
-    const active = matches.find(function(n){
+    function isUsableNode(n){
       const aws = String(n.aws_state || '').trim().toLowerCase();
       const st = String(n.derived_status || n.status || '').trim().toLowerCase();
       if(aws === 'terminated' || st === 'terminated') return false;
       if(st === 'untracked') return false;
       return true;
+    }
+
+    function findDirect(path){
+      const matches = items.filter(function(n){
+        return String(n.unit_path || '').trim() === String(path || '').trim();
+      });
+      return matches.find(isUsableNode) || null;
+    }
+
+    if(!want) return null;
+
+    const direct = findDirect(want);
+    if(direct) return direct;
+
+    const units = Array.isArray(_unitsCache) ? _unitsCache : [];
+    const byPath = new Map();
+    units.forEach(function(u){
+      const up = String((u && u.unit_path) || '').trim();
+      if(up) byPath.set(up, u);
     });
 
-    return active || null;
+    const seen = new Set();
+    let cur = want;
+
+    while(cur && !seen.has(cur)){
+      seen.add(cur);
+      const u = byPath.get(cur);
+      const parent = String((u && u.parent_path) || '').trim();
+      if(!parent) break;
+
+      const parentNode = findDirect(parent);
+      if(parentNode) return parentNode;
+
+      cur = parent;
+    }
+
+    return null;
   }
 
   function setLogoFallback(imgEl, unitPath){

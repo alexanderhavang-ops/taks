@@ -105,6 +105,8 @@ function LangAndSessionControls() {
 
 function Layout({ tab, setTab, health, brand, children }) {
   const t = (window.t && typeof window.t === "function") ? window.t : (k => String(k || ""));
+  const lang = String(window.currentLang || window.TAKS_RUNTIME_LANGUAGE || "sv").trim().toLowerCase();
+  const serverHealthLabel = lang.startsWith("en") ? "Server Health" : "Serverhälsa";
 
   // Prefer the square-derived icon first (unit-current.png),
   // then fall back to svg and other extensions.
@@ -138,6 +140,8 @@ function Layout({ tab, setTab, health, brand, children }) {
 
         h(TabButton, { id: "documents", tab, setTab, label: t("nav.documents") }),
 
+        h(TabButton, { id: "health", tab, setTab, label: serverHealthLabel }),
+
         h(TabButton, { id: "logs", tab, setTab, label: "Logs" }),
 
         h(TabButton, { id: "config", tab, setTab, label: t("nav.settings") })
@@ -165,4 +169,3 @@ function Layout({ tab, setTab, health, brand, children }) {
     )
   );
 }
-

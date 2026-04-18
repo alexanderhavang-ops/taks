@@ -348,5 +348,7 @@
       "north_reference": "Grid North",
       "domain_preference": "Ground"
     }
-  }
+  },
+  "callsign_policy_default": "FALFAL",
+  "show_callsign_policy_controls": true
 }

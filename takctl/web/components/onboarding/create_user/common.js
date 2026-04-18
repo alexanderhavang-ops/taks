@@ -202,7 +202,7 @@
     const u = normalizePolicyId(userOverride);
     if (u) return u;
     const g = normalizePolicyId(globalDefault);
-    return g || "FAL_TAK";
+    return g || "FALFAL";
   }
 
   function PolicySelect(props) {

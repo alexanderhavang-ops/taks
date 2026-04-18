@@ -85,21 +85,7 @@ def _cfg_int(name: str, default: int) -> int:
 
 
 def _card_link_ttl_sec() -> int:
-    for key in (
-        "onboarding_card_token_ttl_sec",
-        "onboarding_card_ttl_sec",
-        "onboarding_print_card_ttl_sec",
-    ):
-        raw = str(load_config().get(key, "") or "").strip()
-        if not raw:
-            continue
-        try:
-            v = int(raw)
-            if v >= 60:
-                return v
-        except Exception:
-            pass
-    return DEFAULT_CARD_TOKEN_TTL_SEC
+    return max(1, _cfg_int("onboarding_card_token_ttl_sec", DEFAULT_CARD_TOKEN_TTL_SEC))
 
 
 def _cert_creation_gate_enabled() -> bool:

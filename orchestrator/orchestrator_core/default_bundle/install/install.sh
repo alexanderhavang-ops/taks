@@ -284,19 +284,46 @@ normalize_server_keystores() {
 
 
 restart_takserver_if_present() {
+  local have_systemd=0
+
   if systemctl list-unit-files --type=service --no-pager | grep -q '^takserver\.service'; then
-    log "restarting takserver after cert/coreconfig render"
-    systemctl restart takserver || systemctl start takserver || true
+    have_systemd=1
+  elif [ ! -x /etc/init.d/takserver ]; then
+    log "takserver service not found; skip restart"
     return 0
   fi
 
-  if [ -x /etc/init.d/takserver ]; then
-    log "restarting takserver via /etc/init.d after cert/coreconfig render"
-    service takserver restart || service takserver start || /etc/init.d/takserver restart || /etc/init.d/takserver start || true
-    return 0
+  if [ "$have_systemd" -eq 1 ]; then
+    log "stopping takserver before final start after taks apply"
+    systemctl stop takserver || true
+  else
+    log "stopping takserver via /etc/init.d before final start after taks apply"
+    service takserver stop || /etc/init.d/takserver stop || true
   fi
 
-  log "takserver service not found; skip restart"
+  sleep 2
+
+  log "killing any leftover takserver child JVMs"
+  pkill -9 -f 'takserver\.jar' || true
+  pkill -9 -f 'takserver\.war' || true
+  pkill -9 -f 'takserver-web\.war' || true
+  pkill -9 -f 'TAKServer\.jar' || true
+  pkill -9 -f 'takserver-pm\.jar' || true
+  pkill -9 -f 'takserver-retention\.jar' || true
+  pkill -9 -f 'tak\.server\.ServerConfiguration' || true
+
+  sleep 2
+
+  log "removing stale generated /opt/tak/TAKIgniteConfig.xml before final start"
+  rm -f /opt/tak/TAKIgniteConfig.xml
+
+  if [ "$have_systemd" -eq 1 ]; then
+    log "starting takserver after taks apply"
+    systemctl start takserver
+  else
+    log "starting takserver via /etc/init.d after taks apply"
+    service takserver start || /etc/init.d/takserver start
+  fi
 }
 
 install_base_files() {

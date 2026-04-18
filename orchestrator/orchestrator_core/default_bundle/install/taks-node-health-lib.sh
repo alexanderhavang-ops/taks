@@ -410,19 +410,37 @@ PY2
 }
 
 check_martine() {
-  local st recent
+  local st recent raw_age martine_age
+
   st="$(service_state martine-cot.service)"
   recent="$(journalctl -u martine-cot.service --since '-10 min' --no-pager 2>/dev/null | tail -n 200 | grep -E 'cot_tls_client.*error=|PEM lib|SSLError|Traceback' | tail -n 1 || true)"
+
+  raw_age="$(sudo -u postgres psql -d cot -Atqc "SELECT COALESCE(EXTRACT(EPOCH FROM (NOW() - MAX(servertime))), 999999999)::bigint FROM cot_router WHERE uid = 'ANDROID-MARTINE';" 2>/dev/null || true)"
+  martine_age="$(printf '%s' "$raw_age" | tr -cd '0-9')"
+  [ -n "$martine_age" ] || martine_age="999999999"
+
   case "$st" in
     active)
       if [ -n "$recent" ]; then
         add_check martine_service fail warn "martine-cot.service active but recent CoT/TLS error seen in journal"
       else
-        add_check martine_service ok warn "martine-cot.service active"
+        add_check martine_service ok info "martine-cot.service active"
       fi
       ;;
-    *) add_check martine_service warn warn "martine-cot.service state=$st" ;;
+    *)
+      add_check martine_service fail warn "martine-cot.service state=$st"
+      ;;
   esac
+
+  if [ "$martine_age" -le 90 ]; then
+    add_check martine_presence ok info "ANDROID-MARTINE seen in cot_router ${martine_age}s ago"
+  elif [ "$martine_age" -le 300 ]; then
+    add_check martine_presence warn warn "ANDROID-MARTINE presence stale in cot_router (${martine_age}s ago)"
+  elif [ "$martine_age" -lt 999999999 ]; then
+    add_check martine_presence fail warn "ANDROID-MARTINE not fresh in cot_router (${martine_age}s ago)"
+  else
+    add_check martine_presence fail warn "ANDROID-MARTINE not found in cot_router"
+  fi
 }
 
 check_mumble() {

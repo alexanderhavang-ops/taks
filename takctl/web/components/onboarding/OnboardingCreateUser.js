@@ -77,7 +77,7 @@
     const [revealPassword, setRevealPassword] = useState(true);
     const [ttlSec, setTtlSec] = useState(600);
 
-    const [callsignPolicyDefault, setCallsignPolicyDefault] = useState("FAL_TAK");
+    const [callsignPolicyDefault, setCallsignPolicyDefault] = useState("FALFAL");
     const [callsignPolicyOverride, setCallsignPolicyOverride] = useState("");
 
     const _hostUnit = (function () {
@@ -118,7 +118,9 @@
     const [emailResult, setEmailResult] = useState(null);
 
     useEffect(() => {
-      const v = _normalizePolicyId(_lsGet(LS_KEY_DEFAULT_CALLSIGN_POLICY, "FAL_TAK")) || "FAL_TAK";
+      const stored = _normalizePolicyId(_lsGet(LS_KEY_DEFAULT_CALLSIGN_POLICY, "FALFAL"));
+      const v = (stored === "FAL_TAK") ? "FALFAL" : (stored || "FALFAL");
+      if (v !== stored) _lsSet(LS_KEY_DEFAULT_CALLSIGN_POLICY, v);
       setCallsignPolicyDefault(v);
     }, []);
 

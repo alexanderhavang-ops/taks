@@ -70,6 +70,10 @@ def _warn(report: Dict[str, object], msg: str) -> None:
     cast.append(msg)
 
 
+def _is_placeholder_value(v: str) -> bool:
+    return str(v or "").strip().upper() == "CHANGEME"
+
+
 def _need_file(report: Dict[str, object], root: Path, relpath: str, label: str) -> Optional[Path]:
     p = root / relpath
     if not p.is_file():
@@ -205,11 +209,15 @@ def verify_bundle_tree(bundle_root: str | Path, unit_path: str = "", role: str =
         val = (conf.get(key) or "").strip()
         if not val:
             _err(report, f"missing critical bootstrap config key: {key}")
+        elif _is_placeholder_value(val):
+            _err(report, f"placeholder critical bootstrap config key not allowed: {key}")
 
     for key in critical_sec:
         val = (sec.get(key) or "").strip()
         if not val:
             _err(report, f"missing critical bootstrap secret key: {key}")
+        elif _is_placeholder_value(val):
+            _err(report, f"placeholder critical bootstrap secret key not allowed: {key}")
 
     le_cert = _need_file(report, root, "install/letsencrypt/fullchain.pem", "bundled letsencrypt fullchain")
     le_key = _need_file(report, root, "install/letsencrypt/privkey.pem", "bundled letsencrypt privkey")

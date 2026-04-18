@@ -104,8 +104,51 @@ def _safe_unit_fs(unit_path: str) -> str:
     return up
 
 
+def _resolve_existing_unit_dir(unit_path: str) -> Path:
+    safe = _safe_unit_fs(unit_path)
+    base = units_dir()
+
+    candidates: List[Path] = []
+    for cand in (base / safe, base / safe.lower()):
+        if cand not in candidates:
+            candidates.append(cand)
+
+    if base.exists():
+        for cand in sorted(base.iterdir()):
+            if cand.is_dir() and cand.name.casefold() == safe.casefold() and cand not in candidates:
+                candidates.append(cand)
+
+    with_unit_json = [cand for cand in candidates if (cand / "unit.json").is_file()]
+    if len(with_unit_json) == 1:
+        return with_unit_json[0]
+    if len(with_unit_json) > 1:
+        exact = [cand for cand in with_unit_json if cand.name == safe]
+        if len(exact) == 1:
+            return exact[0]
+        lower = [cand for cand in with_unit_json if cand.name == safe.lower()]
+        if len(lower) == 1:
+            return lower[0]
+        names = ", ".join(cand.name for cand in with_unit_json)
+        raise ValueError(f"ambiguous unit directory for {unit_path}: multiple unit.json matches: {names}")
+
+    existing = [cand for cand in candidates if cand.exists()]
+    if len(existing) == 1:
+        return existing[0]
+    if len(existing) > 1:
+        exact = [cand for cand in existing if cand.name == safe]
+        if len(exact) == 1:
+            return exact[0]
+        lower = [cand for cand in existing if cand.name == safe.lower()]
+        if len(lower) == 1:
+            return lower[0]
+        names = ", ".join(cand.name for cand in existing)
+        raise ValueError(f"ambiguous unit directory for {unit_path}: {names}")
+
+    return base / safe
+
+
 def _unit_dir(unit_path: str) -> Path:
-    return units_dir() / _safe_unit_fs(unit_path)
+    return _resolve_existing_unit_dir(unit_path)
 
 
 def _unit_json_path(unit_path: str) -> Path:
@@ -157,16 +200,25 @@ def _read_unit_meta(unit_path: str) -> Dict[str, Any]:
 
 def _read_unit_chain(unit_path: str) -> List[str]:
     chain: List[str] = []
-    cur = unit_path
+    cur = _safe_unit_fs(unit_path)
     seen = set()
-    while cur and cur not in seen:
-        seen.add(cur)
-        chain.append(cur)
-        raw = _read_unit_json(cur)
+
+    while cur:
+        key = cur.casefold()
+        if key in seen:
+            break
+        seen.add(key)
+
+        resolved_dir = _unit_dir(cur)
+        canonical = resolved_dir.name if resolved_dir.exists() else cur
+        chain.append(canonical)
+
+        raw = _read_unit_json(canonical)
         parent = str(raw.get("parent_path") or "").strip()
         if not parent:
             break
         cur = parent
+
     chain.reverse()
     return chain
 
@@ -194,7 +246,7 @@ def _default_node_cert_model(unit_meta: Dict[str, Any]) -> str:
 
 
 def _default_le_email(unit_meta: Dict[str, Any]) -> str:
-    meta = unit_meta if isinstance(meta := unit_meta, dict) else {}
+    meta = unit_meta if isinstance(unit_meta, dict) else {}
     explicit = _meta_get(meta, "le_email", "letsencrypt_email")
     if explicit:
         return explicit
@@ -332,7 +384,7 @@ def _subtree_source_dirs(unit_path: str, role: str, subtree: str) -> List[Path]:
     ]
     for src_unit in _read_unit_chain(unit_path):
         dirs.append(unit_files_root(src_unit) / subtree)
-    dirs.append(unit_bundle_overlay_dir(unit_path) / subtree)
+        dirs.append(unit_bundle_overlay_dir(src_unit) / subtree)
     return dirs
 
 
@@ -476,7 +528,43 @@ def _copy_letsencrypt_tls_material(root: Path, *, unit_path: str) -> Dict[str, A
     }
 
 
-def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
+def _first_existing_dir(candidates: Sequence[Path]) -> Optional[Path]:
+    for p in candidates:
+        if p.is_dir():
+            return p
+    return None
+
+
+def _first_existing_file(candidates: Sequence[Path]) -> Optional[Path]:
+    for p in candidates:
+        if p.is_file():
+            return p
+    return None
+
+
+def _branding_dir_candidates(unit_path: str) -> List[Path]:
+    return [
+        unit_files_root(unit_path) / "branding",
+        _unit_dir(unit_path) / "branding",
+    ]
+
+
+def _branding_conf_candidates(unit_path: str) -> List[Path]:
+    return [
+        unit_files_root(unit_path) / "config.d" / "branding.conf",
+        _unit_dir(unit_path) / "config.d" / "branding.conf",
+    ]
+
+
+def _branding_meta_candidates(unit_path: str) -> List[Path]:
+    return [
+        unit_files_root(unit_path) / "branding" / "brand.json",
+        _unit_dir(unit_path) / "assets" / "brand.json",
+        _unit_dir(unit_path) / "branding" / "brand.json",
+    ]
+
+
+def _materialize_effective_branding_dir(out_dir: Path, *, unit_path: str) -> Dict[str, Any]:
     chain = _read_unit_chain(unit_path)
     if not chain:
         chain = [unit_path]
@@ -492,19 +580,13 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
                 cur = cur / f"child-{idx:03d}"
                 cur.mkdir(parents=True, exist_ok=True)
 
-            src_root = unit_files_root(up)
-            src_branding = src_root / "files" / "branding"
-            legacy_src_branding = src_root / "branding"
-            src_conf = src_root / "config.d" / "branding.conf"
+            src_branding = _first_existing_dir(_branding_dir_candidates(up))
+            src_conf = _first_existing_file(_branding_conf_candidates(up))
 
-            effective_src_branding = src_branding
-            if not effective_src_branding.is_dir() and legacy_src_branding.is_dir():
-                effective_src_branding = legacy_src_branding
+            if src_branding is not None:
+                shutil.copytree(src_branding, cur / "branding", dirs_exist_ok=True)
 
-            if effective_src_branding.is_dir():
-                shutil.copytree(effective_src_branding, cur / "branding", dirs_exist_ok=True)
-
-            if src_conf.is_file():
+            if src_conf is not None:
                 conf_d = cur / "config.d"
                 conf_d.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src_conf, conf_d / "branding.conf")
@@ -513,13 +595,11 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
                 {
                     "unit_path": up,
                     "staged_unit_dir": str(cur),
-                    "src_root": str(src_root),
-                    "branding_dir": str(effective_src_branding) if effective_src_branding.exists() else "",
-                    "conf_file": str(src_conf) if src_conf.exists() else "",
+                    "branding_dir": str(src_branding) if src_branding is not None else "",
+                    "conf_file": str(src_conf) if src_conf is not None else "",
                 }
             )
 
-        out_dir = root / "branding"
         _reset_dir(out_dir)
 
         manifest = materialize_branding_bundle(
@@ -544,20 +624,13 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
                 }
             )
 
-        effective_brand_meta = {}
+        effective_brand_meta: Dict[str, Any] = {}
         effective_brand_meta_source = ""
+        effective_brand_meta_unit = ""
 
         for item in reversed(mounted):
-            src_root_raw = str(item.get("src_root") or "").strip()
-            if not src_root_raw:
-                continue
-            mounted_src_root = Path(src_root_raw)
-
-            for candidate in (
-                mounted_src_root / "files" / "branding" / "brand.json",
-                mounted_src_root / "assets" / "brand.json",
-                mounted_src_root / "branding" / "brand.json",
-            ):
+            up = str(item.get("unit_path") or "")
+            for candidate in _branding_meta_candidates(up):
                 if not candidate.is_file():
                     continue
                 try:
@@ -567,8 +640,8 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
                 if isinstance(loaded, dict):
                     effective_brand_meta = loaded
                     effective_brand_meta_source = str(candidate)
+                    effective_brand_meta_unit = up
                     break
-
             if effective_brand_meta:
                 break
 
@@ -594,6 +667,58 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
                 encoding="utf-8",
             )
 
+        emitted_by_name = {
+            str(item.get("filename") or ""): item
+            for item in sanitized_files
+            if str(item.get("filename") or "")
+        }
+
+        items: List[Dict[str, Any]] = []
+        for p in sorted(out_dir.rglob("*")):
+            if not p.is_file():
+                continue
+
+            relname = str(p.relative_to(out_dir))
+            base: Dict[str, Any] = {
+                "path": relname,
+                "bytes": p.stat().st_size,
+                "resolved_path": str(p),
+            }
+
+            emitted = emitted_by_name.get(relname)
+            if emitted is not None:
+                src_unit = str(emitted.get("source_unit") or "")
+                inherited = src_unit != unit_path
+                base.update(
+                    {
+                        "kind": "inherited" if inherited else "local",
+                        "inherited": inherited,
+                        "source_unit": src_unit,
+                        "source_name": str(emitted.get("source_name") or ""),
+                        "slot": str(emitted.get("slot") or ""),
+                    }
+                )
+            elif relname == "brand.json":
+                inherited = bool(effective_brand_meta_unit and effective_brand_meta_unit != unit_path)
+                base.update(
+                    {
+                        "kind": "inherited" if inherited else "local",
+                        "inherited": inherited,
+                        "source_unit": effective_brand_meta_unit or "generated",
+                        "source_name": Path(effective_brand_meta_source).name if effective_brand_meta_source else "",
+                    }
+                )
+            else:
+                base.update(
+                    {
+                        "kind": "generated",
+                        "inherited": True,
+                        "source_unit": "generated",
+                    }
+                )
+
+            items.append(base)
+
         return {
             "generated": "branding",
             "kind": "effective_branding",
@@ -602,9 +727,51 @@ def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
             "effective_count": int(manifest.get("effective_count", 0)),
             "files": sanitized_files,
             "brand_meta_source": effective_brand_meta_source,
+            "brand_meta_source_unit": effective_brand_meta_unit,
+            "items": items,
         }
     finally:
         shutil.rmtree(stage_root, ignore_errors=True)
+
+
+def list_effective_branding_subtree_items(unit_path: str) -> List[Dict[str, Any]]:
+    with tempfile.TemporaryDirectory(prefix="taks-branding-list-") as td:
+        result = _materialize_effective_branding_dir(Path(td) / "branding", unit_path=unit_path)
+        out: List[Dict[str, Any]] = []
+        for item in list(result.get("items") or []):
+            row = dict(item)
+            row.pop("resolved_path", None)
+            out.append(row)
+        return out
+
+
+def resolve_effective_branding_subtree_file(unit_path: str, relname: str) -> Optional[Dict[str, Any]]:
+    td = tempfile.mkdtemp(prefix="taks-branding-download-")
+    try:
+        result = _materialize_effective_branding_dir(Path(td) / "branding", unit_path=unit_path)
+        for item in list(result.get("items") or []):
+            if str(item.get("path") or "") == relname:
+                row = dict(item)
+                row["cleanup_dir"] = td
+                return row
+        shutil.rmtree(td, ignore_errors=True)
+        return None
+    except Exception:
+        shutil.rmtree(td, ignore_errors=True)
+        raise
+
+
+def _write_effective_branding(root: Path, *, unit_path: str) -> Dict[str, Any]:
+    result = _materialize_effective_branding_dir(root / "branding", unit_path=unit_path)
+    return {
+        "generated": "branding",
+        "kind": "effective_branding",
+        "chain": list(result.get("chain") or []),
+        "mounted": list(result.get("mounted") or []),
+        "effective_count": int(result.get("effective_count", 0)),
+        "files": list(result.get("files") or []),
+        "brand_meta_source": str(result.get("brand_meta_source") or ""),
+    }
 
 
 def _materialize_generic_subtree(root: Path, *, unit_path: str, role: str, subtree: str) -> Dict[str, Any]:

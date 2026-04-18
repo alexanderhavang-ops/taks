@@ -85,7 +85,19 @@ def _seed_plan_for_missing(unit_id: str, missing: List[str]) -> Dict[str, Dict[s
     conf_d: Dict[str, Dict[str, str]] = {}
     secrets_d: Dict[str, Dict[str, str]] = {}
 
-    if "conf.d/*:default_policy_id" in missing_set:
+    def has_conf_key(key: str) -> bool:
+        return (
+            f"conf.d/*:{key}" in missing_set
+            or f"missing critical bootstrap config key: {key}" in missing_set
+        )
+
+    def has_secret_key(key: str) -> bool:
+        return (
+            f"secrets.d/*:{key}" in missing_set
+            or f"missing critical bootstrap secret key: {key}" in missing_set
+        )
+
+    if has_conf_key("default_policy_id"):
         conf_d.setdefault("policy.conf", {})["default_policy_id"] = policy_id
 
     cert_conf_keys = [
@@ -94,37 +106,35 @@ def _seed_plan_for_missing(unit_id: str, missing: List[str]) -> Dict[str, Dict[s
         "cert_city",
         "cert_organization",
     ]
-    cert_conf_missing = [k for k in cert_conf_keys if k in missing_set]
+    cert_conf_missing = [k for k in cert_conf_keys if has_conf_key(k)]
     if cert_conf_missing:
         target = conf_d.setdefault("certs.conf", {})
         for k in cert_conf_missing:
-            target[k] = ""
+            target[k] = "CHANGEME"
 
-    if "conf.d/*:takctl_admin_user" in missing_set:
-        conf_d.setdefault("takctl.conf", {})["takctl_admin_user"] = ""
+    if has_conf_key("takctl_admin_user"):
+        conf_d.setdefault("takctl.conf", {})["takctl_admin_user"] = "CHANGEME"
 
-    if "secrets.d/*:takctl_admin_password" in missing_set:
-        secrets_d.setdefault("takctl.conf", {})["takctl_admin_password"] = ""
+    if has_secret_key("takctl_admin_password"):
+        secrets_d.setdefault("takctl.conf", {})["takctl_admin_password"] = "CHANGEME"
 
     cert_secret_keys = [
-        "secrets.d/*:cert_capass",
-        "secrets.d/*:cert_pass",
+        "cert_capass",
+        "cert_pass",
     ]
-    cert_secret_missing = [k for k in cert_secret_keys if k in missing_set]
+    cert_secret_missing = [k for k in cert_secret_keys if has_secret_key(k)]
     if cert_secret_missing:
         target = secrets_d.setdefault("certs.conf", {})
-        for full_key in cert_secret_missing:
-            key = full_key.split(":", 1)[1]
-            target[key] = ""
+        for key in cert_secret_missing:
+            target[key] = "CHANGEME"
 
-    if "secrets.d/*:serverpassword" in missing_set:
-        secrets_d.setdefault("murmur.conf", {})["serverpassword"] = ""
+    if has_secret_key("serverpassword"):
+        secrets_d.setdefault("murmur.conf", {})["serverpassword"] = "CHANGEME"
 
     return {
         "conf_d": conf_d,
         "secrets_d": secrets_d,
     }
-
 
 def _merge_seed_content(existing: str, kv: Dict[str, str]) -> tuple[str, List[str]]:
     text = str(existing or "")
@@ -231,16 +241,22 @@ def seed_unit_bootstrap_critical(unit_path: str, request: Request, role: str = "
             for key in kv.keys():
                 if kind_name == "conf_d" and key == "default_policy_id":
                     handled_missing.add("conf.d/*:default_policy_id")
+                    handled_missing.add("missing critical bootstrap config key: default_policy_id")
                 elif kind_name == "conf_d" and key == "takctl_admin_user":
                     handled_missing.add("conf.d/*:takctl_admin_user")
+                    handled_missing.add("missing critical bootstrap config key: takctl_admin_user")
                 elif kind_name == "conf_d":
                     handled_missing.add(key)
+                    handled_missing.add(f"missing critical bootstrap config key: {key}")
                 elif kind_name == "secrets_d" and key == "takctl_admin_password":
                     handled_missing.add("secrets.d/*:takctl_admin_password")
+                    handled_missing.add("missing critical bootstrap secret key: takctl_admin_password")
                 elif kind_name == "secrets_d" and key in ("cert_capass", "cert_pass"):
                     handled_missing.add(f"secrets.d/*:{key}")
+                    handled_missing.add(f"missing critical bootstrap secret key: {key}")
                 elif kind_name == "secrets_d" and key == "serverpassword":
                     handled_missing.add("secrets.d/*:serverpassword")
+                    handled_missing.add("missing critical bootstrap secret key: serverpassword")
 
     for item in missing_before:
         if item not in handled_missing:

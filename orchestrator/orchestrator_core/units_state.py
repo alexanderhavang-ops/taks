@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 from orchestrator_core.config import load_orch_config
@@ -22,10 +23,14 @@ def _safe_unit_path(unit_path: str) -> str:
         raise ValueError("missing unit_path")
     if "\\" in up:
         raise ValueError("invalid unit_path: backslash not allowed")
+    if up != up.lower():
+        raise ValueError("unit_path must be lowercase")
     parts = [p for p in up.split("/") if p]
     for p in parts:
         if p in (".", ".."):
             raise ValueError("invalid unit_path segment")
+        if p != p.lower():
+            raise ValueError("unit_path must be lowercase")
     return "/".join(parts)
 
 
@@ -61,6 +66,8 @@ def materialize_overlay_units(default_title_prefix: str = "") -> int:
                 continue
             up = "/".join(parts[:-2])
             if not up:
+                continue
+            if up != up.lower():
                 continue
 
             f = _unit_file(up)
@@ -106,11 +113,58 @@ def ensure_units_dir() -> None:
     _units_dir().mkdir(parents=True, exist_ok=True)
 
 
-def create_unit(unit_path: str, title: str = "", parent_path: str = "") -> Dict[str, Any]:
+def _seed_new_unit_bootstrap(unit_path: str) -> None:
+    marker = "# seeded on unit create; replace CHANGEME before spawn\n"
+
+    root = _unit_dir(unit_path) / "bootstrap"
+    conf_d = root / "config.d"
+    secrets_d = root / "secrets.d"
+
+    def _write(rel_dir: Path, name: str, content: str) -> None:
+        dst = rel_dir / name
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_text(content, encoding="utf-8")
+
+    _write(
+        conf_d,
+        "certs.conf",
+        marker + "\n".join([
+            "cert_country = CHANGEME",
+            "cert_state = CHANGEME",
+            "cert_city = CHANGEME",
+            "cert_organization = CHANGEME",
+        ]) + "\n",
+    )
+    _write(
+        conf_d,
+        "takctl.conf",
+        marker + "takctl_admin_user = CHANGEME\n",
+    )
+    _write(
+        secrets_d,
+        "takctl.conf",
+        marker + "takctl_admin_password = CHANGEME\n",
+    )
+    _write(
+        secrets_d,
+        "certs.conf",
+        marker + "\n".join([
+            "cert_capass = CHANGEME",
+            "cert_pass = CHANGEME",
+        ]) + "\n",
+    )
+    _write(
+        secrets_d,
+        "murmur.conf",
+        marker + "serverpassword = CHANGEME\n",
+    )
+
+def create_unit(unit_path: str, title: str = "", parent_path: str = "", meta: dict | None = None) -> Dict[str, Any]:
     """
     Create unit.json for unit_path.
 
     Idempotent: if unit.json exists and parses to a dict with unit_path, return it.
+    New units are seeded with local critical bootstrap placeholders (CHANGEME).
     """
     ensure_units_dir()
     up = _safe_unit_path(unit_path)
@@ -123,7 +177,6 @@ def create_unit(unit_path: str, title: str = "", parent_path: str = "") -> Dict[
     now = int(time.time())
 
     if f.exists():
-        # idempotent create
         try:
             obj = json.loads(f.read_text(encoding="utf-8"))
             if isinstance(obj, dict) and obj.get("unit_path"):
@@ -137,13 +190,16 @@ def create_unit(unit_path: str, title: str = "", parent_path: str = "") -> Dict[
         "parent_path": pp,
         "created_ts": now,
         "updated_ts": now,
-        "meta": {},
+        "meta": meta if isinstance(meta, dict) else {},
         "overlay_files": _count_overlay_files(up),
     }
 
     tmp = f.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, f)
+
+    _seed_new_unit_bootstrap(up)
+    obj["overlay_files"] = _count_overlay_files(up)
     return obj
 
 
