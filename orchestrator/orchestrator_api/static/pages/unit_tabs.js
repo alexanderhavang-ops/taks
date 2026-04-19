@@ -17,6 +17,7 @@
     return { blockers: 0, warnings: 0, issues: [] };
   }
 
+
   function emptyValidation(){
     return {
       ready: true,
@@ -26,10 +27,12 @@
         overview: makeTabState(),
         node: makeTabState(),
         files: makeTabState(),
-        config: makeTabState()
+        config: makeTabState(),
+        advanced: makeTabState()
       }
     };
   }
+
 
   function addIssue(validation, x){
     if(!validation || !x || !x.tab || !validation.tabs || !validation.tabs[x.tab]) return;
@@ -126,8 +129,21 @@
       ));
     }
 
-    const nodeFqdn = String((node && node.fqdn) || '').trim() ||
-      firstConfiguredValue(maps.conf_d, ['node_fqdn', 'fqdn']);
+    const fqdnInput = (typeof document !== 'undefined') ? document.getElementById('node_fqdn') : null;
+    const nodeFqdnFromNode = String((node && node.fqdn) || '').trim();
+    const nodeFqdnFromConfig = firstConfiguredValue(maps.conf_d, ['node_fqdn', 'fqdn']);
+    const routeUnitPath =
+      (window.TAKS_UNIT && window.TAKS_UNIT.shared && typeof window.TAKS_UNIT.shared.getRouteUnitPath === 'function')
+        ? String(window.TAKS_UNIT.shared.getRouteUnitPath() || '').trim()
+        : '';
+    const defaultLaunchFqdn = routeUnitPath ? (routeUnitPath + '.aws.tak-hv-sandbox.se') : '';
+
+    let nodeFqdn = '';
+    if(fqdnInput){
+      nodeFqdn = String(fqdnInput.value || '').trim();
+    }else{
+      nodeFqdn = nodeFqdnFromNode || nodeFqdnFromConfig || defaultLaunchFqdn;
+    }
 
     if(!nodeFqdn){
       addIssue(v, issue(
@@ -157,9 +173,17 @@
     return 'overview';
   }
 
+
   function renderReadinessCard(validation){
     const c = S.card('Boot readiness');
     const ready = !!(validation && validation.ready);
+    const border = ready ? 'rgba(34,197,94,0.30)' : 'rgba(239,68,68,0.26)';
+    const glow = ready ? 'rgba(34,197,94,0.10)' : 'rgba(239,68,68,0.08)';
+    const bg = ready ? 'rgba(34,197,94,0.07)' : 'rgba(239,68,68,0.05)';
+
+    c.style.border = '1px solid ' + border;
+    c.style.boxShadow = '0 0 0 1px ' + glow + ' inset';
+    c.style.background = bg;
 
     c.appendChild(S.el('div', {
       style: 'display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap'
@@ -184,9 +208,11 @@
     return c;
   }
 
+
   function renderIssueSummary(title, tabState){
     const c = S.card(title || 'Validation');
     const state = tabState || makeTabState();
+
     if(state.blockers === 0 && state.warnings === 0){
       c.appendChild(S.el('div', { className: 'ok', text: 'No issues detected.' }));
       return c;
@@ -209,46 +235,81 @@
     return c;
   }
 
+
   function renderTabBar(activeTab, validation, onSelect){
     const labels = {
       overview: 'Overview',
       node: 'Node',
       files: 'Files',
-      config: 'Config'
+      config: 'Config',
+      advanced: 'Advanced'
     };
 
-    const bar = S.el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap' });
+    const bar = S.el('div', {
+      role: 'tablist',
+      style: [
+        'display:flex',
+        'gap:0',
+        'align-items:flex-end',
+        'overflow-x:auto',
+        'border-bottom:1px solid rgba(255,255,255,0.10)',
+        'margin:0 -18px 18px -18px',
+        'padding:0 18px'
+      ].join(';')
+    });
 
     Object.keys(labels).forEach(function(key){
       const state = (validation && validation.tabs && validation.tabs[key]) || makeTabState();
       const tone = tabTone(state);
       const count = state.blockers > 0 ? state.blockers : state.warnings;
-      const style = [
-        'padding:10px 14px',
-        'border-radius:12px',
-        'border:1px solid ' + (
-          tone === 'err' ? 'rgba(220,38,38,0.65)' :
-          tone === 'warn' ? 'rgba(245,158,11,0.55)' :
-          'rgba(255,255,255,0.12)'
-        ),
-        'background:' + (
-          tone === 'err' ? 'rgba(220,38,38,0.16)' :
-          tone === 'warn' ? 'rgba(245,158,11,0.16)' :
-          'rgba(255,255,255,0.03)'
-        ),
-        key === activeTab ? 'opacity:1' : 'opacity:.92'
-      ].join(';');
+      const isActive = key === activeTab;
 
       const btn = S.el('button', {
         type: 'button',
-        className: 'btn btn--secondary',
-        style: style
+        role: 'tab',
+        'aria-selected': isActive ? 'true' : 'false',
+        style: [
+          'appearance:none',
+          'border:none',
+          'border-bottom:' + (isActive ? '2px solid rgba(255,255,255,0.92)' : '2px solid transparent'),
+          'background:transparent',
+          'color:inherit',
+          'padding:12px 14px 11px 14px',
+          'margin:0',
+          'cursor:pointer',
+          'font:inherit',
+          'display:flex',
+          'align-items:center',
+          'gap:8px',
+          isActive ? 'opacity:1' : 'opacity:0.88'
+        ].join(';')
       });
 
-      btn.appendChild(S.el('span', { text: labels[key] }));
+      btn.appendChild(S.el('span', {
+        style: isActive ? 'font-weight:700' : '',
+        text: labels[key]
+      }));
+
       if(count > 0){
+        const border =
+          tone === 'err' ? 'rgba(220,38,38,0.70)' :
+          tone === 'warn' ? 'rgba(245,158,11,0.65)' :
+          'rgba(255,255,255,0.16)';
+        const bg =
+          tone === 'err' ? 'rgba(220,38,38,0.16)' :
+          tone === 'warn' ? 'rgba(245,158,11,0.16)' :
+          'rgba(255,255,255,0.05)';
+
         btn.appendChild(S.el('span', {
-          style: 'display:inline-block;margin-left:8px;padding:1px 7px;border-radius:999px;font-size:12px',
+          style: [
+            'display:inline-block',
+            'padding:1px 7px',
+            'border-radius:999px',
+            'font-size:12px',
+            'line-height:1.2',
+            'border:1px solid ' + border,
+            'background:' + bg
+          ].join(';'),
           text: String(count)
         }));
       }
@@ -262,6 +323,7 @@
 
     return bar;
   }
+
 
   window.TAKS_UNIT.tabs = {
     issue: issue,

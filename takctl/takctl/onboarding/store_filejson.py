@@ -8,12 +8,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
-from takctl.config import load_config
 from .models import DeliveryMeta, OnboardingRecord, OnboardingStatus, PackageMeta
 from .store import OnboardingStore
-
-
-DEFAULT_CARD_TOKEN_TTL_SEC = 86400
 
 
 def _dt_to_iso(dt: datetime) -> str:
@@ -33,27 +29,6 @@ def _iso_to_dt(s: str) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc)
-
-
-def _cfg_int(cfg, key: str, default: int) -> int:
-    try:
-        raw = str(cfg.get(key, "") or "").strip()
-    except Exception:
-        raw = ""
-    if not raw:
-        return int(default)
-    try:
-        return max(1, int(raw))
-    except Exception:
-        return int(default)
-
-
-def _card_token_ttl_sec() -> int:
-    try:
-        cfg = load_config()
-    except Exception:
-        return DEFAULT_CARD_TOKEN_TTL_SEC
-    return _cfg_int(cfg, "onboarding_card_token_ttl_sec", DEFAULT_CARD_TOKEN_TTL_SEC)
 
 
 @dataclass(frozen=True)
@@ -298,7 +273,7 @@ class FileJsonOnboardingStore(OnboardingStore):
 
         ttl = int(ttl_sec)
         if ttl <= 0:
-            ttl = _card_token_ttl_sec()
+            raise ValueError("ttl_sec must be > 0")
 
         now = datetime.now(timezone.utc)
         expires = now + timedelta(seconds=max(1, ttl))

@@ -16,6 +16,7 @@ function App() {
     martine: true,
     replay: true,
     documents: true,
+    files: true,
     health: true,
     logs: true,
     config: true
@@ -28,6 +29,7 @@ function App() {
     tab === "martine" && h(MartineView),
     tab === "replay" && h(ReplayView),
     tab === "documents" && h(DocumentsPage),
+    tab === "files" && h(FileBrowserPage),
     tab === "health" && h(HealthView),
     tab === "logs" && h(LogsViewerView),
     tab === "config" && h(ConfigView)

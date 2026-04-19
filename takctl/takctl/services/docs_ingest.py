@@ -619,6 +619,7 @@ def queue_uploaded_pdf(
     content_type: str,
     uploaded_by: str = "admin",
     title: str = "",
+    source: str = "local_upload",
 ) -> dict[str, Any]:
     ensure_docs_dirs()
 
@@ -653,7 +654,7 @@ def queue_uploaded_pdf(
         "size_bytes": size_bytes,
         "uploaded_at": iso_z(),
         "uploaded_by": str(uploaded_by or "admin"),
-        "source": "local_upload",
+        "source": str(source or "local_upload"),
         "active": True,
         "status": "queued",
         "parser_version": "v2-ocr",
@@ -746,6 +747,233 @@ def process_queued_pdf(doc_id: str) -> dict[str, Any]:
             "status": "failed",
             "error": err,
         }
+
+
+
+RUNTIME_DOCUMENT_ROOTS = (
+    Path("/opt/tak/tools/takctl/data/library/documents"),
+)
+
+
+def _iter_runtime_document_files() -> list[Path]:
+    roots: list[Path] = []
+    seen_roots: set[str] = set()
+
+    for root in RUNTIME_DOCUMENT_ROOTS:
+        try:
+            resolved = str(root.resolve())
+        except Exception:
+            resolved = str(root)
+
+        if resolved in seen_roots:
+            continue
+        seen_roots.add(resolved)
+
+        if not root.exists() or not root.is_dir():
+            continue
+
+        roots.append(root)
+
+    out: list[Path] = []
+    for root in roots:
+        for p in sorted(root.rglob("*")):
+            if not p.is_file():
+                continue
+
+            name = str(p.name or "").strip()
+            if not name:
+                continue
+            if name.startswith(".") or name.startswith("._"):
+                continue
+            if name.endswith("~"):
+                continue
+
+            out.append(p)
+
+    return out
+
+
+def _queue_runtime_pdf(path: Path) -> dict[str, Any]:
+    result = queue_uploaded_pdf(
+        temp_upload_path=path,
+        original_filename=path.name,
+        content_type="application/pdf",
+        uploaded_by="bootstrap",
+        title="",
+        source="runtime_documents",
+    )
+    result["source_path"] = str(path)
+    return result
+
+
+def _queue_runtime_zip(path: Path) -> dict[str, Any]:
+    items: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
+    pdf_members: list[tuple[zipfile.ZipInfo, str]] = []
+
+    with zipfile.ZipFile(path, mode="r") as z:
+        for info in z.infolist():
+            if info.is_dir():
+                continue
+
+            member_name = str(info.filename or "")
+            member_base = Path(member_name).name
+            if not member_base:
+                continue
+
+            if member_base.startswith("._"):
+                skipped.append({"name": member_name, "reason": "macos_sidecar"})
+                continue
+
+            if not member_base.lower().endswith(".pdf"):
+                skipped.append({"name": member_name, "reason": "not_pdf"})
+                continue
+
+            pdf_members.append((info, member_base))
+
+        for info, member_base in pdf_members:
+            tmp_path: Path | None = None
+            try:
+                fd, tmp_name = tempfile.mkstemp(prefix="takctl-doc-import-", suffix=".pdf")
+                tmp_path = Path(tmp_name)
+                with tmp_path.open("wb") as f:
+                    f.write(z.read(info))
+
+                result = queue_uploaded_pdf(
+                    temp_upload_path=tmp_path,
+                    original_filename=member_base,
+                    content_type="application/pdf",
+                    uploaded_by="bootstrap",
+                    title="",
+                    source="runtime_documents_zip",
+                )
+                result["source_path"] = str(path)
+                result["source_name"] = str(info.filename or member_base)
+                items.append(result)
+            except Exception as e:
+                items.append({
+                    "ok": False,
+                    "status": "failed",
+                    "source_path": str(path),
+                    "source_name": str(info.filename or member_base),
+                    "filename": member_base,
+                    "error": str(e),
+                })
+            finally:
+                if tmp_path is not None:
+                    try:
+                        tmp_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+
+    return {
+        "ok": True,
+        "mode": "zip",
+        "filename": path.name,
+        "source_path": str(path),
+        "count_total": len(items),
+        "count_ok": sum(1 for x in items if x.get("ok")),
+        "count_failed": sum(1 for x in items if not x.get("ok")),
+        "count_skipped": len(skipped),
+        "items": items,
+        "skipped": skipped[:200],
+    }
+
+
+def drain_docs_queue() -> dict[str, Any]:
+    processed: list[dict[str, Any]] = []
+
+    while True:
+        items = [
+            dict(x)
+            for x in list_docs()
+            if str((x or {}).get("status") or "").strip().lower() in {"queued", "processing"}
+        ]
+        items.sort(key=lambda x: (str(x.get("uploaded_at") or ""), str(x.get("doc_id") or "")))
+
+        if not items:
+            break
+
+        doc_id = str(items[0].get("doc_id") or "").strip()
+        if not doc_id:
+            break
+
+        processed.append(process_queued_pdf(doc_id))
+
+    return {
+        "ok": True,
+        "processed": len(processed),
+        "ready": sum(1 for x in processed if x.get("ok")),
+        "failed": sum(1 for x in processed if not x.get("ok")),
+        "items": processed,
+    }
+
+
+def import_runtime_documents(*, process_queue: bool = True) -> dict[str, Any]:
+    ensure_docs_dirs()
+
+    files = _iter_runtime_document_files()
+    queued: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    failures: list[dict[str, Any]] = []
+
+    for path in files:
+        lower = path.name.lower()
+
+        try:
+            if lower.endswith(".pdf"):
+                queued.append(_queue_runtime_pdf(path))
+                continue
+
+            if lower.endswith(".zip"):
+                queued.append(_queue_runtime_zip(path))
+                continue
+
+            skipped.append({"path": str(path), "reason": "unsupported"})
+        except zipfile.BadZipFile as e:
+            failures.append({"path": str(path), "reason": "invalid_zip", "error": str(e)})
+        except Exception as e:
+            failures.append({"path": str(path), "reason": "import_failed", "error": str(e)})
+
+    queue_summary = {
+        "files_scanned": len(files),
+        "pdf_files": sum(1 for p in files if p.name.lower().endswith(".pdf")),
+        "zip_files": sum(1 for p in files if p.name.lower().endswith(".zip")),
+        "queued": 0,
+        "dedup": 0,
+        "failed": len(failures),
+        "skipped": len(skipped),
+    }
+
+    for row in queued:
+        if row.get("mode") == "zip":
+            for item in row.get("items") or []:
+                if item.get("ok") and item.get("queued"):
+                    queue_summary["queued"] += 1
+                elif item.get("dedup") or item.get("existing"):
+                    queue_summary["dedup"] += 1
+                elif not item.get("ok"):
+                    queue_summary["failed"] += 1
+        else:
+            if row.get("ok") and row.get("queued"):
+                queue_summary["queued"] += 1
+            elif row.get("dedup") or row.get("existing"):
+                queue_summary["dedup"] += 1
+            elif not row.get("ok"):
+                queue_summary["failed"] += 1
+
+    out = {
+        "ok": True,
+        "queue": queue_summary,
+        "items": queued,
+        "skipped": skipped[:200],
+        "failures": failures[:200],
+    }
+
+    if process_queue:
+        out["process"] = drain_docs_queue()
+
+    return out
 
 
 def ingest_uploaded_pdf(

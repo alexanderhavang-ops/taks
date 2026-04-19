@@ -78,9 +78,9 @@ itak_manual_import_warning_enabled = true
 # Soldier card links / token lifetime
 # -----------------------------------------------------------------------------
 
-# Lifetime for tokenized soldier-card links used in email and print-pack output.
+# Lifetime for tokenized soldier-card links used in email, print-pack output,
+# and admin-opened soldier-card links.
 # Default 86400 = 24h. After expiry the link should fail closed.
-# Legacy key onboarding_print_card_ttl_sec is still honored if explicitly set.
 onboarding_card_token_ttl_sec = 86400
 
 # -----------------------------------------------------------------------------

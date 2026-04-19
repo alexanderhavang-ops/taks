@@ -20,6 +20,7 @@ from takctl.web.api.logs import router as logs_router
 from takctl.web.api.orchestrator import router as orchestrator_router
 from takctl.web.api.server_health import router as server_health_router
 
+from takctl.api.file_browser import router as file_browser_router
 from takctl.api.health import router as health_router
 from takctl.api.meta import router as meta_router
 from takctl.api.onboarding import router as onboarding_router
@@ -49,6 +50,7 @@ def create_app() -> FastAPI:
     # API routers
     app.include_router(health_router, prefix="/api")
     app.include_router(meta_router, prefix="/api")
+    app.include_router(file_browser_router, prefix="/api")
 
     app.include_router(onboarding_router, prefix="/api")
     app.include_router(onboarding_policies_router, prefix="/api")

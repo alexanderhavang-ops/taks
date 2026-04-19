@@ -12,9 +12,10 @@ from orchestrator_core.branding_resolver import materialize_branding_bundle
 from orchestrator_core.bundle_verify import verify_bundle_tree
 from orchestrator_core.config import load_orch_config, load_secrets_config
 from orchestrator_core.unit_bootstrap import effective_bootstrap_for_bundle
+from orchestrator_core.units_state import ensure_unit_orchestrator_secret
 
 
-UI_SUBTREES = ("branding", "packages", "users", "plugins", "maps", "missions", "misc", "logos")
+UI_SUBTREES = ("branding", "packages", "users", "plugins", "maps", "missions", "documents", "misc", "logos")
 
 REPO_EXCLUDE_NAMES = {
     ".git",
@@ -291,6 +292,22 @@ def _should_skip_repo_file(name: str) -> bool:
     return False
 
 
+def _should_skip_tree_file(name: str, *, allow_suffixes: Sequence[str] = ()) -> bool:
+    if not _should_skip_repo_file(name):
+        return False
+
+    suffixes = Path(name).suffixes
+    joined = "".join(suffixes[-2:]) if len(suffixes) >= 2 else ""
+    allowed = {str(x) for x in (allow_suffixes or ()) if str(x)}
+
+    if joined in allowed:
+        return False
+    if suffixes and suffixes[-1] in allowed:
+        return False
+
+    return True
+
+
 def _reset_dir(path: Path) -> None:
     if path.exists():
         shutil.rmtree(path)
@@ -334,6 +351,7 @@ def _copy_tree_into(
     dst: Path,
     *,
     skip_file_predicate=None,
+    allow_suffixes: Sequence[str] = (),
 ) -> Dict[str, Any]:
     files = 0
     bytes_total = 0
@@ -350,7 +368,7 @@ def _copy_tree_into(
         out_dir.mkdir(parents=True, exist_ok=True)
 
         for name in sorted(filenames):
-            if _should_skip_repo_file(name):
+            if _should_skip_tree_file(name, allow_suffixes=allow_suffixes):
                 continue
             rel_file = rel_dir / name
             if skip_file_predicate is not None and skip_file_predicate(rel_file):
@@ -429,6 +447,7 @@ def _write_node_env(root: Path, *, unit_path: str) -> Dict[str, Any]:
     orch_api_url = orch_base if orch_base else ""
 
     node_conf = {
+        "unit": unit_path,
         "fqdn": fqdn,
         "node_cert_model": cert_model,
     }
@@ -457,6 +476,7 @@ def _write_node_env(root: Path, *, unit_path: str) -> Dict[str, Any]:
 
 
 def _write_effective_bootstrap(root: Path, *, unit_path: str) -> Dict[str, Any]:
+    ensure_unit_orchestrator_secret(unit_path)
     data = effective_bootstrap_for_bundle(unit_path)
     conf_d = dict((data.get("conf_d") or {}) if isinstance(data, dict) else {})
     secrets_d = dict((data.get("secrets_d") or {}) if isinstance(data, dict) else {})
@@ -784,7 +804,7 @@ def _materialize_generic_subtree(root: Path, *, unit_path: str, role: str, subtr
     total_bytes = 0
 
     for src in sources:
-        item = _copy_tree_into(src, dst)
+        item = _copy_tree_into(src, dst, allow_suffixes=(".zip",))
         total_files += int(item.get("files", 0))
         total_bytes += int(item.get("bytes", 0))
         if item.get("exists"):
@@ -835,7 +855,7 @@ def _materialize_packages_subtree(root: Path, *, unit_path: str, role: str) -> D
     total_bytes = 0
 
     for src in sources:
-        item = _copy_tree_into(src, dst, skip_file_predicate=_is_takserver_deb_path)
+        item = _copy_tree_into(src, dst, skip_file_predicate=_is_takserver_deb_path, allow_suffixes=(".zip",))
         total_files += int(item.get("files", 0))
         total_bytes += int(item.get("bytes", 0))
         if item.get("exists"):

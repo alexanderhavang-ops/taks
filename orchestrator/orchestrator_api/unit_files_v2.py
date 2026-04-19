@@ -26,7 +26,7 @@ from .auth import verify_token
 
 router = APIRouter(prefix="/api/v2/units")
 
-ALLOWED_SUBTREES = ("packages", "branding", "users", "plugins", "maps", "missions", "misc")
+ALLOWED_SUBTREES = ("packages", "branding", "users", "plugins", "maps", "missions", "documents", "misc")
 EFFECTIVE_ROLE = "tak-node"
 
 

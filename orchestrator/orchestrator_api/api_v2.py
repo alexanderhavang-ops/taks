@@ -2,14 +2,18 @@
 from __future__ import annotations
 
 import base64
+import json
 import time
+import ssl
 from typing import Any, Dict, Optional
+import urllib.error
+import urllib.request
 
 from fastapi import APIRouter, HTTPException, Request
 from orchestrator_core.config import load_orch_config, load_secrets_config
 from orchestrator_core.core import NodeRequest, aws_dry_run, aws_launch, aws_list_nodes, aws_snooze, aws_terminate, aws_wake, plan_node
 from orchestrator_core.nodes_state import delete_node, get_node, list_nodes, touch_heartbeat, upsert_node
-from orchestrator_core.units_state import list_units, create_unit
+from orchestrator_core.units_state import create_unit, ensure_unit_orchestrator_secret, list_unit_backups, list_units, save_unit_backup
 
 from .auth import verify_token, verify_basic_auth
 from .bundles_v2 import bundle_name_for_unit, bundle_dir, ensure_unit_bundle, get_unit_bundle_readiness
@@ -113,6 +117,62 @@ def _node_req(req: Dict[str, Any]) -> NodeRequest:
         return NodeRequest(**d)
     except TypeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid node request: {e}")
+
+
+def _node_takctl_base_url(rec: Dict[str, Any], node_id: str) -> str:
+    fqdn = str((rec or {}).get("fqdn") or node_id or "").strip()
+    if not fqdn:
+        raise HTTPException(status_code=400, detail="node fqdn missing")
+    return f"https://{fqdn}"
+
+
+
+
+
+def _node_orchestrator_headers(secret: str) -> Dict[str, str]:
+    return {
+        "Authorization": f"Bearer {secret}",
+        "Accept": "application/json",
+    }
+
+
+def _http_error_detail(e: Exception) -> str:
+    if isinstance(e, urllib.error.HTTPError):
+        try:
+            body = e.read().decode("utf-8", errors="replace").strip()
+        except Exception:
+            body = ""
+        if body:
+            try:
+                obj = json.loads(body)
+                if isinstance(obj, dict) and obj.get("detail"):
+                    return str(obj.get("detail"))
+            except Exception:
+                pass
+            return body
+        return f"HTTP {e.code}"
+    return str(e)
+
+
+def _http_json(method: str, url: str, *, headers: Dict[str, str] | None = None, payload: Dict[str, Any] | None = None, timeout: int = 60) -> Dict[str, Any]:
+    data = None
+    req_headers = dict(headers or {})
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        req_headers.setdefault("Content-Type", "application/json")
+    req = urllib.request.Request(url, data=data, headers=req_headers, method=method)
+    ctx = ssl.create_default_context()
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        raw = resp.read().decode("utf-8", errors="replace")
+    obj = json.loads(raw) if raw else {}
+    return obj if isinstance(obj, dict) else {}
+
+
+def _http_bytes(method: str, url: str, *, headers: Dict[str, str] | None = None, timeout: int = 300) -> bytes:
+    req = urllib.request.Request(url, headers=dict(headers or {}), method=method)
+    ctx = ssl.create_default_context()
+    with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+        return resp.read()
 
 
 # ----------------------------
@@ -237,6 +297,89 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 # ----------------------------
 # Running nodes: state DB (operator auth)
 # ----------------------------
+
+@router.get("/units/{unit_path:path}/backups")
+def unit_backups_list(unit_path: str, request: Request) -> Dict[str, Any]:
+    require_operator(request)
+    return {
+        "ok": True,
+        "unit_path": unit_path,
+        "backups": list_unit_backups(unit_path),
+    }
+
+
+@router.post("/nodes/{node_id:path}/backup")
+def node_create_backup(node_id: str, req: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    require_operator(request)
+
+    rec = get_node(node_id)
+    if not isinstance(rec, dict) or not rec:
+        raise HTTPException(status_code=404, detail="node not found")
+
+    unit_path = str(rec.get("unit_path") or "").strip()
+    if not unit_path:
+        raise HTTPException(status_code=400, detail="node missing unit_path")
+
+    secret = ensure_unit_orchestrator_secret(unit_path)
+    base = _node_takctl_base_url(rec, node_id)
+    api_root = base + "/api/orchestrator"
+
+    buckets = req.get("buckets") if isinstance(req, dict) else None
+    payload = {"buckets": buckets if isinstance(buckets, list) else []}
+
+    try:
+        created = _http_json(
+            "POST",
+            api_root + "/backups",
+            headers=_node_orchestrator_headers(secret),
+            payload=payload,
+            timeout=300,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"node backup create failed: {_http_error_detail(e)}")
+
+    if not bool(created.get("ok")):
+        raise HTTPException(status_code=502, detail="node backup create returned non-ok")
+
+    backup_id = str(created.get("backup_id") or "").strip()
+    if not backup_id:
+        raise HTTPException(status_code=502, detail="node backup create returned no backup_id")
+
+    manifest = created.get("manifest") if isinstance(created.get("manifest"), dict) else {}
+    download_path = str(created.get("download_path") or "").strip()
+    if not download_path:
+        raise HTTPException(status_code=502, detail="node backup create returned no download_path")
+
+    if download_path.startswith("/"):
+        download_url = base + download_path
+    else:
+        download_url = api_root.rstrip("/") + "/" + download_path.lstrip("/")
+
+    try:
+        artifact = _http_bytes(
+            "GET",
+            download_url,
+            headers=_node_orchestrator_headers(secret),
+            timeout=1800,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"node backup download failed: {_http_error_detail(e)}")
+
+    saved = save_unit_backup(
+        unit_path,
+        backup_id=backup_id,
+        manifest=manifest,
+        artifact_bytes=artifact,
+    )
+
+    return {
+        "ok": True,
+        "node_id": node_id,
+        "unit_path": unit_path,
+        "backup": saved,
+        "manifest": manifest,
+    }
+
 
 def _resolve_instance_for_node_record(rec: Dict[str, Any], node_id: str) -> Dict[str, Any]:
     aws = aws_list_nodes()

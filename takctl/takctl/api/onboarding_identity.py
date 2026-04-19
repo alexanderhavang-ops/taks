@@ -57,11 +57,9 @@ from takctl.onboarding.emailer import send_onboarding_email, is_valid_email
 from takctl.services.usermgr import UserMgrService, UserMgrError
 from takctl.onboarding.policy import Policy
 from takctl.config import load_config
+from takctl.onboarding.card_ttl import required_card_link_ttl_sec as _required_card_link_ttl_sec
 
 router = APIRouter(tags=["onboarding"])
-
-DEFAULT_CARD_TOKEN_TTL_SEC = 86400
-
 
 def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
@@ -72,20 +70,6 @@ def _cfg_bool(name: str, default: bool = False) -> bool:
     if not raw:
         return bool(default)
     return raw in ("1", "true", "yes", "y", "on")
-
-
-def _cfg_int(name: str, default: int) -> int:
-    raw = str(load_config().get(name, "") or "").strip()
-    if not raw:
-        return int(default)
-    try:
-        return int(raw)
-    except Exception:
-        return int(default)
-
-
-def _card_link_ttl_sec() -> int:
-    return max(1, _cfg_int("onboarding_card_token_ttl_sec", DEFAULT_CARD_TOKEN_TTL_SEC))
 
 
 def _cert_creation_gate_enabled() -> bool:
@@ -430,7 +414,7 @@ def _identity_out(ident, *, password_value: Optional[str] = None) -> Optional[Di
     }
 
 
-def _issue_card_link_base(base: str, svc, *, username: str, ttl_sec: int, reveal_password: bool) -> Dict[str, Any]:
+def _issue_card_link_base(base: str, svc, *, username: str, reveal_password: bool) -> Dict[str, Any]:
     """
     Background-job compatible card link generator.
 
@@ -438,10 +422,11 @@ def _issue_card_link_base(base: str, svc, *, username: str, ttl_sec: int, reveal
       - bulk import
       - future email senders
     """
+    ttl = _required_card_link_ttl_sec()
     ct = _create_card_token_compat(
         svc.store,
         username=username,
-        ttl_sec=int(ttl_sec),
+        ttl_sec=int(ttl),
         reveal_password=bool(reveal_password),
     )
 
@@ -452,7 +437,7 @@ def _issue_card_link_base(base: str, svc, *, username: str, ttl_sec: int, reveal
     }
 
 
-def _issue_card_link(req: Request, svc, *, username: str, ttl_sec: int, reveal_password: bool) -> Dict[str, Any]:
+def _issue_card_link(req: Request, svc, *, username: str, reveal_password: bool) -> Dict[str, Any]:
     """
     Web-request variant.
     """
@@ -461,7 +446,6 @@ def _issue_card_link(req: Request, svc, *, username: str, ttl_sec: int, reveal_p
         base,
         svc,
         username=username,
-        ttl_sec=ttl_sec,
         reveal_password=reveal_password,
     )
 
@@ -473,12 +457,10 @@ class IdentityUpsertIn(BaseModel):
 
 
 class CardTokenCreateIn(BaseModel):
-    ttl_sec: Optional[int] = Field(default=None, ge=60, le=7 * 24 * 3600)
     reveal_password: bool = Field(default=False)
 
 class EmailLinkIn(BaseModel):
     email: str = Field(default="")
-    ttl_sec: Optional[int] = Field(default=None, ge=60, le=7 * 24 * 3600)
     reveal_password: bool = Field(default=True)
 
 class UserCreateIn(BaseModel):
@@ -489,7 +471,6 @@ class UserCreateIn(BaseModel):
     groups_out: List[str] = Field(default_factory=list)
     ctx: Dict[str, Any] = Field(default_factory=dict)
     endpoints: Dict[str, Any] = Field(default_factory=dict)
-    ttl_sec: Optional[int] = Field(default=None, ge=60, le=7 * 24 * 3600)
     reveal_password: bool = Field(default=True)
 
 class IdentityDeriveIn(BaseModel):
@@ -770,7 +751,6 @@ def create_user(req: Request, username: str, body: UserCreateIn):
         req,
         svc,
         username=u,
-        ttl_sec=(_card_link_ttl_sec() if body.ttl_sec is None else int(body.ttl_sec)),
         reveal_password=bool(body.reveal_password),
     )
 
@@ -848,7 +828,6 @@ def create_card_token(req: Request, username: str, body: CardTokenCreateIn):
             req,
             svc,
             username=username,
-            ttl_sec=(_card_link_ttl_sec() if body.ttl_sec is None else int(body.ttl_sec)),
             reveal_password=bool(body.reveal_password),
         )
     except RuntimeError as e:
@@ -883,7 +862,6 @@ def email_link(req: Request, username: str, body: EmailLinkIn):
             req,
             svc,
             username=username,
-            ttl_sec=(_card_link_ttl_sec() if body.ttl_sec is None else int(body.ttl_sec)),
             reveal_password=bool(body.reveal_password),
         )
         email_status = send_onboarding_email(
@@ -1033,22 +1011,42 @@ def onboarding_card_by_token_json(
 def onboarding_card_html(req: Request, token: str):
     svc = build_service()
 
-    ct = _load_card_token_any(svc, token)
-    if not ct:
-        raise HTTPException(status_code=404, detail="Not Found")
-
-    username = _card_token_username(ct)
-    if not username:
-        raise HTTPException(status_code=404, detail="Not Found")
-
-    exp = _card_token_expires_at(ct)
-
     try:
         lang = str(load_config().get("language", "sv") or "sv").strip().lower()
     except Exception:
         lang = "sv"
 
     base = external_base(req).rstrip("/")
+
+    ct = _load_card_token_any(svc, token)
+    if not ct:
+        html = _render_expired_card_page(
+            base=base,
+            lang=lang,
+            username="",
+            expires_at_utc=None,
+        )
+        return HTMLResponse(
+            html,
+            status_code=410,
+            headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+        )
+
+    username = _card_token_username(ct)
+    if not username:
+        html = _render_expired_card_page(
+            base=base,
+            lang=lang,
+            username="",
+            expires_at_utc=_card_token_expires_at(ct),
+        )
+        return HTMLResponse(
+            html,
+            status_code=410,
+            headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+        )
+
+    exp = _card_token_expires_at(ct)
 
     if _card_token_is_expired(ct):
         html = _render_expired_card_page(

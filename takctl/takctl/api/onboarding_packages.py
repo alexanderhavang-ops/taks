@@ -41,22 +41,13 @@ DEFAULT_CARD_TOKEN_TTL_SEC = 86400
 
 
 def _card_link_ttl_sec() -> int:
-    cfg = load_config()
-    for key in (
-        "onboarding_card_token_ttl_sec",
-        "onboarding_card_ttl_sec",
-        "onboarding_print_card_ttl_sec",
-    ):
-        raw = str(cfg.get(key, "") or "").strip()
-        if not raw:
-            continue
-        try:
-            v = int(raw)
-            if v >= 60:
-                return v
-        except Exception:
-            pass
-    return DEFAULT_CARD_TOKEN_TTL_SEC
+    raw = str(load_config().get("onboarding_card_token_ttl_sec", "") or "").strip()
+    if not raw:
+        return DEFAULT_CARD_TOKEN_TTL_SEC
+    try:
+        return max(60, int(raw))
+    except Exception:
+        return DEFAULT_CARD_TOKEN_TTL_SEC
 
 def _external_req_url(req) -> str:
     """Proxy-safe external URL for this request (scheme+host from forwarded headers)."""
@@ -230,6 +221,9 @@ def _require_token(token: str):
     try:
         ct = svc.store.get_card_token(token)
     except Exception:
+        raise HTTPException(status_code=404, detail="card token not found")
+
+    if ct is None:
         raise HTTPException(status_code=404, detail="card token not found")
 
     # Expiry check (treat expired as gone)
@@ -1184,26 +1178,6 @@ def onboarding_card(req: Request, username: str):
     else:
         ttl_hours = max(1, int((int(ttl_sec) + 3599) // 3600))
         ct = svc.store.issue_card_token(username=username, ttl_hours=ttl_hours, reveal_password=True)
-
-    base = external_base(req).rstrip("/")
-    return RedirectResponse(url=f"{base}/api/onboarding/cards/{ct.token}", status_code=303)
-
-def onboarding_card(req: Request, username: str):
-    # Admin entry point: issue a short-lived public soldier card and redirect to it.
-    svc, u, username = _require_user(username)
-
-    # Default TTL: 10 minutes. (Admin can re-open 'Card' to re-issue.)
-    ttl_sec = int(load_config().get("onboarding_card_ttl_sec", 600) or 600)
-
-    # Safe default: request reveal_password=True, but soldier page will only show
-    # a password if TAKS actually knows it (origin=taks + password_known).
-    # Prefer store compat wrapper (ttl_sec), fall back to issue_card_token(ttl_hours)
-    if hasattr(svc.store, "create_card_token"):
-        ct = svc.store.create_card_token(username=username, ttl_sec=ttl_sec, reveal_password=True)
-    else:
-        ttl_hours = max(1, int((int(ttl_sec) + 3599) // 3600))
-        ct = svc.store.issue_card_token(username=username, ttl_hours=ttl_hours, reveal_password=True)
-
 
     base = external_base(req).rstrip("/")
     return RedirectResponse(url=f"{base}/api/onboarding/cards/{ct.token}", status_code=303)

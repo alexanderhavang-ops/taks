@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 
-UI_SUBTREES = ("branding", "packages", "users", "plugins", "maps", "missions", "misc", "logos")
+UI_SUBTREES = ("branding", "packages", "users", "plugins", "maps", "missions", "documents", "misc", "logos")
 FORBIDDEN_NAME_FRAGMENTS = (".bak.", "__pycache__")
 FORBIDDEN_FILE_SUFFIXES = (".pyc", ".pyo", ".swp", ".tmp", ".orig", ".rej", "~")
 

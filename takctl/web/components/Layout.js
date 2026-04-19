@@ -140,6 +140,8 @@ function Layout({ tab, setTab, health, brand, children }) {
 
         h(TabButton, { id: "documents", tab, setTab, label: t("nav.documents") }),
 
+        h(TabButton, { id: "files", tab, setTab, label: "File Browser" }),
+
         h(TabButton, { id: "health", tab, setTab, label: serverHealthLabel }),
 
         h(TabButton, { id: "logs", tab, setTab, label: "Logs" }),

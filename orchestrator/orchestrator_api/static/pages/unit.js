@@ -6,6 +6,14 @@
     '/static/pages/unit_shared.js',
     '/static/pages/unit_api.js',
     '/static/pages/unit_tabs.js',
+    '/static/pages/unit_render_header.js',
+    '/static/pages/unit_render_status.js',
+    '/static/pages/unit_render_install.js',
+    '/static/pages/unit_render_node_summary.js',
+    '/static/pages/unit_render_node.js',
+    '/static/pages/unit_render_bootstrap.js',
+    '/static/pages/unit_render_files.js',
+    '/static/pages/unit_render_brand.js',
     '/static/pages/unit_render.js'
   ];
 
@@ -29,7 +37,7 @@
       }
 
       const s = document.createElement('script');
-      s.src = src + '?v=20260418-unit-tabs-loader-1';
+      s.src = src + '?v=20260419-node-defaults-fix-1';
       s.async = false;
       s.dataset.unitSplit = src;
       s.onload = function(){
@@ -79,3 +87,4 @@
     }
   };
 })();
+

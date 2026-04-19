@@ -424,6 +424,19 @@ def resolve_username_for_client_uid(client_uid: str) -> str:
         return ""
 
     sql = """
+        SELECT username
+        FROM public.client_endpoint
+        WHERE uid = %s
+          AND username IS NOT NULL
+          AND btrim(username) <> ''
+        ORDER BY id DESC
+        LIMIT 1;
+    """
+    username = db_scalar(sql, (uid,))
+    if username:
+        return username
+
+    sql = """
         SELECT subject_dn
         FROM public.certificate
         WHERE client_uid = %s
@@ -665,6 +678,12 @@ def build_atak_chat_xml(
     remarks_source = f"BAO.F.ATAK.{chat_uid}"
     visible_callsign = str(sender_callsign_override or callsign).strip() or callsign
 
+    marti_dest_xml = ""
+    if parent == "RootContactGroup":
+        dest_callsign = str(to_callsign or "").strip()
+        if dest_callsign and dest_callsign != ALL_CHAT_ROOMS:
+            marti_dest_xml = f'<marti><dest callsign="{escape(dest_callsign)}"/></marti>'
+
     return (
         f'<event version="2.0" uid="{escape(uid)}" type="b-t-f" how="h-g-i-g-o" '
         f'time="{time_s}" start="{time_s}" stale="{stale_s}">'
@@ -677,10 +696,10 @@ def build_atak_chat_xml(
         f'<link uid="{escape(chat_uid)}" type="a-f-G-U-C" relation="p-p"/>'
         f'<__serverdestination destinations="127.0.0.1:4242:tcp:{escape(chat_uid)}"/>'
         f'<remarks source="{escape(remarks_source)}" to="{escape(target_uid)}" time="{time_s}">{escape(message)}</remarks>'
+        f'{marti_dest_xml}'
         f'</detail>'
         f'</event>'
     )
-
 
 def build_group_contacts_update_xml(
     *,

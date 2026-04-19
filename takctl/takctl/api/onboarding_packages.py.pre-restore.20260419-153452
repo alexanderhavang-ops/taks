@@ -1,0 +1,40 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from takctl.onboarding.models import OnboardingRecord, OnboardingStatus, PackageMeta, DeliveryMeta
+import json
+import hashlib
+from urllib.parse import quote, urlparse, parse_qsl, urlencode, urlunparse
+
+from fastapi import APIRouter, HTTPException, Request, Form
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse, HTMLResponse, RedirectResponse
+from takctl.onboarding.service_builder import build_service as _build_service
+from takctl.onboarding.qrencode import write_qr_png
+
+from takctl.onboarding.http import external_base, forwarded_host_only, bool_q
+from takctl.onboarding.selection import artifact_root, load_selection, save_selection
+from takctl.onboarding.atak import (
+    qr_payload,
+    now_utc_iso,
+    atak_package_url,
+    atak_package_creds_url,
+    itak_package_url,
+)
+from takctl.onboarding.atak_quickconnect import (
+    atak_enroll_payload,
+    atak_enroll_creds_payload,
+    atak_enroll_payload_values,
+)
+from takctl.onboarding.itak_quickconnect import qr_payload as itak_qr_payload
+from takctl.onboarding.atak_autoenroll import write_atak_auto_enroll_zip
+from takctl.onboarding.atak_softcert import write_atak_soft_cert_zip
+from takctl.onboarding.itak_softcert import write_itak_soft_cert_zip
+from takctl.onboarding.pages import render_generate_page, render_card_page
+from takctl.onboarding.vx import write_vx_mission_zip, derive_vx_params
+from takctl.config import load_config
+from takctl.onboarding.card_ttl import required_card_link_ttl_sec as _required_card_link_ttl_sec
+
+
+router = APIRouter(tags=["onboarding"])
+
+

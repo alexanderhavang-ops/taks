@@ -15,6 +15,7 @@ from takctl.onboarding.service_builder import build_service
 from takctl.onboarding.emailer import send_onboarding_email
 from takctl.onboarding.selection import load_selection, save_selection
 from takctl.config import load_config
+from takctl.onboarding.card_ttl import required_card_link_ttl_sec as _required_card_link_ttl_sec
 from takctl.onboarding.soldier_card.page import render_soldier_card_page, render_soldier_card_print_pack
 
 router = APIRouter(tags=["onboarding"])
@@ -98,34 +99,18 @@ def _record_onboarding_email(username: str, *, email: str, card_url: str, print_
         pass
 
 
-def _cfg_int(cfg: Any, key: str, default: int) -> int:
-    try:
-        raw = str(cfg.get(key, "") or "").strip()
-    except Exception:
-        raw = ""
-    if not raw:
-        return int(default)
-    try:
-        return max(1, int(raw))
-    except Exception:
-        return int(default)
-
-
-def _card_link_ttl_sec(cfg: Any) -> int:
-    return _cfg_int(cfg, "onboarding_card_token_ttl_sec", 86400)
-
-
-def _issue_card_link_base(base: str, svc, *, username: str, ttl_sec: int, reveal_password: bool) -> dict[str, Any]:
+def _issue_card_link_base(base: str, svc, *, username: str, reveal_password: bool) -> dict[str, Any]:
+    ttl = _required_card_link_ttl_sec()
     if hasattr(svc.store, "create_card_token"):
         ct = svc.store.create_card_token(
             username=username,
-            ttl_sec=int(ttl_sec),
+            ttl_sec=int(ttl),
             reveal_password=bool(reveal_password),
         )
     else:
         ct = svc.store.upsert_card_token(
             username=username,
-            ttl_sec=int(ttl_sec),
+            ttl_sec=int(ttl),
             reveal_password=bool(reveal_password),
         )
 
@@ -541,7 +526,6 @@ async def onboarding_email_pack(req: Request):
     base = external_base(req).rstrip("/")
     cfg = load_config()
     lang = str(cfg.get("language", "sv") or "sv").strip().lower()
-    ttl_sec = _card_link_ttl_sec(cfg)
 
     sent = 0
     failed = 0
@@ -568,7 +552,6 @@ async def onboarding_email_pack(req: Request):
                 base,
                 svc,
                 username=username,
-                ttl_sec=ttl_sec,
                 reveal_password=reveal_password,
             )
             email_status = send_onboarding_email(
@@ -626,7 +609,6 @@ async def onboarding_print_pack(req: Request, payload: str = Form(...)):
 
     cfg = load_config()
     lang = str(cfg.get("language", "sv") or "sv").strip().lower()
-    ttl_sec = _card_link_ttl_sec(cfg)
 
     sections_cards: list[str] = []
     sections_passwords: list[str] = []
@@ -660,7 +642,6 @@ async def onboarding_print_pack(req: Request, payload: str = Form(...)):
             base,
             svc,
             username=username,
-            ttl_sec=ttl_sec,
             reveal_password=reveal_password,
         )
 

@@ -2,9 +2,17 @@ from __future__ import annotations
 
 import hmac
 from pathlib import Path
-from typing import Dict
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
+
+from takctl.services.orchestrator_backup import (
+    create_backup,
+    get_backup_artifact_path,
+    get_backup_manifest,
+)
 
 router = APIRouter(prefix="/api/orchestrator", tags=["orchestrator"])
 
@@ -72,6 +80,10 @@ def require_orchestrator_secret(request: Request) -> None:
         raise HTTPException(status_code=401, detail="invalid orchestrator secret")
 
 
+class BackupCreateIn(BaseModel):
+    buckets: List[str] = Field(default_factory=list)
+
+
 @router.get("/ping")
 def orchestrator_ping(request: Request) -> Dict[str, object]:
     require_orchestrator_secret(request)
@@ -79,3 +91,54 @@ def orchestrator_ping(request: Request) -> Dict[str, object]:
         "ok": True,
         "auth": "orchestrator_node_secret",
     }
+
+
+@router.post("/backups")
+def orchestrator_create_backup(request: Request, body: BackupCreateIn) -> Dict[str, Any]:
+    require_orchestrator_secret(request)
+    try:
+        result = create_backup(body.buckets)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    backup_id = str(result.get("backup_id") or "").strip()
+    return {
+        "ok": True,
+        "backup_id": backup_id,
+        "manifest": result.get("manifest") or {},
+        "size_bytes": int(result.get("size_bytes") or 0),
+        "download_path": f"/api/orchestrator/backups/{backup_id}/artifact",
+        "manifest_path": f"/api/orchestrator/backups/{backup_id}/manifest",
+    }
+
+
+@router.get("/backups/{backup_id}/manifest")
+def orchestrator_backup_manifest(request: Request, backup_id: str) -> Dict[str, Any]:
+    require_orchestrator_secret(request)
+    try:
+        return get_backup_manifest(backup_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/backups/{backup_id}/artifact")
+def orchestrator_backup_artifact(request: Request, backup_id: str):
+    require_orchestrator_secret(request)
+    try:
+        p = get_backup_artifact_path(backup_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    return FileResponse(
+        path=str(p),
+        media_type="application/gzip",
+        filename=f"{backup_id}.backup.tar.gz",
+    )

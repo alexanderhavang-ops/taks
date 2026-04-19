@@ -26,6 +26,7 @@ LIBRARY_SUBTREES = (
     "plugins",
     "maps",
     "missions",
+    "documents",
     "misc",
 )
 
