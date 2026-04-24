@@ -56,9 +56,36 @@ def validate_cloud_init(text: str) -> None:
     yaml.safe_load(text)  # raises on invalid yaml
 
 
-def resolve_ubuntu_2204_ami(*, region_name: str) -> str:
+def resolve_ubuntu_ami(*, region_name: str) -> str:
     cfg = load_orch_config()
-    return cfg.aws.default_ami
+
+    pinned = str(cfg.aws.default_ami or "").strip()
+    if pinned:
+        return pinned
+
+    ec2 = boto3.client("ec2", region_name=region_name)
+    resp = ec2.describe_images(
+        Owners=["099720109477"],
+        Filters=[
+            {
+                "Name": "name",
+                "Values": ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"],
+            }
+        ],
+    )
+    images = list(resp.get("Images") or [])
+    if not images:
+        raise RuntimeError(
+            f"no Canonical Ubuntu 24.04 images found in region {region_name}"
+        )
+
+    images.sort(key=lambda x: str(x.get("CreationDate") or ""))
+    ami = str(images[-1].get("ImageId") or "").strip()
+    if not ami:
+        raise RuntimeError(
+            f"latest Canonical Ubuntu 24.04 image in region {region_name} had empty ImageId"
+        )
+    return ami
 
 
 def resolve_default_public_subnet(*, region_name: str) -> Dict[str, str]:
@@ -87,7 +114,7 @@ class NodeRequest:
     bundle_ttl: int | None = None
 def plan_node(req: NodeRequest) -> Dict[str, Any]:
     r = region()
-    ami = resolve_ubuntu_2204_ami(region_name=r)
+    ami = resolve_ubuntu_ami(region_name=r)
     net = resolve_default_public_subnet(region_name=r)
 
     ci = render_cloud_init(

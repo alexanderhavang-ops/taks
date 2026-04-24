@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Sequence
 
 from martine.config import load_config
+from takctl.onboarding.service_builder import build_service
+from takctl.onboarding.voice_topology import derive_voice_topology
 
 from .voice_onboarding_common import (
     LOCAL_COT_TLS_HOST,
@@ -30,6 +31,35 @@ from .voice_onboarding_delivery import (
     _wait_for_uploaded_content,
 )
 from .voice_onboarding_package import _render_voice_package
+
+
+def _channels_from_identity_topology(target_callsign: str) -> list[str]:
+    username = str(target_callsign or "").strip()
+    if not username:
+        return []
+
+    try:
+        svc = build_service()
+        ident = svc.store.get_identity(username)
+        if ident is None:
+            return []
+
+        ctx = getattr(ident, "ctx", {}) or {}
+        if not isinstance(ctx, dict) or not ctx:
+            return []
+
+        topo = derive_voice_topology(None, ctx)
+        if not isinstance(topo, dict):
+            return []
+
+        out: list[str] = []
+        for x in (topo.get("seed_channels") or []):
+            s = str(x or "").strip()
+            if s and s not in out:
+                out.append(s)
+        return out
+    except Exception:
+        return []
 
 
 def send_voice_onboarding(
@@ -67,11 +97,14 @@ def send_voice_onboarding(
     mission_label = f"Samband-{node_name}"
     voice_port = int(mumble_port or 64738)
     server_password = _load_murmur_password(defaults)
-    channel_names = _normalize_channels(
+
+    explicit_channels = _normalize_channels(
         channels=channels,
         channels_csv=channels_csv,
         defaults=defaults,
     )
+    topology_channels = _channels_from_identity_topology(target_callsign)
+    channel_names = explicit_channels or topology_channels
 
     ts = _utc_now().strftime("%Y%m%dT%H%M%SZ")
     state_dir = _state_root(cfg) / "voice_onboarding" / f"{ts}-{_safe_slug(target_callsign)}"
@@ -80,6 +113,38 @@ def send_voice_onboarding(
     xml_path = state_dir / "fileshare.xml"
     upload_resp_path = state_dir / f"{target_callsign}_{node_name}.upload.txt"
     result_path = state_dir / "result.json"
+
+    if not channel_names:
+        out = {
+            "ok": False,
+            "tool": "send_voice_onboarding",
+            "dry_run": bool(dry_run),
+            "target_callsign": target_callsign,
+            "target_uid": target_uid,
+            "channels": [],
+            "channel_resolution": {
+                "explicit_channels": explicit_channels,
+                "identity_topology_channels": topology_channels,
+            },
+            "server": {
+                "host": fqdn,
+                "port": voice_port,
+                "tls": bool(mumble_tls),
+                "force_tcp": bool(force_tcp),
+                "server_password_present": bool(server_password),
+            },
+            "artifacts": {
+                "state_dir": str(state_dir),
+                "fileshare_xml_path": str(xml_path),
+                "upload_response_path": str(upload_resp_path),
+            },
+            "error": (
+                "no voice channels resolved for target; "
+                "pass channels explicitly or ensure onboarding identity ctx maps to voice topology"
+            ),
+        }
+        _write_json(result_path, out)
+        return out
 
     try:
         rendered = _render_voice_package(
@@ -104,6 +169,10 @@ def send_voice_onboarding(
             "target_uid": target_uid,
             "mission_name": rendered["manifest_name"],
             "channels": channel_names,
+            "channel_resolution": {
+                "explicit_channels": explicit_channels,
+                "identity_topology_channels": topology_channels,
+            },
             "server": {
                 "host": fqdn,
                 "port": voice_port,
@@ -268,6 +337,10 @@ def send_voice_onboarding(
             "target_callsign": target_callsign,
             "target_uid": target_uid,
             "channels": channel_names,
+            "channel_resolution": {
+                "explicit_channels": explicit_channels,
+                "identity_topology_channels": topology_channels,
+            },
             "server": {
                 "host": fqdn if "fqdn" in locals() else "",
                 "port": int(mumble_port or 64738),

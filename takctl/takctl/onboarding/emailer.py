@@ -218,38 +218,39 @@ def _headline(lang: str) -> str:
     return f"Välkommen till {unit}" if unit else "Välkommen till ditt förband"
 
 
+
 def _lang_copy(lang: str) -> dict[str, str]:
     if _norm_lang(lang) == "en":
         return {
-            "eyebrow": "TAKS ONBOARDING",
-            "lead": "Your onboarding card is ready. Open the link below to start your setup in ATAK, iTAK, or in a browser.",
-            "cta": "Open soldier card",
-            "expires": "This link may expire, so use it soon.",
-            "username": "User",
-            "qr_title": "Scan QR",
-            "qr_help": "Open the same soldier card on another device.",
-            "manual_link": "Direct link",
-            "closing": "Stay ready.",
+            "eyebrow": "GET STARTED",
+            "lead": "We want to help you get your phone set up on our TAK system. Start by opening your soldier card. It is your main onboarding page and includes guides, installation links, QR codes, server details, and everything else you need to get started.",
+            "cta": "Get started",
+            "expires": "Reading this on a computer? Scan the QR code with your phone camera. Reading this on your phone or tablet? Tap the button or direct link on this device.",
+            "username": "Username",
+            "qr_title": "Open on your phone",
+            "qr_help": "Use your phone camera to scan the QR code and open the same soldier card on your phone.",
+            "manual_link": "Open on this device",
+            "closing": "Please keep this email until you have completed the setup.",
             "footer": "This message was sent by TAKS onboarding.",
         }
     return {
-        "eyebrow": "TAKS ONBOARDING",
-        "lead": "Ditt soldatkort är klart. Öppna länken nedan för att starta onboarding i ATAK, iTAK eller i webbläsare.",
-        "cta": "Öppna soldatkort",
-        "expires": "Länken kan gå ut, så använd den så snart som möjligt.",
+        "eyebrow": "KOM IGÅNG",
+        "lead": "Vi vill hjälpa dig att få din telefon igång i vårt TAK-system. Börja med att öppna ditt soldatkort. Det är din startsida för onboarding och innehåller guider, installationslänkar, QR-koder, serveruppgifter och allt annat du behöver för att komma igång.",
+        "cta": "Kom igång",
+        "expires": "Läser du detta på en dator? Skanna QR-koden med mobilkameran. Läser du detta på mobilen eller surfplattan? Tryck på knappen eller direktlänken på den här enheten.",
         "username": "Användare",
-        "qr_title": "Skanna QR",
-        "qr_help": "Öppna samma soldatkort på en annan enhet.",
-        "manual_link": "Direktlänk",
-        "closing": "Var redo.",
+        "qr_title": "Öppna på mobilen",
+        "qr_help": "Skanna QR-koden med mobilkameran för att öppna samma soldatkort på din telefon.",
+        "manual_link": "Öppna på den här enheten",
+        "closing": "Spara gärna mejlet tills du är klar med installationen.",
         "footer": "Detta meddelande skickades av TAKS onboarding.",
     }
 
-
 def _subject(username: str, lang: str) -> str:
-    head = _headline(lang)
-    user = str(username or "").strip()
-    return f"{head} — {user}" if user else head
+    unit = _unit_label()
+    if _norm_lang(lang) == "en":
+        return f"Get started with your phone - {unit}" if unit else "Get started with your phone"
+    return f"Kom igång med din telefon - {unit}" if unit else "Kom igång med din telefon"
 
 def _text_body(*, username: str, card_url: str, lang: str) -> str:
     c = _lang_copy(lang)
@@ -269,12 +270,24 @@ def _text_body(*, username: str, card_url: str, lang: str) -> str:
         f"/TAKS\n"
     )
 
-def _html_body(*, username: str, card_url: str, lang: str) -> str:
+def _html_body(*, username: str, to_addr: str, card_url: str, lang: str) -> str:
     c = _lang_copy(lang)
     b = _branding(card_url)
     qr_url = _card_qr_url(card_url)
     headline = _headline(lang)
     subject = _subject(username, lang)
+    badge_primary = str(username or "").strip() or "—"
+    badge_row2 = str(to_addr or "").strip() or (_unit_label() or badge_primary)
+    nameplate_html = f"""
+              <div style="margin-top:20px;height:86px;min-width:260px;max-width:460px;border-radius:6px;padding:12px 14px;background:#244a82;box-shadow:0 8px 18px rgba(0,0,0,0.38);border:1px solid rgba(0,0,0,0.12);display:flex;flex-direction:column;justify-content:center;gap:6px;overflow:hidden;">
+                <div style="font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-weight:900;font-size:20px;line-height:1.0;letter-spacing:0.02em;text-transform:uppercase;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                  {h(badge_primary)}
+                </div>
+                <div style="font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:12px;line-height:1.0;letter-spacing:0.06em;text-transform:uppercase;color:rgba(255,255,255,0.92);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                  {h(badge_row2)}
+                </div>
+              </div>
+    """
 
     slogan_html = (
         f'<div style="margin-top:8px;font-size:12px;letter-spacing:0.12em;'
@@ -328,18 +341,7 @@ def _html_body(*, username: str, card_url: str, lang: str) -> str:
                 {h(c["lead"])}
               </div>
 
-              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin-top:22px;">
-                <tr>
-                  <td style="font-size:13px;color:#9aa8bd;padding:0 0 6px 0;">
-                    {h(c["username"])}
-                  </td>
-                </tr>
-                <tr>
-                  <td style="font-size:20px;font-weight:700;color:#ffffff;">
-                    {h(username)}
-                  </td>
-                </tr>
-              </table>
+              {nameplate_html}
 
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin-top:24px;">
                 <tr>
@@ -407,7 +409,7 @@ def _send_via_sendmail(*, to_addr: str, username: str, card_url: str, lang: str)
         msg["Reply-To"] = reply_to
 
     msg.set_content(_text_body(username=username, card_url=card_url, lang=lang))
-    msg.add_alternative(_html_body(username=username, card_url=card_url, lang=lang), subtype="html")
+    msg.add_alternative(_html_body(username=username, to_addr=to_addr, card_url=card_url, lang=lang), subtype="html")
 
     sendmail = _sendmail_path()
     try:
@@ -440,7 +442,7 @@ def _send_via_resend(*, to_addr: str, username: str, card_url: str, lang: str) -
         "to": [to_addr],
         "subject": _subject(username, lang),
         "text": _text_body(username=username, card_url=card_url, lang=lang),
-        "html": _html_body(username=username, card_url=card_url, lang=lang),
+        "html": _html_body(username=username, to_addr=to_addr, card_url=card_url, lang=lang),
     }
 
     reply_to = _reply_to()

@@ -25,6 +25,115 @@
     return window.TAKS_UNIT.clearInstallProgressState.apply(null, arguments);
   }
 
+  function encodePathValue(v){
+    return String(v || '').split('/').filter(Boolean).map(function(x){ return encodeURIComponent(x); }).join('/');
+  }
+
+  function backupUnit(node){
+    return String((node && (node.unit || node.unit_path)) || (S.getRouteUnitPath ? S.getRouteUnitPath() : '') || '').trim();
+  }
+
+  function backupNodeId(node){
+    return String((node && (node.node_id || node.fqdn || node.instance_id)) || '').trim();
+  }
+
+  function backupArtifactUrl(unit, backupId){
+    return '/api/v2/units/' + encodePathValue(unit) + '/backups/' + encodeURIComponent(String(backupId || '')) + '/artifact';
+  }
+
+  function backupManifestUrl(unit, backupId){
+    return '/api/v2/units/' + encodePathValue(unit) + '/backups/' + encodeURIComponent(String(backupId || '')) + '/manifest';
+  }
+
+  function backupHumanBytes(v){
+    var n = Number(v || 0);
+    if(!(n > 0)) return '0 B';
+    if(n >= 1024 * 1024 * 1024) return (n / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    if(n >= 1024 * 1024) return (n / (1024 * 1024)).toFixed(2) + ' MB';
+    if(n >= 1024) return (n / 1024).toFixed(1) + ' KB';
+    return String(n) + ' B';
+  }
+
+  async function backupFetchJson(url, opts){
+    var init = Object.assign({ credentials: 'same-origin' }, opts || {});
+    init.headers = Object.assign({ Accept: 'application/json' }, (opts && opts.headers) || {});
+    var resp = await fetch(url, init);
+    var text = await resp.text();
+    var obj = {};
+    if(text){
+      try{
+        obj = JSON.parse(text);
+      }catch(err){
+        if(!resp.ok) throw new Error(text || ('HTTP ' + resp.status));
+        throw new Error('Invalid JSON from ' + url);
+      }
+    }
+    if(!resp.ok){
+      throw new Error(String((obj && obj.detail) || text || ('HTTP ' + resp.status)));
+    }
+    return obj || {};
+  }
+
+  async function refreshBackupList(node){
+    var unit = backupUnit(node);
+    var el = S.byId('node_backup_list');
+    if(!el || !unit) return;
+    el.innerHTML = '';
+    el.appendChild(S.el('div', { className: 'muted', text: 'Laddar…' }));
+    try{
+      var j = await backupFetchJson('/api/v2/units/' + encodePathValue(unit) + '/backups');
+      var rows = Array.isArray(j.backups) ? j.backups : [];
+      el.innerHTML = '';
+      if(!rows.length){
+        el.appendChild(S.el('div', { className: 'muted', text: 'Inga sparade säkerhetskopior än.' }));
+        return;
+      }
+      rows.forEach(function(row){
+        var backupId = String((row && row.backup_id) || '').trim();
+        var artifactUrl = String((row && row.artifact_url) || backupArtifactUrl(unit, backupId));
+        var manifestUrl = String((row && row.manifest_url) || backupManifestUrl(unit, backupId));
+        var item = S.el('div', {
+          style: 'padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)'
+        });
+        item.appendChild(S.el('div', {
+          style: 'font-weight:600;word-break:break-all',
+          text: backupId || 'backup'
+        }));
+        var meta = [];
+        if(row && row.created_at) meta.push(String(row.created_at));
+        meta.push(backupHumanBytes(row && row.size_bytes));
+        item.appendChild(S.el('div', {
+          className: 'muted',
+          style: 'margin-top:4px',
+          text: meta.join(' · ')
+        }));
+        var actions = S.el('div', { className: 'card__actions', style: 'margin-top:8px' });
+        actions.appendChild(S.el('a', {
+          className: 'btn btn--secondary',
+          href: artifactUrl,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+          text: 'Download'
+        }));
+        actions.appendChild(S.el('a', {
+          className: 'btn btn--secondary',
+          href: manifestUrl,
+          target: '_blank',
+          rel: 'noopener noreferrer',
+          text: 'Manifest'
+        }));
+        item.appendChild(actions);
+        el.appendChild(item);
+      });
+    }catch(err){
+      el.innerHTML = '';
+      el.appendChild(S.el('div', {
+        className: 'err',
+        text: String((err && err.message) || err || 'Backup list failed')
+      }));
+    }
+  }
+
   function renderNodeCard(node){
     const c = S.card(CORE.t('unit.server_node'));
 
@@ -434,5 +543,252 @@
   window.TAKS_UNIT.renderNodeCard = renderNodeCard;
 
   window.TAKS_UNIT.wireNodeActions = wireNodeActions;
+
+
+
+  
+  /* BACKUPS_TAB_V1_START */
+
+  function backupsTabBucketDefs(){
+    return [
+      { key: 'users',         label: 'Users',          checked: true  },
+      { key: 'certs',         label: 'Certifikat',     checked: false },
+      { key: 'cot_state',     label: 'CoT / Postgres', checked: false },
+      { key: 'documents',     label: 'Documents',      checked: false },
+      { key: 'takctl_state',  label: 'takctl state',   checked: false },
+      { key: 'martine_state', label: 'Martine state',  checked: false },
+      { key: 'replay_state',  label: 'Replay state',   checked: false }
+    ];
+  }
+
+  function backupsTabSelectedBuckets(root){
+    if(!root) return [];
+    return Array.prototype.slice.call(
+      root.querySelectorAll('input[data-backup-bucket]:checked')
+    ).map(function(el){
+      return String(el.getAttribute('data-backup-bucket') || '').trim();
+    }).filter(Boolean);
+  }
+
+  function backupAutoDownload(url){
+    var href = String(url || '').trim();
+    if(!href) return;
+    var a = document.createElement('a');
+    a.href = href;
+    a.style.display = 'none';
+    a.setAttribute('download', '');
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function(){
+      if(a && a.parentNode) a.parentNode.removeChild(a);
+    }, 0);
+  }
+
+  function renderBackupsPanel(node){
+    var unit = backupUnit(node);
+    var nodeId = backupNodeId(node);
+    var wrap = S.el('div', { style: 'display:grid;gap:14px' });
+    var card = S.card('Backups');
+
+    if(!unit){
+      card.appendChild(S.el('div', {
+        className: 'muted',
+        text: 'Ingen enhet vald.'
+      }));
+      wrap.appendChild(card);
+      return wrap;
+    }
+
+    card.appendChild(S.el('div', {
+      className: 'muted',
+      text: 'Säkerhetskopior sparas i enhetens state på orchestratorn.'
+    }));
+
+    var actions = S.el('div', { className: 'card__actions', style: 'margin-top:10px' });
+    var btnRefresh = S.el('button', {
+      className: 'btn btn--secondary',
+      text: 'Uppdatera lista'
+    });
+    actions.appendChild(btnRefresh);
+    card.appendChild(actions);
+
+    var create = S.el('details', { style: 'margin-top:12px' });
+    create.appendChild(S.el('summary', { text: 'Skapa backup' }));
+    create.appendChild(S.el('div', {
+      className: 'muted',
+      style: 'margin-top:10px',
+      text: 'Välj vad som ska ingå. Backup laddas ned direkt efter att den skapats.'
+    }));
+
+    var bucketGrid = S.el('div', {
+      style: 'margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px'
+    });
+
+    backupsTabBucketDefs().forEach(function(def){
+      var label = S.el('label', {
+        style: 'display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02);cursor:pointer'
+      });
+      var cb = S.el('input', {
+        type: 'checkbox',
+        'data-backup-bucket': def.key
+      });
+      if(def.checked) cb.checked = true;
+      label.appendChild(cb);
+      label.appendChild(S.el('span', { text: def.label }));
+      bucketGrid.appendChild(label);
+    });
+
+    create.appendChild(bucketGrid);
+
+    var createActions = S.el('div', { className: 'card__actions', style: 'margin-top:10px' });
+    var btnCreate = S.el('button', {
+      className: 'btn',
+      text: 'Backup'
+    });
+    createActions.appendChild(btnCreate);
+    create.appendChild(createActions);
+
+    var createStatus = S.el('div', {
+      className: 'muted',
+      style: 'margin-top:8px'
+    });
+    create.appendChild(createStatus);
+
+    if(!nodeId){
+      btnCreate.disabled = true;
+      btnCreate.style.opacity = '.55';
+      btnCreate.title = 'Ingen aktiv nod att säkerhetskopiera';
+      createStatus.textContent = 'Starta en nod om du vill skapa en ny backup.';
+    }
+
+    card.appendChild(create);
+
+    var listWrap = S.el('div', { style: 'margin-top:14px' });
+    listWrap.appendChild(S.el('div', { className: 'label', text: 'Sparade säkerhetskopior' }));
+
+    var listEl = S.el('div', {
+      style: 'margin-top:10px;display:grid;gap:8px'
+    });
+    listWrap.appendChild(listEl);
+    card.appendChild(listWrap);
+
+    async function refreshList(){
+      listEl.innerHTML = '';
+      listEl.appendChild(S.el('div', { className: 'muted', text: 'Laddar…' }));
+
+      try{
+        var j = await backupFetchJson('/api/v2/units/' + encodePathValue(unit) + '/backups');
+        var rows = Array.isArray(j.backups) ? j.backups : [];
+        listEl.innerHTML = '';
+
+        if(!rows.length){
+          listEl.appendChild(S.el('div', {
+            className: 'muted',
+            text: 'Inga sparade säkerhetskopior än.'
+          }));
+          return;
+        }
+
+        rows.forEach(function(row){
+          var backupId = String((row && row.backup_id) || '').trim();
+          var artifactUrl = String((row && row.artifact_url) || backupArtifactUrl(unit, backupId));
+
+          var item = S.el('div', {
+            style: 'padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)'
+          });
+
+          item.appendChild(S.el('div', {
+            style: 'font-weight:600;word-break:break-all',
+            text: backupId || 'backup'
+          }));
+
+          var meta = [];
+          if(row && row.created_at) meta.push(String(row.created_at));
+          meta.push(backupHumanBytes(row && row.size_bytes));
+
+          item.appendChild(S.el('div', {
+            className: 'muted',
+            style: 'margin-top:4px',
+            text: meta.join(' · ')
+          }));
+
+          var rowActions = S.el('div', { className: 'card__actions', style: 'margin-top:8px' });
+          rowActions.appendChild(S.el('a', {
+            className: 'btn btn--secondary',
+            href: artifactUrl,
+            text: 'Download'
+          }));
+          item.appendChild(rowActions);
+
+          listEl.appendChild(item);
+        });
+      }catch(err){
+        listEl.innerHTML = '';
+        listEl.appendChild(S.el('div', {
+          className: 'err',
+          text: String((err && err.message) || err || 'Backup list failed')
+        }));
+      }
+    }
+
+    btnRefresh.addEventListener('click', function(){
+      btnRefresh.disabled = true;
+      refreshList()
+        .catch(function(){})
+        .finally(function(){ btnRefresh.disabled = false; });
+    });
+
+    if(nodeId){
+      btnCreate.addEventListener('click', async function(){
+        var buckets = backupsTabSelectedBuckets(create);
+        if(!buckets.length){
+          createStatus.className = 'err';
+          createStatus.textContent = 'Välj minst en del att ta backup på.';
+          return;
+        }
+
+        btnCreate.disabled = true;
+        createStatus.className = 'muted';
+        createStatus.textContent = 'Skapar backup…';
+
+        try{
+          var j = await backupFetchJson(
+            '/api/v2/nodes/' + encodePathValue(nodeId) + '/backup',
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+              },
+              body: JSON.stringify({ buckets: buckets })
+            }
+          );
+
+          var backup = (j && j.backup) || {};
+          createStatus.className = 'ok';
+          createStatus.textContent = 'Backup klar: ' + String(backup.backup_id || 'ok');
+          await refreshList();
+
+          if(backup && backup.artifact_url){
+            backupAutoDownload(String(backup.artifact_url));
+          }
+        }catch(err){
+          createStatus.className = 'err';
+          createStatus.textContent = String((err && err.message) || err || 'Backup failed');
+        }finally{
+          btnCreate.disabled = false;
+        }
+      });
+    }
+
+    setTimeout(function(){ refreshList(); }, 0);
+
+    wrap.appendChild(card);
+    return wrap;
+  }
+
+  window.TAKS_UNIT.renderBackupsPanel = renderBackupsPanel;
+
+  /* BACKUPS_TAB_V1_END */
 
 })();

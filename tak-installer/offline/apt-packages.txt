@@ -1,4 +1,4 @@
-# Minimal packages for a TAK node (Ubuntu 22.04)
+# Minimal packages for a TAK node (Ubuntu 24.04)
 # This list is intentionally small; we’ll grow it only when we prove we need more.
 
 # Base tooling
@@ -9,11 +9,12 @@ openssl
 unzip
 
 # Java runtime for TAK
-default-jre-headless
+openjdk-17-jre-headless
 
-# PostgreSQL local on node
-postgresql
-postgresql-client
+# PostgreSQL local on node (pin major version for TAK)
+postgresql-15
+postgresql-client-15
+postgresql-15-postgis-3
 
 # NGINX edge
 nginx

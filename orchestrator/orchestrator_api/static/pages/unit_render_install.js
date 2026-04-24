@@ -10,11 +10,15 @@
 
 
   function lightPill(){
-    return window.TAKS_UNIT.lightPill.apply(null, arguments);
+    return (window.TAKS_UNIT && typeof window.TAKS_UNIT.lightPill === 'function')
+      ? window.TAKS_UNIT.lightPill.apply(null, arguments)
+      : S.el('span', { style: 'font-weight:700', text: String(arguments[1] || '—') });
   }
 
   function nodeStatusSnapshot(){
-    return window.TAKS_UNIT.nodeStatusSnapshot.apply(null, arguments);
+    return (window.TAKS_UNIT && typeof window.TAKS_UNIT.nodeStatusSnapshot === 'function')
+      ? window.TAKS_UNIT.nodeStatusSnapshot.apply(null, arguments)
+      : { tone: 'muted', text: '◌ Unknown', detail: '', stale: true, hb: 'never', awsState: '', derivedStatus: '' };
   }
 
   function installStateKind(state){
@@ -121,6 +125,7 @@
     wrap.appendChild(S.el('div', { className: 'muted', text: metaBits.join(' • ') || 'Ingen installationsdata' }));
 
     const details = S.el('details', { style: 'margin-top:2px' });
+    if(window.TAKS_UNIT && window.TAKS_UNIT.nodeAutoOpen === 'install') details.open = true;
     details.appendChild(S.el('summary', { text: 'Visa installationsdetaljer' }));
 
     const inner = S.el('div', { style: 'display:grid;gap:10px;margin-top:10px' });
@@ -199,8 +204,7 @@
     return wrap;
   }
 
+
   window.TAKS_UNIT.clearInstallProgressState = clearInstallProgressState;
-
   window.TAKS_UNIT.renderInstallProgress = renderInstallProgress;
-
 })();

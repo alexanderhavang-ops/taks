@@ -88,6 +88,16 @@
     return String(S.heartbeatState(node) || 'never').trim().toLowerCase();
   }
 
+  function checksObjectToArray(obj){
+    if(!obj || typeof obj !== 'object' || Array.isArray(obj)) return [];
+    return Object.keys(obj).sort().map(function(key){
+      const item = obj[key];
+      const out = (item && typeof item === 'object') ? Object.assign({}, item) : { summary: String(item || '') };
+      if(!out.name) out.name = String(key);
+      return out;
+    });
+  }
+
   function collectNodeHealth(node){
     const candidates = [
       (node && node.node_health) || null,
@@ -109,17 +119,19 @@
         c.overall ||
         null;
 
-      const checks =
+      const checksRaw =
         c.checks ||
         c.items ||
         c.services ||
         c.health_checks ||
         [];
 
-      if(rollup || (Array.isArray(checks) && checks.length)){
+      const checks = Array.isArray(checksRaw) ? checksRaw : checksObjectToArray(checksRaw);
+
+      if(rollup || checks.length){
         return {
           rollup: rollup || {},
-          checks: Array.isArray(checks) ? checks : []
+          checks: checks
         };
       }
     }
@@ -128,11 +140,12 @@
       ? node.services
       : null;
 
+    const topLevelChecksRaw =
+      (node && (node.health_checks || node.node_health_checks || node.checks)) || [];
+
     return {
       rollup: (node && (node.health_rollup || node.node_health_rollup)) || topLevelServices || {},
-      checks: Array.isArray(node && (node.health_checks || node.node_health_checks))
-        ? (node.health_checks || node.node_health_checks)
-        : []
+      checks: Array.isArray(topLevelChecksRaw) ? topLevelChecksRaw : checksObjectToArray(topLevelChecksRaw)
     };
   }
 
@@ -235,20 +248,42 @@
 
   function renderNodeHealth(node){
     const data = collectNodeHealth(node);
-    const rollup = data.rollup || {};
-    const checks = Array.isArray(data.checks) ? data.checks : [];
-    if(!rollup && !checks.length) return null;
+    const rollup = (data && data.rollup && typeof data.rollup === 'object') ? data.rollup : {};
+    const checks = Array.isArray(data && data.checks) ? data.checks.filter(function(x){
+      return x && typeof x === 'object';
+    }) : [];
+
+    if(!Object.keys(rollup).length && !checks.length) return null;
 
     const snap = nodeStatusSnapshot(node);
-    const stale = !!snap.stale || !!(rollup && rollup.stale);
+    const stale = !!snap.stale || !!rollup.stale;
+
+    function norm(v){
+      return String(v || '').trim().toLowerCase();
+    }
+
+    const overallRaw = norm(rollup.overall);
+    let overall = overallRaw;
+
+    if(!overall){
+      if(checks.some(function(x){ return ['fail','error','red'].includes(norm(x.status)); })){
+        overall = 'fail';
+      }else if(checks.some(function(x){ return ['warn','warning','stale'].includes(norm(x.status)); })){
+        overall = 'warn';
+      }else if(checks.some(function(x){ return norm(x.status) === 'ok'; })){
+        overall = 'ok';
+      }else{
+        overall = 'unknown';
+      }
+    }
+
+    if(stale) overall = 'stale';
 
     const wrap = S.el('section', {
       'data-node-health': '1',
       style: 'display:grid;gap:10px;margin-top:2px;padding:14px;border:1px solid rgba(255,255,255,0.08);border-radius:12px;background:rgba(255,255,255,0.02)'
     });
 
-    const overallRaw = String((rollup && rollup.overall) || '').trim().toLowerCase();
-    const overall = stale ? 'stale' : overallRaw;
     const head = S.el('div', {
       style: 'display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'
     });
@@ -256,108 +291,89 @@
     head.appendChild(lightPill(healthKind(overall), healthLabel(overall || 'unknown')));
     wrap.appendChild(head);
 
-    const bits = [];
-    if(rollup && typeof rollup.total_checks === 'number') bits.push(String(rollup.total_checks) + ' checks');
-    if(rollup && typeof rollup.fail === 'number' && rollup.fail > 0) bits.push(String(rollup.fail) + ' fel');
-    if(rollup && typeof rollup.warn === 'number' && rollup.warn > 0) bits.push(String(rollup.warn) + ' varningar');
-    if(rollup && typeof rollup.ok === 'number' && rollup.ok > 0) bits.push(String(rollup.ok) + ' ok');
-    if(rollup && typeof rollup.skip === 'number' && rollup.skip > 0) bits.push(String(rollup.skip) + ' skip');
-    if(stale) bits.push('senast känd');
-    wrap.appendChild(S.el('div', { className: 'muted', text: bits.join(' • ') || 'Ingen health-rollup rapporterad' }));
+    const totalChecks =
+      (typeof rollup.total_checks === 'number' && rollup.total_checks > 0)
+        ? Number(rollup.total_checks)
+        : checks.length;
 
-    if(stale){
+    const warnCount =
+      (typeof rollup.warn === 'number' ? Number(rollup.warn) : checks.filter(function(x){
+        return ['warn','warning','stale'].includes(norm(x.status));
+      }).length);
+
+    const failCount =
+      (typeof rollup.fail === 'number' ? Number(rollup.fail) : checks.filter(function(x){
+        return ['fail','error','red'].includes(norm(x.status));
+      }).length);
+
+    const okCount =
+      (typeof rollup.ok === 'number' ? Number(rollup.ok) : checks.filter(function(x){
+        return norm(x.status) === 'ok';
+      }).length);
+
+    const bits = [];
+    if(totalChecks > 0) bits.push(String(totalChecks) + ' checks');
+    if(failCount > 0) bits.push(String(failCount) + ' fel');
+    if(warnCount > 0) bits.push(String(warnCount) + ' varningar');
+    if(okCount > 0) bits.push(String(okCount) + ' ok');
+    if(stale) bits.push('senast känd');
+
+    if(bits.length){
       wrap.appendChild(S.el('div', {
         className: 'muted',
-        style: 'padding:8px 10px;border:1px solid rgba(245,158,11,0.35);border-radius:10px;background:rgba(245,158,11,0.08)',
-        text: snap.hb === 'lost'
-          ? 'Heartbeat är förlorad. Nodhälsa visas som senast kända värden tills ny heartbeat kommer in.'
-          : 'Heartbeat är gammal. Nodhälsa visas som senast kända värden tills ny heartbeat kommer in.'
+        text: bits.join(' • ')
       }));
     }
 
     if(checks.length){
       const details = S.el('details', { style: 'margin-top:2px' });
+      if(window.TAKS_UNIT && window.TAKS_UNIT.nodeAutoOpen === 'health') details.open = true;
       details.appendChild(S.el('summary', { text: 'Visa tjänster' }));
 
-      const body = S.el('div', { style: 'display:grid;gap:10px;margin-top:10px' });
+      const body = S.el('div', { style: 'display:grid;gap:8px;margin-top:10px' });
 
-      const groups = [
-        { key: 'critical', label: 'Kritisk', kind: 'err', items: [] },
-        { key: 'warn', label: 'Varning', kind: 'warn', items: [] },
-        { key: 'info', label: 'Info', kind: 'muted', items: [] },
-        { key: 'other', label: 'Övrigt', kind: 'muted', items: [] },
-      ];
+      checks
+        .slice()
+        .sort(function(a, b){
+          return String(a.name || '').localeCompare(String(b.name || ''));
+        })
+        .forEach(function(item){
+          const name = String(item.name || item.key || 'check');
+          const sev = String(item.severity || '').trim().toLowerCase();
+          const summary = String(item.summary || 'Ingen detalj rapporterad');
 
-      checks.forEach(function(item){
-        const sev = String(item.severity || '').trim().toLowerCase();
-        if(sev === 'critical'){
-          groups[0].items.push(item);
-        }else if(sev === 'warn' || sev === 'warning'){
-          groups[1].items.push(item);
-        }else if(sev === 'info'){
-          groups[2].items.push(item);
-        }else{
-          groups[3].items.push(item);
-        }
-      });
-
-      groups.forEach(function(group){
-        if(!group.items.length) return;
-
-        const gDetails = S.el('details', {
-          style: 'border:1px solid rgba(255,255,255,0.06);border-radius:10px;background:rgba(255,255,255,0.02)'
-        });
-        if(group.key === 'critical') gDetails.open = true;
-
-        const gSummary = S.el('summary', {
-          style: 'display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;cursor:pointer'
-        });
-        gSummary.appendChild(S.el('div', { style: 'font-weight:700', text: group.label + ' (' + group.items.length + ')' }));
-        gSummary.appendChild(lightPill(group.kind, group.label));
-        gDetails.appendChild(gSummary);
-
-        const list = S.el('div', { style: 'display:grid;gap:8px;padding:10px 12px 12px 12px;border-top:1px solid rgba(255,255,255,0.06)' });
-
-        group.items.forEach(function(item, idx){
-          const row = S.el('details', {
-            'data-accordion-group': 'node-health-checks-' + group.key,
-            style: 'border:1px solid rgba(255,255,255,0.06);border-radius:10px;background:rgba(255,255,255,0.02)'
+          const row = S.el('div', {
+            style: 'padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)'
           });
 
-          const summary = S.el('summary', {
-            style: 'display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px 12px;cursor:pointer;list-style:none'
+          const top = S.el('div', {
+            style: 'display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap'
           });
 
-          const left = S.el('div', { style: 'min-width:0' });
+          const left = S.el('div', { style: 'display:grid;gap:3px' });
           left.appendChild(S.el('div', {
-            style: 'font-weight:700;word-break:break-word;white-space:normal',
-            text: healthNameLabel(item.name)
+            style: 'font-weight:600;word-break:break-word',
+            text: name
           }));
-          summary.appendChild(left);
-          summary.appendChild(lightPill(healthKind(item.status), healthLabel(item.status)));
-          row.appendChild(summary);
+          if(sev){
+            left.appendChild(S.el('div', {
+              className: 'muted',
+              text: 'severity: ' + sev
+            }));
+          }
 
-          const detail = S.el('div', {
-            style: 'padding:0 12px 12px 12px;border-top:1px solid rgba(255,255,255,0.06);display:grid;gap:8px'
-          });
-          detail.appendChild(S.el('div', {
-            className: 'muted',
-            style: 'padding-top:10px;word-break:break-word;white-space:normal',
-            text: item.summary || 'Ingen detalj rapporterad'
-          }));
-          detail.appendChild(S.el('div', {
-            className: 'muted',
-            text: 'Check-id: ' + (item.name || ('check_' + idx))
-          }));
-          row.appendChild(detail);
+          top.appendChild(left);
+          top.appendChild(lightPill(healthKind(item.status), healthLabel(item.status)));
+          row.appendChild(top);
 
-          bindAccordion(row, 'node-health-checks-' + group.key);
-          list.appendChild(row);
+          row.appendChild(S.el('div', {
+            className: 'muted',
+            style: 'margin-top:8px;white-space:normal;line-height:1.4',
+            text: summary
+          }));
+
+          body.appendChild(row);
         });
-
-        gDetails.appendChild(list);
-        body.appendChild(gDetails);
-      });
 
       details.appendChild(body);
       wrap.appendChild(details);
@@ -367,10 +383,7 @@
   }
 
   window.TAKS_UNIT.lightPill = lightPill;
-
-  window.TAKS_UNIT.lightColors = lightColors;
   window.TAKS_UNIT.nodeStatusSnapshot = nodeStatusSnapshot;
-
   window.TAKS_UNIT.renderNodeHealth = renderNodeHealth;
 
 })();

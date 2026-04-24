@@ -16,6 +16,10 @@
     return window.TAKS_UNIT.renderNodeCard.apply(null, arguments);
   }
 
+  function renderBackupsPanel(){
+    return window.TAKS_UNIT.renderBackupsPanel.apply(null, arguments);
+  }
+
   function renderFilesCard(){
     return window.TAKS_UNIT.renderFilesCard.apply(null, arguments);
   }
@@ -170,48 +174,51 @@
     }
 
     function installSummaryFromNode(node){
-      const install = (node && node.install && typeof node.install === 'object') ? node.install : null;
-      const steps = Array.isArray(install && install.steps) ? install.steps : [];
-      if(!steps.length){
-        return { text: '—', tone: 'muted' };
-      }
+    const install = (node && node.install && typeof node.install === 'object') ? node.install : null;
+    const steps = Array.isArray(install && install.steps) ? install.steps : [];
+    if(!steps.length){
+      return { text: '—', tone: 'muted' };
+    }
 
-      const main = steps.find(function(x){
-        return String((x && x.name) || '').trim() === 'install/main';
-      }) || null;
+    function norm(v){
+      return String(v || '').trim().toLowerCase();
+    }
 
-      function norm(v){
-        return String(v || '').trim().toLowerCase();
-      }
+    const states = steps.map(function(x){
+      return norm((x && (x.state || x.status)) || '');
+    });
 
-      if(main){
-        const st = norm(main.state || main.status);
-        if(st === 'succeeded' || st === 'success' || st === 'ok' || st === 'completed'){
-          return { text: 'Klar', tone: 'ok' };
-        }
-        if(st === 'running' || st === 'started' || st === 'pending'){
-          return { text: 'Pågår', tone: 'warn' };
-        }
-        if(st === 'failed' || st === 'error'){
-          return { text: 'Fel', tone: 'err' };
-        }
-      }
+    if(states.some(function(x){ return x === 'running' || x === 'started' || x === 'pending'; })){
+      return { text: 'Pågår', tone: 'warn' };
+    }
 
-      const states = steps.map(function(x){
-        return norm((x && (x.state || x.status)) || '');
-      });
+    if(states.some(function(x){ return x === 'failed' || x === 'error'; })){
+      return { text: 'Fel', tone: 'err' };
+    }
 
-      if(states.some(function(x){ return x === 'failed' || x === 'error'; })){
-        return { text: 'Fel', tone: 'err' };
-      }
-      if(states.some(function(x){ return x === 'running' || x === 'started' || x === 'pending'; })){
-        return { text: 'Pågår', tone: 'warn' };
-      }
-      if(states.some(function(x){ return x === 'succeeded' || x === 'success' || x === 'ok' || x === 'completed'; })){
+    const mains = steps.filter(function(x){
+      return String((x && x.name) || '').trim() === 'install/main';
+    });
+
+    const main = mains.length ? mains[mains.length - 1] : null;
+    if(main){
+      const st = norm(main.state || main.status);
+      if(st === 'succeeded' || st === 'success' || st === 'ok' || st === 'completed'){
         return { text: 'Klar', tone: 'ok' };
       }
+      if(st === 'running' || st === 'started' || st === 'pending'){
+        return { text: 'Pågår', tone: 'warn' };
+      }
+      if(st === 'failed' || st === 'error'){
+        return { text: 'Fel', tone: 'err' };
+      }
+    }
 
-      return { text: '—', tone: 'muted' };
+    if(states.some(function(x){ return x === 'succeeded' || x === 'success' || x === 'ok' || x === 'completed'; })){
+      return { text: 'Klar', tone: 'ok' };
+    }
+
+    return { text: '—', tone: 'muted' };
     }
 
     function serviceSummaryFromNode(node){
@@ -249,7 +256,7 @@
       return { text: '—', tone: 'muted' };
     }
 
-    function summaryBox(title, state){
+    function summaryBox(title, state, targetTab){
       const tone = String((state && state.tone) || 'muted');
       const text = String((state && state.text) || '—');
 
@@ -286,6 +293,33 @@
       }
 
       box.appendChild(head);
+      if(targetTab){
+        box.style.cursor = 'pointer';
+        box.title = 'Open ' + String(targetTab);
+        box.addEventListener('click', function(ev){
+          ev.preventDefault();
+          ev.stopPropagation();
+          window.TAKS_UNIT = window.TAKS_UNIT || {};
+
+          var target = String(targetTab || '').trim();
+          if(target.indexOf('node:') === 0){
+            window.TAKS_UNIT.activeTab = 'node';
+            window.TAKS_UNIT.nodeAutoOpen = target.split(':', 2)[1] || '';
+          }else{
+            window.TAKS_UNIT.activeTab = target;
+            window.TAKS_UNIT.nodeAutoOpen = '';
+          }
+
+          const host =
+            document.getElementById('page') ||
+            document.getElementById('app') ||
+            document.querySelector('main') ||
+            document.body;
+          if(window.TAKS_UNIT && typeof window.TAKS_UNIT.render === 'function' && host){
+            window.TAKS_UNIT.render(host);
+          }
+        });
+      }
       return box;
     }
 
@@ -317,10 +351,10 @@
 
     const bottom = S.el('div', { className: 'grid grid--6', style: 'margin-top:14px' });
     bottom.appendChild(S.el('div', { style: 'grid-column: span 3;' },
-      summaryBox('Installation', installSummaryFromNode(node))
+      summaryBox('Installation', installSummaryFromNode(node), 'node:install')
     ));
     bottom.appendChild(S.el('div', { style: 'grid-column: span 3;' },
-      summaryBox('Service health', serviceSummaryFromNode(node))
+      summaryBox('Service health', serviceSummaryFromNode(node), 'node:health')
     ));
     overview.appendChild(bottom);
 
@@ -492,6 +526,7 @@
     const allowedTabs = {
       overview: true,
       node: true,
+      backups: true,
       files: true,
       config: true,
       advanced: true
@@ -510,6 +545,9 @@
 
     const shell = renderTabShell(activeTab, validation, function(nextTab){
       window.TAKS_UNIT.activeTab = nextTab;
+      if(String(nextTab || '') !== 'node'){
+        window.TAKS_UNIT.nodeAutoOpen = '';
+      }
       render(app);
     });
 
@@ -517,6 +555,8 @@
 
     if(activeTab === 'node'){
       body.appendChild(renderNodePanel(node, validation, tabs));
+    }else if(activeTab === 'backups'){
+      body.appendChild(renderBackupsPanel(node, validation, tabs));
     }else if(activeTab === 'files'){
       body.appendChild(renderFilesPanel(filesResp, validation, tabs));
     }else if(activeTab === 'config'){
@@ -537,7 +577,7 @@
     wirePolicyActions(unitPath);
     wireBootstrapActions(unitPath, bootstrapResp);
 
-    if(!validation.ready && activeTab !== 'overview'){
+    if(false && !validation.ready && activeTab !== 'overview'){
       flashFirstValidationTarget(body);
     }
   }

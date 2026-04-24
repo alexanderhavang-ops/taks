@@ -235,8 +235,6 @@ def _normalize_channels(
             else:
                 add(item)
 
-    if not out:
-        out.append("Root")
     return out
 
 

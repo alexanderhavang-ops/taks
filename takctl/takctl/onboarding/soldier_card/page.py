@@ -375,6 +375,9 @@ def _render_full_card_section(
     .eyebrow { font-size:12px; letter-spacing:0.14em; text-transform:uppercase; color:#8bb8ff; font-weight:700; }
     .hero-title { font-size:30px; line-height:1.1; font-weight:850; margin-top:10px; }
     .hero-sub { font-size:15px; line-height:1.6; color:rgba(255,255,255,0.78); margin-top:10px; max-width:760px; }
+    .hero-nameplate { margin-top:18px; height:86px; min-width:260px; max-width:460px; border-radius:6px; padding:12px 14px; background:#244a82; box-shadow:0 8px 18px rgba(0,0,0,0.38); border:1px solid rgba(0,0,0,0.12); display:flex; flex-direction:column; justify-content:center; gap:6px; overflow:hidden; }
+    .hero-nameplate-callsign { font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif; font-weight:900; font-size:20px; line-height:1.0; letter-spacing:0.02em; text-transform:uppercase; color:#fff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .hero-nameplate-row2 { font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif; font-weight:800; font-size:12px; line-height:1.0; letter-spacing:0.06em; text-transform:uppercase; color:rgba(255,255,255,0.92); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .slogan { margin-top:8px; font-size:12px; letter-spacing:0.12em; text-transform:uppercase; color:rgba(255,255,255,0.58); }
     """
 
@@ -846,6 +849,52 @@ pre { white-space: pre-wrap; word-break: break-word; }
   </div>
 """
 
+    hero_badge_callsign = ""
+    try:
+        hero_badge_callsign = str(((getattr(ident, "identity", None) or {}).get("callsign")) or username)
+    except Exception:
+        hero_badge_callsign = username
+
+    hero_badge_ident = {}
+    try:
+        hero_badge_ident = dict(getattr(ident, "identity", None) or {})
+    except Exception:
+        hero_badge_ident = {}
+
+    hero_badge_bits = []
+    hero_battalion_fal = str(hero_badge_ident.get("battalion_fal") or "").strip()
+    hero_battalion = str(hero_badge_ident.get("battalion") or "").strip()
+    hero_company = str(hero_badge_ident.get("company") or "").strip()
+    hero_platoon = str(hero_badge_ident.get("platoon") or "").strip()
+    hero_group = str(hero_badge_ident.get("group") or "").strip()
+    hero_n = str(hero_badge_ident.get("n") or "").strip()
+
+    if hero_battalion_fal:
+        hero_badge_bits.append(hero_battalion_fal)
+    elif hero_battalion:
+        hero_badge_bits.append(f"{hero_battalion} HVBAT")
+    if hero_company:
+        hero_badge_bits.append(t(l, "unit.company", n=hero_company))
+    if hero_platoon:
+        hero_badge_bits.append(t(l, "unit.platoon", n=hero_platoon))
+    if hero_group:
+        hero_badge_bits.append(t(l, "unit.group", n=hero_group))
+    if hero_n:
+        hero_badge_bits.append(f"EN {hero_n}")
+
+    hero_badge_row2 = " · ".join([str(x) for x in hero_badge_bits if str(x).strip()])
+    if not hero_badge_row2 and groups:
+        hero_badge_row2 = " / ".join([str(x) for x in groups if str(x).strip()])
+    if not hero_badge_row2:
+        hero_badge_row2 = username
+
+    hero_nameplate_html = f"""
+    <div class="hero-nameplate">
+      <div class="hero-nameplate-callsign">{h(hero_badge_callsign or username)}</div>
+      <div class="hero-nameplate-row2">{h(hero_badge_row2 or username)}</div>
+    </div>
+"""
+
     hero_logo_html = f"""
     <div style="margin:12px 0 10px 0;">
       <img
@@ -874,6 +923,7 @@ pre { white-space: pre-wrap; word-break: break-word; }
     {hero_logo_html}
     <div class="hero-title">{h(t(l, "soldier.welcome"))}</div>
     <div class="hero-sub">{h(t(l, "soldier.subtitle"))}</div>
+    {hero_nameplate_html}
     {f'<div class="slogan">{h(brand_slogan)}</div>' if brand_slogan else ''}
     {mode_summary_html}
   </div>

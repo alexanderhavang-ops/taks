@@ -23,13 +23,13 @@ class RootDef:
 
 ROOTS: List[RootDef] = [
     RootDef("documents", "Documents", ("/opt/tak/tools/takctl/data/library/documents",)),
-    RootDef("plugins", "Plugins", ("/opt/tak/tools/takctl/plugins",)),
-    RootDef("maps", "Maps", ("/opt/tak/maps", "/opt/tak/Maps")),
-    RootDef("users", "Users", ("/opt/tak/users", "/opt/tak/Users")),
-    RootDef("packages", "Packages", ("/opt/tak/packages", "/opt/tak/Packages", "/opt/tak/bootstrap/packages")),
-    RootDef("branding", "Branding", ("/opt/tak/tools/takctl/web/assets/branding/node",)),
-    RootDef("missions", "Missions", ("/opt/tak/missions", "/opt/tak/Missions")),
-    RootDef("misc", "Misc", ("/opt/tak/misc", "/opt/tak/Misc")),
+    RootDef("plugins", "Plugins", ("/opt/tak/tools/takctl/data/library/plugins",)),
+    RootDef("maps", "Maps", ("/opt/tak/tools/takctl/data/library/maps",)),
+    RootDef("users", "Users", ("/opt/tak/tools/takctl/data/library/users",)),
+    RootDef("packages", "Packages", ("/opt/tak/tools/takctl/data/library/packages",)),
+    RootDef("branding", "Branding", ("/opt/tak/tools/takctl/data/library/branding",)),
+    RootDef("missions", "Missions", ("/opt/tak/tools/takctl/data/library/missions",)),
+    RootDef("misc", "Misc", ("/opt/tak/tools/takctl/data/library/misc",)),
 ]
 
 ROOT_MAP: Dict[str, RootDef] = {r.key: r for r in ROOTS}
@@ -79,9 +79,7 @@ def _pick_root_base(root_key: str) -> Path:
         p = Path(cand)
         if p.exists() and p.is_dir():
             return p
-    p = Path(root_def.candidates[0])
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+    return Path(root_def.candidates[0])
 
 
 def _resolve(root_key: str, rel_path: str, *, allow_empty: bool) -> Tuple[Path, Path, str]:
@@ -163,7 +161,19 @@ def list_dir(root: str, path: str = ""):
     base, target, rel = _resolve(root_key, path, allow_empty=True)
 
     if not target.exists():
-        raise HTTPException(status_code=404, detail="directory not found")
+        if rel:
+            raise HTTPException(status_code=404, detail="directory not found")
+        return {
+            "ok": True,
+            "root": {
+                "key": root_key,
+                "title": ROOT_MAP[root_key].title,
+                "resolved_path": str(base),
+            },
+            "path": rel,
+            "parent_path": _parent_rel(rel),
+            "entries": [],
+        }
     if not target.is_dir():
         raise HTTPException(status_code=400, detail="path is not a directory")
 

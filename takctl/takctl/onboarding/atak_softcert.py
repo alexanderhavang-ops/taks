@@ -1,4 +1,5 @@
 from __future__ import annotations
+from takctl.onboarding.password_policy import sanitize_pref_xml
 
 import json
 import uuid
@@ -151,7 +152,7 @@ def write_atak_soft_cert_zip(
 
     with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr("MANIFEST/manifest.xml", manifest_xml)
-        z.writestr("certs/config.pref", config_pref)
+        z.writestr("certs/config.pref", sanitize_pref_xml(config_pref))
         z.writestr(ca_zip_rel, ca_path.read_bytes())
         z.writestr(client_zip_rel, client_p12_bytes)
         z.writestr("meta.json", json.dumps(meta, indent=2, sort_keys=True) + "\n")

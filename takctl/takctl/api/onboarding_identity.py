@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from takctl.onboarding.password_policy import generate_friendly_password
+
 
 def _gen_strong_password(length: int = 20) -> str:
     """
@@ -673,7 +675,7 @@ def create_user(req: Request, username: str, body: UserCreateIn):
     if pw_in:
         pw_to_set: Optional[str] = pw_in
     else:
-        pw_to_set = None if existed else _gen_strong_password(20)
+        pw_to_set = None if existed else generate_friendly_password()
 
     um = UserMgrService()
     try:

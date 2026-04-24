@@ -54,8 +54,8 @@ class SpawnSpec:
     instance_type: str = "t3.micro"
 
 
-def _resolve_ubuntu_2204_ami(ssm, region: str) -> str:
-    p = "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
+def _resolve_ubuntu_2404_ami(ssm, region: str) -> str:
+    p = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
     r = ssm.get_parameter(Name=p)
     return r["Parameter"]["Value"]
 
@@ -65,7 +65,7 @@ def spawn_node(spec: SpawnSpec, *, dry_run: bool) -> Dict[str, Any]:
     ec2 = boto3.client("ec2", region_name=region)
     ssm = boto3.client("ssm", region_name=region)
 
-    ami = _resolve_ubuntu_2204_ami(ssm, region)
+    ami = _resolve_ubuntu_2404_ami(ssm, region)
 
     # Default VPC + a public subnet
     vpcs = ec2.describe_vpcs(Filters=[{"Name": "isDefault", "Values": ["true"]}])["Vpcs"]

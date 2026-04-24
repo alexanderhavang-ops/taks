@@ -26,6 +26,7 @@
       tabs: {
         overview: makeTabState(),
         node: makeTabState(),
+        backups: makeTabState(),
         files: makeTabState(),
         config: makeTabState(),
         advanced: makeTabState()
@@ -240,6 +241,7 @@
     const labels = {
       overview: 'Overview',
       node: 'Node',
+      backups: 'Backups',
       files: 'Files',
       config: 'Config',
       advanced: 'Advanced'
@@ -259,71 +261,53 @@
     });
 
     Object.keys(labels).forEach(function(key){
-      const state = (validation && validation.tabs && validation.tabs[key]) || makeTabState();
+      const state = (((validation || {}).tabs || {})[key]) || makeTabState();
       const tone = tabTone(state);
-      const count = state.blockers > 0 ? state.blockers : state.warnings;
-      const isActive = key === activeTab;
+      const isActive = String(key) === String(activeTab);
+
+      let border = 'transparent';
+      let bg = 'transparent';
+
+      if(tone === 'err') border = 'rgba(239,68,68,.30)';
+      else if(tone === 'warn') border = 'rgba(245,158,11,.30)';
+      else border = 'rgba(255,255,255,.10)';
+
+      if(isActive){
+        bg = 'rgba(255,255,255,.08)';
+        if(tone === 'err') bg = 'rgba(239,68,68,.10)';
+        else if(tone === 'warn') bg = 'rgba(245,158,11,.10)';
+      }
 
       const btn = S.el('button', {
         type: 'button',
         role: 'tab',
         'aria-selected': isActive ? 'true' : 'false',
+        className: isActive ? 'btn' : 'btn btn--secondary',
+        text: labels[key],
         style: [
-          'appearance:none',
-          'border:none',
-          'border-bottom:' + (isActive ? '2px solid rgba(255,255,255,0.92)' : '2px solid transparent'),
-          'background:transparent',
-          'color:inherit',
-          'padding:12px 14px 11px 14px',
-          'margin:0',
-          'cursor:pointer',
-          'font:inherit',
-          'display:flex',
-          'align-items:center',
-          'gap:8px',
-          isActive ? 'opacity:1' : 'opacity:0.88'
+          'border-bottom-left-radius:0',
+          'border-bottom-right-radius:0',
+          'margin-bottom:-1px',
+          'border:1px solid ' + border,
+          'border-bottom:' + (isActive ? '1px solid rgba(255,255,255,.02)' : '1px solid ' + border),
+          'background:' + bg,
+          'white-space:nowrap'
         ].join(';')
       });
 
-      btn.appendChild(S.el('span', {
-        style: isActive ? 'font-weight:700' : '',
-        text: labels[key]
-      }));
-
-      if(count > 0){
-        const border =
-          tone === 'err' ? 'rgba(220,38,38,0.70)' :
-          tone === 'warn' ? 'rgba(245,158,11,0.65)' :
-          'rgba(255,255,255,0.16)';
-        const bg =
-          tone === 'err' ? 'rgba(220,38,38,0.16)' :
-          tone === 'warn' ? 'rgba(245,158,11,0.16)' :
-          'rgba(255,255,255,0.05)';
-
-        btn.appendChild(S.el('span', {
-          style: [
-            'display:inline-block',
-            'padding:1px 7px',
-            'border-radius:999px',
-            'font-size:12px',
-            'line-height:1.2',
-            'border:1px solid ' + border,
-            'background:' + bg
-          ].join(';'),
-          text: String(count)
-        }));
-      }
-
-      btn.onclick = function(){
-        if(typeof onSelect === 'function') onSelect(key);
-      };
+      btn.addEventListener('click', function(ev){
+        ev.preventDefault();
+        ev.stopPropagation();
+        if(typeof onSelect === 'function'){
+          onSelect(key);
+        }
+      });
 
       bar.appendChild(btn);
     });
 
     return bar;
   }
-
 
   window.TAKS_UNIT.tabs = {
     issue: issue,

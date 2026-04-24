@@ -23,6 +23,7 @@ from martine.tools.osrm_geo import (
     route_alternatives_between_points,
     snap_point_to_network,
 )
+from martine.tools.map_onboarding import send_map_onboarding
 from martine.tools.plugin_onboarding import send_plugin_onboarding
 from martine.tools.voice_onboarding import send_voice_onboarding
 
@@ -305,6 +306,22 @@ def list_tools() -> List[Dict[str, Any]]:
             }
         },
         {
+            "name": "send_map_onboarding",
+            "description": "Create and send an ATAK maps package to a TAK contact. If the user means themselves, use sender_callsign and sender_uid from RUN_CONTEXT.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "target_callsign": {"type": "string"},
+                    "target_uid": {"type": "string"},
+                    "sender_callsign": {"type": "string"},
+                    "sender_uid": {"type": "string"},
+                    "dry_run": {"type": "boolean"}
+                },
+                "required": [],
+                "additionalProperties": False
+            }
+        },
+        {
             "name": "route_between_points",
             "description": "Return one OSRM route between two coordinates.",
             "input_schema": {
@@ -527,6 +544,15 @@ def call_tool(name: str, arguments: Dict[str, Any] | None = None) -> Dict[str, A
             sender_uid=str(args.get("sender_uid", "")),
             package_id=str(args.get("package_id", "plugins-basic")),
             registry_path=str(args.get("registry_path", "")),
+            dry_run=bool(args.get("dry_run", False)),
+        )
+
+    if name == "send_map_onboarding":
+        return send_map_onboarding(
+            target_callsign=str(args.get("target_callsign", "")),
+            target_uid=str(args.get("target_uid", "")),
+            sender_callsign=str(args.get("sender_callsign", "")),
+            sender_uid=str(args.get("sender_uid", "")),
             dry_run=bool(args.get("dry_run", False)),
         )
 

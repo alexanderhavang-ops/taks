@@ -1,4 +1,5 @@
 from __future__ import annotations
+from takctl.onboarding.password_policy import sanitize_pref_xml
 
 import json
 import shutil
@@ -447,7 +448,7 @@ def write_atak_auto_enroll_package_zip(
 
     with zipfile.ZipFile(out_zip, "w", compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr("MANIFEST/manifest.xml", manifest_xml)
-        z.writestr("certs/config.pref", config_pref)
+        z.writestr("certs/config.pref", sanitize_pref_xml(config_pref))
         if include_truststore and ca_path is not None:
             z.writestr(ca_zip_rel, ca_path.read_bytes())
         z.writestr("meta.json", json.dumps(meta, indent=2, sort_keys=True) + "\n")

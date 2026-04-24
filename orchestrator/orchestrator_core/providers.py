@@ -52,13 +52,13 @@ def status_nodes() -> Dict[str, Any]:
                 "aws_key_name": bool(str(cfg.aws.ssh_key_name).strip()),
                 "sg_id": bool(str(cfg.aws.default_security_group_id).strip()),
                 "subnet_id": bool(str(cfg.aws.default_subnet_id).strip()),
-                "image_id": bool(str(cfg.aws.default_ami).strip()),
+                "image_id": True,
             }
             out["hints"] = {
                 "aws_key_name": "Set aws_default_key_name in runtime conf.d or pass aws_key_name in /nodes/launch request",
                 "sg_id": "Set aws_default_security_group_id in runtime conf.d or pass aws_sg_id in /nodes/launch request",
                 "subnet_id": "Set aws_default_subnet_id in runtime conf.d",
-                "image_id": "Set aws_default_ami in runtime conf.d",
+                "image_id": "Optional: set aws_default_ami to pin a specific AMI; otherwise Canonical Ubuntu 24.04 SSM is used",
             }
 
         return out

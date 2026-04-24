@@ -10,15 +10,21 @@
 
 
   function renderInstallProgress(){
-    return window.TAKS_UNIT.renderInstallProgress.apply(null, arguments);
+    return (window.TAKS_UNIT && typeof window.TAKS_UNIT.renderInstallProgress === 'function')
+      ? window.TAKS_UNIT.renderInstallProgress.apply(null, arguments)
+      : null;
   }
 
   function renderNodeHealth(){
-    return window.TAKS_UNIT.renderNodeHealth.apply(null, arguments);
+    return (window.TAKS_UNIT && typeof window.TAKS_UNIT.renderNodeHealth === 'function')
+      ? window.TAKS_UNIT.renderNodeHealth.apply(null, arguments)
+      : null;
   }
 
   function nodeStatusSnapshot(){
-    return window.TAKS_UNIT.nodeStatusSnapshot.apply(null, arguments);
+    return (window.TAKS_UNIT && typeof window.TAKS_UNIT.nodeStatusSnapshot === 'function')
+      ? window.TAKS_UNIT.nodeStatusSnapshot.apply(null, arguments)
+      : { tone: 'muted', text: '◌ Unknown', detail: '', stale: true };
   }
 
   function renderNodeSummary(node){

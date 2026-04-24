@@ -8,12 +8,14 @@ import ssl
 from typing import Any, Dict, Optional
 import urllib.error
 import urllib.request
+import urllib.parse
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse
 from orchestrator_core.config import load_orch_config, load_secrets_config
-from orchestrator_core.core import NodeRequest, aws_dry_run, aws_launch, aws_list_nodes, aws_snooze, aws_terminate, aws_wake, plan_node
+from orchestrator_core.core import NodeRequest, aws_dry_run, aws_launch, aws_list_nodes, aws_snooze, aws_terminate, aws_wake, plan_node, resolve_ubuntu_ami
 from orchestrator_core.nodes_state import delete_node, get_node, list_nodes, touch_heartbeat, upsert_node
-from orchestrator_core.units_state import create_unit, ensure_unit_orchestrator_secret, list_unit_backups, list_units, save_unit_backup
+from orchestrator_core.units_state import create_unit, ensure_unit_orchestrator_secret, get_unit_backup, list_unit_backups, list_units, save_unit_backup
 
 from .auth import verify_token, verify_basic_auth
 from .bundles_v2 import bundle_name_for_unit, bundle_dir, ensure_unit_bundle, get_unit_bundle_readiness
@@ -175,6 +177,24 @@ def _http_bytes(method: str, url: str, *, headers: Dict[str, str] | None = None,
         return resp.read()
 
 
+
+def _backup_urls(unit_path: str, backup_id: str) -> Dict[str, str]:
+    unit_enc = "/".join(urllib.parse.quote(part, safe="") for part in str(unit_path or "").split("/") if str(part))
+    bid_enc = urllib.parse.quote(str(backup_id or ""), safe="")
+    base = f"/api/v2/units/{unit_enc}/backups/{bid_enc}"
+    return {
+        "artifact_url": base + "/artifact",
+        "manifest_url": base + "/manifest",
+    }
+
+
+def _decorate_backup_record(unit_path: str, row: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(row or {})
+    backup_id = str(out.get("backup_id") or "").strip()
+    if backup_id:
+        out.update(_backup_urls(unit_path, backup_id))
+    return out
+
 # ----------------------------
 # Status (no auth)
 # ----------------------------
@@ -187,9 +207,16 @@ def api_status() -> Dict[str, Any]:
     cfg = load_orch_config()
     out["launch_enabled"] = cfg.aws.launch_enabled
     out["bundle_dir"] = str(bundle_dir())
+
+    try:
+        effective_ami = resolve_ubuntu_ami(region_name=cfg.aws.region)
+    except Exception:
+        effective_ami = str(cfg.aws.default_ami or "").strip()
+
     out["launch_defaults"] = {
         "region": cfg.aws.region,
-        "ami": cfg.aws.default_ami,
+        "ami": effective_ami,
+        "configured_ami": cfg.aws.default_ami,
         "subnet_id": cfg.aws.default_subnet_id,
         "security_group_id": cfg.aws.default_security_group_id,
         "instance_profile": cfg.aws.default_instance_profile,
@@ -301,12 +328,12 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 @router.get("/units/{unit_path:path}/backups")
 def unit_backups_list(unit_path: str, request: Request) -> Dict[str, Any]:
     require_operator(request)
+    backups = [_decorate_backup_record(unit_path, row) for row in list_unit_backups(unit_path)]
     return {
         "ok": True,
         "unit_path": unit_path,
-        "backups": list_unit_backups(unit_path),
+        "backups": backups,
     }
-
 
 @router.post("/nodes/{node_id:path}/backup")
 def node_create_backup(node_id: str, req: Dict[str, Any], request: Request) -> Dict[str, Any]:
@@ -316,9 +343,9 @@ def node_create_backup(node_id: str, req: Dict[str, Any], request: Request) -> D
     if not isinstance(rec, dict) or not rec:
         raise HTTPException(status_code=404, detail="node not found")
 
-    unit_path = str(rec.get("unit_path") or "").strip()
+    unit_path = str(rec.get("unit_path") or rec.get("unit") or "").strip()
     if not unit_path:
-        raise HTTPException(status_code=400, detail="node missing unit_path")
+        raise HTTPException(status_code=400, detail="node missing unit")
 
     secret = ensure_unit_orchestrator_secret(unit_path)
     base = _node_takctl_base_url(rec, node_id)
@@ -371,6 +398,7 @@ def node_create_backup(node_id: str, req: Dict[str, Any], request: Request) -> D
         manifest=manifest,
         artifact_bytes=artifact,
     )
+    saved = _decorate_backup_record(unit_path, saved)
 
     return {
         "ok": True,
@@ -380,6 +408,26 @@ def node_create_backup(node_id: str, req: Dict[str, Any], request: Request) -> D
         "manifest": manifest,
     }
 
+@router.get("/units/{unit_path:path}/backups/{backup_id}/manifest")
+def unit_backup_manifest(unit_path: str, backup_id: str, request: Request) -> Dict[str, Any]:
+    require_operator(request)
+    row = _decorate_backup_record(unit_path, get_unit_backup(unit_path, backup_id))
+    return {
+        "ok": True,
+        "unit_path": unit_path,
+        "backup": row,
+        "manifest": row.get("manifest") or {},
+    }
+
+@router.get("/units/{unit_path:path}/backups/{backup_id}/artifact")
+def unit_backup_artifact(unit_path: str, backup_id: str, request: Request):
+    require_operator(request)
+    row = get_unit_backup(unit_path, backup_id)
+    return FileResponse(
+        path=str(row["artifact_path"]),
+        media_type="application/gzip",
+        filename=f"{str(unit_path).strip() or 'unit'}-{str(backup_id).strip()}.backup.tar.gz",
+    )
 
 def _resolve_instance_for_node_record(rec: Dict[str, Any], node_id: str) -> Dict[str, Any]:
     aws = aws_list_nodes()

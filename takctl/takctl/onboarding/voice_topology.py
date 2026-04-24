@@ -59,27 +59,70 @@ def _group_fals(platoon_fal: str) -> list[str]:
 
 
 def _group_channel_fal(company_fal: str, group_fal: str) -> str:
-    # FALFAL for groups: QW + EA => QWEA
-    return f"{_upper(company_fal)}{_upper(group_fal)}"
+    # Gruppscope skrivs grupp först, sedan kompani: EA + PQ => EAPQ
+    return f"{_upper(group_fal)}{_upper(company_fal)}"
 
 
 def _seed_channels_from_ctx(derived: dict[str, Any]) -> list[str]:
     battalion_fal = _upper(derived.get("battalion_fal"))
-    battalion_second = battalion_fal[1:2] if len(battalion_fal) >= 2 else ""
     company_fal = _upper(derived.get("company_fal"))
     platoon_fal = _upper(derived.get("platoon_fal"))
     group_fal = _upper(derived.get("group_fal"))
 
+    n_raw = _s(derived.get("n"))
+    try:
+        n = int(n_raw) if n_raw else None
+    except Exception:
+        n = None
+
+    battalion_channel = f"BatL-{battalion_fal}" if battalion_fal else ""
+    company_channel = f"KompL-{company_fal}" if company_fal else ""
+    platoon_channel = f"PlutL-{platoon_fal}" if platoon_fal else ""
+    group_channel = f"GruppL-{_group_channel_fal(company_fal, group_fal)}" if company_fal and group_fal else ""
+
     seeds: list[str] = []
 
-    if group_fal and platoon_fal and company_fal:
-        seeds.extend([f"GruppL-{_group_channel_fal(company_fal, group_fal)}", f"PlutL-{platoon_fal}"])
-    elif platoon_fal and company_fal:
-        seeds.extend([f"PlutL-{platoon_fal}", f"KompL-{company_fal}"])
-    elif company_fal and battalion_fal:
-        seeds.extend([f"KompL-{company_fal}", f"BatL-{battalion_fal}"])
-    elif battalion_fal and battalion_second:
-        seeds.extend([f"BatL-{battalion_fal}", f"PlutL-P{battalion_second}"])
+    # Gruppmedlem: bara grupp. Gruppchef + stf: grupp + pluton.
+    if group_channel:
+        if n in (1, 2):
+            seeds.append(group_channel)
+            if platoon_channel:
+                seeds.append(platoon_channel)
+        else:
+            seeds.append(group_channel)
+        return _uniq(seeds)
+
+    # Ledningspluton / P-kompani: pluton + bataljon.
+    if company_fal.startswith("P"):
+        if platoon_channel and battalion_channel:
+            seeds.extend([platoon_channel, battalion_channel])
+        elif platoon_channel:
+            seeds.append(platoon_channel)
+        elif battalion_channel:
+            seeds.append(battalion_channel)
+        return _uniq(seeds)
+
+    # E-pluton / stab- och sambandgrupp: kompani + bataljon.
+    if platoon_fal.startswith("E") and company_channel and battalion_channel:
+        seeds.extend([company_channel, battalion_channel])
+        return _uniq(seeds)
+
+    # Plutonchef, stf, signalist: pluton + kompani.
+    if platoon_channel:
+        if n in (1, 2, 3) and company_channel:
+            seeds.extend([platoon_channel, company_channel])
+        else:
+            seeds.append(platoon_channel)
+        return _uniq(seeds)
+
+    # Kompaniledning: kompani + bataljon.
+    if company_channel and battalion_channel:
+        seeds.extend([company_channel, battalion_channel])
+        return _uniq(seeds)
+
+    # Batstab: bara bataljon.
+    if battalion_channel:
+        seeds.append(battalion_channel)
 
     return _uniq(seeds)
 

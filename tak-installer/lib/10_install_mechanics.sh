@@ -6,11 +6,11 @@ pkg_install_online(){
   apt-get update -y
   apt-get install -y \
     ca-certificates curl jq openssl unzip \
-    default-jre-headless \
-    postgresql postgresql-client \
+    openjdk-17-jre-headless \
+    postgresql-15 postgresql-client-15 postgresql-15-postgis-3 \
     nginx \
     xmlstarlet \
-    msmtp-mta \
+    msmtp-mta
 }
 
 require_offline_bundle(){
