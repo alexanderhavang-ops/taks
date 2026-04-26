@@ -94,6 +94,29 @@ import json
 import os
 import re
 import time
+import ssl
+
+# Python 3.12 removed ssl.wrap_socket. pymumble_py3 still calls it.
+# Keep this shim close to the probe script because the probe is executed
+# inside the Martine venv and must work on Ubuntu 24.04 / Python 3.12.
+if not hasattr(ssl, "wrap_socket"):
+    def _pymumble_wrap_socket(sock, keyfile=None, certfile=None, server_side=False, cert_reqs=ssl.CERT_NONE,
+                             ssl_version=ssl.PROTOCOL_TLS_CLIENT, ca_certs=None, do_handshake_on_connect=True,
+                             suppress_ragged_eofs=True, ciphers=None):
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.check_hostname = False
+        ctx.verify_mode = cert_reqs
+        if ciphers:
+            try:
+                ctx.set_ciphers(ciphers)
+            except Exception:
+                pass
+        if certfile or keyfile:
+            ctx.load_cert_chain(certfile=certfile, keyfile=keyfile)
+        if ca_certs:
+            ctx.load_verify_locations(ca_certs)
+        return ctx.wrap_socket(sock, server_hostname=None, do_handshake_on_connect=do_handshake_on_connect)
+    ssl.wrap_socket = _pymumble_wrap_socket
 
 
 _UUID_RE = re.compile(

@@ -1,3 +1,56 @@
 health_check_main() {
-  check_mumble
+  local name="mumble"
+  local host="127.0.0.1"
+  local port="64738"
+  local python="/opt/tak/tools/takctl/.venv/bin/python"
+  local out connected err channels users
+
+  if ! timeout 2 bash -c "</dev/tcp/${host}/${port}" 2>/dev/null; then
+    echo "name=${name}"
+    echo "status=red"
+    echo "summary=Mumble TCP listener is not reachable on ${host}:${port}"
+    return 0
+  fi
+
+  if [ ! -x "$python" ]; then
+    python="/usr/bin/python3"
+  fi
+
+  out="$(
+timeout 8 sudo -u tak -H env PYTHONPATH=/opt/tak/tools/takctl "$python" - <<'PY' 2>&1 || true
+import json
+try:
+    from takctl.services.mumble_live import snapshot_mumble_live
+    snap = snapshot_mumble_live()
+    server = snap.get("server") or {}
+    print(json.dumps({
+        "connected": bool(server.get("connected")),
+        "error": str(snap.get("error") or "").strip(),
+        "users": len(snap.get("users") or []),
+        "channels": len(snap.get("channels") or []),
+    }, ensure_ascii=False))
+except Exception as e:
+    print(json.dumps({
+        "connected": False,
+        "error": f"{type(e).__name__}: {e}",
+        "users": 0,
+        "channels": 0,
+    }, ensure_ascii=False))
+PY
+  )"
+
+  connected="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print(bool(json.loads(sys.stdin.read()).get("connected")))' 2>/dev/null || echo False)"
+  err="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("error") or "")' 2>/dev/null || printf '%s' "$out")"
+  channels="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("channels") or 0)' 2>/dev/null || echo 0)"
+  users="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("users") or 0)' 2>/dev/null || echo 0)"
+
+  echo "name=${name}"
+
+  if [ "$connected" = "True" ]; then
+    echo "status=green"
+    echo "summary=Mumble protocol probe OK (${channels} channels, ${users} users visible)"
+  else
+    echo "status=red"
+    echo "summary=Mumble TCP listener is up, but protocol probe failed: ${err:-unknown error}"
+  fi
 }
