@@ -1,4 +1,5 @@
 from __future__ import annotations
+from takctl.onboarding.nameplate import build_nameplate
 
 import json
 from datetime import datetime, timezone
@@ -888,23 +889,30 @@ pre { white-space: pre-wrap; word-break: break-word; }
     if not hero_badge_row2:
         hero_badge_row2 = username
 
+    ident_ctx = {}
+    try:
+        ident_ctx.update(dict(getattr(ident, "ctx", None) or {}))
+    except Exception:
+        pass
+    try:
+        ident_ctx.update(dict(getattr(ident, "identity", None) or {}))
+    except Exception:
+        pass
+
+    callsign, row2 = build_nameplate(username, ident_ctx, groups)
+
     hero_nameplate_html = f"""
     <div class="hero-nameplate">
-      <div class="hero-nameplate-callsign">{h(hero_badge_callsign or username)}</div>
-      <div class="hero-nameplate-row2">{h(hero_badge_row2 or username)}</div>
+      <div class="hero-nameplate-callsign">{h(callsign)}</div>
+      <div class="hero-nameplate-row2">{h(row2)}</div>
     </div>
-"""
+    """
 
     hero_logo_html = f"""
     <div style="margin:12px 0 10px 0;">
-      <img
-        src="/assets/branding/node/unit.png?b={bump}"
-        alt="Unit"
-        style="display:block;width:auto;height:56px;max-width:220px;"
-        onerror="this.onerror=null;this.src='/assets/branding/node/unit.png?b={bump}';"
-      />
+      <img src="/assets/branding/node/unit.png?b={bump}" alt="Unit" style="max-height:64px;object-fit:contain;" onerror="this.style.display='none';" />
     </div>
-    """
+"""
 
     body = f"""
   <div class="topbar">

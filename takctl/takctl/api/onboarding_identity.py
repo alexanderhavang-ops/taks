@@ -866,11 +866,23 @@ def email_link(req: Request, username: str, body: EmailLinkIn):
             username=username,
             reveal_password=bool(body.reveal_password),
         )
+        ident = svc.store.get_identity(username)
+        ident_payload = {}
+        try:
+            ident_payload.update(dict(getattr(ident, "ctx", None) or {}))
+        except Exception:
+            pass
+        try:
+            ident_payload.update(dict(getattr(ident, "identity", None) or {}))
+        except Exception:
+            pass
+
         email_status = send_onboarding_email(
             to_addr=email,
             username=username,
             card_url=str(card_info.get("card_url") or ""),
             lang=str(load_config().get("language", "sv") or "sv"),
+            ident=ident_payload,
         )
 
         sel = load_selection(username) or {}

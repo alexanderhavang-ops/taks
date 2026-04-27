@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import secrets as pysecrets
 import time
 from pathlib import Path
@@ -93,6 +94,7 @@ def list_unit_backups(unit_path: str) -> List[Dict[str, Any]]:
     up = _safe_unit_path(unit_path)
     base = _unit_backups_dir(up)
     out: List[Dict[str, Any]] = []
+    selected_bid = str(get_unit_restore_backup_selection(up).get("backup_id") or "").strip()
     if not base.exists():
         return out
 
@@ -117,6 +119,7 @@ def list_unit_backups(unit_path: str) -> List[Dict[str, Any]]:
             "artifact_path": str(artifact_path),
             "size_bytes": artifact_path.stat().st_size if artifact_path.exists() and artifact_path.is_file() else 0,
             "created_at": str(manifest.get("created_at") or ""),
+            "selected_for_restore": d.name == selected_bid,
         })
     return out
 
@@ -152,6 +155,75 @@ def get_unit_backup(unit_path: str, backup_id: str) -> Dict[str, Any]:
         "artifact_path": str(artifact_path),
         "size_bytes": artifact_path.stat().st_size,
         "created_at": str(manifest.get("created_at") or ""),
+    }
+
+
+
+def _unit_restore_selection_file(unit_path: str) -> Path:
+    return _unit_backups_dir(unit_path) / "restore-selection.json"
+
+
+def get_unit_restore_backup_selection(unit_path: str) -> Dict[str, Any]:
+    up = _safe_unit_path(unit_path)
+    p = _unit_restore_selection_file(up)
+    if not p.exists() or not p.is_file():
+        return {"backup_id": ""}
+    try:
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(raw, dict):
+            bid = str(raw.get("backup_id") or "").strip()
+            if bid:
+                return {"backup_id": _safe_backup_id(bid), "selected_at": str(raw.get("selected_at") or "")}
+    except Exception:
+        pass
+    return {"backup_id": ""}
+
+
+def set_unit_restore_backup_selection(unit_path: str, backup_id: str) -> Dict[str, Any]:
+    up = _safe_unit_path(unit_path)
+    bid = _safe_backup_id(backup_id)
+
+    # Validate that the backup exists before selecting it.
+    get_unit_backup(up, bid)
+
+    p = _unit_restore_selection_file(up)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    obj = {
+        "backup_id": bid,
+        "selected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    tmp = p.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, p)
+    return obj
+
+
+def clear_unit_restore_backup_selection(unit_path: str) -> Dict[str, Any]:
+    up = _safe_unit_path(unit_path)
+    p = _unit_restore_selection_file(up)
+    if p.exists():
+        p.unlink()
+    return {"backup_id": ""}
+
+
+
+def delete_unit_backup(unit_path: str, backup_id: str) -> Dict[str, Any]:
+    up = _safe_unit_path(unit_path)
+    bid = _safe_backup_id(backup_id)
+    root = _unit_backup_dir(up, bid)
+    if not root.exists() or not root.is_dir():
+        raise FileNotFoundError(str(root))
+
+    selected = get_unit_restore_backup_selection(up)
+    shutil.rmtree(root)
+
+    if str(selected.get("backup_id") or "") == bid:
+        clear_unit_restore_backup_selection(up)
+
+    return {
+        "unit_path": up,
+        "backup_id": bid,
+        "deleted": True,
     }
 
 

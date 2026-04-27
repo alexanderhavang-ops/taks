@@ -554,11 +554,22 @@ async def onboarding_email_pack(req: Request):
                 username=username,
                 reveal_password=reveal_password,
             )
+            ident_payload = {}
+            try:
+                ident_payload.update(dict(getattr(ident, "ctx", None) or {}))
+            except Exception:
+                pass
+            try:
+                ident_payload.update(dict(getattr(ident, "identity", None) or {}))
+            except Exception:
+                pass
+
             email_status = send_onboarding_email(
                 to_addr=email,
                 username=username,
                 card_url=str(card_info.get("card_url") or ""),
                 lang=lang,
+                ident=ident_payload,
             )
             _record_onboarding_email(
                 username,

@@ -141,6 +141,7 @@ function Layout({ tab, setTab, health, brand, children }) {
         h(TabButton, { id: "documents", tab, setTab, label: t("nav.documents") }),
 
         h(TabButton, { id: "files", tab, setTab, label: "File Browser" }),
+        h(TabButton, { id: "package-check", tab, setTab, label: "Test ZIP URL" }),
 
         h(TabButton, { id: "health", tab, setTab, label: serverHealthLabel }),
 

@@ -18,7 +18,7 @@ from takctl.onboarding.voice_topology import derive_voice_topology
 
 PACKAGE = "mumble-server"
 SERVICE = "mumble-server"
-CONFIG = Path("/etc/mumble-server.ini")
+CONFIG = Path("/etc/mumble/mumble-server.ini")
 TLS_DIR = Path("/etc/mumble-server/tls")
 HOOK = Path("/etc/letsencrypt/renewal-hooks/deploy/90-mumble-server-cert-refresh")
 

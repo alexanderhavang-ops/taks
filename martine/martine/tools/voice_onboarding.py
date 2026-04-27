@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Sequence
 
 from martine.config import load_config
@@ -34,32 +36,46 @@ from .voice_onboarding_package import _render_voice_package
 
 
 def _channels_from_identity_topology(target_callsign: str) -> list[str]:
-    username = str(target_callsign or "").strip()
-    if not username:
+    want = str(target_callsign or "").strip().upper()
+    if not want:
         return []
+
+    roots = [
+        Path("/opt/tak/takctl-state/onboarding/identities"),
+        Path("/opt/taks/takctl-state/onboarding/identities"),
+    ]
 
     try:
-        svc = build_service()
-        ident = svc.store.get_identity(username)
-        if ident is None:
-            return []
+        for root in roots:
+            if not root.exists() or not root.is_dir():
+                continue
 
-        ctx = getattr(ident, "ctx", {}) or {}
-        if not isinstance(ctx, dict) or not ctx:
-            return []
+            for fp in sorted(root.glob("*.json")):
+                try:
+                    obj = json.loads(fp.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if not isinstance(obj, dict):
+                    continue
 
-        topo = derive_voice_topology(None, ctx)
-        if not isinstance(topo, dict):
-            return []
+                ident = obj.get("identity") if isinstance(obj.get("identity"), dict) else {}
+                ctx = obj.get("ctx") if isinstance(obj.get("ctx"), dict) else {}
 
-        out: list[str] = []
-        for x in (topo.get("seed_channels") or []):
-            s = str(x or "").strip()
-            if s and s not in out:
-                out.append(s)
-        return out
+                candidates = [ident.get("callsign"), ctx.get("callsign"), fp.stem]
+                if not any(str(x or "").strip().upper() == want for x in candidates):
+                    continue
+
+                topo = derive_voice_topology(None, ctx)
+                out = []
+                for x in (topo.get("seed_channels") or []):
+                    ch = str(x or "").strip()
+                    if ch and ch not in out:
+                        out.append(ch)
+                return out
     except Exception:
         return []
+
+    return []
 
 
 def send_voice_onboarding(
@@ -97,7 +113,6 @@ def send_voice_onboarding(
     mission_label = f"Samband-{node_name}"
     voice_port = int(mumble_port or 64738)
     server_password = _load_murmur_password(defaults)
-
     explicit_channels = _normalize_channels(
         channels=channels,
         channels_csv=channels_csv,
@@ -106,6 +121,14 @@ def send_voice_onboarding(
     topology_channels = _channels_from_identity_topology(target_callsign)
     channel_names = explicit_channels or topology_channels
 
+    if not channel_names:
+        return {
+            "ok": False,
+            "tool": "send_voice_onboarding",
+            "target_callsign": target_callsign,
+            "target_uid": target_uid,
+            "error": f"no voice channels could be derived for {target_callsign}",
+        }
     ts = _utc_now().strftime("%Y%m%dT%H%M%SZ")
     state_dir = _state_root(cfg) / "voice_onboarding" / f"{ts}-{_safe_slug(target_callsign)}"
     state_dir.mkdir(parents=True, exist_ok=True)

@@ -11,7 +11,7 @@ log = get_logger(__name__)
 PACKAGES = [
     "poppler-utils",
     "python3-venv",
-    "python3.10-venv",
+    "python3-venv",
     "python3-pip",
     "rsync",
     "nginx",

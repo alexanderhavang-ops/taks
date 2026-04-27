@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 from takctl.config import load_config
+from takctl.onboarding.nameplate import build_nameplate
 
 
 _RUNTIME_ONBOARDING_SECRET = "/opt/tak/tools/takctl/secrets.d/onboarding.conf"
@@ -270,23 +271,28 @@ def _text_body(*, username: str, card_url: str, lang: str) -> str:
         f"/TAKS\n"
     )
 
-def _html_body(*, username: str, to_addr: str, card_url: str, lang: str) -> str:
+def _html_body(*, username: str, to_addr: str, card_url: str, lang: str, ident: dict | None = None) -> str:
+    ident = ident or {}
     c = _lang_copy(lang)
     b = _branding(card_url)
     qr_url = _card_qr_url(card_url)
     headline = _headline(lang)
     subject = _subject(username, lang)
-    badge_primary = str(username or "").strip() or "—"
-    badge_row2 = str(to_addr or "").strip() or (_unit_label() or badge_primary)
+    callsign, row2 = build_nameplate(username, ident, None)
+
     nameplate_html = f"""
-              <div style="margin-top:20px;height:86px;min-width:260px;max-width:460px;border-radius:6px;padding:12px 14px;background:#244a82;box-shadow:0 8px 18px rgba(0,0,0,0.38);border:1px solid rgba(0,0,0,0.12);display:flex;flex-direction:column;justify-content:center;gap:6px;overflow:hidden;">
-                <div style="font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-weight:900;font-size:20px;line-height:1.0;letter-spacing:0.02em;text-transform:uppercase;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                  {h(badge_primary)}
-                </div>
-                <div style="font-family:ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-weight:800;font-size:12px;line-height:1.0;letter-spacing:0.06em;text-transform:uppercase;color:rgba(255,255,255,0.92);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                  {h(badge_row2)}
-                </div>
-              </div>
+              <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin-top:20px;width:360px;max-width:100%;background:#244a82;border-radius:6px;border-collapse:separate;box-shadow:0 8px 18px rgba(0,0,0,0.38);">
+                <tr>
+                  <td style="padding:14px 16px 4px 16px;font-family:Arial,Helvetica,sans-serif;font-weight:900;font-size:20px;line-height:22px;letter-spacing:0.02em;text-transform:uppercase;color:#ffffff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                    {h(callsign)}
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 16px 14px 16px;font-family:Arial,Helvetica,sans-serif;font-weight:800;font-size:12px;line-height:14px;letter-spacing:0.06em;text-transform:uppercase;color:#e6eefc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                    {h(row2)}
+                  </td>
+                </tr>
+              </table>
     """
 
     slogan_html = (
@@ -398,7 +404,7 @@ def _html_body(*, username: str, to_addr: str, card_url: str, lang: str) -> str:
 </html>
 """
 
-def _send_via_sendmail(*, to_addr: str, username: str, card_url: str, lang: str) -> dict:
+def _send_via_sendmail(*, to_addr: str, username: str, card_url: str, lang: str, ident: dict | None = None) -> dict:
     msg = EmailMessage()
     msg["From"] = _from_addr()
     msg["To"] = to_addr
@@ -409,7 +415,7 @@ def _send_via_sendmail(*, to_addr: str, username: str, card_url: str, lang: str)
         msg["Reply-To"] = reply_to
 
     msg.set_content(_text_body(username=username, card_url=card_url, lang=lang))
-    msg.add_alternative(_html_body(username=username, to_addr=to_addr, card_url=card_url, lang=lang), subtype="html")
+    msg.add_alternative(_html_body(username=username, to_addr=to_addr, card_url=card_url, lang=lang, ident=ident), subtype="html")
 
     sendmail = _sendmail_path()
     try:
@@ -436,13 +442,13 @@ def _send_via_sendmail(*, to_addr: str, username: str, card_url: str, lang: str)
     }
 
 
-def _send_via_resend(*, to_addr: str, username: str, card_url: str, lang: str) -> dict:
+def _send_via_resend(*, to_addr: str, username: str, card_url: str, lang: str, ident: dict | None = None) -> dict:
     payload = {
         "from": _from_addr(),
         "to": [to_addr],
         "subject": _subject(username, lang),
         "text": _text_body(username=username, card_url=card_url, lang=lang),
-        "html": _html_body(username=username, to_addr=to_addr, card_url=card_url, lang=lang),
+        "html": _html_body(username=username, to_addr=to_addr, card_url=card_url, lang=lang, ident=ident),
     }
 
     reply_to = _reply_to()
@@ -489,7 +495,7 @@ def _send_via_resend(*, to_addr: str, username: str, card_url: str, lang: str) -
     }
 
 
-def send_onboarding_email(*, to_addr: str, username: str, card_url: str, lang: str | None = None) -> dict:
+def send_onboarding_email(*, to_addr: str, username: str, card_url: str, lang: str | None = None, ident: dict | None = None) -> dict:
     to_addr = (to_addr or "").strip()
     username = (username or "").strip()
     card_url = (card_url or "").strip()
@@ -508,8 +514,8 @@ def send_onboarding_email(*, to_addr: str, username: str, card_url: str, lang: s
 
     provider = _provider()
     if provider == "sendmail":
-        return _send_via_sendmail(to_addr=to_addr, username=username, card_url=card_url, lang=lang)
+        return _send_via_sendmail(to_addr=to_addr, username=username, card_url=card_url, lang=lang, ident=ident)
     if provider == "resend":
-        return _send_via_resend(to_addr=to_addr, username=username, card_url=card_url, lang=lang)
+        return _send_via_resend(to_addr=to_addr, username=username, card_url=card_url, lang=lang, ident=ident)
 
     raise RuntimeError(f"unsupported onboarding_email_provider: {provider!r}")

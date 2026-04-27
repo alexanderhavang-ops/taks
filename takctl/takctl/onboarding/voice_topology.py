@@ -82,6 +82,17 @@ def _seed_channels_from_ctx(derived: dict[str, Any]) -> list[str]:
 
     seeds: list[str] = []
 
+    # Ledningspluton / P-kompani: pluton + bataljon.
+    # Detta ska gälla även om identiteten råkar bära gruppprefix, t.ex. EAPQ1.
+    if company_fal.startswith("P"):
+        if platoon_channel and battalion_channel:
+            seeds.extend([platoon_channel, battalion_channel])
+        elif platoon_channel:
+            seeds.append(platoon_channel)
+        elif battalion_channel:
+            seeds.append(battalion_channel)
+        return _uniq(seeds)
+
     # Gruppmedlem: bara grupp. Gruppchef + stf: grupp + pluton.
     if group_channel:
         if n in (1, 2):
@@ -90,16 +101,6 @@ def _seed_channels_from_ctx(derived: dict[str, Any]) -> list[str]:
                 seeds.append(platoon_channel)
         else:
             seeds.append(group_channel)
-        return _uniq(seeds)
-
-    # Ledningspluton / P-kompani: pluton + bataljon.
-    if company_fal.startswith("P"):
-        if platoon_channel and battalion_channel:
-            seeds.extend([platoon_channel, battalion_channel])
-        elif platoon_channel:
-            seeds.append(platoon_channel)
-        elif battalion_channel:
-            seeds.append(battalion_channel)
         return _uniq(seeds)
 
     # E-pluton / stab- och sambandgrupp: kompani + bataljon.

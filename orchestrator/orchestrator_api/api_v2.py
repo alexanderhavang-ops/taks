@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import base64
 import json
+import tarfile
+import io
 import time
 import ssl
 from typing import Any, Dict, Optional
@@ -10,12 +12,12 @@ import urllib.error
 import urllib.request
 import urllib.parse
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from orchestrator_core.config import load_orch_config, load_secrets_config
 from orchestrator_core.core import NodeRequest, aws_dry_run, aws_launch, aws_list_nodes, aws_snooze, aws_terminate, aws_wake, plan_node, resolve_ubuntu_ami
 from orchestrator_core.nodes_state import delete_node, get_node, list_nodes, touch_heartbeat, upsert_node
-from orchestrator_core.units_state import create_unit, ensure_unit_orchestrator_secret, get_unit_backup, list_unit_backups, list_units, save_unit_backup
+from orchestrator_core.units_state import clear_unit_restore_backup_selection, create_unit, delete_unit_backup, ensure_unit_orchestrator_secret, get_unit_backup, get_unit_restore_backup_selection, list_unit_backups, list_units, save_unit_backup, set_unit_restore_backup_selection
 
 from .auth import verify_token, verify_basic_auth
 from .bundles_v2 import bundle_name_for_unit, bundle_dir, ensure_unit_bundle, get_unit_bundle_readiness
@@ -335,6 +337,39 @@ def unit_backups_list(unit_path: str, request: Request) -> Dict[str, Any]:
         "backups": backups,
     }
 
+@router.get("/units/{unit_path:path}/backups/restore-selection")
+def unit_backup_restore_selection(unit_path: str, request: Request) -> Dict[str, Any]:
+    require_operator(request)
+    sel = get_unit_restore_backup_selection(unit_path)
+    return {
+        "ok": True,
+        "unit_path": unit_path,
+        "restore_backup": sel,
+    }
+
+
+@router.post("/units/{unit_path:path}/backups/{backup_id}/select-restore")
+def unit_backup_select_restore(unit_path: str, backup_id: str, request: Request) -> Dict[str, Any]:
+    require_operator(request)
+    sel = set_unit_restore_backup_selection(unit_path, backup_id)
+    return {
+        "ok": True,
+        "unit_path": unit_path,
+        "restore_backup": sel,
+    }
+
+
+@router.delete("/units/{unit_path:path}/backups/restore-selection")
+def unit_backup_clear_restore_selection(unit_path: str, request: Request) -> Dict[str, Any]:
+    require_operator(request)
+    sel = clear_unit_restore_backup_selection(unit_path)
+    return {
+        "ok": True,
+        "unit_path": unit_path,
+        "restore_backup": sel,
+    }
+
+
 @router.post("/nodes/{node_id:path}/backup")
 def node_create_backup(node_id: str, req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     require_operator(request)
@@ -428,6 +463,62 @@ def unit_backup_artifact(unit_path: str, backup_id: str, request: Request):
         media_type="application/gzip",
         filename=f"{str(unit_path).strip() or 'unit'}-{str(backup_id).strip()}.backup.tar.gz",
     )
+
+def _manifest_from_backup_bytes(blob: bytes) -> Dict[str, Any]:
+    try:
+        with tarfile.open(fileobj=io.BytesIO(blob), mode="r:gz") as tf:
+            member = tf.getmember("manifest.json")
+            f = tf.extractfile(member)
+            if not f:
+                return {}
+            raw = json.loads(f.read().decode("utf-8", errors="replace"))
+            return raw if isinstance(raw, dict) else {}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"invalid backup archive: {e}")
+
+
+@router.post("/units/{unit_path:path}/backups/upload")
+async def unit_backup_upload(unit_path: str, request: Request, file: UploadFile = File(...)) -> Dict[str, Any]:
+    require_operator(request)
+
+    blob = await file.read()
+    if not blob:
+        raise HTTPException(status_code=400, detail="empty upload")
+
+    manifest = _manifest_from_backup_bytes(blob)
+    backup_id = str(manifest.get("backup_id") or "").strip()
+    if not backup_id:
+        raw_name = str(file.filename or "uploaded-backup").rsplit("/", 1)[-1]
+        backup_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", raw_name).strip("-")[:96] or "uploaded-backup"
+
+    try:
+        saved = save_unit_backup(unit_path, backup_id=backup_id, manifest=manifest, artifact_bytes=blob)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "ok": True,
+        "unit_path": unit_path,
+        "backup": _decorate_backup_record(unit_path, saved),
+    }
+
+
+@router.delete("/units/{unit_path:path}/backups/{backup_id}")
+def unit_backup_delete(unit_path: str, backup_id: str, request: Request) -> Dict[str, Any]:
+    require_operator(request)
+    try:
+        deleted = delete_unit_backup(unit_path, backup_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="backup not found")
+
+    return {
+        "ok": True,
+        "unit_path": unit_path,
+        "deleted": deleted,
+    }
+
 
 def _resolve_instance_for_node_record(rec: Dict[str, Any], node_id: str) -> Dict[str, Any]:
     aws = aws_list_nodes()

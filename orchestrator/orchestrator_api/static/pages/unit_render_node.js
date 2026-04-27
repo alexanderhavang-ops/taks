@@ -83,6 +83,63 @@
     try{
       var j = await backupFetchJson('/api/v2/units/' + encodePathValue(unit) + '/backups');
       var rows = Array.isArray(j.backups) ? j.backups : [];
+
+      // ---- NONE OPTION (fresh node) ----
+      var noneSelected = !rows.some(function(r){ return r && r.selected_for_restore; });
+
+      var noneItem = S.el('div', {
+        style: [
+          'display:grid',
+          'grid-template-columns:minmax(0,1fr) auto',
+          'gap:12px',
+          'align-items:center',
+          'padding:12px',
+          'border-radius:12px',
+          'border:1px solid ' + (noneSelected ? 'rgba(34,197,94,.35)' : 'rgba(255,255,255,.08)'),
+          'background:' + (noneSelected ? 'rgba(34,197,94,.07)' : 'rgba(255,255,255,.02)')
+        ].join(';')
+      });
+
+      var noneLeft = S.el('div');
+      noneLeft.appendChild(S.el('div', {
+        style: 'font-weight:700',
+        text: 'None (fresh node)'
+      }));
+      noneLeft.appendChild(S.el('div', {
+        className: noneSelected ? 'ok' : 'muted',
+        style: 'margin-top:4px',
+        text: noneSelected ? 'no restore will be applied' : 'skip restore'
+      }));
+
+      noneItem.appendChild(noneLeft);
+
+      var noneActions = S.el('div', { className: 'card__actions', style: 'justify-content:flex-end' });
+
+      var btnNone = S.el('button', {
+        className: noneSelected ? 'btn' : 'btn btn--secondary',
+        text: noneSelected ? 'Selected' : 'Use none'
+      });
+      btnNone.disabled = noneSelected;
+
+      btnNone.addEventListener('click', function(){
+        btnNone.disabled = true;
+        backupFetchJson('/api/v2/units/' + encodePathValue(unit) + '/backups/restore-selection', {
+          method: 'DELETE'
+        }).then(refreshList).catch(function(err){
+          alert(String((err && err.message) || err || 'Clear failed'));
+          btnNone.disabled = false;
+        });
+      });
+
+      noneActions.appendChild(btnNone);
+      noneItem.appendChild(noneActions);
+
+      listEl.appendChild(noneItem);
+
+      listEl.appendChild(S.el('div', {
+        style: 'height:1px;background:rgba(255,255,255,.06);margin:4px 0'
+      }));
+
       el.innerHTML = '';
       if(!rows.length){
         el.appendChild(S.el('div', { className: 'muted', text: 'Inga sparade säkerhetskopior än.' }));
@@ -549,27 +606,6 @@
   
   /* BACKUPS_TAB_V1_START */
 
-  function backupsTabBucketDefs(){
-    return [
-      { key: 'users',         label: 'Users',          checked: true  },
-      { key: 'certs',         label: 'Certifikat',     checked: false },
-      { key: 'cot_state',     label: 'CoT / Postgres', checked: false },
-      { key: 'documents',     label: 'Documents',      checked: false },
-      { key: 'takctl_state',  label: 'takctl state',   checked: false },
-      { key: 'martine_state', label: 'Martine state',  checked: false },
-      { key: 'replay_state',  label: 'Replay state',   checked: false }
-    ];
-  }
-
-  function backupsTabSelectedBuckets(root){
-    if(!root) return [];
-    return Array.prototype.slice.call(
-      root.querySelectorAll('input[data-backup-bucket]:checked')
-    ).map(function(el){
-      return String(el.getAttribute('data-backup-bucket') || '').trim();
-    }).filter(Boolean);
-  }
-
   function backupAutoDownload(url){
     var href = String(url || '').trim();
     if(!href) return;
@@ -579,9 +615,7 @@
     a.setAttribute('download', '');
     document.body.appendChild(a);
     a.click();
-    setTimeout(function(){
-      if(a && a.parentNode) a.parentNode.removeChild(a);
-    }, 0);
+    setTimeout(function(){ if(a.parentNode) a.parentNode.removeChild(a); }, 0);
   }
 
   function renderBackupsPanel(node){
@@ -590,198 +624,202 @@
     var wrap = S.el('div', { style: 'display:grid;gap:14px' });
     var card = S.card('Backups');
 
-    if(!unit){
-      card.appendChild(S.el('div', {
-        className: 'muted',
-        text: 'Ingen enhet vald.'
-      }));
-      wrap.appendChild(card);
-      return wrap;
-    }
-
-    card.appendChild(S.el('div', {
+    var top = S.el('div', {
+      style: 'display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap'
+    });
+    top.appendChild(S.el('div', {
       className: 'muted',
-      text: 'Säkerhetskopior sparas i enhetens state på orchestratorn.'
+      text: 'Backup files live in this unit’s orchestrator state. Select one to restore on next spawn.'
     }));
 
-    var actions = S.el('div', { className: 'card__actions', style: 'margin-top:10px' });
-    var btnRefresh = S.el('button', {
-      className: 'btn btn--secondary',
-      text: 'Uppdatera lista'
-    });
+    var actions = S.el('div', { className: 'card__actions' });
+    var upload = S.el('input', { type: 'file', accept: '.gz,.tgz,.tar.gz', style: 'display:none' });
+    var btnUpload = S.el('button', { className: 'btn btn--secondary', text: 'Upload' });
+    var btnRefresh = S.el('button', { className: 'btn btn--secondary', text: 'Refresh' });
+    actions.appendChild(upload);
+    actions.appendChild(btnUpload);
     actions.appendChild(btnRefresh);
-    card.appendChild(actions);
+    top.appendChild(actions);
+    card.appendChild(top);
 
     var create = S.el('details', { style: 'margin-top:12px' });
-    create.appendChild(S.el('summary', { text: 'Skapa backup' }));
-    create.appendChild(S.el('div', {
-      className: 'muted',
-      style: 'margin-top:10px',
-      text: 'Välj vad som ska ingå. Backup laddas ned direkt efter att den skapats.'
-    }));
-
-    var bucketGrid = S.el('div', {
-      style: 'margin-top:10px;display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px'
-    });
-
-    backupsTabBucketDefs().forEach(function(def){
-      var label = S.el('label', {
-        style: 'display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:10px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02);cursor:pointer'
-      });
-      var cb = S.el('input', {
-        type: 'checkbox',
-        'data-backup-bucket': def.key
-      });
-      if(def.checked) cb.checked = true;
-      label.appendChild(cb);
-      label.appendChild(S.el('span', { text: def.label }));
-      bucketGrid.appendChild(label);
-    });
-
-    create.appendChild(bucketGrid);
-
+    create.appendChild(S.el('summary', { text: 'Create backup from live node' }));
     var createActions = S.el('div', { className: 'card__actions', style: 'margin-top:10px' });
-    var btnCreate = S.el('button', {
-      className: 'btn',
-      text: 'Backup'
-    });
+    var btnCreate = S.el('button', { className: 'btn', text: 'Backup users' });
     createActions.appendChild(btnCreate);
     create.appendChild(createActions);
-
-    var createStatus = S.el('div', {
-      className: 'muted',
-      style: 'margin-top:8px'
-    });
-    create.appendChild(createStatus);
-
+    var status = S.el('div', { className: 'muted', style: 'margin-top:8px' });
+    create.appendChild(status);
     if(!nodeId){
       btnCreate.disabled = true;
       btnCreate.style.opacity = '.55';
-      btnCreate.title = 'Ingen aktiv nod att säkerhetskopiera';
-      createStatus.textContent = 'Starta en nod om du vill skapa en ny backup.';
+      status.textContent = 'No live node available.';
     }
-
     card.appendChild(create);
 
-    var listWrap = S.el('div', { style: 'margin-top:14px' });
-    listWrap.appendChild(S.el('div', { className: 'label', text: 'Sparade säkerhetskopior' }));
+    var listEl = S.el('div', { style: 'margin-top:14px;display:grid;gap:8px' });
+    card.appendChild(listEl);
 
-    var listEl = S.el('div', {
-      style: 'margin-top:10px;display:grid;gap:8px'
-    });
-    listWrap.appendChild(listEl);
-    card.appendChild(listWrap);
+    function setStatus(text, cls){
+      status.className = cls || 'muted';
+      status.textContent = String(text || '');
+    }
 
     async function refreshList(){
       listEl.innerHTML = '';
-      listEl.appendChild(S.el('div', { className: 'muted', text: 'Laddar…' }));
+      listEl.appendChild(S.el('div', { className: 'muted', text: 'Loading backups…' }));
 
-      try{
-        var j = await backupFetchJson('/api/v2/units/' + encodePathValue(unit) + '/backups');
-        var rows = Array.isArray(j.backups) ? j.backups : [];
-        listEl.innerHTML = '';
+      var j = await backupFetchJson('/api/v2/units/' + encodePathValue(unit) + '/backups');
+      var rows = Array.isArray(j.backups) ? j.backups : [];
+      listEl.innerHTML = '';
 
-        if(!rows.length){
-          listEl.appendChild(S.el('div', {
-            className: 'muted',
-            text: 'Inga sparade säkerhetskopior än.'
-          }));
-          return;
-        }
-
-        rows.forEach(function(row){
-          var backupId = String((row && row.backup_id) || '').trim();
-          var artifactUrl = String((row && row.artifact_url) || backupArtifactUrl(unit, backupId));
-
-          var item = S.el('div', {
-            style: 'padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)'
-          });
-
-          item.appendChild(S.el('div', {
-            style: 'font-weight:600;word-break:break-all',
-            text: backupId || 'backup'
-          }));
-
-          var meta = [];
-          if(row && row.created_at) meta.push(String(row.created_at));
-          meta.push(backupHumanBytes(row && row.size_bytes));
-
-          item.appendChild(S.el('div', {
-            className: 'muted',
-            style: 'margin-top:4px',
-            text: meta.join(' · ')
-          }));
-
-          var rowActions = S.el('div', { className: 'card__actions', style: 'margin-top:8px' });
-          rowActions.appendChild(S.el('a', {
-            className: 'btn btn--secondary',
-            href: artifactUrl,
-            text: 'Download'
-          }));
-          item.appendChild(rowActions);
-
-          listEl.appendChild(item);
-        });
-      }catch(err){
-        listEl.innerHTML = '';
+      if(!rows.length){
         listEl.appendChild(S.el('div', {
-          className: 'err',
-          text: String((err && err.message) || err || 'Backup list failed')
+          className: 'muted',
+          style: 'padding:12px;border:1px dashed rgba(255,255,255,.14);border-radius:12px',
+          text: 'No backups yet.'
         }));
+        return;
       }
+
+      rows.forEach(function(row){
+        var backupId = String((row && row.backup_id) || '').trim();
+        var artifactUrl = String((row && row.artifact_url) || backupArtifactUrl(unit, backupId));
+        var selected = !!(row && row.selected_for_restore);
+
+        var item = S.el('div', {
+          style: [
+            'display:grid',
+            'grid-template-columns:minmax(0,1fr) auto',
+            'gap:12px',
+            'align-items:center',
+            'padding:12px',
+            'border-radius:12px',
+            'border:1px solid ' + (selected ? 'rgba(34,197,94,.35)' : 'rgba(255,255,255,.08)'),
+            'background:' + (selected ? 'rgba(34,197,94,.07)' : 'rgba(255,255,255,.03)')
+          ].join(';')
+        });
+
+        var left = S.el('div', { style: 'min-width:0' });
+        left.appendChild(S.el('div', {
+          style: 'font-weight:700;word-break:break-all',
+          text: backupId || 'backup'
+        }));
+
+        var meta = [];
+        if(row && row.created_at) meta.push(String(row.created_at));
+        meta.push(backupHumanBytes(row && row.size_bytes));
+        if(selected) meta.push('restore on next spawn');
+        left.appendChild(S.el('div', {
+          className: selected ? 'ok' : 'muted',
+          style: 'margin-top:4px',
+          text: meta.join(' · ')
+        }));
+        item.appendChild(left);
+
+        var rowActions = S.el('div', { className: 'card__actions', style: 'justify-content:flex-end' });
+
+        rowActions.appendChild(S.el('a', {
+          className: 'btn btn--secondary',
+          href: artifactUrl,
+          text: 'Download'
+        }));
+
+        var btnSelect = S.el('button', {
+          className: selected ? 'btn' : 'btn btn--secondary',
+          text: selected ? 'Selected' : 'Use on next spawn'
+        });
+        btnSelect.disabled = selected;
+        btnSelect.addEventListener('click', function(){
+          btnSelect.disabled = true;
+          backupFetchJson('/api/v2/units/' + encodePathValue(unit) + '/backups/' + encodeURIComponent(backupId) + '/select-restore', {
+            method: 'POST'
+          }).then(refreshList).catch(function(err){
+            alert(String((err && err.message) || err || 'Select failed'));
+            btnSelect.disabled = false;
+          });
+        });
+        rowActions.appendChild(btnSelect);
+
+        var btnDelete = S.el('button', {
+          className: 'btn btn--danger',
+          text: 'Delete'
+        });
+        btnDelete.addEventListener('click', function(){
+          if(!confirm('Delete backup ' + backupId + '?')) return;
+          btnDelete.disabled = true;
+          backupFetchJson('/api/v2/units/' + encodePathValue(unit) + '/backups/' + encodeURIComponent(backupId), {
+            method: 'DELETE'
+          }).then(refreshList).catch(function(err){
+            alert(String((err && err.message) || err || 'Delete failed'));
+            btnDelete.disabled = false;
+          });
+        });
+        rowActions.appendChild(btnDelete);
+
+        item.appendChild(rowActions);
+        listEl.appendChild(item);
+      });
     }
 
     btnRefresh.addEventListener('click', function(){
       btnRefresh.disabled = true;
-      refreshList()
-        .catch(function(){})
-        .finally(function(){ btnRefresh.disabled = false; });
+      refreshList().finally(function(){ btnRefresh.disabled = false; });
+    });
+
+    btnUpload.addEventListener('click', function(){ upload.click(); });
+    upload.addEventListener('change', async function(){
+      var file = upload.files && upload.files[0];
+      if(!file) return;
+
+      var fd = new FormData();
+      fd.append('file', file);
+
+      btnUpload.disabled = true;
+      setStatus('Uploading backup…', 'muted');
+
+      try{
+        var resp = await fetch('/api/v2/units/' + encodePathValue(unit) + '/backups/upload', {
+          method: 'POST',
+          body: fd,
+          credentials: 'same-origin'
+        });
+        var text = await resp.text();
+        var obj = text ? JSON.parse(text) : {};
+        if(!resp.ok) throw new Error(String((obj && obj.detail) || text || ('HTTP ' + resp.status)));
+        setStatus('Uploaded.', 'ok');
+        await refreshList();
+      }catch(err){
+        setStatus(String((err && err.message) || err || 'Upload failed'), 'err');
+      }finally{
+        upload.value = '';
+        btnUpload.disabled = false;
+      }
     });
 
     if(nodeId){
       btnCreate.addEventListener('click', async function(){
-        var buckets = backupsTabSelectedBuckets(create);
-        if(!buckets.length){
-          createStatus.className = 'err';
-          createStatus.textContent = 'Välj minst en del att ta backup på.';
-          return;
-        }
-
         btnCreate.disabled = true;
-        createStatus.className = 'muted';
-        createStatus.textContent = 'Skapar backup…';
-
+        setStatus('Creating backup…', 'muted');
         try{
-          var j = await backupFetchJson(
-            '/api/v2/nodes/' + encodePathValue(nodeId) + '/backup',
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-              },
-              body: JSON.stringify({ buckets: buckets })
-            }
-          );
-
+          var j = await backupFetchJson('/api/v2/nodes/' + encodePathValue(nodeId) + '/backup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+            body: JSON.stringify({ buckets: ['users'] })
+          });
           var backup = (j && j.backup) || {};
-          createStatus.className = 'ok';
-          createStatus.textContent = 'Backup klar: ' + String(backup.backup_id || 'ok');
+          setStatus('Backup created.', 'ok');
           await refreshList();
-
-          if(backup && backup.artifact_url){
-            backupAutoDownload(String(backup.artifact_url));
-          }
+          if(backup.artifact_url) backupAutoDownload(String(backup.artifact_url));
         }catch(err){
-          createStatus.className = 'err';
-          createStatus.textContent = String((err && err.message) || err || 'Backup failed');
+          setStatus(String((err && err.message) || err || 'Backup failed'), 'err');
         }finally{
           btnCreate.disabled = false;
         }
       });
     }
 
-    setTimeout(function(){ refreshList(); }, 0);
+    setTimeout(function(){ refreshList().catch(function(err){ setStatus(String(err.message || err), 'err'); }); }, 0);
 
     wrap.appendChild(card);
     return wrap;

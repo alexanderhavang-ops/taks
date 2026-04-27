@@ -17,6 +17,7 @@ function App() {
     replay: true,
     documents: true,
     files: true,
+  "package-check": true,
     health: true,
     logs: true,
     config: true
@@ -30,6 +31,7 @@ function App() {
     tab === "replay" && h(ReplayView),
     tab === "documents" && h(DocumentsPage),
     tab === "files" && h(FileBrowserPage),
+    tab === "package-check" && h(PackageCheckPage),
     tab === "health" && h(HealthView),
     tab === "logs" && h(LogsViewerView),
     tab === "config" && h(ConfigView)
