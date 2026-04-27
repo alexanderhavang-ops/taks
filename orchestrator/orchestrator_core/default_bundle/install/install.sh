@@ -488,6 +488,7 @@ main() {
   log_state "normalize_server_keystores" "Succeeded"
 
   run_step "tak-certs-layout" "$BUNDLE_ROOT/install/tak-certs-layout.sh"
+  run_step "openldap" "$BUNDLE_ROOT/install/openldap.sh"
   run_step "tak-coreconfig-render" "$BUNDLE_ROOT/install/tak-coreconfig-render.sh"
 
   log_state "restart_takserver_if_present" "Started"

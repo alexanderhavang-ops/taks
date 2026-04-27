@@ -1,0 +1,50 @@
+health_check_main() {
+  local store uri base bind_dn bind_pw
+  store="$(read_kv_first_hit_in_dir /opt/tak/tools/takctl/conf.d backing_user_store || true)"
+  if [ -z "$store" ]; then
+    store="$(read_kv_first_hit_in_dir /etc/taks-bootstrap.d/config.d backing_user_store || true)"
+  fi
+  store="$(printf '%s' "${store:-userauthfile}" | tr '[:upper:]' '[:lower:]')"
+
+  case "$store" in
+    ldap|ldap_local|openldap) ;;
+    *)
+      add_check openldap skip info "backing_user_store=$store"
+      return 0
+      ;;
+  esac
+
+  uri="$(read_kv_first_hit_in_dir /opt/tak/tools/takctl/conf.d ldap_uri || true)"
+  [ -n "$uri" ] || uri="$(read_simple_kv /etc/taks/ldap.conf ldap_uri 2>/dev/null || true)"
+  [ -n "$uri" ] || uri="$(read_kv_first_hit_in_dir /etc/taks-bootstrap.d/config.d ldap_uri || true)"
+  [ -n "$uri" ] || uri="ldap://127.0.0.1:389"
+
+  base="$(read_kv_first_hit_in_dir /opt/tak/tools/takctl/conf.d ldap_base_dn || true)"
+  [ -n "$base" ] || base="$(read_simple_kv /etc/taks/ldap.conf ldap_base_dn 2>/dev/null || true)"
+  [ -n "$base" ] || base="$(read_kv_first_hit_in_dir /etc/taks-bootstrap.d/config.d ldap_base_dn || true)"
+  [ -n "$base" ] || base="dc=taks,dc=local"
+
+  bind_dn="$(read_kv_first_hit_in_dir /opt/tak/tools/takctl/conf.d ldap_service_account_dn || true)"
+  [ -n "$bind_dn" ] || bind_dn="$(read_simple_kv /etc/taks/ldap.conf ldap_service_account_dn 2>/dev/null || true)"
+  [ -n "$bind_dn" ] || bind_dn="$(read_kv_first_hit_in_dir /etc/taks-bootstrap.d/config.d ldap_service_account_dn || true)"
+
+  bind_pw="$(read_secret_first_hit ldap_service_account_password || true)"
+  [ -n "$bind_pw" ] || bind_pw="$(read_simple_kv /etc/taks/ldap-secrets.conf ldap_service_account_password 2>/dev/null || true)"
+  bind_pw="$(strip_wrapping_quotes "$bind_pw")"
+
+  if [ -z "$bind_dn" ] || [ -z "$bind_pw" ]; then
+    add_check openldap fail critical "LDAP selected but service bind DN/password missing" "{\"uri\":\"$uri\",\"base\":\"$base\"}"
+    return 0
+  fi
+
+  if ! command -v ldapsearch >/dev/null 2>&1; then
+    add_check openldap fail critical "LDAP selected but ldapsearch missing" "{\"uri\":\"$uri\"}"
+    return 0
+  fi
+
+  if LDAPTLS_REQCERT=never timeout 8 ldapsearch -LLL -x -H "$uri" -D "$bind_dn" -w "$bind_pw" -b "$base" -s base dn >/dev/null 2>&1; then
+    add_check openldap ok critical "LDAP bind/search ok" "{\"uri\":\"$uri\",\"base\":\"$base\"}"
+  else
+    add_check openldap fail critical "LDAP bind/search failed" "{\"uri\":\"$uri\",\"base\":\"$base\"}"
+  fi
+}

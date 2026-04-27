@@ -76,6 +76,7 @@
 
     const [revealPassword, setRevealPassword] = useState(true);
     const [ttlSec, setTtlSec] = useState(600);
+    const [userStoreOverride, setUserStoreOverride] = useState("");
 
     const [callsignPolicyDefault, setCallsignPolicyDefault] = useState("FALFAL");
     const [callsignPolicyOverride, setCallsignPolicyOverride] = useState("");
@@ -318,6 +319,7 @@
         groups: groups,
         ttlSec: ttlSec,
         revealPassword: revealPassword,
+        userStoreOverride: userStoreOverride,
         callsignPolicyOverride: callsignPolicyOverride,
         callsignPolicyDefault: callsignPolicyDefault,
         cfg: cfg,
@@ -484,7 +486,9 @@
             ttlSec: ttlSec,
             setTtlSec: setTtlSec,
             revealPassword: revealPassword,
-            setRevealPassword: setRevealPassword
+            setRevealPassword: setRevealPassword,
+            userStoreOverride: userStoreOverride,
+            setUserStoreOverride: setUserStoreOverride
           }) : null
         ),
 

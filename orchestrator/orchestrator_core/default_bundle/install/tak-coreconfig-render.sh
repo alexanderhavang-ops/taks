@@ -61,6 +61,119 @@ xml_escape() {
     -e 's/>/\&gt;/g'
 }
 
+
+strip_wrapping_quotes() {
+  local s="${1:-}"
+  s="$(printf '%s' "$s" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  case "$s" in
+    \"*\") s="${s#\"}"; s="${s%\"}" ;;
+    \'*\') s="${s#\'}"; s="${s%\'}" ;;
+  esac
+  printf '%s' "$s"
+}
+
+read_simple_kv_optional() {
+  local path="$1"
+  local key="$2"
+  [ -f "$path" ] || return 1
+  sed -n "s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p" "$path" | head -n 1 | sed -e 's/[[:space:]]*$//'
+}
+
+read_kv_first_hit_in_dir() {
+  local dir="$1"
+  local key="$2"
+  [ -d "$dir" ] || return 1
+  local f v
+  for f in "$dir"/*.conf; do
+    [ -f "$f" ] || continue
+    v="$(read_simple_kv_optional "$f" "$key" || true)"
+    if [ -n "${v:-}" ]; then
+      strip_wrapping_quotes "$v"
+      return 0
+    fi
+  done
+  return 1
+}
+
+cfg_value() {
+  local key="$1"
+  local default="${2:-}"
+  local v=""
+  v="$(read_kv_first_hit_in_dir /opt/tak/tools/takctl/conf.d "$key" || true)"
+  [ -n "$v" ] || v="$(read_simple_kv_optional /etc/taks/ldap.conf "$key" 2>/dev/null | sed -e 's/[[:space:]]*$//' || true)"
+  [ -n "$v" ] || v="$(read_kv_first_hit_in_dir /etc/taks-bootstrap.d/config.d "$key" || true)"
+  [ -n "$v" ] || v="$default"
+  strip_wrapping_quotes "$v"
+}
+
+secret_value() {
+  local key="$1"
+  local default="${2:-}"
+  local v=""
+  v="$(read_kv_first_hit_in_dir /opt/tak/tools/takctl/secrets.d "$key" || true)"
+  [ -n "$v" ] || v="$(read_simple_kv_optional /etc/taks/ldap-secrets.conf "$key" 2>/dev/null | sed -e 's/[[:space:]]*$//' || true)"
+  [ -n "$v" ] || v="$(read_kv_first_hit_in_dir /etc/taks-bootstrap.d/secrets.d "$key" || true)"
+  [ -n "$v" ] || v="$default"
+  strip_wrapping_quotes "$v"
+}
+
+xml_attr() {
+  printf '%s' "${1:-}" | xml_escape
+}
+
+render_auth_block() {
+  local store
+  store="$(cfg_value backing_user_store userauthfile | tr '[:upper:]' '[:lower:]')"
+
+  case "$store" in
+    ldap|ldap_local|openldap)
+      local uri base people groups services service_dn service_pw user_string update_interval
+      local group_object_class group_name_attr group_member_attr group_regex
+      uri="$(cfg_value ldap_uri ldap://127.0.0.1:389)"
+      base="$(cfg_value ldap_base_dn dc=taks,dc=local)"
+      people="$(cfg_value ldap_people_ou people)"
+      groups="$(cfg_value ldap_groups_ou groups)"
+      services="$(cfg_value ldap_services_ou services)"
+      service_dn="$(cfg_value ldap_service_account_dn "cn=taksvc,ou=${services},${base}")"
+      service_pw="$(secret_value ldap_service_account_password '')"
+      user_string="$(cfg_value ldap_user_string "uid={username},ou=${people},${base}")"
+      update_interval="$(cfg_value ldap_update_interval_sec 60)"
+      group_object_class="$(cfg_value ldap_group_object_class groupOfNames)"
+      group_name_attr="$(cfg_value ldap_group_name_attr cn)"
+      group_member_attr="$(cfg_value ldap_group_member_attr member)"
+      group_regex="$(cfg_value ldap_group_name_extractor_regex '^cn=([^,]+),.*$')"
+
+      [ -n "$service_pw" ] || die "backing_user_store=ldap but ldap_service_account_password is missing"
+
+      cat <<EOF_AUTH
+    <auth x509useGroupCache="true">
+        <ldap
+            url="$(xml_attr "$uri")"
+            userString="$(xml_attr "$user_string")"
+            updateInterval="$(xml_attr "$update_interval")"
+            groupBaseRDN="$(xml_attr "ou=${groups},${base}")"
+            groupObjectClass="$(xml_attr "$group_object_class")"
+            groupNameAttribute="$(xml_attr "$group_name_attr")"
+            groupMemberAttribute="$(xml_attr "$group_member_attr")"
+            groupNameExtractorRegex="$(xml_attr "$group_regex")"
+            serviceAccountDN="$(xml_attr "$service_dn")"
+            serviceAccountCredential="$(xml_attr "$service_pw")"/>
+    </auth>
+EOF_AUTH
+      ;;
+    userauthfile|file|xml|marti_xml|'')
+      cat <<'EOF_AUTH'
+    <auth x509useGroupCache="true">
+        <File location="UserAuthenticationFile.xml"/>
+    </auth>
+EOF_AUTH
+      ;;
+    *)
+      die "unknown backing_user_store=$store"
+      ;;
+  esac
+}
+
 extract_db_password() {
   local cfg="/opt/tak/CoreConfig.xml"
   [ -f "$cfg" ] || return 1
@@ -222,7 +335,7 @@ main() {
   local server_id_file="$taks_dir/server_id"
 
   local fqdn private_ip db_password cert_pass cert_capass org ou org_xml ou_xml
-  local server_store_rel server_store_abs cert_https_store_rel cert_https_store_abs
+  local server_store_rel server_store_abs cert_https_store_rel cert_https_store_abs auth_xml
 
   fqdn="$(require_boot_fqdn)"
 
@@ -262,6 +375,8 @@ main() {
 
   mkdir -p /opt/tak
 
+  auth_xml="$(render_auth_block)"
+
   cat > "$out" <<EOF2
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Configuration xmlns="http://bbn.com/marti/xml/config">
@@ -274,9 +389,7 @@ main() {
         <connector port="8446" clientAuth="false" _name="cert_https" keystore="PKCS12" keystoreFile="${cert_https_store_rel}" keystorePass="${cert_pass}" enableWebtak="true"/>
         <announce/>
     </network>
-    <auth x509useGroupCache="true">
-        <File location="UserAuthenticationFile.xml"/>
-    </auth>
+${auth_xml}
     <submission ignoreStaleMessages="false" validateXml="false"/>
     <subscription reloadPersistent="false"/>
     <repository enable="true" numDbConnections="200" primaryKeyBatchSize="500" insertionBatchSize="500">

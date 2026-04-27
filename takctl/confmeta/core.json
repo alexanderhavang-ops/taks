@@ -1,0 +1,96 @@
+{
+  "component": "core",
+  "title": "Core / user store",
+  "settings": [
+    {
+      "key": "backing_user_store",
+      "label": "Backing user store",
+      "type": "select",
+      "default": "userauthfile",
+      "options": [
+        "userauthfile",
+        "ldap"
+      ],
+      "description": "Authoritative TAK user/group store. userauthfile keeps current UserAuthenticationFile.xml behavior; ldap uses configured LDAP/OpenLDAP."
+    },
+    {
+      "key": "ldap_manage_local",
+      "label": "Manage local OpenLDAP",
+      "type": "bool",
+      "default": true,
+      "description": "When LDAP is selected and ldap_uri points at loopback, provision a node-local OpenLDAP instance."
+    },
+    {
+      "key": "ldap_uri",
+      "label": "LDAP URI",
+      "type": "text",
+      "default": "ldap://127.0.0.1:389"
+    },
+    {
+      "key": "ldap_base_dn",
+      "label": "LDAP base DN",
+      "type": "text",
+      "default": "dc=taks,dc=local"
+    },
+    {
+      "key": "ldap_people_ou",
+      "label": "People OU",
+      "type": "text",
+      "default": "people"
+    },
+    {
+      "key": "ldap_groups_ou",
+      "label": "Groups OU",
+      "type": "text",
+      "default": "groups"
+    },
+    {
+      "key": "ldap_services_ou",
+      "label": "Services OU",
+      "type": "text",
+      "default": "services"
+    },
+    {
+      "key": "ldap_admin_dn",
+      "label": "LDAP admin/write DN",
+      "type": "text",
+      "default": "cn=admin,dc=taks,dc=local"
+    },
+    {
+      "key": "ldap_service_account_dn",
+      "label": "LDAP service account DN",
+      "type": "text",
+      "default": "cn=taksvc,ou=services,dc=taks,dc=local"
+    },
+    {
+      "key": "ldap_user_string",
+      "label": "TAK LDAP userString",
+      "type": "text",
+      "default": "uid={username},ou=people,dc=taks,dc=local"
+    },
+    {
+      "key": "ldap_update_interval_sec",
+      "label": "TAK LDAP update interval",
+      "type": "number",
+      "default": 60
+    },
+    {
+      "key": "ldap_group_name_extractor_regex",
+      "label": "TAK LDAP group name extractor regex",
+      "type": "text",
+      "default": "^cn=([^,]+),.*$"
+    }
+  ],
+  "secrets": [
+    {
+      "key": "ldap_admin_password",
+      "label": "LDAP admin password",
+      "type": "password"
+    },
+    {
+      "key": "ldap_service_account_password",
+      "label": "LDAP service account password",
+      "type": "password"
+    }
+  ]
+}

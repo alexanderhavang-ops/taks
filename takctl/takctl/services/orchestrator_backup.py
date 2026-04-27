@@ -187,6 +187,16 @@ def _users_paths() -> list[Path]:
         pass
 
     out.append(Path("/opt/tak/UserAuthenticationFile.xml"))
+
+    # When backing_user_store=ldap, user/group truth lives in LDAP rather
+    # than UserAuthenticationFile.xml. Preserve both local OpenLDAP data and
+    # the TAKS LDAP runtime config/secrets so a node restore keeps identity.
+    out.extend([
+        Path("/etc/taks/ldap.conf"),
+        Path("/etc/taks/ldap-secrets.conf"),
+        Path("/etc/ldap"),
+        Path("/var/lib/ldap"),
+    ])
     return out
 
 

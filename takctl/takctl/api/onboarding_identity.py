@@ -56,7 +56,11 @@ from takctl.onboarding.selection import load_selection, save_selection
 from takctl.onboarding.pages_soldier import render_soldier_card_page
 from takctl.onboarding.emailer import send_onboarding_email, is_valid_email
 
-from takctl.services.usermgr import UserMgrService, UserMgrError
+from takctl.services.backing_user_store import (
+    BackingUserStoreError,
+    build_backing_user_store,
+    selected_backing_user_store,
+)
 from takctl.onboarding.policy import Policy
 from takctl.config import load_config
 from takctl.onboarding.card_ttl import required_card_link_ttl_sec as _required_card_link_ttl_sec
@@ -467,6 +471,7 @@ class EmailLinkIn(BaseModel):
 
 class UserCreateIn(BaseModel):
     password: Optional[str] = Field(default=None)
+    backing_user_store: Optional[str] = Field(default=None, description="Override backing user store for this create/update: ldap|userauthfile")
     admin: bool = Field(default=False)
     groups_rw: List[str] = Field(default_factory=list)
     groups_in: List[str] = Field(default_factory=list)
@@ -533,7 +538,7 @@ def get_user(username: str):
 
     tak_user = svc.ud.get_user(u)
     if tak_user is None:
-        raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {u}")
+        raise HTTPException(status_code=404, detail=f"user not found in configured backing user store: {u}")
 
     ident = svc.store.get_identity(u)
     sel = load_selection(u) or {}
@@ -618,11 +623,12 @@ def delete_user(username: str):
     if not u:
         raise HTTPException(status_code=400, detail="username required")
 
-    svc = build_service()
+    store_name = selected_backing_user_store()
+    svc = build_service(backing_user_store=store_name)
 
     tak_user = svc.ud.get_user(u)
     if tak_user is None:
-        raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {u}")
+        raise HTTPException(status_code=404, detail=f"user not found in configured backing user store: {u}")
 
     cert_dir = Path("/opt/tak/certs/files/04_USERS") / u
     cert_material_present = any((cert_dir / name).exists() for name in (
@@ -636,11 +642,11 @@ def delete_user(username: str):
 
     cleanup = _cleanup_onboarding_state_for_user(svc, u)
 
-    um = UserMgrService()
+    writer = build_backing_user_store(store_name)
     try:
-        delete_out = um.user_delete(u)
-    except UserMgrError as e:
-        raise HTTPException(status_code=500, detail=f"UserManager failed: {e}")
+        delete_out = writer.delete_user(u)
+    except BackingUserStoreError as e:
+        raise HTTPException(status_code=500, detail=f"user store delete failed: {e}")
 
     warning = None
     if cert_material_present:
@@ -653,7 +659,8 @@ def delete_user(username: str):
             "ok": True,
             "username": u,
             "user_deleted": True,
-            "usermgr_output": delete_out,
+            "user_store_output": delete_out,
+            "backing_user_store": store_name,
             "state_cleanup": cleanup,
             "cert_material_present": cert_material_present,
             "warning": warning,
@@ -668,7 +675,8 @@ def create_user(req: Request, username: str, body: UserCreateIn):
     if not u:
         raise HTTPException(status_code=400, detail="username required")
 
-    svc = build_service()
+    store_name = selected_backing_user_store(body.backing_user_store)
+    svc = build_service(backing_user_store=store_name)
     existed = (svc.ud.get_user(u) is not None)
 
     pw_in = (body.password or "").strip()
@@ -677,9 +685,9 @@ def create_user(req: Request, username: str, body: UserCreateIn):
     else:
         pw_to_set = None if existed else generate_friendly_password()
 
-    um = UserMgrService()
+    writer = build_backing_user_store(store_name)
     try:
-        um.user_set(
+        writer.ensure_user(
             u,
             password=pw_to_set,
             admin=True if body.admin else None,
@@ -688,27 +696,29 @@ def create_user(req: Request, username: str, body: UserCreateIn):
             out_groups=[x for x in (body.groups_out or []) if str(x).strip()],
             append=False,
             remove=False,
+            ctx=dict(body.ctx or {}),
         )
 
         cert_pem = _ensure_user_cert(u)
         if cert_pem is not None:
-            um.user_set(
+            writer.ensure_user(
                 u,
                 certificate_path=str(cert_pem),
-                append=False,
+                append=True,
                 remove=False,
+                ctx=dict(body.ctx or {}),
             )
-    except UserMgrError as e:
+    except BackingUserStoreError as e:
         raise HTTPException(
             status_code=(400 if "Password complexity check failed" in str(e) else 500),
-            detail=f"UserManager failed: {e}",
+            detail=f"user store write failed: {e}",
         )
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
 
     tak_user = svc.ud.get_user(u)
     if tak_user is None:
-        raise HTTPException(status_code=500, detail=f"User not found after create/update in UserAuthenticationFile.xml: {u}")
+        raise HTTPException(status_code=500, detail=f"User not found after create/update in configured backing user store: {u}")
 
     ctx = dict(body.ctx or {})
     from takctl.onboarding.policy_registry import default_policy_id
@@ -766,6 +776,7 @@ def create_user(req: Request, username: str, body: UserCreateIn):
                 "username": u,
                 "groups": list(getattr(tak_user, "groups", []) or []),
             },
+            "backing_user_store": store_name,
             "taks_identity": _identity_out(
                 ident_after,
                 password_value=(pw_value if pw_known else None),
@@ -791,7 +802,7 @@ def upsert_identity(username: str, body: IdentityUpsertIn):
 
     u = svc.ud.get_user(username)
     if u is None:
-        raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {username}")
+        raise HTTPException(status_code=404, detail=f"user not found in configured backing user store: {username}")
 
     ident = svc.store.upsert_identity(
         username=username,
@@ -823,7 +834,7 @@ def create_card_token(req: Request, username: str, body: CardTokenCreateIn):
 
     u = svc.ud.get_user(username)
     if u is None:
-        raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {username}")
+        raise HTTPException(status_code=404, detail=f"user not found in configured backing user store: {username}")
 
     try:
         out = _issue_card_link(
@@ -857,7 +868,7 @@ def email_link(req: Request, username: str, body: EmailLinkIn):
 
     u = svc.ud.get_user(username)
     if u is None:
-        raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {username}")
+        raise HTTPException(status_code=404, detail=f"user not found in configured backing user store: {username}")
 
     try:
         card_info = _issue_card_link(
@@ -923,7 +934,7 @@ def voice_live(username: str, recent_minutes: int = Query(120, ge=1, le=24 * 60)
 
     tak_user = svc.ud.get_user(u)
     if tak_user is None:
-        raise HTTPException(status_code=404, detail=f"user not found in UserAuthenticationFile.xml: {u}")
+        raise HTTPException(status_code=404, detail=f"user not found in configured backing user store: {u}")
 
     db, _db_err, _db_source, _db_target = maybe_db()
 

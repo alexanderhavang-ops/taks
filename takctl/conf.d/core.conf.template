@@ -4,3 +4,25 @@ enemy_history_days = 2
 presence_history_hours = 24
 chatter_history_days = 2
 nginx_takctl_client_max_body_size = 64m
+
+# User authority backing store. Keep userauthfile for legacy/current behavior.
+# Set to ldap to use a configured LDAP/OpenLDAP backend for TAK users/groups.
+backing_user_store = userauthfile
+
+# LDAP defaults are safe for a node-local OpenLDAP service. The URI/base/bind
+# settings are configurable so a future shared LDAP server can be used.
+ldap_manage_local = true
+ldap_uri = ldap://127.0.0.1:389
+ldap_base_dn = dc=taks,dc=local
+ldap_people_ou = people
+ldap_groups_ou = groups
+ldap_services_ou = services
+ldap_service_account_dn = cn=taksvc,ou=services,dc=taks,dc=local
+ldap_admin_dn = cn=admin,dc=taks,dc=local
+ldap_user_rdn_attr = uid
+ldap_user_string = uid={username},ou=people,dc=taks,dc=local
+ldap_update_interval_sec = 60
+ldap_group_name_attr = cn
+ldap_group_member_attr = member
+ldap_group_object_class = groupOfNames
+ldap_group_name_extractor_regex = ^cn=([^,]+),.*$

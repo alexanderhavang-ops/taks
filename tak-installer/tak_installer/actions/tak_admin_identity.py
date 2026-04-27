@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 
 from takctl.config import load_config, load_secrets
 from takctl.config_store import save_runtime_config_view, save_runtime_secrets_view
+from takctl.services.backing_user_store import build_backing_user_store, selected_backing_user_store
 from takctl.services.usermgr import UserMgrService
 
 log = logging.getLogger(__name__)
@@ -192,6 +193,9 @@ def _load_userauth_user(username: str) -> dict | None:
 
 
 def _wait_for_usermgr_ready(timeout_sec: int = 600, sleep_sec: int = 5) -> None:
+    if selected_backing_user_store() == "ldap":
+        print("[tak-admin-identity] LDAP backing store selected; skip UserAuthenticationFile.xml wait")
+        return
     deadline = time.time() + timeout_sec
     healed = False
     while time.time() < deadline:
@@ -229,6 +233,21 @@ def _ensure_inputs(cfg, sec) -> tuple[str, str, list[str], list[str], list[str]]
 
 def _ensure_user(cfg, sec) -> str:
     username, password, groups_rw, groups_in, groups_out = _ensure_inputs(cfg, sec)
+
+    if selected_backing_user_store() == "ldap":
+        writer = build_backing_user_store("ldap")
+        writer.ensure_user(
+            username,
+            password=password,
+            admin=True,
+            groups=groups_rw or None,
+            in_groups=groups_in or None,
+            out_groups=groups_out or None,
+            append=False,
+            remove=False,
+        )
+        print(f"[tak-admin-identity] ensure_user sync LDAP {username}")
+        return username
 
     _wait_for_usermgr_ready()
     um = UserMgrService()
@@ -282,6 +301,22 @@ def _ensure_cert(cfg, sec, username: str) -> tuple[Path, Path]:
 
 def _bind_user_to_cert(cfg, sec, cert_pem_path: Path) -> None:
     username, password, groups_rw, groups_in, groups_out = _ensure_inputs(cfg, sec)
+
+    if selected_backing_user_store() == "ldap":
+        writer = build_backing_user_store("ldap")
+        writer.ensure_user(
+            username,
+            password=password,
+            admin=True,
+            certificate_path=str(cert_pem_path),
+            groups=groups_rw or None,
+            in_groups=groups_in or None,
+            out_groups=groups_out or None,
+            append=False,
+            remove=False,
+        )
+        print(f"[tak-admin-identity] bind_user_to_cert noted LDAP cert path for {username}")
+        return
 
     _wait_for_usermgr_ready()
     um = UserMgrService()
@@ -362,6 +397,7 @@ class TakAdminIdentityAction:
         print(f"  username:       {username}")
         print(f"  password:       {'present' if has_password else 'missing'}")
         print(f"  existing_cert:  {str(existing[0]) if existing else '(missing)'}")
+        print(f"  backing_store:  {selected_backing_user_store()}")
         print(f"  userauth:       {USERAUTH_XML}")
         return 0
 

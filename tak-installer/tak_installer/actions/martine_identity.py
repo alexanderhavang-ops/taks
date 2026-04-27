@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 
 from takctl.config import load_config, load_secrets
 from takctl.config_store import save_runtime_config_view, save_runtime_secrets_view
+from takctl.services.backing_user_store import build_backing_user_store, selected_backing_user_store
 from takctl.services.usermgr import UserMgrService
 
 log = logging.getLogger(__name__)
@@ -113,6 +114,9 @@ def _groups_match(actual: list[str], wanted: list[str]) -> bool:
 
 
 def _wait_for_usermgr_ready(timeout_sec: int = 600, sleep_sec: int = 5) -> None:
+    if selected_backing_user_store() == "ldap":
+        print("[martine-identity] LDAP backing store selected; skip UserAuthenticationFile.xml wait")
+        return
     deadline = time.time() + timeout_sec
 
     while time.time() < deadline:
@@ -213,6 +217,20 @@ def _ensure_user(cfg, user_password: str) -> None:
     groups_in = _configured_groups(cfg, "martine_groups_in")
     groups_out = _configured_groups(cfg, "martine_groups_out")
 
+    if selected_backing_user_store() == "ldap":
+        writer = build_backing_user_store("ldap")
+        writer.ensure_user(
+            username,
+            password=user_password,
+            groups=groups_rw or None,
+            in_groups=groups_in or None,
+            out_groups=groups_out or None,
+            append=False,
+            remove=False,
+        )
+        print("[martine-identity] ensure_user sync LDAP")
+        return
+
     current = _load_userauth_user(username)
     if current is not None:
         if (
@@ -287,6 +305,25 @@ def _ensure_cert(cfg, sec) -> tuple[Path, Path]:
 
 def _bind_user_to_cert(cfg, cert_pem_path: Path, user_password: str) -> None:
     username = (cfg.get("martine_username", "martine") or "martine").strip() or "martine"
+
+    if selected_backing_user_store() == "ldap":
+        groups_rw = _configured_groups(cfg, "martine_groups_rw")
+        groups_in = _configured_groups(cfg, "martine_groups_in")
+        groups_out = _configured_groups(cfg, "martine_groups_out")
+        writer = build_backing_user_store("ldap")
+        writer.ensure_user(
+            username,
+            password=user_password,
+            certificate_path=str(cert_pem_path),
+            groups=groups_rw or None,
+            in_groups=groups_in or None,
+            out_groups=groups_out or None,
+            append=False,
+            remove=False,
+        )
+        print("[martine-identity] bind_user_to_cert noted LDAP cert path")
+        return
+
     current = _load_userauth_user(username)
     if current is not None and (current.get("fingerprint") or "").strip():
         print("[martine-identity] bind_user_to_cert skip fingerprint-present")

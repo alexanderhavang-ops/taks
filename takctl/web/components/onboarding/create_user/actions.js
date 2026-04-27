@@ -17,6 +17,7 @@
     const groups = props.groups;
     const ttlSec = props.ttlSec;
     const revealPassword = props.revealPassword;
+    const userStoreOverride = props.userStoreOverride;
 
     const callsignPolicyOverride = props.callsignPolicyOverride;
     const callsignPolicyDefault = props.callsignPolicyDefault;
@@ -88,6 +89,7 @@
       endpoints: {},
       ttl_sec: Number(ttlSec || 600),
       reveal_password: !!revealPassword,
+      backing_user_store: norm(userStoreOverride) || null,
     };
 
     return { ok: true, username: u, body: body };

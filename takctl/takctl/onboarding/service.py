@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from takctl.onboarding.models import OnboardingRecord, OnboardingStatus
 from takctl.onboarding.store_filejson import FileJsonOnboardingStore, UserIdentity
-from takctl.onboarding.user_directory_xml import UserDirectoryXml
+from takctl.onboarding.user_directory import UserDirectory
 from takctl.onboarding.activity_pg import (
     fetch_devices_for_usernames,
     fetch_unknown_endpoints,
@@ -132,19 +132,29 @@ def _build_header(*, username: str, identity: Dict[str, Any], groups: List[str],
     }
 
 
-def _build_authority(*, ident: Optional[UserIdentity]) -> Dict[str, Any]:
+def _build_authority(*, ident: Optional[UserIdentity], backing_user_store: str = "userauthfile") -> Dict[str, Any]:
     origin = getattr(ident, "origin", None) if ident is not None else None
     password_known_flag = bool(getattr(ident, "password_known", False)) if ident is not None else False
     password_value_present = bool(getattr(ident, "password", None)) if ident is not None else False
     known_to_taks = bool(password_known_flag or password_value_present)
     overlay_present = ident is not None
 
+    store = str(backing_user_store or "userauthfile").strip().lower()
+    if store == "ldap":
+        source = "ldap"
+        notes = "Users and TAK groups are observed from the configured LDAP backend."
+        writable = True
+    else:
+        source = "userauthfile"
+        notes = "Users and TAK groups are observed from UserAuthenticationFile.xml."
+        writable = True
+
     return {
-        "tak_user": "marti_xml",
+        "tak_user": source,
         "groups": {
-            "authoritative": "marti_xml",
-            "writable_by_taks": False,
-            "notes": "Groups are currently observed from UserAuthenticationFile.xml; TAKS does not write them yet.",
+            "authoritative": source,
+            "writable_by_taks": writable,
+            "notes": notes,
         },
         "password": {
             "authoritative": "taks",
@@ -526,9 +536,10 @@ class UserOnboardingView:
 
 
 class OnboardingService:
-    def __init__(self, ud: UserDirectoryXml, store: FileJsonOnboardingStore):
+    def __init__(self, ud: UserDirectory, store: FileJsonOnboardingStore, backing_user_store: str = "userauthfile"):
         self.ud = ud
         self.store = store
+        self.backing_user_store = str(backing_user_store or "userauthfile").strip().lower() or "userauthfile"
 
     def list_users_with_onboarding(self) -> List[UserOnboardingView]:
         users = self.ud.list_users()
@@ -642,7 +653,7 @@ class OnboardingService:
                     "identity": identity,
                     "marti": {"groups": list(r.groups), "client": marti_client},
                     "policy": {"id": policy_id},
-                    "authority": _build_authority(ident=ident),
+                    "authority": _build_authority(ident=ident, backing_user_store=self.backing_user_store),
                     "lifecycle": lifecycle,
                     "onboarding_status": r.onboarding_status.value,
                     "onboarding": _build_onboarding_out(r.onboarding),
@@ -758,7 +769,7 @@ class OnboardingService:
             "identity": identity,
             "marti": {"groups": list(u.groups), "client": marti_client},
             "policy": {"id": policy_id},
-            "authority": _build_authority(ident=ident),
+            "authority": _build_authority(ident=ident, backing_user_store=self.backing_user_store),
             "lifecycle": lifecycle,
             "onboarding": _build_onboarding_out(rec),
             "activity": activity,

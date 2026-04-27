@@ -12,7 +12,7 @@ except Exception:
 
 from takctl.onboarding.policy import Policy
 from takctl.onboarding.selection import save_selection
-from takctl.services.usermgr import UserMgrService, UserMgrError
+from takctl.services.backing_user_store import BackingUserStoreError, build_backing_user_store
 from takctl.api.onboarding_identity import _issue_card_link_base
 from takctl.config import load_config
 
@@ -243,9 +243,9 @@ def _apply_row(
             password_to_set = None
             password_source = "unchanged"
 
-    um = UserMgrService()
+    writer = build_backing_user_store(getattr(service, "backing_user_store", None))
     try:
-        um.user_set(
+        writer.ensure_user(
             username,
             password=password_to_set,
             admin=True if admin else None,
@@ -254,13 +254,14 @@ def _apply_row(
             out_groups=[],
             append=False,
             remove=False,
+            ctx=ctx,
         )
-    except UserMgrError as e:
-        raise RuntimeError(f"UserManager failed: {e}")
+    except BackingUserStoreError as e:
+        raise RuntimeError(f"user store write failed: {e}")
 
     tak_user = service.ud.get_user(username)
     if tak_user is None:
-        raise RuntimeError(f"user not found after create/update in UserAuthenticationFile.xml: {username}")
+        raise RuntimeError(f"user not found after create/update in configured backing user store: {username}")
 
     from takctl.onboarding.policy_registry import default_policy_id
     default_pid = default_policy_id()

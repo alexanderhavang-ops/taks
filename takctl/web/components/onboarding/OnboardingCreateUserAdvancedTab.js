@@ -36,6 +36,8 @@
 
     const revealPassword = props.revealPassword;
     const setRevealPassword = props.setRevealPassword;
+    const userStoreOverride = props.userStoreOverride || "";
+    const setUserStoreOverride = props.setUserStoreOverride;
 
     const setCfg = props.setCfg;
 
@@ -87,6 +89,28 @@
                 )
               )
             ),
+
+
+        h(Field, { label: _L("Användarlager för denna körning", "User store for this run") },
+          h("div", { style: { display: "grid", gap: "6px" } },
+            h("select", Object.assign({}, LP, {
+              value: userStoreOverride,
+              onChange: function (e) {
+                if (typeof setUserStoreOverride === "function") setUserStoreOverride(e.target.value);
+              }
+            }),
+              h("option", { value: "" }, _L("Global inställning", "Global setting")),
+              h("option", { value: "ldap" }, "LDAP"),
+              h("option", { value: "userauthfile" }, "UserAuthenticationFile.xml")
+            ),
+            h("div", { className: "muted", style: { fontSize: "12px" } },
+              _L(
+                "Behåll globalt normalt. Välj UserAuthenticationFile.xml här som break-glass när noden kör LDAP globalt.",
+                "Leave global normally. Choose UserAuthenticationFile.xml here as a break-glass override when the node runs LDAP globally."
+              )
+            )
+          )
+        ),
 
         h(Field, { label: _L("TTL (sek)", "TTL (sec)") },
           h("input", Object.assign({}, LP, {
