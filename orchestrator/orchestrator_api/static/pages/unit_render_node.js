@@ -606,6 +606,12 @@
   
   /* BACKUPS_TAB_V1_START */
 
+  function backupSetStatus(el, cls, text){
+    if(!el) return;
+    el.className = cls || 'muted';
+    el.textContent = String(text || '');
+  }
+
   function backupAutoDownload(url){
     var href = String(url || '').trim();
     if(!href) return;
@@ -615,7 +621,9 @@
     a.setAttribute('download', '');
     document.body.appendChild(a);
     a.click();
-    setTimeout(function(){ if(a.parentNode) a.parentNode.removeChild(a); }, 0);
+    setTimeout(function(){
+      if(a && a.parentNode) a.parentNode.removeChild(a);
+    }, 0);
   }
 
   function renderBackupsPanel(node){
@@ -624,68 +632,125 @@
     var wrap = S.el('div', { style: 'display:grid;gap:14px' });
     var card = S.card('Backups');
 
+    if(!unit){
+      card.appendChild(S.el('div', { className: 'muted', text: 'Ingen enhet vald.' }));
+      wrap.appendChild(card);
+      return wrap;
+    }
+
+    var status = S.el('div', { className: 'muted', style: 'margin-top:8px' });
+
     var top = S.el('div', {
-      style: 'display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap'
+      style: 'display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap'
     });
+
     top.appendChild(S.el('div', {
       className: 'muted',
       text: 'Backup files live in this unit’s orchestrator state. Select one to restore on next spawn.'
     }));
 
-    var actions = S.el('div', { className: 'card__actions' });
-    var upload = S.el('input', { type: 'file', accept: '.gz,.tgz,.tar.gz', style: 'display:none' });
+    var topActions = S.el('div', { className: 'card__actions' });
+
+    var uploadInput = S.el('input', {
+      type: 'file',
+      accept: '.gz,.tgz,.tar.gz,application/gzip',
+      style: 'display:none'
+    });
+
     var btnUpload = S.el('button', { className: 'btn btn--secondary', text: 'Upload' });
     var btnRefresh = S.el('button', { className: 'btn btn--secondary', text: 'Refresh' });
-    actions.appendChild(upload);
-    actions.appendChild(btnUpload);
-    actions.appendChild(btnRefresh);
-    top.appendChild(actions);
+
+    topActions.appendChild(btnUpload);
+    topActions.appendChild(btnRefresh);
+    top.appendChild(topActions);
     card.appendChild(top);
+    card.appendChild(uploadInput);
 
     var create = S.el('details', { style: 'margin-top:12px' });
     create.appendChild(S.el('summary', { text: 'Create backup from live node' }));
+
     var createActions = S.el('div', { className: 'card__actions', style: 'margin-top:10px' });
-    var btnCreate = S.el('button', { className: 'btn', text: 'Backup users' });
+    var btnCreate = S.el('button', { className: 'btn', text: 'Create backup' });
     createActions.appendChild(btnCreate);
     create.appendChild(createActions);
-    var status = S.el('div', { className: 'muted', style: 'margin-top:8px' });
-    create.appendChild(status);
+
     if(!nodeId){
       btnCreate.disabled = true;
       btnCreate.style.opacity = '.55';
-      status.textContent = 'No live node available.';
+      btnCreate.title = 'Ingen aktiv nod att säkerhetskopiera';
     }
-    card.appendChild(create);
 
-    var listEl = S.el('div', { style: 'margin-top:14px;display:grid;gap:8px' });
+    card.appendChild(create);
+    card.appendChild(status);
+
+    var listEl = S.el('div', { style: 'margin-top:12px;display:grid;gap:8px' });
     card.appendChild(listEl);
 
-    function setStatus(text, cls){
-      status.className = cls || 'muted';
-      status.textContent = String(text || '');
+    function actionUrl(path){
+      return '/api/v2/units/' + encodePathValue(unit) + '/backups' + path;
     }
 
     async function refreshList(){
       listEl.innerHTML = '';
-      listEl.appendChild(S.el('div', { className: 'muted', text: 'Loading backups…' }));
+      listEl.appendChild(S.el('div', { className: 'muted', text: 'Loading…' }));
 
-      var j = await backupFetchJson('/api/v2/units/' + encodePathValue(unit) + '/backups');
+      var j = await backupFetchJson(actionUrl(''));
       var rows = Array.isArray(j.backups) ? j.backups : [];
       listEl.innerHTML = '';
 
+      var noneSelected = !rows.some(function(r){ return !!(r && r.selected_for_restore); });
+
+      var noneRow = S.el('div', {
+        style: [
+          'display:grid',
+          'grid-template-columns:minmax(0,1fr) auto',
+          'gap:12px',
+          'align-items:center',
+          'padding:10px 12px',
+          'border-radius:10px',
+          'border:1px solid ' + (noneSelected ? 'rgba(34,197,94,.35)' : 'rgba(255,255,255,.08)'),
+          'background:' + (noneSelected ? 'rgba(34,197,94,.07)' : 'rgba(255,255,255,.03)')
+        ].join(';')
+      });
+
+      noneRow.appendChild(S.el('div', null,
+        S.el('div', { style: 'font-weight:700', text: 'None / fresh node' }),
+        S.el('div', {
+          className: noneSelected ? 'ok' : 'muted',
+          style: 'margin-top:3px',
+          text: noneSelected ? 'selected: no restore on next spawn' : 'boot without restoring a backup'
+        })
+      ));
+
+      var noneActions = S.el('div', { className: 'card__actions', style: 'justify-content:flex-end' });
+      var btnNone = S.el('button', {
+        className: noneSelected ? 'btn' : 'btn btn--secondary',
+        text: noneSelected ? 'Selected' : 'Use none'
+      });
+      btnNone.disabled = noneSelected;
+      btnNone.addEventListener('click', async function(){
+        btnNone.disabled = true;
+        try{
+          await backupFetchJson(actionUrl('/restore-selection'), { method: 'DELETE' });
+          await refreshList();
+        }catch(err){
+          alert(String((err && err.message) || err || 'Clear restore selection failed'));
+          btnNone.disabled = false;
+        }
+      });
+      noneActions.appendChild(btnNone);
+      noneRow.appendChild(noneActions);
+      listEl.appendChild(noneRow);
+
       if(!rows.length){
-        listEl.appendChild(S.el('div', {
-          className: 'muted',
-          style: 'padding:12px;border:1px dashed rgba(255,255,255,.14);border-radius:12px',
-          text: 'No backups yet.'
-        }));
+        listEl.appendChild(S.el('div', { className: 'muted', text: 'No saved backups yet.' }));
         return;
       }
 
       rows.forEach(function(row){
         var backupId = String((row && row.backup_id) || '').trim();
-        var artifactUrl = String((row && row.artifact_url) || backupArtifactUrl(unit, backupId));
         var selected = !!(row && row.selected_for_restore);
+        var artifactUrl = String((row && row.artifact_url) || backupArtifactUrl(unit, backupId));
 
         var item = S.el('div', {
           style: [
@@ -693,106 +758,108 @@
             'grid-template-columns:minmax(0,1fr) auto',
             'gap:12px',
             'align-items:center',
-            'padding:12px',
-            'border-radius:12px',
+            'padding:10px 12px',
+            'border-radius:10px',
             'border:1px solid ' + (selected ? 'rgba(34,197,94,.35)' : 'rgba(255,255,255,.08)'),
             'background:' + (selected ? 'rgba(34,197,94,.07)' : 'rgba(255,255,255,.03)')
           ].join(';')
         });
 
-        var left = S.el('div', { style: 'min-width:0' });
+        var left = S.el('div');
         left.appendChild(S.el('div', {
           style: 'font-weight:700;word-break:break-all',
           text: backupId || 'backup'
         }));
-
-        var meta = [];
-        if(row && row.created_at) meta.push(String(row.created_at));
-        meta.push(backupHumanBytes(row && row.size_bytes));
-        if(selected) meta.push('restore on next spawn');
         left.appendChild(S.el('div', {
           className: selected ? 'ok' : 'muted',
-          style: 'margin-top:4px',
-          text: meta.join(' · ')
+          style: 'margin-top:3px',
+          text: (row.created_at || '—') + ' · ' + backupHumanBytes(row.size_bytes) + (selected ? ' · selected for restore' : '')
         }));
         item.appendChild(left);
 
-        var rowActions = S.el('div', { className: 'card__actions', style: 'justify-content:flex-end' });
+        var actions = S.el('div', { className: 'card__actions', style: 'justify-content:flex-end' });
 
-        rowActions.appendChild(S.el('a', {
+        actions.appendChild(S.el('a', {
           className: 'btn btn--secondary',
           href: artifactUrl,
           text: 'Download'
         }));
 
-        var btnSelect = S.el('button', {
+        var btnUse = S.el('button', {
           className: selected ? 'btn' : 'btn btn--secondary',
           text: selected ? 'Selected' : 'Use on next spawn'
         });
-        btnSelect.disabled = selected;
-        btnSelect.addEventListener('click', function(){
-          btnSelect.disabled = true;
-          backupFetchJson('/api/v2/units/' + encodePathValue(unit) + '/backups/' + encodeURIComponent(backupId) + '/select-restore', {
-            method: 'POST'
-          }).then(refreshList).catch(function(err){
-            alert(String((err && err.message) || err || 'Select failed'));
-            btnSelect.disabled = false;
-          });
+        btnUse.disabled = selected;
+        btnUse.addEventListener('click', async function(){
+          btnUse.disabled = true;
+          try{
+            await backupFetchJson(actionUrl('/restore-selection'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ backup_id: backupId })
+            });
+            await refreshList();
+          }catch(err){
+            alert(String((err && err.message) || err || 'Select restore failed'));
+            btnUse.disabled = false;
+          }
         });
-        rowActions.appendChild(btnSelect);
+        actions.appendChild(btnUse);
 
-        var btnDelete = S.el('button', {
-          className: 'btn btn--danger',
-          text: 'Delete'
-        });
-        btnDelete.addEventListener('click', function(){
+        var btnDelete = S.el('button', { className: 'btn btn--danger', text: 'Delete' });
+        btnDelete.addEventListener('click', async function(){
           if(!confirm('Delete backup ' + backupId + '?')) return;
           btnDelete.disabled = true;
-          backupFetchJson('/api/v2/units/' + encodePathValue(unit) + '/backups/' + encodeURIComponent(backupId), {
-            method: 'DELETE'
-          }).then(refreshList).catch(function(err){
+          try{
+            await backupFetchJson(actionUrl('/' + encodeURIComponent(backupId)), { method: 'DELETE' });
+            await refreshList();
+          }catch(err){
             alert(String((err && err.message) || err || 'Delete failed'));
             btnDelete.disabled = false;
-          });
+          }
         });
-        rowActions.appendChild(btnDelete);
+        actions.appendChild(btnDelete);
 
-        item.appendChild(rowActions);
+        item.appendChild(actions);
         listEl.appendChild(item);
       });
     }
 
     btnRefresh.addEventListener('click', function(){
       btnRefresh.disabled = true;
-      refreshList().finally(function(){ btnRefresh.disabled = false; });
+      refreshList()
+        .catch(function(err){ backupSetStatus(status, 'err', String((err && err.message) || err || 'Refresh failed')); })
+        .finally(function(){ btnRefresh.disabled = false; });
     });
 
-    btnUpload.addEventListener('click', function(){ upload.click(); });
-    upload.addEventListener('change', async function(){
-      var file = upload.files && upload.files[0];
+    btnUpload.addEventListener('click', function(){
+      uploadInput.click();
+    });
+
+    uploadInput.addEventListener('change', async function(){
+      var file = uploadInput.files && uploadInput.files[0];
       if(!file) return;
 
-      var fd = new FormData();
-      fd.append('file', file);
-
       btnUpload.disabled = true;
-      setStatus('Uploading backup…', 'muted');
+      backupSetStatus(status, 'muted', 'Uploading…');
 
       try{
-        var resp = await fetch('/api/v2/units/' + encodePathValue(unit) + '/backups/upload', {
+        var fd = new FormData();
+        fd.append('file', file);
+        var resp = await fetch(actionUrl('/upload'), {
           method: 'POST',
-          body: fd,
-          credentials: 'same-origin'
+          credentials: 'same-origin',
+          body: fd
         });
         var text = await resp.text();
         var obj = text ? JSON.parse(text) : {};
         if(!resp.ok) throw new Error(String((obj && obj.detail) || text || ('HTTP ' + resp.status)));
-        setStatus('Uploaded.', 'ok');
+        backupSetStatus(status, 'ok', 'Uploaded.');
+        uploadInput.value = '';
         await refreshList();
       }catch(err){
-        setStatus(String((err && err.message) || err || 'Upload failed'), 'err');
+        backupSetStatus(status, 'err', String((err && err.message) || err || 'Upload failed'));
       }finally{
-        upload.value = '';
         btnUpload.disabled = false;
       }
     });
@@ -800,26 +867,38 @@
     if(nodeId){
       btnCreate.addEventListener('click', async function(){
         btnCreate.disabled = true;
-        setStatus('Creating backup…', 'muted');
+        backupSetStatus(status, 'muted', 'Creating backup…');
+
         try{
-          var j = await backupFetchJson('/api/v2/nodes/' + encodePathValue(nodeId) + '/backup', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-            body: JSON.stringify({ buckets: ['users'] })
-          });
+          var j = await backupFetchJson(
+            '/api/v2/nodes/' + encodePathValue(nodeId) + '/backup',
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ buckets: ['users'] })
+            }
+          );
+
           var backup = (j && j.backup) || {};
-          setStatus('Backup created.', 'ok');
+          backupSetStatus(status, 'ok', 'Backup created.');
           await refreshList();
-          if(backup.artifact_url) backupAutoDownload(String(backup.artifact_url));
+
+          if(backup.artifact_url){
+            backupAutoDownload(String(backup.artifact_url));
+          }
         }catch(err){
-          setStatus(String((err && err.message) || err || 'Backup failed'), 'err');
+          backupSetStatus(status, 'err', String((err && err.message) || err || 'Backup failed'));
         }finally{
           btnCreate.disabled = false;
         }
       });
     }
 
-    setTimeout(function(){ refreshList().catch(function(err){ setStatus(String(err.message || err), 'err'); }); }, 0);
+    setTimeout(function(){
+      refreshList().catch(function(err){
+        backupSetStatus(status, 'err', String((err && err.message) || err || 'Backup list failed'));
+      });
+    }, 0);
 
     wrap.appendChild(card);
     return wrap;

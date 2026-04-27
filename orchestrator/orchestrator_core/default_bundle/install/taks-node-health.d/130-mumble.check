@@ -1,14 +1,12 @@
 health_check_main() {
-  local name="mumble"
   local host="127.0.0.1"
   local port="64738"
   local python="/opt/tak/tools/takctl/.venv/bin/python"
   local out connected err channels users
 
   if ! timeout 2 bash -c "</dev/tcp/${host}/${port}" 2>/dev/null; then
-    echo "name=${name}"
-    echo "status=red"
-    echo "summary=Mumble TCP listener is not reachable on ${host}:${port}"
+    add_check mumble fail warn "Mumble TCP listener is not reachable on ${host}:${port}" \
+      "{\"host\":\"${host}\",\"port\":${port},\"connected\":false}"
     return 0
   fi
 
@@ -39,18 +37,16 @@ except Exception as e:
 PY
   )"
 
-  connected="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print(bool(json.loads(sys.stdin.read()).get("connected")))' 2>/dev/null || echo False)"
+  connected="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print("1" if json.loads(sys.stdin.read()).get("connected") else "0")' 2>/dev/null || echo 0)"
   err="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("error") or "")' 2>/dev/null || printf '%s' "$out")"
-  channels="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("channels") or 0)' 2>/dev/null || echo 0)"
-  users="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print(json.loads(sys.stdin.read()).get("users") or 0)' 2>/dev/null || echo 0)"
+  channels="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get("channels") or 0))' 2>/dev/null || echo 0)"
+  users="$(printf '%s\n' "$out" | python3 -c 'import json,sys; print(int(json.loads(sys.stdin.read()).get("users") or 0))' 2>/dev/null || echo 0)"
 
-  echo "name=${name}"
-
-  if [ "$connected" = "True" ]; then
-    echo "status=green"
-    echo "summary=Mumble protocol probe OK (${channels} channels, ${users} users visible)"
+  if [ "$connected" = "1" ]; then
+    add_check mumble ok warn "Mumble protocol probe OK (${channels} channels, ${users} users visible)" \
+      "{\"connected\":true,\"channels\":${channels},\"users\":${users}}"
   else
-    echo "status=red"
-    echo "summary=Mumble TCP listener is up, but protocol probe failed: ${err:-unknown error}"
+    add_check mumble fail warn "Mumble TCP listener is up, but protocol probe failed: ${err:-unknown error}" \
+      "{\"connected\":false,\"channels\":${channels},\"users\":${users},\"error\":\"$(printf '%s' "${err:-unknown error}" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read())[1:-1])')\"}"
   fi
 }

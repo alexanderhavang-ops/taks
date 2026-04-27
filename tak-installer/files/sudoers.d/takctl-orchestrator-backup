@@ -1,0 +1,3 @@
+# Installed by TAKS for orchestrator-triggered node backups.
+tak ALL=(root) NOPASSWD: /usr/bin/tar
+tak ALL=(postgres) NOPASSWD: /usr/bin/pg_dump

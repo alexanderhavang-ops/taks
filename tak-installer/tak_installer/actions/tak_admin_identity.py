@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import shutil
+import subprocess
 import time
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -24,6 +25,84 @@ TRUSTSTORE_SRC = Path("/opt/tak/certs/files/01_TRUST/truststore-root.p12")
 USERAUTH_XML = Path("/opt/tak/UserAuthenticationFile.xml")
 XML_NS = {"m": "http://bbn.com/marti/xml/bindings"}
 META_PATH = RUNTIME_ID_DIR / "meta.json"
+
+TAK_IGNITE_CONFIG = Path("/opt/tak/TAKIgniteConfig.xml")
+TAK_LOG_FILES = [
+    Path("/opt/tak/logs/takserver-messaging-console.log"),
+    Path("/opt/tak/logs/takserver-api-console.log"),
+    Path("/opt/tak/logs/takserver-plugins-console.log"),
+    Path("/opt/tak/logs/takserver-retention-console.log"),
+    Path("/opt/tak/logs/takserver-config-console.log"),
+]
+
+
+def _read_tail(path: Path, max_bytes: int = 131072) -> str:
+    try:
+        with path.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            f.seek(max(0, size - max_bytes))
+            data = f.read()
+        return data.decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
+
+
+def _tak_ignite_race_detected() -> bool:
+    if not TAK_IGNITE_CONFIG.exists():
+        return False
+
+    needles = (
+        "FileAlreadyExistsException: TAKIgniteConfig.xml",
+        "java.nio.file.FileAlreadyExistsException: TAKIgniteConfig.xml",
+    )
+
+    for path in TAK_LOG_FILES:
+        txt = _read_tail(path)
+        if not txt:
+            continue
+        if any(n in txt for n in needles):
+            return True
+    return False
+
+
+def _restart_takserver_for_ignite_heal() -> None:
+    cmd = '''
+if [ -x /etc/init.d/takserver ]; then
+  /etc/init.d/takserver restart
+elif systemctl list-unit-files takserver.service >/dev/null 2>&1; then
+  systemctl restart takserver.service
+else
+  systemctl restart takserver || true
+fi
+'''.strip()
+
+    p = subprocess.run(
+        ["sudo", "bash", "-lc", cmd],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    out = str(p.stdout or "").strip()
+    if out:
+        print(out)
+
+
+def _heal_tak_ignite_race_once() -> bool:
+    if not _tak_ignite_race_detected():
+        return False
+
+    print("[tak-admin-identity] detected TAKIgniteConfig.xml startup race; removing file and restarting TakServer")
+    subprocess.run(
+        ["sudo", "rm", "-f", str(TAK_IGNITE_CONFIG)],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    _restart_takserver_for_ignite_heal()
+    return True
 
 
 def _split_csv(raw: str) -> list[str]:
@@ -114,10 +193,17 @@ def _load_userauth_user(username: str) -> dict | None:
 
 def _wait_for_usermgr_ready(timeout_sec: int = 600, sleep_sec: int = 5) -> None:
     deadline = time.time() + timeout_sec
+    healed = False
     while time.time() < deadline:
         if USERAUTH_XML.exists():
             print("[tak-admin-identity] UserAuthenticationFile.xml present")
             return
+
+        if not healed and _heal_tak_ignite_race_once():
+            healed = True
+            time.sleep(sleep_sec)
+            continue
+
         print("[tak-admin-identity] waiting for /opt/tak/UserAuthenticationFile.xml ...")
         time.sleep(sleep_sec)
     raise RuntimeError("timed out waiting for /opt/tak/UserAuthenticationFile.xml")

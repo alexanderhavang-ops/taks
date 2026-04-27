@@ -131,20 +131,26 @@ def _unique_existing_paths(paths: Sequence[Path]) -> list[Path]:
 
 def _tar_paths(dst: Path, paths: Sequence[Path], *, exclude_arc_roots: Sequence[str] = ()) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
-    exclude = [str(x or "").strip("/").strip() for x in exclude_arc_roots if str(x or "").strip("/").strip()]
 
-    def _filter_member(ti: tarfile.TarInfo) -> tarfile.TarInfo | None:
-        name = str(ti.name or "").strip("/").strip()
-        for root in exclude:
-            if name == root or name.startswith(root + "/"):
-                return None
-        return ti
+    existing = [Path(x) for x in paths if Path(x).exists()]
+    if not existing:
+        with tarfile.open(dst, "w:gz"):
+            return
 
-    with tarfile.open(dst, "w:gz") as tf:
-        for p in paths:
-            if not p.exists():
-                continue
-            tf.add(str(p), arcname=str(p).lstrip("/"), recursive=True, filter=_filter_member)
+    cmd = ["sudo", "-n", "tar", "-czf", str(dst), "-C", "/"]
+
+    for root in exclude_arc_roots:
+        r = str(root or "").strip("/").strip()
+        if r:
+            cmd.extend(["--exclude", r, "--exclude", r + "/*"])
+
+    for x in existing:
+        cmd.append(str(x).lstrip("/"))
+
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        msg = (proc.stderr or proc.stdout or "").strip()
+        raise ValueError(f"tar failed: {msg or proc.returncode}")
 
 
 def _build_paths_bucket(
@@ -196,7 +202,10 @@ def _takctl_state_paths() -> list[Path]:
 
 
 def _martine_state_paths() -> list[Path]:
-    return [Path("/opt/tak/tools/martine/state")]
+    # Martine runtime is mostly stateless/rebuildable. Preserve only its TAK identity/certs.
+    return [
+        Path("/opt/tak/tools/martine/runtime/identity"),
+    ]
 
 
 def _replay_state_paths() -> list[Path]:
@@ -222,25 +231,18 @@ def _build_cot_state_bucket(stage_dir: Path) -> dict[str, Any]:
     if password:
         env["PGPASSWORD"] = password
 
-    if db_mode == "psql_sudo":
-        cmd = ["sudo", "-u", sudo_user, "pg_dump", "-Fc", "-f", str(dst), db_name]
-    else:
-        cmd = [
-            "pg_dump",
-            "-Fc",
-            "-h", db_host,
-            "-p", db_port,
-            "-U", db_user,
-            "-f", str(dst),
-            db_name,
-        ]
+    # Use local postgres for full-fidelity backups, but stream to stdout so
+    # postgres does not need write permission inside takctl's state directory.
+    cmd = ["sudo", "-n", "-u", sudo_user, "pg_dump", "-Fc", db_name]
 
-    proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
+    proc = subprocess.run(cmd, env=env, capture_output=True)
     if proc.returncode != 0:
-        msg = (proc.stderr or proc.stdout or "").strip()
+        msg = (proc.stderr or proc.stdout or b"").decode("utf-8", errors="replace").strip()
         if not msg:
             msg = f"pg_dump failed with exit code {proc.returncode}"
         raise ValueError(f"cot_state backup failed: {msg}")
+
+    dst.write_bytes(proc.stdout or b"")
 
     return {
         "type": "postgres_custom_dump",

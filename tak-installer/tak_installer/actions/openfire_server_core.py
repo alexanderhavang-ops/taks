@@ -154,6 +154,49 @@ def _strong_password(n: int = 24) -> str:
     return "OFadmin-" + "".join(secrets.choice(letters) for _ in range(max(8, n - 8)))
 
 
+
+def _generate_openfire_admin_password_for_install() -> str:
+    alphabet = string.ascii_letters + string.digits + "#%"
+    return "OFadmin-" + "".join(secrets.choice(alphabet) for _ in range(20))
+
+
+def _persist_openfire_admin_password_for_install(password: str) -> None:
+    password = str(password or "").strip()
+    if not password:
+        raise RuntimeError("openfire_server.core: cannot persist empty admin password")
+
+    SECRET_FILE.parent.mkdir(parents=True, exist_ok=True)
+
+    existing_lines: list[str] = []
+    found = False
+
+    if SECRET_FILE.exists():
+        try:
+            existing_lines = SECRET_FILE.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            existing_lines = []
+
+    out_lines: list[str] = []
+    for raw in existing_lines:
+        line = str(raw)
+        stripped = line.strip()
+        if stripped.startswith("openfire_admin_password="):
+            out_lines.append(f"openfire_admin_password={password}")
+            found = True
+        else:
+            out_lines.append(line)
+
+    if not found:
+        if out_lines and out_lines[-1].strip():
+            out_lines.append("")
+        out_lines.append("# managed by tak-installer action openfire_server.core")
+        out_lines.append(f"openfire_admin_password={password}")
+
+    tmp = SECRET_FILE.with_name(SECRET_FILE.name + ".tmp")
+    tmp.write_text("\n".join(out_lines).rstrip() + "\n", encoding="utf-8")
+    os.chmod(tmp, 0o640)
+    os.replace(tmp, SECRET_FILE)
+
 def _cfg(ctx: Context) -> dict[str, str]:
     env = dict(ctx.env or {})
     sec = _read_secret_cfg()
@@ -276,6 +319,10 @@ def _autosetup_xml(cfg: dict[str, str]) -> str:
 
   <locale>en</locale>
 
+  <connectionProvider>
+    <className>org.jivesoftware.database.EmbeddedConnectionProvider</className>
+  </connectionProvider>
+
   <autosetup>
     <run>true</run>
     <locale>en</locale>
@@ -372,9 +419,10 @@ class _Action:
         if not cfg["fqdn"]:
             raise RuntimeError("openfire_server.core: missing fqdn")
         if not cfg["admin_password"]:
-            raise RuntimeError(
-                "openfire_server.core: missing OPENFIRE_ADMIN_PASSWORD / openfire_admin_password"
-            )
+            generated = _generate_openfire_admin_password_for_install()
+            _persist_openfire_admin_password_for_install(generated)
+            cfg["admin_password"] = generated
+            print(f"openfire_server.core: generated and stored admin password in {SECRET_FILE}")
 
         version = cfg["version"]
         deb_url = cfg["deb_url"]
