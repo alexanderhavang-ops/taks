@@ -128,6 +128,7 @@ render_auth_block() {
   case "$store" in
     ldap|ldap_local|openldap)
       local uri base people groups services service_dn service_pw user_string update_interval
+      local people_base tak_ldap_url tak_userstring
       local group_object_class group_name_attr group_member_attr group_regex
       uri="$(cfg_value ldap_uri ldap://127.0.0.1:389)"
       base="$(cfg_value ldap_base_dn dc=taks,dc=local)"
@@ -137,6 +138,28 @@ render_auth_block() {
       service_dn="$(cfg_value ldap_service_account_dn "cn=taksvc,ou=${services},${base}")"
       service_pw="$(secret_value ldap_service_account_password '')"
       user_string="$(cfg_value ldap_user_string "uid={username},ou=${people},${base}")"
+      people_base="ou=${people},${base}"
+
+      # TAKServer CoreConfig expects:
+      #   url        = LDAP URL including the user search/base DN
+      #   userstring = login/RDN pattern relative to that URL, usually uid={username}
+      #
+      # takctl's LDAP writer still uses ldap_user_string as a full user DN pattern.
+      # So derive TAKServer's auth view from the same config unless explicitly
+      # overridden for a shared/external LDAP directory.
+      tak_ldap_url="$(cfg_value ldap_auth_url '')"
+      if [ -z "$tak_ldap_url" ]; then
+        tak_ldap_url="${uri%/}/${people_base}"
+      fi
+
+      tak_userstring="$(cfg_value ldap_auth_userstring '')"
+      if [ -z "$tak_userstring" ]; then
+        case "$user_string" in
+          *,${people_base}) tak_userstring="${user_string%,${people_base}}" ;;
+          *) tak_userstring="uid={username}" ;;
+        esac
+      fi
+
       update_interval="$(cfg_value ldap_update_interval_sec 60)"
       group_object_class="$(cfg_value ldap_group_object_class groupOfNames)"
       group_name_attr="$(cfg_value ldap_group_name_attr cn)"
@@ -148,8 +171,8 @@ render_auth_block() {
       cat <<EOF_AUTH
     <auth x509useGroupCache="true">
         <ldap
-            url="$(xml_attr "$uri")"
-            userString="$(xml_attr "$user_string")"
+            url="$(xml_attr "$tak_ldap_url")"
+            userstring="$(xml_attr "$tak_userstring")"
             updateInterval="$(xml_attr "$update_interval")"
             groupBaseRDN="$(xml_attr "ou=${groups},${base}")"
             groupObjectClass="$(xml_attr "$group_object_class")"
