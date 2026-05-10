@@ -792,6 +792,12 @@ with open(sys.argv[1], "r", encoding="utf-8") as f:
         rows.append((name, item))
 
 checks = {k: v for k, v in rows}
+operational = {}
+for k, v in checks.items():
+    vals = {kk: vv for kk, vv in v.items() if kk not in {"status", "severity", "summary"}}
+    if vals:
+        operational[k] = vals
+
 critical_failed = sum(1 for _, v in rows if v["severity"] == "critical" and v["status"] == "fail")
 warn_failed = sum(1 for _, v in rows if v["severity"] != "critical" and v["status"] in {"fail", "warn"})
 total_checks = len(rows)
@@ -822,6 +828,7 @@ doc = {
         "stale": False,
     },
     "checks": checks,
+    "operational": operational,
 }
 
 with open(sys.argv[2], "w", encoding="utf-8") as f:

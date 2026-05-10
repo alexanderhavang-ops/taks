@@ -285,7 +285,7 @@ def _apply_row(
         ctx = dict(ctx)
         ctx.setdefault("_policy_error", str(e))
 
-    service.store.upsert_identity(
+    identity_rec = service.store.upsert_identity(
         username=username,
         origin="taks",
         ctx=ctx,
@@ -293,11 +293,26 @@ def _apply_row(
         password=password_to_set,
     )
 
-    save_selection(username, {
+    selection = {
         "ctx": ctx,
         "paths": {"B": True, "itak": True, "wintak": True},
         "endpoints": {},
-    })
+    }
+    save_selection(username, selection)
+
+    xmpp_bookmarks = None
+    try:
+        from takctl.onboarding.xmpp_bookmarks import enqueue_user_bookmarks
+
+        xmpp_bookmarks = enqueue_user_bookmarks(
+            username=username,
+            password=password_to_set or getattr(identity_rec, "password", None),
+            selection=selection,
+            identity=ident_out,
+            reason="import_users",
+        )
+    except Exception as e:
+        xmpp_bookmarks = {"ok": False, "queued": False, "error": f"{type(e).__name__}: {e}"}
 
     # Generate soldier card link for this user
     card_url = None
@@ -324,6 +339,7 @@ def _apply_row(
         "groups": groups,
         "admin": bool(admin),
         "card_url": card_url,
+        "xmpp_bookmarks": xmpp_bookmarks,
     }
 
 

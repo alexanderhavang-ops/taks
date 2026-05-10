@@ -237,6 +237,10 @@ class FileJsonOnboardingStore(OnboardingStore):
         created_at = existing.created_at_utc if existing is not None else now
 
         normalized_origin = str(origin or "marti").strip().lower()
+
+        if password is None and existing is not None and existing.password_known and existing.password:
+            password = existing.password
+
         password_known = bool(password) and normalized_origin == "taks"
 
         rec = UserIdentity(

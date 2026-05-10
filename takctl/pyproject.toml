@@ -12,6 +12,7 @@ dependencies = [
   "rich>=13.0.0",
   "psycopg2-binary>=2.9.0",
   "python-multipart",
+  "slixmpp>=1.8.0",
 ]
 
 [project.scripts]

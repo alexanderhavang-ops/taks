@@ -875,7 +875,7 @@
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-              body: JSON.stringify({ buckets: ['users'] })
+              body: JSON.stringify({ buckets: ['users','certs','config','cot_state','takctl_state','martine_state','documents'] })
             }
           );
 

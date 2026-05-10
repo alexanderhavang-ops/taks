@@ -15,6 +15,10 @@
     const password = props.password;
     const admin = props.admin;
     const groups = props.groups;
+    const channelsSelectedRaw = Array.isArray(props.channelsSelected)
+      ? props.channelsSelected.map(function (x) { return norm(x); }).filter(Boolean)
+      : null;
+    const channelsSelected = (channelsSelectedRaw && channelsSelectedRaw.length) ? channelsSelectedRaw : null;
     const ttlSec = props.ttlSec;
     const revealPassword = props.revealPassword;
     const userStoreOverride = props.userStoreOverride;
@@ -69,6 +73,7 @@
       groups_in: splitCsv(groups.groups_in),
       groups_out: splitCsv(groups.groups_out),
       ctx: ctx,
+      channels: channelsSelected,
       artifacts_requested: artifacts_requested,
       paths: {
         B: !!(

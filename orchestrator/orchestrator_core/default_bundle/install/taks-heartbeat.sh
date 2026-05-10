@@ -260,13 +260,16 @@ def load_node_health(path: str):
     if not isinstance(data, dict):
         return None
 
-    out = {}
+    out = {"node_health": data}
     rollup = data.get("rollup")
     checks = data.get("checks")
+    operational = data.get("operational")
     if isinstance(rollup, dict):
         out["services"] = rollup
     if isinstance(checks, dict):
         out["checks"] = checks
+    if isinstance(operational, dict):
+        out["operational"] = operational
     return out or None
 
 

@@ -213,10 +213,13 @@ def derive_vx_params(*, username: str, groups: list[str], selection: dict | None
     channel_id_map: dict[str, int] = {}
 
     try:
-        topo = _topology_for_ctx(ctx)
+        from takctl.onboarding.channels import derive_channel_sets, effective_selected_channels
+
+        channel_sets = derive_channel_sets(ctx)
+        topo = channel_sets.get("topology") or {}
         mission_name = str(topo.get("mission_label") or "").strip()
-        channel_names = [str(x).strip() for x in (topo.get("seed_channels") or []) if str(x or "").strip()]
         channel_id_map = _channel_id_map_from_topology(topo)
+        channel_names = effective_selected_channels(ctx, selection=sel)
     except Exception:
         topo = {}
 

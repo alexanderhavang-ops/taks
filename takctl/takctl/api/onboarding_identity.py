@@ -478,11 +478,18 @@ class UserCreateIn(BaseModel):
     groups_out: List[str] = Field(default_factory=list)
     ctx: Dict[str, Any] = Field(default_factory=dict)
     endpoints: Dict[str, Any] = Field(default_factory=dict)
+    channels: Optional[List[str]] = Field(default=None, description="Selected Mumble/VX channels. None or [] means derive defaults.")
     reveal_password: bool = Field(default=True)
 
 class IdentityDeriveIn(BaseModel):
     policy_id: str = Field(default="")
     ctx: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ChannelsDeriveIn(BaseModel):
+    policy_id: str = Field(default="")
+    ctx: Dict[str, Any] = Field(default_factory=dict)
+    selected: Optional[List[str]] = Field(default=None)
 
 
 @router.post("/onboarding/derive")
@@ -526,6 +533,31 @@ def derive_identity(body: IdentityDeriveIn):
             status_code=400,
             headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
         )
+
+
+@router.post("/onboarding/channels/derive")
+def derive_channels(body: ChannelsDeriveIn):
+    from takctl.onboarding.policy_registry import default_policy_id
+    from takctl.onboarding.channels import build_selection_channels, derive_channel_sets
+
+    default_pid = default_policy_id()
+    policy_id = (body.policy_id or default_pid).strip() or default_pid
+    ctx = dict(body.ctx or {})
+    ctx["policy_id"] = policy_id
+
+    channels = build_selection_channels(ctx, selected=body.selected)
+    sets = derive_channel_sets(ctx)
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "policy_id": policy_id,
+            "ctx": ctx,
+            "channels": channels,
+            "topology": sets.get("topology") or {},
+        },
+        headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
+    )
 
 
 @router.get("/onboarding/users/{username}")
@@ -753,11 +785,39 @@ def create_user(req: Request, username: str, body: UserCreateIn):
         password=pw_for_store,
     )
 
+    try:
+        from takctl.onboarding.channels import build_selection_channels
+
+        channel_state = build_selection_channels(ctx, selected=body.channels)
+    except Exception as e:
+        channel_state = {
+            "selected": [str(x).strip() for x in (body.channels or []) if str(x or "").strip()],
+            "default": [],
+            "available": [str(x).strip() for x in (body.channels or []) if str(x or "").strip()],
+            "derive_ok": False,
+            "derive_error": f"{type(e).__name__}: {e}",
+        }
+
     sel = {
         "ctx": ctx,
         "endpoints": dict(body.endpoints or {}),
+        "channels": channel_state,
     }
     save_selection(u, sel)
+
+    xmpp_bookmarks = None
+    try:
+        from takctl.onboarding.xmpp_bookmarks import enqueue_user_bookmarks
+
+        xmpp_bookmarks = enqueue_user_bookmarks(
+            username=u,
+            password=pw_for_store,
+            selection=sel,
+            identity=ident_out,
+            reason="create_user",
+        )
+    except Exception as e:
+        xmpp_bookmarks = {"ok": False, "queued": False, "error": f"{type(e).__name__}: {e}"}
 
     card_info = _issue_card_link(
         req,
@@ -782,6 +842,7 @@ def create_user(req: Request, username: str, body: UserCreateIn):
                 password_value=(pw_value if pw_known else None),
             ),
             "selection": sel,
+            "xmpp_bookmarks": xmpp_bookmarks,
             **card_info,
         },
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},

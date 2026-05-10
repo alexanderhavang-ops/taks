@@ -23,6 +23,9 @@
   const AdvancedTab = window.OnboardingCreateUserAdvancedTab || null;
   function _needAdvancedTab(){ if (!AdvancedTab) throw new Error("Missing OnboardingCreateUserAdvancedTab.js"); return AdvancedTab; }
 
+  const ChannelsTab = window.OnboardingCreateUserChannelsTab || null;
+  function _needChannelsTab(){ if (!ChannelsTab) throw new Error("Missing OnboardingCreateUserChannelsTab.js"); return ChannelsTab; }
+
   const t = (window.t && typeof window.t === "function") ? window.t : (k) => String(k || "");
 
   const common = (window.TaksOnboarding && window.TaksOnboarding.createUser && window.TaksOnboarding.createUser.common) || null;
@@ -99,6 +102,12 @@
     const [groups, setGroups] = useState({ groups_rw: _hostUnit || "", groups_in: "", groups_out: "" });
     const [cfg, setCfg] = useState({});
 
+    const [channelsAvailable, setChannelsAvailable] = useState([]);
+    const [channelsDefault, setChannelsDefault] = useState([]);
+    const [channelsSelected, setChannelsSelected] = useState(null);
+    const [channelsBusy, setChannelsBusy] = useState(false);
+    const [channelsErr, setChannelsErr] = useState("");
+
     const [derived, setDerived] = useState(null);
     const [derivedErr, setDerivedErr] = useState("");
     const [deriveBusy, setDeriveBusy] = useState(false);
@@ -107,6 +116,7 @@
 
     const [callsignEdit, setCallsignEdit] = useState("");
     const callsignDirtyRef = React.useRef(false);
+    const channelsDirtyRef = React.useRef(false);
 
     const isEdit = !!_norm(routeUsername);
 
@@ -139,6 +149,7 @@
 
           const ti = (j && j.taks_identity) ? j.taks_identity : null;
           const ctx = (ti && ti.ctx) ? ti.ctx : {};
+          const sel = (j && j.selection) ? j.selection : {};
 
           setPassword("");
 
@@ -164,6 +175,12 @@
             setCallsignEdit(cso);
           }
 
+          const loadedChannels = _selectionChannelsFromSelection(sel);
+          if (loadedChannels !== null) {
+            channelsDirtyRef.current = true;
+            setChannelsSelected(loadedChannels);
+          }
+
         } catch (e) {
           setErr("Edit load failed: " + String((e && e.message) || e));
         }
@@ -176,6 +193,35 @@
 
     function _setGroups(k, v) { setGroups(prev => Object.assign({}, prev, { [k]: v })); }
     function _setCfg(k, v) { setCfg(prev => Object.assign({}, prev, { [k]: v })); }
+
+    function _uniqChannels(items) {
+      const out = [];
+      const seen = {};
+      (Array.isArray(items) ? items : []).forEach(function (x) {
+        const s = _norm(x);
+        if (!s || seen[s]) return;
+        seen[s] = true;
+        out.push(s);
+      });
+      return out;
+    }
+
+    function _selectionChannelsFromSelection(sel) {
+      if (!sel || typeof sel !== "object" || !Object.prototype.hasOwnProperty.call(sel, "channels")) return null;
+      const ch = sel.channels;
+      if (Array.isArray(ch)) return _uniqChannels(ch);
+      if (ch && typeof ch === "object") {
+        if (Object.prototype.hasOwnProperty.call(ch, "selected")) return _uniqChannels(ch.selected || []);
+        if (Object.prototype.hasOwnProperty.call(ch, "rooms")) return _uniqChannels(ch.rooms || []);
+        if (Object.prototype.hasOwnProperty.call(ch, "names")) return _uniqChannels(ch.names || []);
+      }
+      return null;
+    }
+
+    function _setChannelsSelected(v) {
+      channelsDirtyRef.current = true;
+      setChannelsSelected(_uniqChannels(v || []));
+    }
 
     useEffect(() => {
       let alive = true;
@@ -302,6 +348,63 @@
       callsignPolicyOverride
     ]);
 
+    useEffect(() => {
+      let alive = true;
+      if (!policyId) return function () { alive = false; };
+
+      const ctx = Object.assign({}, ctxForDerive || {});
+      ctx.policy_id = String(policyId || "");
+      if (_norm(callsignEdit)) ctx.callsign = _norm(callsignEdit);
+
+      setChannelsBusy(true);
+      setChannelsErr("");
+
+      (async () => {
+        try {
+          const resp = await fetch("api/onboarding/channels/derive", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              policy_id: policyId,
+              ctx: ctx,
+              selected: null
+            })
+          });
+          const j = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(j.detail || j.error || ("HTTP " + resp.status));
+          if (!alive) return;
+
+          const ch = (j && j.channels) || {};
+          const av = _uniqChannels(ch.available || []);
+          const def = _uniqChannels(ch.default || []);
+          const sel = _uniqChannels(ch.selected || def);
+
+          setChannelsDefault(def);
+          setChannelsAvailable(_uniqChannels(av.concat(Array.isArray(channelsSelected) ? channelsSelected : [])));
+          if (!channelsDirtyRef.current) {
+            setChannelsSelected(sel);
+          }
+        } catch (e) {
+          if (!alive) return;
+          setChannelsErr(String((e && e.message) || e || "Failed"));
+        } finally {
+          if (alive) setChannelsBusy(false);
+        }
+      })();
+
+      return function () { alive = false; };
+    }, [
+      policyId,
+      ctxForDerive && ctxForDerive.battalion,
+      ctxForDerive && ctxForDerive.battalion_fal,
+      ctxForDerive && ctxForDerive.company,
+      ctxForDerive && ctxForDerive.platoon,
+      ctxForDerive && ctxForDerive.group,
+      ctxForDerive && ctxForDerive.n,
+      ctxForDerive && ctxForDerive.team,
+      callsignEdit
+    ]);
+
     async function doCreate() {
       return _doCreateAction({
         norm: _norm,
@@ -323,6 +426,7 @@
         callsignPolicyOverride: callsignPolicyOverride,
         callsignPolicyDefault: callsignPolicyDefault,
         cfg: cfg,
+        channelsSelected: channelsSelected,
         setBusy: setBusy,
         setErr: setErr,
         setResult: setResult,
@@ -350,6 +454,7 @@
     const NameBadge = badgeMod.NameBadge;
     const IdentityTabComp = _needIdentityTab();
     const AccountTabComp = _needAccountTab();
+    const ChannelsTabComp = _needChannelsTab();
     const AdvancedTabComp = _needAdvancedTab();
 
     const badgePrimary = _norm(callsignEdit) || "—";
@@ -426,6 +531,7 @@
           tabs: [
             { id: "identity", label: t("tab.identity") || "Identity" },
             { id: "account", label: t("tab.account") || "Account" },
+            { id: "channels", label: (String(window.currentLang || "").toLowerCase().startsWith("en") ? "Channels" : "Kanaler") },
             { id: "advanced", label: t("tab.advanced") || "Advanced" }
           ]
         }),
@@ -467,6 +573,15 @@
             groups: groups,
             setGroups: _setGroups,
             isEdit: isEdit
+          }) : null,
+
+          tab === "channels" ? h(ChannelsTabComp, {
+            available: channelsAvailable,
+            selected: channelsSelected,
+            defaultChannels: channelsDefault,
+            setSelected: _setChannelsSelected,
+            loading: channelsBusy,
+            error: channelsErr
           }) : null,
 
           tab === "advanced" ? h(AdvancedTabComp, {

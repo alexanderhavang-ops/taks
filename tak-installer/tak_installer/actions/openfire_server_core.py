@@ -1,22 +1,27 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import secrets
 import string
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from xml.sax.saxutils import escape
 
 from tak_installer.engine import Context
 from tak_installer.runtime_state import get_fqdn
+from takctl.onboarding.policy import Policy
+from takctl.onboarding.voice_topology import derive_voice_topology
 
 PACKAGE = "openfire"
 SERVICE = "openfire"
 DEFAULT_VERSION = "5.0.4"
 CACHE_DIR = Path("/opt/tak/cache/openfire")
 CONFIG = Path("/etc/openfire/openfire.xml")
+EMBEDDED_DB_SCRIPT = Path("/var/lib/openfire/embedded-db/openfire.script")
 
 SECRET_DIR = Path("/opt/tak/tools/takctl/secrets.d")
 SECRET_FILE = SECRET_DIR / "openfire.conf"
@@ -301,6 +306,269 @@ def _setup_complete() -> bool:
     return "<setup>true</setup>" in compact
 
 
+def _wait_for_setup_complete(timeout_s: int = 90) -> bool:
+    deadline = time.time() + max(1, timeout_s)
+    while time.time() < deadline:
+        if _setup_complete():
+            return True
+        time.sleep(2)
+    return _setup_complete()
+
+
+def _ensure_embedded_db_auth_provider_consistency() -> bool:
+    """
+    Repair the OpenFire embedded DB provider rows after autosetup.
+
+    TAKS uses OpenFire with LDAP-backed users. OpenFire can end up in a split
+    provider state where users come from LDAP but auth is still the local
+    DefaultAuthProvider. In that state TakChat clients can find LDAP users, but
+    SCRAM/PLAIN auth fails against the empty local OFUSER table.
+
+    This helper is intentionally narrow:
+      - only acts on the embedded HSQLDB script;
+      - only changes auth provider when the user provider is already LDAP;
+      - backs up the script before changing it;
+      - is called while OpenFire is stopped.
+    """
+    code = r"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+import shutil
+
+db = Path("__DB_PATH__")
+old_auth = "INSERT INTO OFPROPERTY VALUES('provider.auth.className','org.jivesoftware.openfire.auth.DefaultAuthProvider',0,NULL)"
+new_auth = "INSERT INTO OFPROPERTY VALUES('provider.auth.className','org.jivesoftware.openfire.ldap.LdapAuthProvider',0,NULL)"
+ldap_user = "INSERT INTO OFPROPERTY VALUES('provider.user.className','org.jivesoftware.openfire.ldap.LdapUserProvider',0,NULL)"
+
+if not db.exists():
+    print(f"openfire_server.core: embedded DB script not present yet: {db}")
+    print("CHANGED=0")
+    raise SystemExit(0)
+
+s = db.read_text(encoding="utf-8")
+
+if ldap_user not in s:
+    print("openfire_server.core: OpenFire user provider is not LDAP; leaving auth provider unchanged")
+    print("CHANGED=0")
+    raise SystemExit(0)
+
+if new_auth in s:
+    print("openfire_server.core: OpenFire auth provider already LDAP")
+    print("CHANGED=0")
+    raise SystemExit(0)
+
+if old_auth not in s:
+    print("openfire_server.core: could not find DefaultAuthProvider row; leaving auth provider unchanged")
+    print("CHANGED=0")
+    raise SystemExit(0)
+
+stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+backup = db.with_name(db.name + f".bak-{stamp}")
+shutil.copy2(db, backup)
+
+db.write_text(s.replace(old_auth, new_auth, 1), encoding="utf-8")
+
+print(f"openfire_server.core: switched OpenFire auth provider to LDAP; backup={backup}")
+print("CHANGED=1")
+""".replace("__DB_PATH__", str(EMBEDDED_DB_SCRIPT))
+
+    tmp = Path(f"/tmp/openfire-embedded-db-provider.{os.getpid()}.py")
+    tmp.write_text(code, encoding="utf-8")
+    try:
+        r = _run(["sudo", "python3", str(tmp)])
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+    return "CHANGED=1" in str(r.stdout or "")
+
+
+def _desired_conference_rooms(cfg: dict[str, str]) -> list[str]:
+    fqdn = str(cfg.get("fqdn", "") or "").strip().lower()
+    unit = fqdn.split(".", 1)[0].strip() if fqdn else ""
+    if not unit:
+        raise RuntimeError("openfire_server.core: cannot derive conference rooms without fqdn/unit")
+
+    policy_id = str(
+        cfg.get("policy_id", "")
+        or os.environ.get("default_policy_id", "")
+        or os.environ.get("DEFAULT_POLICY_ID", "")
+        or ""
+    ).strip()
+
+    if not policy_id:
+        try:
+            from takctl.config import load_config
+            policy_id = str(load_config().get("default_policy_id", "") or "").strip()
+        except Exception:
+            policy_id = ""
+
+    if not policy_id:
+        policy_id = "hemvarnet"
+
+    policy = Policy(policy_id=policy_id)
+    topo = derive_voice_topology(policy.cfg, {"unit": unit, "policy_id": policy.policy_id})
+    rooms = [str(x).strip() for x in (topo.get("channels") or []) if str(x or "").strip()]
+    if not rooms:
+        raise RuntimeError(f"openfire_server.core: voice topology produced no conference rooms for unit={unit}")
+
+    too_long = [x for x in rooms if len(x) > 50]
+    if too_long:
+        raise RuntimeError(
+            "openfire_server.core: OpenFire MUC room name exceeds 50 chars: "
+            + ", ".join(too_long)
+        )
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for room in rooms:
+        if room in seen:
+            continue
+        seen.add(room)
+        out.append(room)
+    return out
+
+
+def _ensure_embedded_db_muc_rooms(cfg: dict[str, str]) -> bool:
+    """
+    Seed OpenFire persistent MUC rooms from the same voice topology that Mumble uses.
+
+    The room set is global/discoverable under the built-in conference service. This
+    does not attempt per-user bookmarks or rosters; TakChat should at least be able
+    to browse/join these conference rooms once OpenFire is restarted.
+    """
+    rooms = _desired_conference_rooms(cfg)
+
+    code = r"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+import json
+import re
+import shutil
+import time
+
+db = Path("__DB_PATH__")
+rooms = __ROOMS_JSON__
+
+def sql_quote(v: str) -> str:
+    return "'" + str(v).replace("'", "''") + "'"
+
+def sql_unquote(v: str) -> str:
+    return str(v).replace("''", "'")
+
+def room_insert(service_id: int, room_id: int, name: str, now_ms: str) -> str:
+    qname = sql_quote(name)
+    desc = sql_quote("TAKS voice/chat channel " + name)
+    # ofMucRoom column order as in OpenFire 5.x schema:
+    # serviceID, roomID, creationDate, modificationDate, name, naturalName,
+    # description, lockedDate, emptyDate, canChangeSubject, maxUsers,
+    # publicRoom, moderated, membersOnly, canInvite, roomPassword,
+    # canDiscoverJID, logEnabled, retireOnDeletion, preserveHistOnDel,
+    # subject, rolesToBroadcast, useReservedNick, canChangeNick,
+    # canRegister, allowpm, fmucEnabled, fmucOutboundNode, fmucOutboundMode,
+    # fmucInboundNodes
+    return (
+        "INSERT INTO OFMUCROOM VALUES("
+        f"{service_id},{room_id},'{now_ms}','{now_ms}',"
+        f"{qname},{qname},{desc},"
+        "'0',NULL,"
+        "1,0,1,0,0,1,NULL,1,0,0,0,NULL,7,0,1,1,0,0,NULL,0,NULL"
+        ")"
+    )
+
+if not db.exists():
+    print(f"openfire_server.core: embedded DB script not present yet: {db}")
+    print("CHANGED=0")
+    raise SystemExit(0)
+
+s = db.read_text(encoding="utf-8")
+
+svc = re.search(r"INSERT INTO OFMUCSERVICE VALUES\((\d+),'conference'(?:,|\))", s)
+if not svc:
+    print("openfire_server.core: OpenFire conference MUC service is missing; leaving rooms unchanged")
+    print("CHANGED=0")
+    raise SystemExit(0)
+
+service_id = int(svc.group(1))
+
+existing: set[str] = set()
+max_room_id = 0
+for m in re.finditer(r"INSERT INTO OFMUCROOM VALUES\((\d+),(\d+),'[^']*','[^']*','((?:''|[^'])*)',", s):
+    sid = int(m.group(1))
+    rid = int(m.group(2))
+    if rid > max_room_id:
+        max_room_id = rid
+    if sid == service_id:
+        existing.add(sql_unquote(m.group(3)))
+
+missing = [room for room in rooms if room not in existing]
+if not missing:
+    print(f"openfire_server.core: OpenFire MUC rooms already seeded ({len(rooms)} desired)")
+    print("CHANGED=0")
+    raise SystemExit(0)
+
+ofid = re.search(r"INSERT INTO OFID VALUES\(27,(\d+)\)", s)
+next_room_id = max_room_id + 1
+if ofid:
+    next_room_id = max(next_room_id, int(ofid.group(1)))
+next_room_id = max(next_room_id, 1)
+
+now_ms = str(int(time.time() * 1000))
+lines: list[str] = []
+for room in missing:
+    lines.append(room_insert(service_id, next_room_id, room, now_ms))
+    next_room_id += 1
+
+if ofid:
+    s = re.sub(r"INSERT INTO OFID VALUES\(27,\d+\)", f"INSERT INTO OFID VALUES(27,{next_room_id})", s, count=1)
+else:
+    last_ofid = list(re.finditer(r"INSERT INTO OFID VALUES\(\d+,\d+\)\n?", s))
+    if last_ofid:
+        pos = last_ofid[-1].end()
+        s = s[:pos] + f"INSERT INTO OFID VALUES(27,{next_room_id})\n" + s[pos:]
+    else:
+        print("openfire_server.core: could not find OFID rows; leaving rooms unchanged")
+        print("CHANGED=0")
+        raise SystemExit(0)
+
+service_rows = list(re.finditer(r"INSERT INTO OFMUCSERVICE VALUES\(.*?\)\n?", s))
+if not service_rows:
+    print("openfire_server.core: could not find OFMUCSERVICE insertion point; leaving rooms unchanged")
+    print("CHANGED=0")
+    raise SystemExit(0)
+
+insert_pos = service_rows[-1].end()
+insert_text = "".join(line + "\n" for line in lines)
+new_s = s[:insert_pos] + insert_text + s[insert_pos:]
+
+stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+backup = db.with_name(db.name + f".mucrooms.bak-{stamp}")
+shutil.copy2(db, backup)
+db.write_text(new_s, encoding="utf-8")
+
+print(f"openfire_server.core: seeded {len(missing)} OpenFire MUC rooms under conference; backup={backup}")
+print("CHANGED=1")
+""".replace("__DB_PATH__", str(EMBEDDED_DB_SCRIPT)).replace("__ROOMS_JSON__", json.dumps(rooms))
+
+    tmp = Path(f"/tmp/openfire-muc-rooms.{os.getpid()}.py")
+    tmp.write_text(code, encoding="utf-8")
+    try:
+        r = _run(["sudo", "python3", str(tmp)])
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+    return "CHANGED=1" in str(r.stdout or "")
+
+
 def _autosetup_xml(cfg: dict[str, str]) -> str:
     fqdn = str(cfg["fqdn"] or "").strip()
     admin_password = str(cfg["admin_password"] or "")
@@ -461,9 +729,11 @@ class _Action:
         else:
             print(f"openfire_server.core: package already at desired version {version}")
 
+        setup_was_complete = _setup_complete()
+
         _run(["sudo", "systemctl", "stop", SERVICE], check=False)
 
-        if _setup_complete():
+        if setup_was_complete:
             print("openfire_server.core: existing setup already complete, leaving openfire.xml as-is")
         else:
             print("openfire_server.core: writing headless autosetup openfire.xml")
@@ -471,7 +741,20 @@ class _Action:
 
         _run(["sudo", "systemctl", "daemon-reload"], check=False)
         _run(["sudo", "systemctl", "enable", SERVICE])
-        _run(["sudo", "systemctl", "restart", SERVICE])
+
+        if setup_was_complete:
+            _ensure_embedded_db_auth_provider_consistency()
+            _ensure_embedded_db_muc_rooms(cfg)
+            _run(["sudo", "systemctl", "start", SERVICE])
+        else:
+            _run(["sudo", "systemctl", "restart", SERVICE])
+            if _wait_for_setup_complete():
+                _run(["sudo", "systemctl", "stop", SERVICE], check=False)
+                _ensure_embedded_db_auth_provider_consistency()
+                _ensure_embedded_db_muc_rooms(cfg)
+                _run(["sudo", "systemctl", "start", SERVICE])
+            else:
+                print("openfire_server.core: setup did not report complete; skipping embedded DB provider repair")
 
         final_version = _pkg_version()
         final_active = _systemctl_state("is-active")

@@ -21,6 +21,7 @@ NODE_CONF = Path("/opt/tak/tools/takctl/conf.d/node.conf")
 SUPPORTED_BUCKETS = (
     "cot_state",
     "certs",
+    "config",
     "users",
     "documents",
     "takctl_state",
@@ -176,6 +177,7 @@ def _certs_paths() -> list[Path]:
     return [Path("/opt/tak/certs")]
 
 
+
 def _users_paths() -> list[Path]:
     out: list[Path] = []
     try:
@@ -186,12 +188,8 @@ def _users_paths() -> list[Path]:
     except Exception:
         pass
 
-    out.append(Path("/opt/tak/UserAuthenticationFile.xml"))
-
-    # When backing_user_store=ldap, user/group truth lives in LDAP rather
-    # than UserAuthenticationFile.xml. Preserve both local OpenLDAP data and
-    # the TAKS LDAP runtime config/secrets so a node restore keeps identity.
     out.extend([
+        Path("/opt/tak/UserAuthenticationFile.xml"),
         Path("/etc/taks/ldap.conf"),
         Path("/etc/taks/ldap-secrets.conf"),
         Path("/etc/ldap"),
@@ -200,14 +198,27 @@ def _users_paths() -> list[Path]:
     return out
 
 
+def _config_paths() -> list[Path]:
+    return [
+        Path("/opt/tak/CoreConfig.xml"),
+        Path("/opt/tak/core"),
+        Path("/etc/taks-bootstrap.d/config.d"),
+        Path("/etc/taks-bootstrap.d/secrets.d"),
+        Path("/opt/tak/tools/takctl/conf.d"),
+        Path("/opt/tak/tools/takctl/secrets.d"),
+        Path("/opt/tak/tools/takctl/confmeta"),
+    ]
+
 def _documents_paths() -> list[Path]:
     return [
         Path("/opt/tak/Documents"),
         Path("/opt/tak/documents"),
+        Path("/opt/tak/tools/takctl/state/docs"),
     ]
 
 
 def _takctl_state_paths() -> list[Path]:
+    # Keep takctl-owned operational state, but exclude bulky/rebuildable docs and transient LLM/cache data.
     return [Path("/opt/tak/tools/takctl/state")]
 
 
@@ -270,28 +281,36 @@ def _build_cot_state_bucket(stage_dir: Path) -> dict[str, Any]:
     }
 
 
+
 def _build_bucket(bucket_name: str, stage_dir: Path) -> dict[str, Any]:
     if bucket_name == "cot_state":
         return _build_cot_state_bucket(stage_dir)
     if bucket_name == "certs":
-        return _build_paths_bucket("certs", stage_dir, _certs_paths())
+        return _build_paths_bucket(bucket_name, stage_dir, _certs_paths())
+    if bucket_name == "config":
+        return _build_paths_bucket(bucket_name, stage_dir, _config_paths())
     if bucket_name == "users":
-        return _build_paths_bucket("users", stage_dir, _users_paths())
+        return _build_paths_bucket(bucket_name, stage_dir, _users_paths())
     if bucket_name == "documents":
-        return _build_paths_bucket("documents", stage_dir, _documents_paths())
+        return _build_paths_bucket(bucket_name, stage_dir, _documents_paths())
     if bucket_name == "takctl_state":
         return _build_paths_bucket(
-            "takctl_state",
+            bucket_name,
             stage_dir,
             _takctl_state_paths(),
-            exclude_arc_roots=[BACKUP_STATE_ARC_ROOT],
+            exclude_arc_roots=[
+                BACKUP_STATE_ARC_ROOT,
+                "opt/tak/tools/takctl/state/docs",
+                "opt/tak/tools/takctl/state/llm_usage.jsonl",
+                "opt/tak/tools/takctl/state/llm2",
+                "opt/tak/tools/takctl/state/llm3",
+            ],
         )
     if bucket_name == "martine_state":
-        return _build_paths_bucket("martine_state", stage_dir, _martine_state_paths())
+        return _build_paths_bucket(bucket_name, stage_dir, _martine_state_paths())
     if bucket_name == "replay_state":
-        return _build_paths_bucket("replay_state", stage_dir, _replay_state_paths())
+        return _build_paths_bucket(bucket_name, stage_dir, _replay_state_paths())
     raise ValueError(f"unsupported bucket: {bucket_name}")
-
 
 def create_backup(buckets: Sequence[str] | None) -> dict[str, Any]:
     wanted = _validate_buckets(buckets)
