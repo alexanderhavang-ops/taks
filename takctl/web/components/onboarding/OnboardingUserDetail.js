@@ -12,10 +12,74 @@
 
   function _yn(v) { return v ? "Ja" : "Nej"; }
   function _join(v) { return Array.isArray(v) && v.length ? v.join(", ") : "—"; }
-  function _onboardText(v) {
-    var x = String(v || "").trim();
-    return x ? x : "okänt";
+
+  function _formatTimestamp(v) {
+    var raw = String(v || "").trim();
+    if (!raw) return "—";
+
+    var d = new Date(raw);
+    if (isNaN(d.getTime())) return raw;
+
+    try {
+      return d.toLocaleString("sv-SE", {
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit"
+      });
+    } catch (e) {
+      return raw;
+    }
   }
+
+  function _relativeTimestamp(v) {
+    var raw = String(v || "").trim();
+    if (!raw) return "";
+
+    var d = new Date(raw);
+    if (isNaN(d.getTime())) return "";
+
+    var sec = Math.round((Date.now() - d.getTime()) / 1000);
+    if (sec < -30) return "framtid";
+    if (sec < 30) return "nyss";
+
+    var min = Math.floor(sec / 60);
+    if (min < 60) return String(min) + " min sedan";
+
+    var h = Math.floor(min / 60);
+    var remMin = min % 60;
+    if (h < 24) {
+      return remMin ? (String(h) + " h " + String(remMin) + " min sedan") : (String(h) + " h sedan");
+    }
+
+    var dnr = Math.floor(h / 24);
+    var remH = h % 24;
+    if (dnr < 14) {
+      return remH ? (String(dnr) + " d " + String(remH) + " h sedan") : (String(dnr) + " d sedan");
+    }
+
+    return "";
+  }
+
+  function _formatTimestampWithAge(v) {
+    var ts = _formatTimestamp(v);
+    if (ts === "—") return ts;
+
+    var rel = _relativeTimestamp(v);
+    return rel ? (ts + " (" + rel + ")") : ts;
+  }
+  function _onboardText(v) {
+    var x = String(v || "").trim().toLowerCase();
+    if (x === "done") return "Klar";
+    if (x === "downloaded") return "Nedladdat";
+    if (x === "started") return "Påbörjad";
+    if (x === "invited") return "Inbjuden";
+    if (x === "new") return "Ny";
+    return x || "—";
+  }
+
   function _endpointFlags(sel) {
     var ep = (sel && sel.endpoints) || {};
     var out = [];
@@ -33,8 +97,14 @@
     return "never";
   }
   function _deviceStateText(d) {
-    return _deviceState(d).toUpperCase();
+    var st = _deviceState(d);
+    if (st === "current") return "Online";
+    if (st === "recent") return "Nyligen";
+    if (st === "stale") return "Inaktiv";
+    if (st === "never") return "Aldrig";
+    return "—";
   }
+
   function _countStates(devices, wanted) {
     var n = 0;
     (devices || []).forEach(function (d) {
@@ -62,33 +132,31 @@
   function _voiceTone(voice) {
     var v = voice || {};
     var user = v.user || {};
-    var connected = !!user.connected_now;
-    var hasMatches = !!(Array.isArray(user.matched_user_names) && user.matched_user_names.length);
-    if (connected) return "good";
-    if (hasMatches) return "warn";
-    return "neutral";
+    if (user.connected_now) return "good";
+    if (Array.isArray(user.matched_user_names) && user.matched_user_names.length) return "warn";
+    return "bad";
   }
 
   function _voiceText(voice) {
     var v = voice || {};
     var user = v.user || {};
-    if (user.connected_now) return "Voice: ansluten nu";
-    if (Array.isArray(user.matched_user_names) && user.matched_user_names.length) return "Voice: sedd tidigare";
-    return "Voice: ingen koppling";
+    if (user.connected_now) return "Tal: ansluten";
+    if (Array.isArray(user.matched_user_names) && user.matched_user_names.length) return "Tal: tidigare sedd";
+    return "Tal: ingen koppling";
   }
 
   function _deviceVoiceTone(v) {
     var voice = (v && v.voice) || {};
     if (voice.connected_now) return "good";
-    if ((voice.matched_n || 0) > 0) return "warn";
-    return "neutral";
+    if ((Array.isArray(voice.matches) && voice.matches.length) || Number(voice.matched_n || 0) > 0) return "warn";
+    return "bad";
   }
 
   function _deviceVoiceText(v) {
     var voice = (v && v.voice) || {};
-    if (voice.connected_now) return "ANSLUTEN NU";
-    if ((voice.matched_n || 0) > 0) return "SEDD";
-    return "INGEN VOICE-TRÄFF";
+    if (voice.connected_now) return "TAL ANSLUTET";
+    if ((Array.isArray(voice.matches) && voice.matches.length) || Number(voice.matched_n || 0) > 0) return "TALTRÄFF";
+    return "INGEN TALKOPPLING";
   }
 
   function _voiceChannelsText(arr) {
@@ -189,19 +257,19 @@
   }
 
   function cotStateTone(stateText) {
-    var s = String(stateText || "").toUpperCase();
-    if (s === "CURRENT") return "good";
-    if (s === "RECENT") return "warn";
-    if (s === "STALE") return "bad";
-    if (s === "NEVER") return "neutral";
+    var s = String(stateText || "").trim().toUpperCase();
+    if (s === "Online" || s === "ONLINE" || s === "AKTIV") return "good";
+    if (s === "Nyligen" || s === "NYLIGEN") return "warn";
+    if (s === "Inaktiv" || s === "INAKTIV") return "bad";
+    if (s === "Aldrig" || s === "ALDRIG") return "neutral";
     return "neutral";
   }
 
   function onboardTone(v) {
-    var s = String(v || "").toUpperCase();
-    if (s === "DOWNLOADED" || s === "COMPLETE" || s === "ACTIVE") return "good";
-    if (s === "NEW" || s === "PACKAGE_GENERATED" || s === "QR_GENERATED") return "warn";
-    if (!s || s === "—") return "neutral";
+    var s = String(v || "").trim().toLowerCase();
+    if (s === "klar" || s === "done" || s === "active" || s === "aktiv") return "good";
+    if (s === "ny" || s === "new" || s === "påbörjad" || s === "started" || s === "inbjuden" || s === "invited" || s === "nedladdat" || s === "downloaded") return "warn";
+    if (s.indexOf("offboard") >= 0 || s.indexOf("fel") >= 0 || s.indexOf("fail") >= 0) return "bad";
     return "neutral";
   }
 
@@ -285,13 +353,13 @@
         )
       ),
       h(KV, { k: "client_uid" }, h("code", null, _colText(d.client_uid))),
-      h(KV, { k: "Observed callsign" }, _colText(d.observed_callsign)),
-      h(KV, { k: "Device" }, _colText(d.tak_device || "—")),
+      h(KV, { k: "Observerad anropssignal" }, _colText(d.observed_callsign)),
+      h(KV, { k: "Enhet" }, _colText(d.tak_device || "—")),
       h(KV, { k: "OS" }, _colText(d.tak_os || "—")),
       h(KV, { k: "Platform" }, _colText(d.tak_platform || d.client_platform || "—")),
-      h(KV, { k: "Tidigare callsigns" }, _colText(Array.isArray(d.previous_observed_callsigns) && d.previous_observed_callsigns.length ? d.previous_observed_callsigns.join(", ") : "—")),
-      h(KV, { k: "Senaste CoT" }, _colText(d.last_cot_time)),
-      h(KV, { k: "Senaste event" }, _colText(d.last_event_time)),
+      h(KV, { k: "Tidigare anropssignaler" }, _colText(Array.isArray(d.previous_observed_callsigns) && d.previous_observed_callsigns.length ? d.previous_observed_callsigns.join(", ") : "—")),
+      h(KV, { k: "Senaste CoT" }, _colText(_formatTimestampWithAge(d.last_cot_time))),
+      h(KV, { k: "Senaste event" }, _colText(_formatTimestampWithAge(d.last_event_time))),
       h(KV, { k: "Ålder" }, _colText(d.age_human)),
       h(KV, { k: "Enhet" }, _colText(d.tak_device || "—")),
       h(KV, { k: "Klient" }, _colText(
@@ -316,9 +384,9 @@
       h(KV, { k: "Revokerade cert" }, _colText(d.revoked_certs_n)),
       h(KV, { k: "CoT sedd" }, h(StatusBadge, { tone: boolTone(!!d.cot_seen), text: _yn(!!d.cot_seen) })),
       h(KV, { k: "Sedd nyligen" }, h(StatusBadge, { tone: boolTone(!!d.seen_recently), text: _yn(!!d.seen_recently) })),
-      h(KV, { k: "Voice-kanaler" }, _voiceChannelsText(voice.channel_names)),
-      h(KV, { k: "Voice-träffar" }, _colText(voice.matched_n || 0)),
-      h(KV, { k: "Voice bästa match" }, _colText(voice.best_match_mode || "—")),
+      h(KV, { k: "Talkanaler" }, _voiceChannelsText(voice.channel_names)),
+      h(KV, { k: "Talträffar" }, _colText(voice.matched_n || 0)),
+      h(KV, { k: "Bästa talmatch" }, _colText(voice.best_match_mode || "—")),
       matches.length ? h("div", {
         style: {
           marginTop: "10px",
@@ -326,7 +394,7 @@
           borderTop: "1px solid rgba(255,255,255,0.08)"
         }
       },
-        h("div", { className: "muted", style: { fontWeight: 700, marginBottom: "8px" } }, "Voice-träffar"),
+        h("div", { className: "muted", style: { fontWeight: 700, marginBottom: "8px" } }, "Talträffar"),
         matches.map(function (m, idx) {
           return h("div", {
             key: String((m && m.name) || idx),
@@ -346,7 +414,7 @@
                 marginBottom: "6px"
               }
             },
-              h(Pill, null, _colText(m.callsign || m.name || "voice-user")),
+              h(Pill, null, _colText(m.callsign || m.name || "talanvändare")),
               h(StatusBadge, { tone: m.connected_now ? "good" : "warn", text: m.connected_now ? "ANSLUTEN" : "SEDD" }),
               h(StatusBadge, { tone: "neutral", text: _colText(m.match_mode || "match") })
             ),
@@ -452,13 +520,16 @@
     var cardUrl = (userData && userData.card_url) || (card && card.card_url) || "";
     var onboardStatus = _onboardText((card.onboarding && card.onboarding.status) || (lifecycle.evidence && lifecycle.evidence.onboarding_status));
     var primaryDevice = _pickPrimaryDevice(devices);
-    var primaryStateText = primaryDevice ? _deviceStateText(primaryDevice) : (activity ? (activity.is_current === true ? "CURRENT" : (activity.seen_recently === true ? "RECENT" : "STALE")) : "NEVER");
+    var primaryStateText = primaryDevice ? _deviceStateText(primaryDevice) : (activity ? (activity.is_current === true ? "Online" : (activity.seen_recently === true ? "Nyligen" : "Inaktiv")) : "Aldrig");
     var primaryLifecycleText = String((lifecycle && (lifecycle.label || lifecycle.stage)) || primaryStateText || "—");
     var primaryLifecycleTone = (primaryLifecycleText === "Active" || String((lifecycle && lifecycle.stage) || "") === "SG3") ? "good" : cotStateTone(primaryStateText);
     var currentDevices = _countStates(devices, "current");
     var recentDevices = _countStates(devices, "recent");
     var staleDevices = _countStates(devices, "stale");
     var neverDevices = _countStates(devices, "never");
+    if ((activity && activity.cot_seen === true) || currentDevices > 0 || String((lifecycle && lifecycle.stage) || "") === "SG3") {
+      onboardStatus = "Klar";
+    }
     var voiceConnectedDevices = 0;
     voiceDevices.forEach(function (vd) {
       if (vd && vd.voice && vd.voice.connected_now) voiceConnectedDevices += 1;
@@ -477,9 +548,9 @@
         }
       },
         h(Pill, null, _colText(username)),
-        h(StatusBadge, { tone: onboardTone(onboardStatus), text: "Onboarding: " + onboardStatus }),
-        h(StatusBadge, { tone: cotStateTone(primaryStateText), text: "Primär device: " + primaryStateText }),
-        h(StatusBadge, { tone: devices.length ? "good" : "neutral", text: "Devices: " + String(devices.length) }),
+        h(StatusBadge, { tone: onboardTone(onboardStatus), text: "Introduktion: " + onboardStatus }),
+        h(StatusBadge, { tone: cotStateTone(primaryStateText), text: "CoT: " + primaryStateText }),
+        h(StatusBadge, { tone: devices.length ? "good" : "neutral", text: "Enheter: " + String(currentDevices) + " online / " + String(devices.length) + " kända" }),
         h(StatusBadge, { tone: _voiceTone(voice), text: _voiceText(voice) })
       ),
 
@@ -567,81 +638,70 @@
       },
         h("div", null,
           h(Box, null,
-            SectionTitle("Identitet"),
+            SectionTitle("Konto"),
             h(KV, { k: "Användarnamn" }, _colText(username)),
-            h(KV, { k: "Configured anropssignal" }, _colText((card.callsigns && card.callsigns.configured) || header.configured_callsign || header.callsign || ctx.callsign || ident.callsign)),
-            h(KV, { k: "Observerad nu" }, _colText((card.callsigns && card.callsigns.current_observed) || (activity && activity.callsign) || "—")),
-            h(KV, { k: "Tidigare observerade" }, _colText((function () {
+            h(KV, { k: "Konfigurerad anropssignal" }, _colText((card.callsigns && card.callsigns.configured) || header.configured_callsign || header.callsign || ctx.callsign || ident.callsign)),
+            h(KV, { k: "Online som" }, _colText((card.callsigns && card.callsigns.current_observed) || (activity && activity.callsign) || "—")),
+            h(KV, { k: "Tidigare anropssignaler" }, _colText((function () {
               var cs = (card.callsigns || {});
               var prev = Array.isArray(cs.previous_observed) ? cs.previous_observed : [];
               return prev.length ? prev.join(", ") : "—";
             })())),
             h(KV, { k: "Team" }, _colText(header.team || ctx.team || ident.team)),
-            h(KV, { k: "ATAK-roll" }, _colText(header.atak_role_type || ctx.atak_role_type || ident.atak_role_type)),
+            h(KV, { k: "TAK-roll" }, _colText(header.atak_role_type || ctx.atak_role_type || ident.atak_role_type)),
             h(KV, { k: "E-post" }, _colText(ctx.email)),
             h(KV, { k: "Grupper" }, _colText(_join(groups))),
             h(KV, { k: "Policy" }, _colText(ctx.policy_id || (card.policy && card.policy.id)))
           ),
 
           h(Box, null,
-            SectionTitle("TAKS / konto"),
-            h(KV, { k: "Origin" }, _colText(ti.origin)),
+            SectionTitle("Kontostatus"),
+            h(KV, { k: "Källa" }, _colText(ti.origin)),
             h(KV, { k: "Lösenord känt" }, h(StatusBadge, { tone: boolTone(!!ti.password_known), text: _yn(!!ti.password_known) })),
-            h(KV, { k: "Visa lösenord" }, _yn(!!(sel && sel.reveal_password))),
-            h(KV, { k: "Soldatkort" },
-              cardUrl ? h("a", { href: cardUrl, target: "_blank", rel: "noopener noreferrer" }, cardUrl) : "—"
-            )
           ),
 
-          h(Box, null,
-            SectionTitle("Paketval"),
-            h(KV, { k: "Paket-/endpointval" }, _colText(_endpointFlags(sel))),
-            h(KV, { k: "Urval sparat" }, _yn(!!(sel && sel.ctx)))
-          )
         ),
 
         h("div", null,
           h(Box, null,
-            SectionTitle("Runtime / sammanfattning"),
-            h(KV, { k: "Status" }, h(StatusBadge, { tone: ((card.lifecycle || {}).stage === "SG3") ? "good" : onboardTone(onboardStatus), text: _colText(((card.lifecycle || {}).label) || onboardStatus) })),
-            h(KV, { k: "Onboarding-record" }, _colText(onboardStatus)),
-            h(KV, { k: "Primär status" }, h(StatusBadge, { tone: primaryLifecycleTone, text: _colText(primaryLifecycleText) })),
-            h(KV, { k: "Kända devices" }, _colText(devices.length)),
-            h(KV, { k: "Current devices" }, _colText(currentDevices)),
-            h(KV, { k: "Aktivitet" }, _colText(activity && activity.callsign ? (activity.callsign + " / " + _colText(activity.uid)) : "—")),
-            h(KV, { k: "Senast sedd" }, _colText((activity && (activity.last_seen || activity.last_cot_time)) || "—")),
-            h(KV, { k: "Marti-grupper" }, _colText(_join(marti.groups)))
+            SectionTitle("Närvaro / drift"),
+            h(KV, { k: "Introduktion" }, h(StatusBadge, { tone: onboardTone(onboardStatus), text: _colText(onboardStatus) })),
+            h(KV, { k: "CoT" }, h(StatusBadge, { tone: cotStateTone(primaryStateText), text: _colText(primaryStateText) })),
+            h(KV, { k: "Enheter" }, _colText(String(currentDevices) + " online / " + String(devices.length) + " kända")),
+            h(KV, { k: "Aktuell CoT-session" }, _colText(activity && activity.callsign ? (activity.callsign + " / " + _colText(activity.uid)) : "—")),
+            h(KV, { k: "Senast sedd" }, _colText(_formatTimestampWithAge(activity && (activity.last_seen || activity.last_cot_time)))),
+            h(KV, { k: "Chat" }, _colText((card.openfire || card.xmpp) ? "XMPP + GeoChat" : ((activity && activity.cot_seen) ? "Endast GeoChat" : "—"))),
           ),
 
           h(Box, null,
             (function () {
               var matchedNames = Array.isArray(voiceUser.matched_user_names) ? voiceUser.matched_user_names : [];
               var channelNames = Array.isArray(voiceUser.channel_names) ? voiceUser.channel_names : [];
-              var statusTone = (voiceUser && voiceUser.connected_now) ? "good" : (matchedNames.length ? "warn" : "neutral");
-              var statusText = (voiceUser && voiceUser.connected_now) ? "ANSLUTEN NU" : (matchedNames.length ? "SEDD TIDIGARE" : "INGEN KOPPLING");
+              var statusTone = (voiceUser && voiceUser.connected_now) ? "good" : (matchedNames.length ? "warn" : "bad");
+              var statusText = (voiceUser && voiceUser.connected_now) ? "ANSLUTEN" : (matchedNames.length ? "TIDIGARE SEDD" : "INGEN KOPPLING");
 
               return [
-                SectionTitle("Vx / Mumble"),
+                SectionTitle("Tal"),
                 h(KV, { k: "Status" }, h(StatusBadge, { tone: statusTone, text: statusText })),
-                matchedNames.length ? h(KV, { k: "Matchade voice-namn" }, _colText(_join(matchedNames))) : null,
-                channelNames.length ? h(KV, { k: "Voice-kanaler" }, _colText(_voiceChannelsText(channelNames))) : null,
-                h(KV, { k: "Devices anslutna i voice nu" }, _colText(voiceConnectedDevices))
+                matchedNames.length ? h(KV, { k: "Matchade talnamn" }, _colText(_join(matchedNames))) : null,
+                channelNames.length ? h(KV, { k: "Talkanaler" }, _colText(_voiceChannelsText(channelNames))) : null,
+                h(KV, { k: "Enheter anslutna till tal nu" }, _colText(voiceConnectedDevices))
               ];
             })()
           ),
 
           h(Box, null,
-            SectionTitle("TAK-devices"),
-            h(DeviceSummaryRow, { label: "Current", value: currentDevices, tone: currentDevices ? "good" : "neutral" }),
-            h(DeviceSummaryRow, { label: "Recent", value: recentDevices, tone: recentDevices ? "warn" : "neutral" }),
-            h(DeviceSummaryRow, { label: "Stale", value: staleDevices, tone: staleDevices ? "bad" : "neutral" }),
-            h(DeviceSummaryRow, { label: "Never", value: neverDevices, tone: "neutral" })
+            SectionTitle("Enheter"),
+            h(DeviceSummaryRow, { label: "Online", value: currentDevices, tone: currentDevices ? "good" : "neutral" }),
+            h(DeviceSummaryRow, { label: "Nyligen", value: recentDevices, tone: recentDevices ? "warn" : "neutral" }),
+            h(DeviceSummaryRow, { label: "Inaktiv", value: staleDevices, tone: staleDevices ? "bad" : "neutral" }),
+            h(DeviceSummaryRow, { label: "Aldrig", value: neverDevices, tone: "neutral" })
           )
         )
       ),
 
       h(Box, null,
-        SectionTitle("TAK-device-detaljer", h("div", { className: "muted", style: { fontSize: "12px" } }, devices.length ? (String(devices.length) + " devices") : "Inga devices")),
+        SectionTitle("Enhetsdetaljer", h("div", { className: "muted", style: { fontSize: "12px" } }, devices.length ? (String(devices.length) + " enheter") : "Inga enheter")),
         devices.length ? h("div", {
           style: {
             display: "grid",
@@ -656,7 +716,7 @@
             device: d,
             voiceDevice: vd
           });
-        })) : h("div", { className: "muted" }, "Inga devices hittades för användaren.")
+        })) : h("div", { className: "muted" }, "Inga enheter hittades för användaren.")
       ),
 
       h(Box, null,
