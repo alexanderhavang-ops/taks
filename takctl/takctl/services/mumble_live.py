@@ -7,6 +7,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
+import time
 
 
 MARTINE_VENV_PYTHON = Path("/opt/tak/tools/martine/.venv/bin/python")
@@ -399,13 +400,60 @@ if __name__ == "__main__":
 """
 
 
+
+_MUMBLE_LIVE_CACHE = None
+_MUMBLE_LIVE_CACHE_TS = 0.0
+_MUMBLE_LIVE_CACHE_TTL = 0.0
+
+
+def _mumble_live_clone(data: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        return json.loads(json.dumps(data or {}, ensure_ascii=False, default=str))
+    except Exception:
+        return dict(data or {})
+
+
+def _mumble_live_cache_get() -> Dict[str, Any] | None:
+    global _MUMBLE_LIVE_CACHE, _MUMBLE_LIVE_CACHE_TS, _MUMBLE_LIVE_CACHE_TTL
+
+    if _MUMBLE_LIVE_CACHE is None:
+        return None
+
+    age = time.monotonic() - float(_MUMBLE_LIVE_CACHE_TS or 0.0)
+    ttl = float(_MUMBLE_LIVE_CACHE_TTL or 0.0)
+    if ttl <= 0 or age >= ttl:
+        return None
+
+    out = _mumble_live_clone(_MUMBLE_LIVE_CACHE)
+    meta = dict(out.get("meta") or {})
+    meta["generated_at"] = _utc_now_iso()
+    meta["cache_hit"] = True
+    meta["cache_age_sec"] = int(age)
+    meta["cache_ttl_sec"] = int(ttl)
+    out["meta"] = meta
+    return out
+
+
+def _mumble_live_cache_store(data: Dict[str, Any], *, ttl_sec: int) -> None:
+    global _MUMBLE_LIVE_CACHE, _MUMBLE_LIVE_CACHE_TS, _MUMBLE_LIVE_CACHE_TTL
+
+    _MUMBLE_LIVE_CACHE = _mumble_live_clone(data)
+    _MUMBLE_LIVE_CACHE_TS = time.monotonic()
+    _MUMBLE_LIVE_CACHE_TTL = float(max(1, int(ttl_sec)))
+
+
 def snapshot_mumble_live() -> Dict[str, Any]:
+    cached = _mumble_live_cache_get()
+    if cached is not None:
+        return cached
+
     host, port = _load_host_port()
 
     out: Dict[str, Any] = {
         "meta": {
             "generated_at": _utc_now_iso(),
             "source": "takctl.services.mumble_live",
+            "cache_hit": False,
         },
         "server": {
             "host": host,
@@ -419,12 +467,14 @@ def snapshot_mumble_live() -> Dict[str, Any]:
 
     if not MARTINE_VENV_PYTHON.exists():
         out["error"] = f"missing martine python: {MARTINE_VENV_PYTHON}"
+        _mumble_live_cache_store(out, ttl_sec=60)
         return out
 
     try:
         password = _load_server_password()
     except Exception as e:
         out["error"] = f"password load failed: {type(e).__name__}: {e}"
+        _mumble_live_cache_store(out, ttl_sec=60)
         return out
 
     env = dict(os.environ)
@@ -444,9 +494,11 @@ def snapshot_mumble_live() -> Dict[str, Any]:
         )
     except subprocess.TimeoutExpired:
         out["error"] = "mumble live probe timed out"
+        _mumble_live_cache_store(out, ttl_sec=60)
         return out
     except Exception as e:
         out["error"] = f"mumble live probe failed: {type(e).__name__}: {e}"
+        _mumble_live_cache_store(out, ttl_sec=60)
         return out
 
     stdout = (p.stdout or "").strip()
@@ -454,10 +506,12 @@ def snapshot_mumble_live() -> Dict[str, Any]:
 
     if p.returncode != 0:
         out["error"] = stderr or stdout or f"probe failed with rc={p.returncode}"
+        _mumble_live_cache_store(out, ttl_sec=60)
         return out
 
     if not stdout:
         out["error"] = "probe returned empty output"
+        _mumble_live_cache_store(out, ttl_sec=60)
         return out
 
     try:
@@ -467,14 +521,39 @@ def snapshot_mumble_live() -> Dict[str, Any]:
         out["probe_stdout"] = stdout[-4000:]
         if stderr:
             out["probe_stderr"] = stderr[-2000:]
+        _mumble_live_cache_store(out, ttl_sec=60)
         return out
 
-    if isinstance(parsed, dict):
-        parsed_meta = dict(parsed.get("meta") or {})
-        parsed_meta["generated_at"] = _utc_now_iso()
-        parsed_meta["source"] = "takctl.services.mumble_live"
-        parsed["meta"] = parsed_meta
+    if not isinstance(parsed, dict):
+        out["error"] = "probe output was not a json object"
+        _mumble_live_cache_store(out, ttl_sec=60)
+        return out
+
+    parsed_meta = dict(parsed.get("meta") or {})
+    parsed_meta["generated_at"] = _utc_now_iso()
+    parsed_meta["source"] = "takctl.services.mumble_live"
+    parsed_meta["cache_hit"] = False
+    parsed["meta"] = parsed_meta
+
+    server = dict(parsed.get("server") or {})
+    channels = list(parsed.get("channels") or [])
+    users = list(parsed.get("users") or [])
+
+    # A real synchronized Mumble view should at least contain Root.
+    # If Murmur has globally banned the local probe, PyMumble can still make this
+    # look half-connected while returning an empty tree. Treat that as failed and
+    # cache the failure long enough to stop feeding the ban loop.
+    if bool(server.get("connected")) and len(channels) == 0:
+        server["connected"] = False
+        parsed["server"] = server
+        parsed["error"] = (
+            parsed.get("error")
+            or "mumble live probe returned zero channels; likely not synchronized or localhost is temporarily globally banned"
+        )
+        _mumble_live_cache_store(parsed, ttl_sec=60)
         return parsed
 
-    out["error"] = "probe output was not a json object"
-    return out
+    # Normal success: cache briefly so the UI poller does not create a new
+    # authenticated Mumble connection for every status/card/detail request.
+    _mumble_live_cache_store(parsed, ttl_sec=30)
+    return parsed

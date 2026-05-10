@@ -105,18 +105,32 @@ def build_voice_assignment(
     server = dict(snap.get("server") or {})
     live_users = list(snap.get("users") or [])
 
-    header_callsign_norm = _norm_token(header_callsign)
+    configured_callsign_norm = _norm_token(header_callsign)
+    username_norm = _norm_token(username)
 
-    header_matches: List[Dict[str, Any]] = []
+    configured_matches: List[Dict[str, Any]] = []
+    username_matches: List[Dict[str, Any]] = []
     device_matches_by_key: Dict[str, List[Dict[str, Any]]] = {}
 
     for vu in live_users:
         voice_callsign_norm = _norm_token(vu.get("callsign"))
-        if not header_callsign_norm or voice_callsign_norm != header_callsign_norm:
-            continue
+        voice_name_norm = _norm_token(vu.get("name"))
 
-        header_matches.append(_copy_match(vu, match_mode="header_callsign", match_rank=120))
+        if configured_callsign_norm and voice_callsign_norm == configured_callsign_norm:
+            configured_matches.append(_copy_match(vu, match_mode="configured_callsign", match_rank=120))
 
+        if username_norm and (voice_name_norm == username_norm or voice_callsign_norm == username_norm):
+            username_matches.append(_copy_match(vu, match_mode="username", match_rank=300))
+
+        # Important: always try device matching.
+        #
+        # Mumble/Vx names are usually callsign-based:
+        #   EAPQ2---<vx-local-uuid>
+        #
+        # The suffix is not necessarily the TAK/CoT client_uid, so the most useful
+        # signal is often observed CoT callsign. Do not gate this behind the
+        # configured/header callsign, because configured callsign can differ from
+        # what the TAK client is actually emitting.
         ranked_devices = _ranked_device_matches_for_voice_user(
             voice_user=vu,
             devices=devices,
@@ -124,13 +138,12 @@ def build_voice_assignment(
 
         for rank, device in ranked_devices:
             key = str(device.get("client_uid") or "").strip() + "\x1f" + str(device.get("observed_callsign") or "").strip()
-            mode = "unknown"
             if rank >= 400:
                 mode = "client_uid_suffix"
             elif rank >= 250:
-                mode = "callsign_unique_current"
+                mode = "observed_callsign_unique_current"
             elif rank >= 200:
-                mode = "callsign_unique_device"
+                mode = "observed_callsign_unique_device"
             else:
                 mode = "single_device_callsign"
 
@@ -138,7 +151,14 @@ def build_voice_assignment(
                 _copy_match(vu, match_mode=mode, match_rank=rank)
             )
 
-    header_matches.sort(
+    configured_matches.sort(
+        key=lambda m: (
+            -int(m.get("match_rank") or 0),
+            str(m.get("channel_name") or ""),
+            str(m.get("name") or ""),
+        )
+    )
+    username_matches.sort(
         key=lambda m: (
             -int(m.get("match_rank") or 0),
             str(m.get("channel_name") or ""),
@@ -147,6 +167,8 @@ def build_voice_assignment(
     )
 
     devices_out: List[Dict[str, Any]] = []
+    device_user_matches: List[Dict[str, Any]] = []
+
     for d in devices:
         key = str(d.get("client_uid") or "").strip() + "\x1f" + str(d.get("observed_callsign") or "").strip()
         matches = list(device_matches_by_key.get(key) or [])
@@ -157,17 +179,40 @@ def build_voice_assignment(
                 str(m.get("name") or ""),
             )
         )
+        device_user_matches.extend(matches)
         devices_out.append(_device_out(d, matches))
+
+    all_matches: List[Dict[str, Any]] = []
+    seen_match_keys = set()
+    for m in username_matches + configured_matches + device_user_matches:
+        k = (
+            str(m.get("name") or ""),
+            str(m.get("session") or ""),
+            str(m.get("channel_name") or ""),
+            str(m.get("match_mode") or ""),
+        )
+        if k in seen_match_keys:
+            continue
+        seen_match_keys.add(k)
+        all_matches.append(m)
+
+    all_matches.sort(
+        key=lambda m: (
+            -int(m.get("match_rank") or 0),
+            str(m.get("channel_name") or ""),
+            str(m.get("name") or ""),
+        )
+    )
 
     user_channel_names = sorted(
         {
             str(m.get("channel_name") or "").strip()
-            for m in header_matches
+            for m in all_matches
             if str(m.get("channel_name") or "").strip()
         }
     )
 
-    connected_now = any(bool(m.get("connected_now")) for m in header_matches)
+    connected_now = any(bool(m.get("connected_now")) for m in all_matches)
 
     out = {
         "ok": True,
@@ -184,10 +229,14 @@ def build_voice_assignment(
         "error": snap.get("error"),
         "user": {
             "callsign": str(header_callsign or "").strip(),
+            "configured_callsign": str(header_callsign or "").strip(),
             "connected_now": connected_now,
             "channel_names": user_channel_names,
-            "matched_user_names": [str(m.get("name") or "") for m in header_matches],
-            "header_matches": header_matches,
+            "matched_user_names": [str(m.get("name") or "") for m in all_matches],
+            "header_matches": configured_matches,
+            "configured_matches": configured_matches,
+            "username_matches": username_matches,
+            "matches": all_matches,
         },
         "devices": devices_out,
         "raw_counts": {

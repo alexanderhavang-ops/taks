@@ -100,8 +100,11 @@ def _build_identity(*, ident: Optional[UserIdentity]) -> Dict[str, Any]:
 
     ctx = ident.ctx or {}
     policy_id = _policy_id_from_ctx(ctx)
+    # ident.identity is cached/derived display material and can become stale.
+    # The configured callsign must be exactly one current value from ctx/user
+    # edit state first, then policy-derived fallback, then legacy cached fallback.
     derived0 = ident.identity or {}
-    derived = _derive_if_missing(policy_id=policy_id, ctx=ctx, derived=derived0)
+    derived = _derive_if_missing(policy_id=policy_id, ctx=ctx, derived={})
 
     return {
         "battalion": ctx.get("battalion"),
@@ -111,10 +114,10 @@ def _build_identity(*, ident: Optional[UserIdentity]) -> Dict[str, Any]:
         "squad": ctx.get("squad"),
         "role": ctx.get("role"),
         "battalion_role": ctx.get("battalion_role"),
-        "callsign": derived.get("callsign"),
-        "team": derived.get("team"),
-        "team_color": derived.get("team_color"),
-        "atak_role_type": derived.get("atak_role_type"),
+        "callsign": ctx.get("callsign") or derived.get("callsign") or derived0.get("callsign"),
+        "team": ctx.get("team") or derived.get("team") or derived0.get("team"),
+        "team_color": ctx.get("team_color") or derived.get("team_color") or derived0.get("team_color"),
+        "atak_role_type": ctx.get("atak_role_type") or derived.get("atak_role_type") or derived0.get("atak_role_type"),
     }
 
 
@@ -129,6 +132,71 @@ def _build_header(*, username: str, identity: Dict[str, Any], groups: List[str],
         "team_color": identity.get("team_color"),
         "groups": list(groups),
         "policy_id": policy_id,
+    }
+
+
+def _is_system_presence_row(row: Dict[str, Any]) -> bool:
+    vals = [
+        row.get("uid"),
+        row.get("callsign"),
+        row.get("username"),
+        row.get("observed_callsign"),
+        row.get("current_observed_callsign"),
+    ]
+    toks = {str(v or "").strip().lower() for v in vals if str(v or "").strip()}
+    return (
+        "android-martine" in toks
+        or "martine" in toks
+        or any(t.startswith("android-martine") for t in toks)
+    )
+
+
+def _observed_callsigns_from_devices(devices: List[Dict[str, Any]]) -> List[str]:
+    out: List[str] = []
+    seen = set()
+
+    def add(value: Any) -> None:
+        v = str(value or "").strip()
+        if not v:
+            return
+        key = v.upper()
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(v)
+
+    for d in devices or []:
+        add((d or {}).get("current_observed_callsign"))
+        add((d or {}).get("observed_callsign"))
+        for key in ("observed_callsigns", "callsign_history", "previous_observed_callsigns"):
+            vals = (d or {}).get(key)
+            if isinstance(vals, list):
+                for v in vals:
+                    add(v)
+        for ep in ((d or {}).get("endpoint_rows") or []):
+            if isinstance(ep, dict):
+                add(ep.get("callsign"))
+
+    return out
+
+
+def _build_callsigns_summary(*, configured_callsign: str, observed_callsigns: List[str]) -> Dict[str, Any]:
+    cfg = str(configured_callsign or "").strip()
+    obs = [str(x or "").strip() for x in (observed_callsigns or []) if str(x or "").strip()]
+    current = obs[0] if obs else ""
+    prev = [x for x in obs[1:] if str(x or "").strip().upper() != str(current or "").strip().upper()]
+
+    cfg_key = cfg.upper()
+    obs_keys = {x.upper() for x in obs}
+    mismatch = bool(cfg and obs_keys and (cfg_key not in obs_keys or any(x != cfg_key for x in obs_keys)))
+
+    return {
+        "configured": cfg,
+        "current_observed": current,
+        "observed": obs,
+        "previous_observed": prev,
+        "observed_n": len(obs),
+        "mismatch": mismatch,
     }
 
 
@@ -511,9 +579,42 @@ def _build_voice_summary(voice: Dict[str, Any]) -> Dict[str, Any]:
     server = dict((voice or {}).get("server") or {})
     raw_counts = dict((voice or {}).get("raw_counts") or {})
     user = dict((voice or {}).get("user") or {})
-    header_matches = list(user.get("header_matches") or [])
 
-    matched_connected_users = sum(1 for m in header_matches if bool(m.get("connected_now")))
+    seen_sessions = set()
+    channel_names: List[str] = []
+
+    def add_channel(v: Any) -> None:
+        s = str(v or "").strip()
+        if s and s not in channel_names:
+            channel_names.append(s)
+
+    def add_match(m: Dict[str, Any]) -> None:
+        if not bool((m or {}).get("connected_now")):
+            return
+        key = str((m or {}).get("session") or (m or {}).get("name") or (m or {}).get("callsign") or "").strip()
+        if key:
+            seen_sessions.add(key)
+        add_channel((m or {}).get("channel_name"))
+
+    for key in ("matches", "header_matches", "configured_matches", "username_matches"):
+        for m in list(user.get(key) or []):
+            if isinstance(m, dict):
+                add_match(m)
+
+    device_connected_now = 0
+    seen_device_keys = set()
+    for d in list((voice or {}).get("devices") or []):
+        dv = dict((d or {}).get("voice") or {})
+        if bool(dv.get("connected_now")):
+            dk = str((d or {}).get("client_uid") or (d or {}).get("observed_callsign") or "").strip()
+            if dk and dk not in seen_device_keys:
+                seen_device_keys.add(dk)
+                device_connected_now += 1
+        for ch in list(dv.get("channel_names") or []):
+            add_channel(ch)
+        for m in list(dv.get("matches") or []):
+            if isinstance(m, dict):
+                add_match(m)
 
     return {
         "server": {
@@ -522,8 +623,12 @@ def _build_voice_summary(voice: Dict[str, Any]) -> Dict[str, Any]:
             "connected": bool(server.get("connected")),
         },
         "live_users": int(raw_counts.get("users") or 0),
-        "matched_connected_users": int(matched_connected_users),
+        "matched_connected_users": int(len(seen_sessions)),
+        "device_connected_now": int(device_connected_now),
+        "connected_now": bool(seen_sessions or device_connected_now or user.get("connected_now")),
+        "channel_names": sorted(channel_names),
     }
+
 
 
 @dataclass(frozen=True)
@@ -578,6 +683,7 @@ class OnboardingService:
                 limit=int(unknown_limit),
                 recent_minutes=int(recent_minutes),
             )
+            unknown = [e for e in unknown if not _is_system_presence_row(e)]
             for username in usernames:
                 cert_summaries[username] = _fetch_user_dn_cert_summary(db, username)
         else:
@@ -608,7 +714,21 @@ class OnboardingService:
                 policy_id=policy_id,
             )
 
-            devices = list(devices_map.get(r.username) or [])
+            devices = list(devices_map.get(r.username, []) or [])
+            observed_callsigns = _observed_callsigns_from_devices(devices)
+            configured_callsign = str(identity.get("callsign") or header.get("callsign") or r.username).strip()
+            header = dict(header)
+            header["callsign"] = configured_callsign
+
+            callsigns = _build_callsigns_summary(
+                configured_callsign=configured_callsign,
+                observed_callsigns=observed_callsigns,
+            )
+            header["configured_callsign"] = callsigns.get("configured")
+            header["current_observed_callsign"] = callsigns.get("current_observed")
+            header["observed_callsigns"] = ([callsigns.get("current_observed")] if callsigns.get("current_observed") else [])
+            header["previous_observed_callsigns"] = list(callsigns.get("previous_observed") or [])
+            header["all_observed_callsigns"] = list(callsigns.get("observed") or [])
             activity = _build_activity_from_devices(devices, recent_minutes=int(recent_minutes))
             cert_summary = cert_summaries.get(r.username) or {"count": 0, "revoked_count": 0, "latest_cert": None}
             marti_client = _build_marti_client_summary(
@@ -650,6 +770,12 @@ class OnboardingService:
             users_out.append(
                 {
                     "header": header,
+                    "configured_callsign": configured_callsign,
+                    "observed_callsigns": observed_callsigns,
+                    "callsigns": _build_callsigns_summary(
+                        configured_callsign=configured_callsign,
+                        observed_callsigns=observed_callsigns,
+                    ),
                     "identity": identity,
                     "marti": {"groups": list(r.groups), "client": marti_client},
                     "policy": {"id": policy_id},
@@ -735,6 +861,22 @@ class OnboardingService:
             groups=list(u.groups),
             policy_id=policy_id,
         )
+        observed_callsigns = _observed_callsigns_from_devices(devices)
+        configured_callsign = str(identity.get("callsign") or header.get("callsign") or username).strip()
+        header = dict(header)
+        header["callsign"] = configured_callsign
+        header["configured_callsign"] = configured_callsign
+        observed_callsigns = _observed_callsigns_from_devices(devices)
+        callsigns = _build_callsigns_summary(
+            configured_callsign=str(header.get("callsign") or username),
+            observed_callsigns=observed_callsigns,
+        )
+        header["configured_callsign"] = callsigns.get("configured")
+
+        header["current_observed_callsign"] = callsigns.get("current_observed")
+        header["observed_callsigns"] = ([callsigns.get("current_observed")] if callsigns.get("current_observed") else [])
+        header["previous_observed_callsigns"] = list(callsigns.get("previous_observed") or [])
+        header["all_observed_callsigns"] = list(callsigns.get("observed") or [])
 
         lifecycle = _compute_lifecycle(
             username=username,
@@ -766,11 +908,18 @@ class OnboardingService:
 
         return {
             "header": header,
+            "configured_callsign": configured_callsign,
+            "observed_callsigns": observed_callsigns,
+            "callsigns": _build_callsigns_summary(
+                configured_callsign=configured_callsign,
+                observed_callsigns=observed_callsigns,
+            ),
             "identity": identity,
             "marti": {"groups": list(u.groups), "client": marti_client},
             "policy": {"id": policy_id},
             "authority": _build_authority(ident=ident, backing_user_store=self.backing_user_store),
             "lifecycle": lifecycle,
+            "onboarding_status": _status_value(rec) or OnboardingStatus.NEW.value,
             "onboarding": _build_onboarding_out(rec),
             "activity": activity,
             "devices": devices,

@@ -24,8 +24,22 @@
 
   lib.bestDevice = function (userRow) {
     const ds = (userRow && Array.isArray(userRow.devices)) ? userRow.devices : [];
-    if (ds.length) return ds[0] || null;
-    return null;
+    if (!ds.length) return null;
+
+    function score(d) {
+      const st = String((d && d.state) || "").toLowerCase();
+      if (st === "current") return 400;
+      if (st === "recent") return 300;
+      if (st === "stale") return 200;
+      return 100;
+    }
+
+    return ds.slice().sort(function (a, b) {
+      const sa = score(a), sb = score(b);
+      if (sa !== sb) return sb - sa;
+      return String((b && b.last_cot_time) || (b && b.last_event_time) || "")
+        .localeCompare(String((a && a.last_cot_time) || (a && a.last_event_time) || ""));
+    })[0] || null;
   };
 
   lib.userState = function (userRow) {
@@ -52,8 +66,9 @@
     const act = device.activity || {};
     const ep = device.endpoint || {};
     const cs = act.callsign || device.observed_callsign || ep.callsign || "";
+    const dev = device.tak_device || "";
     const uid = device.client_uid || ep.uid || act.uid || "";
-    const t = (cs + " " + uid).trim();
+    const t = [cs, dev, uid].filter(function (x) { return String(x || "").trim().length; }).join(" / ");
     return t.length ? t : "—";
   };
 

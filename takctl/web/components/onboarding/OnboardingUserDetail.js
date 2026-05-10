@@ -276,7 +276,7 @@
             flexWrap: "wrap"
           }
         },
-          h(Pill, null, _colText(d.observed_callsign || d.client_uid || "device")),
+          h(Pill, null, _colText([d.observed_callsign, d.tak_device].filter(Boolean).join(" / ") || d.client_uid || "device")),
           h(StatusBadge, { tone: cotStateTone(stateText), text: stateText }),
           h(StatusBadge, { tone: _deviceVoiceTone(voiceDevice), text: _deviceVoiceText(voiceDevice) })
         ),
@@ -286,9 +286,14 @@
       ),
       h(KV, { k: "client_uid" }, h("code", null, _colText(d.client_uid))),
       h(KV, { k: "Observed callsign" }, _colText(d.observed_callsign)),
+      h(KV, { k: "Device" }, _colText(d.tak_device || "—")),
+      h(KV, { k: "OS" }, _colText(d.tak_os || "—")),
+      h(KV, { k: "Platform" }, _colText(d.tak_platform || d.client_platform || "—")),
+      h(KV, { k: "Tidigare callsigns" }, _colText(Array.isArray(d.previous_observed_callsigns) && d.previous_observed_callsigns.length ? d.previous_observed_callsigns.join(", ") : "—")),
       h(KV, { k: "Senaste CoT" }, _colText(d.last_cot_time)),
       h(KV, { k: "Senaste event" }, _colText(d.last_event_time)),
       h(KV, { k: "Ålder" }, _colText(d.age_human)),
+      h(KV, { k: "Enhet" }, _colText(d.tak_device || "—")),
       h(KV, { k: "Klient" }, _colText(
         (function () {
           var p = String(d.client_platform || d.tak_platform || "").trim();
@@ -448,6 +453,8 @@
     var onboardStatus = _onboardText((card.onboarding && card.onboarding.status) || (lifecycle.evidence && lifecycle.evidence.onboarding_status));
     var primaryDevice = _pickPrimaryDevice(devices);
     var primaryStateText = primaryDevice ? _deviceStateText(primaryDevice) : (activity ? (activity.is_current === true ? "CURRENT" : (activity.seen_recently === true ? "RECENT" : "STALE")) : "NEVER");
+    var primaryLifecycleText = String((lifecycle && (lifecycle.label || lifecycle.stage)) || primaryStateText || "—");
+    var primaryLifecycleTone = (primaryLifecycleText === "Active" || String((lifecycle && lifecycle.stage) || "") === "SG3") ? "good" : cotStateTone(primaryStateText);
     var currentDevices = _countStates(devices, "current");
     var recentDevices = _countStates(devices, "recent");
     var staleDevices = _countStates(devices, "stale");
@@ -562,7 +569,13 @@
           h(Box, null,
             SectionTitle("Identitet"),
             h(KV, { k: "Användarnamn" }, _colText(username)),
-            h(KV, { k: "Anropssignal" }, _colText(header.callsign || ctx.callsign || ident.callsign)),
+            h(KV, { k: "Configured anropssignal" }, _colText((card.callsigns && card.callsigns.configured) || header.configured_callsign || header.callsign || ctx.callsign || ident.callsign)),
+            h(KV, { k: "Observerad nu" }, _colText((card.callsigns && card.callsigns.current_observed) || (activity && activity.callsign) || "—")),
+            h(KV, { k: "Tidigare observerade" }, _colText((function () {
+              var cs = (card.callsigns || {});
+              var prev = Array.isArray(cs.previous_observed) ? cs.previous_observed : [];
+              return prev.length ? prev.join(", ") : "—";
+            })())),
             h(KV, { k: "Team" }, _colText(header.team || ctx.team || ident.team)),
             h(KV, { k: "ATAK-roll" }, _colText(header.atak_role_type || ctx.atak_role_type || ident.atak_role_type)),
             h(KV, { k: "E-post" }, _colText(ctx.email)),
@@ -590,9 +603,11 @@
         h("div", null,
           h(Box, null,
             SectionTitle("Runtime / sammanfattning"),
-            h(KV, { k: "Onboarding-status" }, h(StatusBadge, { tone: onboardTone(onboardStatus), text: onboardStatus })),
-            h(KV, { k: "Primär status" }, h(StatusBadge, { tone: cotStateTone(primaryStateText), text: _colText(primaryStateText) })),
-            h(KV, { k: "Devices" }, _colText(devices.length)),
+            h(KV, { k: "Status" }, h(StatusBadge, { tone: ((card.lifecycle || {}).stage === "SG3") ? "good" : onboardTone(onboardStatus), text: _colText(((card.lifecycle || {}).label) || onboardStatus) })),
+            h(KV, { k: "Onboarding-record" }, _colText(onboardStatus)),
+            h(KV, { k: "Primär status" }, h(StatusBadge, { tone: primaryLifecycleTone, text: _colText(primaryLifecycleText) })),
+            h(KV, { k: "Kända devices" }, _colText(devices.length)),
+            h(KV, { k: "Current devices" }, _colText(currentDevices)),
             h(KV, { k: "Aktivitet" }, _colText(activity && activity.callsign ? (activity.callsign + " / " + _colText(activity.uid)) : "—")),
             h(KV, { k: "Senast sedd" }, _colText((activity && (activity.last_seen || activity.last_cot_time)) || "—")),
             h(KV, { k: "Marti-grupper" }, _colText(_join(marti.groups)))
@@ -606,7 +621,7 @@
               var statusText = (voiceUser && voiceUser.connected_now) ? "ANSLUTEN NU" : (matchedNames.length ? "SEDD TIDIGARE" : "INGEN KOPPLING");
 
               return [
-                SectionTitle("Voice"),
+                SectionTitle("Vx / Mumble"),
                 h(KV, { k: "Status" }, h(StatusBadge, { tone: statusTone, text: statusText })),
                 matchedNames.length ? h(KV, { k: "Matchade voice-namn" }, _colText(_join(matchedNames))) : null,
                 channelNames.length ? h(KV, { k: "Voice-kanaler" }, _colText(_voiceChannelsText(channelNames))) : null,
@@ -616,7 +631,7 @@
           ),
 
           h(Box, null,
-            SectionTitle("Devices"),
+            SectionTitle("TAK-devices"),
             h(DeviceSummaryRow, { label: "Current", value: currentDevices, tone: currentDevices ? "good" : "neutral" }),
             h(DeviceSummaryRow, { label: "Recent", value: recentDevices, tone: recentDevices ? "warn" : "neutral" }),
             h(DeviceSummaryRow, { label: "Stale", value: staleDevices, tone: staleDevices ? "bad" : "neutral" }),
@@ -626,7 +641,7 @@
       ),
 
       h(Box, null,
-        SectionTitle("Device-detaljer", h("div", { className: "muted", style: { fontSize: "12px" } }, devices.length ? (String(devices.length) + " devices") : "Inga devices")),
+        SectionTitle("TAK-device-detaljer", h("div", { className: "muted", style: { fontSize: "12px" } }, devices.length ? (String(devices.length) + " devices") : "Inga devices")),
         devices.length ? h("div", {
           style: {
             display: "grid",

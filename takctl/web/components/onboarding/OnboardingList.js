@@ -16,7 +16,7 @@
   function _deviceTail(device){ return _needLib().deviceTail(device); }
 
   const PRINT_MODES = [
-    { id: "cards", label: "Cards only" },
+    { id: "cards", label: "Endast kort" },
     { id: "passwords", label: "Passwords only" },
     { id: "cards_inline_passwords", label: "Cards + passwords same page" },
     { id: "cards_then_passwords", label: "Cards + passwords separate pages" },
@@ -271,21 +271,336 @@
 
   function _deviceSummary(row) {
     const ds = (row && Array.isArray(row.devices)) ? row.devices : [];
-    if (!ds.length) return "0";
+    if (!ds.length) return "0 kända";
+
     let current = 0, recent = 0, stale = 0, never = 0;
     ds.forEach(function (d) {
-      const s = String((d && d.state) || "never");
-      if (s === "current") current += 1;
-      else if (s === "recent") recent += 1;
-      else if (s === "stale") stale += 1;
+      const st = String((d && d.state) || "never").toLowerCase();
+      if (st === "current") current += 1;
+      else if (st === "recent") recent += 1;
+      else if (st === "stale") stale += 1;
       else never += 1;
     });
+
     const bits = [];
-    if (current) bits.push("C:" + current);
-    if (recent) bits.push("R:" + recent);
-    if (stale) bits.push("S:" + stale);
-    if (never) bits.push("N:" + never);
-    return String(ds.length) + " (" + bits.join(" ") + ")";
+    if (current) bits.push(String(current) + " current");
+    if (recent) bits.push(String(recent) + " recent");
+    if (stale) bits.push(String(stale) + " stale");
+    if (never) bits.push(String(never) + " never");
+
+    return bits.join(" / ") + " / " + String(ds.length) + " kända";
+  }
+
+  function _displayLifecycle(row) {
+    const lc = (row && row.lifecycle) || {};
+    return String(lc.label || lc.stage || (row && row.onboarding_status) || "—");
+  }
+
+  function _callsignLine(row) {
+    const h = (row && row.header) || {};
+    const cs = (row && row.callsigns) || {};
+    const configured = String(h.configured_callsign || h.callsign || cs.configured || "").trim();
+    const observed = String(h.current_observed_callsign || cs.current_observed || "").trim();
+
+    if (configured && observed && configured.toUpperCase() !== observed.toUpperCase()) {
+      return "cfg " + configured + " / obs " + observed;
+    }
+    return configured || observed || "—";
+  }
+
+  function _callsignSummaryText(row) {
+    const h = (row && row.header) || {};
+    const cs = (row && row.callsigns) || {};
+    const configured = String(h.configured_callsign || cs.configured || h.callsign || "").trim();
+    const observed = String(h.current_observed_callsign || cs.current_observed || "").trim();
+
+    if (configured && observed && configured.toUpperCase() !== observed.toUpperCase()) {
+      return "cfg " + configured + " / obs " + observed;
+    }
+    return configured || observed || "—";
+  }
+
+  function _primaryStatusLabel(row) {
+    const lc = (row && row.lifecycle) || {};
+    const label = String(lc.label || "").trim();
+    const stage = String(lc.stage || "").trim();
+
+    if (label) return label;
+    if (stage) return stage;
+
+    const state = String(_userState(row) || "").trim();
+    return state || "—";
+  }
+
+  function _primaryStatusTone(row) {
+    const lc = (row && row.lifecycle) || {};
+    const stage = String(lc.stage || "");
+    const label = String(lc.label || "").toLowerCase();
+
+    if (stage === "SG3" || label === "active") return "good";
+    if (stage === "SG4" || label.indexOf("offboard") >= 0) return "bad";
+
+    const state = String(_userState(row) || "").toLowerCase();
+    if (state === "current") return "good";
+    if (state === "recent") return "warn";
+    if (state === "stale") return "bad";
+    return "neutral";
+  }
+
+  function _asArray(v) {
+    return Array.isArray(v) ? v : [];
+  }
+
+  function _deviceState(d) {
+    return String((d && d.state) || "never").toLowerCase();
+  }
+
+  function _isOnlineDevice(d) {
+    return _deviceState(d) === "current" || d && d.is_current === true;
+  }
+
+  function _devicesForRow(row) {
+    return _asArray(row && row.devices);
+  }
+
+  function _currentDevices(row) {
+    return _devicesForRow(row).filter(_isOnlineDevice);
+  }
+
+  function _oldDevices(row) {
+    return _devicesForRow(row).filter(function (d) { return !_isOnlineDevice(d); });
+  }
+
+  function _deviceKey(d, idx) {
+    return [
+      String((d && d.client_uid) || ""),
+      String((d && d.observed_callsign) || ""),
+      String((d && d.endpoint_id) || idx || "")
+    ].join(":");
+  }
+
+  function _deviceName(d) {
+    if (!d) return "—";
+    const callsign = String(d.observed_callsign || d.current_observed_callsign || "").trim();
+    const dev = String(d.tak_device || "").trim();
+    const platform = String(d.tak_platform || d.client_platform || "").trim();
+
+    const bits = [];
+    if (callsign) bits.push(callsign);
+    if (dev) bits.push(dev);
+    else if (platform) bits.push(platform);
+
+    return bits.length ? bits.join(" / ") : String(d.client_uid || "device");
+  }
+
+  function _deviceTech(d) {
+    if (!d) return "—";
+    const dev = String(d.tak_device || "").trim();
+    const platform = String(d.tak_platform || d.client_platform || "").trim();
+    const version = String(d.tak_version || d.client_version || "").trim();
+
+    const bits = [];
+    if (dev) bits.push(dev);
+    if (platform) bits.push(platform);
+    if (version && bits.length < 2) bits.push(version);
+
+    return bits.length ? bits.join(" / ") : String(d.client_uid || "—");
+  }
+
+  function _configuredCallsign(row) {
+    const h = (row && row.header) || {};
+    const cs = (row && row.callsigns) || {};
+    return String(h.configured_callsign || cs.configured || h.callsign || "").trim();
+  }
+
+  function _currentObservedCallsign(row) {
+    const h = (row && row.header) || {};
+    const cs = (row && row.callsigns) || {};
+    return String(h.current_observed_callsign || cs.current_observed || "").trim();
+  }
+
+  function _accountLabel(row) {
+    const h = (row && row.header) || {};
+    const username = String(h.username || row.username || "").trim();
+    const configured = _configuredCallsign(row);
+    return configured ? (username + " (" + configured + ")") : (username || "—");
+  }
+
+  function _callsignWarning(row) {
+    const configured = _configuredCallsign(row);
+    const observed = _currentObservedCallsign(row);
+    if (configured && observed && configured.toUpperCase() !== observed.toUpperCase()) {
+      return "Online som " + observed;
+    }
+    return "";
+  }
+
+  function _onboardingText(row) {
+    const activity = (row && row.activity) || {};
+    const current = _currentDevices(row);
+    if (activity.cot_seen === true || current.length > 0) return "Klar";
+
+    const raw = String((row && row.onboarding_status) || "").trim().toLowerCase();
+    if (!raw) return "Pending";
+    if (raw === "new") return "Pending";
+    if (raw === "emailed") return "Mail sent";
+    if (raw === "printed") return "Card printed";
+    return raw.charAt(0).toUpperCase() + raw.slice(1);
+  }
+
+  function _onboardingTone(row) {
+    return _onboardingText(row) === "Klar" ? "good" : "warn";
+  }
+
+  function _cotText(row) {
+    const current = _currentDevices(row);
+    const devices = _devicesForRow(row);
+
+    if (current.length > 1) return String(current.length) + " sessioner online";
+    if (current.length === 1) {
+      const cs = String(current[0].observed_callsign || _currentObservedCallsign(row) || "").trim();
+      return cs ? ("Online: " + cs) : "Online";
+    }
+
+    if (devices.some(function (d) { return _deviceState(d) === "recent"; })) return "Inaktiv";
+    if (devices.length) return "Inaktiv";
+    return "Aldrig";
+  }
+
+  function _cotTone(row) {
+    const t = _cotText(row).toLowerCase();
+    if (t.indexOf("online") >= 0) return "good";
+    if (t === "stale") return "warn";
+    return "neutral";
+  }
+
+  function _deviceCountText(row) {
+    const devices = _devicesForRow(row);
+    const current = _currentDevices(row);
+    if (!devices.length) return "0 online / 0 kända";
+    return String(current.length) + " online / " + String(devices.length) + " kända";
+  }
+
+  function _voiceText(row) {
+    const vs = (row && row.voice_summary) || {};
+    const connected = vs.connected_now === true || vs.device_connected_now > 0 || vs.matched_connected_users > 0;
+    if (!connected) return "—";
+    const n = Number(vs.device_connected_now || vs.matched_connected_users || 0);
+    return n > 1 ? (String(n) + " sessions") : "Online";
+  }
+
+  function _voiceTone2(row) {
+    return _voiceText(row) === "—" ? "neutral" : "good";
+  }
+
+  function _channelText(row) {
+    const vs = (row && row.voice_summary) || {};
+    const chans = _asArray(vs.channel_names);
+    if (chans.length) return chans.join(", ");
+    return _voiceChannels(row) || "—";
+  }
+
+  function _chatText(row) {
+    const activity = (row && row.activity) || {};
+    const cot = activity.cot_seen === true || _currentDevices(row).length > 0;
+
+    const xmpp = (row && (row.xmpp || row.openfire)) || {};
+    const x = (
+      xmpp.connected_now === true ||
+      xmpp.connected === true ||
+      xmpp.online === true ||
+      xmpp.status === "online"
+    );
+
+    if (x && cot) return "XMPP + GeoChat";
+    if (x) return "XMPP";
+    if (cot) return "Endast GeoChat";
+    return "—";
+  }
+
+  function _chatTone(row) {
+    const t = _chatText(row);
+    if (t === "XMPP + GeoChat") return "good";
+    if (t === "XMPP" || t === "Endast GeoChat") return "warn";
+    return "neutral";
+  }
+
+  function _voiceForDevice(row, d) {
+    const uid = String((d && d.client_uid) || "").trim();
+    const cs = String((d && d.observed_callsign) || "").trim().toUpperCase();
+    const all = []
+      .concat(_asArray(row && row.voice_devices))
+      .concat(_asArray(row && row.voice && row.voice.devices));
+
+    for (let i = 0; i < all.length; i += 1) {
+      const vd = all[i] || {};
+      const vuid = String(vd.client_uid || "").trim();
+      const vcs = String(vd.observed_callsign || "").trim().toUpperCase();
+      if ((uid && vuid === uid) || (cs && vcs === cs)) return vd;
+    }
+    return null;
+  }
+
+  function _deviceVoiceText(row, d) {
+    const vd = _voiceForDevice(row, d);
+    const v = (vd && vd.voice) || {};
+    if (v.connected_now === true) {
+      const chans = _asArray(v.channel_names);
+      return chans.length ? chans.join(", ") : "Online";
+    }
+    return "—";
+  }
+
+  function _deviceVoiceTone(row, d) {
+    return _deviceVoiceText(row, d) === "—" ? "neutral" : "good";
+  }
+
+  function _renderAccountCell(username, row) {
+    const warning = _callsignWarning(row);
+    return h("div", null,
+      h("button", {
+        type: "button",
+        className: "btn",
+        style: { padding: "4px 8px" },
+        onClick: function () {
+          try {
+            const lib2 = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
+            if (lib2 && typeof lib2.setHashRoute === "function") lib2.setHashRoute("detail", username);
+            else window.location.hash = "#onboarding/detail:" + encodeURIComponent(username);
+          } catch (e) {}
+        }
+      }, _colText(_accountLabel(row))),
+      warning ? h("div", {
+        className: "muted",
+        style: { marginTop: "4px", fontSize: "12px" }
+      }, "⚠ ", _colText(warning)) : null
+    );
+  }
+
+  function _renderActions(username) {
+    return h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" } },
+      h("button", {
+        className: "btn",
+        type: "button",
+        onClick: async function () {
+          try {
+            await _openFreshCard(username);
+          } catch (e) {
+            window.alert(String((e && e.message) || e || "Failed to open fresh card"));
+          }
+        }
+      }, _t("btn.card")),
+      h("button", {
+        className: "btn",
+        onClick: function () {
+          try {
+            const lib2 = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
+            if (lib2 && typeof lib2.setHashRoute === "function") lib2.setHashRoute("create", username);
+            else window.location.hash = "#onboarding/create:" + encodeURIComponent(username);
+          } catch (e) {}
+        }
+      }, _t("btn.edit"))
+    );
   }
 
   function OnboardingTable(props) {
@@ -293,6 +608,112 @@
     const selectedMap = props.selectedMap || {};
     const allUsernames = rows.map(_rowUsername).filter(Boolean);
     const allSelected = allUsernames.length > 0 && allUsernames.every((u) => !!selectedMap[u]);
+    const useState = (React && React.useState) ? React.useState : window.React.useState;
+    const statePair = useState({});
+    const expanded = statePair[0] || {};
+    const setExpanded = statePair[1];
+
+    function toggleExpanded(username) {
+      setExpanded(function (prev) {
+        const next = Object.assign({}, prev || {});
+        next[username] = !next[username];
+        return next;
+      });
+    }
+
+    const bodyRows = [];
+
+    rows.forEach(function (u) {
+      const hdr = (u && u.header) || {};
+      const username = String(hdr.username || u.username || "");
+      const devices = _devicesForRow(u);
+      const current = _currentDevices(u);
+      const gamla = _oldDevices(u);
+      const showSessionRows = current.length > 1;
+      const expandedNow = !!expanded[username];
+      const gamlaButtonText = gamla.length
+        ? ((expandedNow ? "Dölj" : "Visa") + " " + String(gamla.length) + " gamla")
+        : "";
+
+      bodyRows.push(h("tr", { key: "acct:" + username },
+        h("td", null,
+          h("input", {
+            type: "checkbox",
+            checked: !!selectedMap[username],
+            onChange: function () { props.onToggleOne(username); }
+          })
+        ),
+        h("td", null, _renderAccountCell(username, u)),
+        h("td", null, _pill(_onboardingText(u), _onboardingTone(u))),
+        h("td", null, _pill(_cotText(u), _cotTone(u))),
+        h("td", null,
+          h("div", null,
+            h("div", null, _colText(_deviceCountText(u))),
+            gamla.length ? h("button", {
+              type: "button",
+              className: "btn",
+              style: { marginTop: "4px", padding: "2px 7px", fontSize: "12px" },
+              onClick: function () { toggleExpanded(username); }
+            }, gamlaButtonText) : null
+          )
+        ),
+        h("td", null, _pill(_voiceText(u), _voiceTone2(u))),
+        h("td", null, _pill(_chatText(u), _chatTone(u))),
+        h("td", null,
+          h("div", {
+            style: {
+              maxWidth: "260px",
+              whiteSpace: "normal",
+              overflowWrap: "anywhere",
+              wordBreak: "break-word"
+            }
+          }, _colText(_channelText(u)))
+        ),
+        h("td", null, _renderActions(username))
+      ));
+
+      if (showSessionRows) {
+        current.forEach(function (d, idx) {
+          bodyRows.push(h("tr", {
+            key: "cur:" + username + ":" + _deviceKey(d, idx),
+            style: { background: "rgba(255,255,255,0.025)" }
+          },
+            h("td", null, ""),
+            h("td", null, h("div", { style: { paddingLeft: "18px" } }, "↳ ", _colText(_deviceName(d)))),
+            h("td", null, ""),
+            h("td", null, _pill("Online", "good")),
+            h("td", null, _colText(_deviceTech(d))),
+            h("td", null, _pill(_deviceVoiceText(u, d), _deviceVoiceTone(u, d))),
+            h("td", null, _pill(_chatText(u), _chatTone(u))),
+            h("td", null, _colText(_deviceVoiceText(u, d))),
+            h("td", null, "")
+          ));
+        });
+      }
+
+      if (expandedNow) {
+        gamla.forEach(function (d, idx) {
+          const st = _deviceState(d);
+          const label = st === "recent" ? "Inaktiv" : (st === "stale" ? "Inaktiv" : "Old");
+          const tone = st === "recent" ? "warn" : "neutral";
+
+          bodyRows.push(h("tr", {
+            key: "old:" + username + ":" + _deviceKey(d, idx),
+            style: { background: "rgba(255,255,255,0.015)" }
+          },
+            h("td", null, ""),
+            h("td", null, h("div", { style: { paddingLeft: "18px" } }, "↳ ", _colText(_deviceName(d)))),
+            h("td", null, ""),
+            h("td", null, _pill(label, tone)),
+            h("td", null, _colText(_deviceTech(d))),
+            h("td", null, _pill(_deviceVoiceText(u, d), _deviceVoiceTone(u, d))),
+            h("td", null, _pill(_chatText(u), _chatTone(u))),
+            h("td", null, _colText(_deviceVoiceText(u, d))),
+            h("td", null, "")
+          ));
+        });
+      }
+    });
 
     return h(
       "table",
@@ -302,97 +723,17 @@
           h("th", { style: { width: "36px" } },
             h("input", { type: "checkbox", checked: !!allSelected, onChange: function () { props.onToggleAllVisible(); } })
           ),
-          h("th", null, _t("list.username")),
-          h("th", null, _t("list.groups")),
-          h("th", null, _t("list.onboard")),
-          h("th", null, "Devices"),
-          h("th", null, _t("list.state")),
-          h("th", null, "Voice"),
+          h("th", null, "Konto"),
+          h("th", null, "Introduktion"),
+          h("th", null, "CoT"),
+          h("th", null, "Enheter"),
+          h("th", null, "Tal"),
+          h("th", null, "Chat"),
           h("th", null, "Kanaler"),
-          h("th", null, "Best device"),
           h("th", null, _t("list.actions"))
         )
       ),
-      h("tbody", null,
-        rows.map(function (u) {
-          const hdr = (u && u.header) || {};
-          const username = String(hdr.username || u.username || "");
-          const groupsArr = (hdr && Array.isArray(hdr.groups)) ? hdr.groups : [];
-          const onboardRaw = String((u && u.onboarding_status) || "").toUpperCase();
-          const state = _userState(u);
-          const best = _bestDevice(u);
-          const key = username + ":" + String((best && best.client_uid) || "");
-          const bestTxt = best ? _deviceTail(best) : "—";
-          const voiceLabel = _voiceLabel(u);
-          const voiceTone = _voiceTone(u);
-          const voiceChannels = _voiceChannels(u);
-
-          return h("tr", { key: key },
-            h("td", null,
-              h("input", {
-                type: "checkbox",
-                checked: !!selectedMap[username],
-                onChange: function () { props.onToggleOne(username); }
-              })
-            ),
-            h("td", null,
-              h("button", {
-                type: "button",
-                className: "btn",
-                style: { padding: "4px 8px" },
-                onClick: function () {
-                  try {
-                    const lib2 = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
-                    if (lib2 && typeof lib2.setHashRoute === "function") lib2.setHashRoute("detail", username);
-                    else window.location.hash = "#onboarding/detail:" + encodeURIComponent(username);
-                  } catch (e) {}
-                }
-              }, _colText(username || "—"))
-            ),
-            h("td", null, _colText(groupsArr.length ? groupsArr.join(", ") : "—")),
-            h("td", null, _pill(onboardRaw || "—", _onboardTone(onboardRaw))),
-            h("td", null, _colText(_deviceSummary(u))),
-            h("td", null, _badgeForState(state)),
-            h("td", null, _pill(voiceLabel, voiceTone)),
-            h("td", null,
-              h("div", {
-                style: {
-                  maxWidth: "240px",
-                  whiteSpace: "normal",
-                  overflowWrap: "anywhere",
-                  wordBreak: "break-word"
-                }
-              }, _colText(voiceChannels))
-            ),
-            h("td", null, _colText(bestTxt)),
-            h("td", null,
-              h("div", { style: { display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" } },
-                h("button", {
-                  className: "btn",
-                  type: "button",
-                  onClick: async function () {
-                    try {
-                      await _openFreshCard(username);
-                    } catch (e) {
-                      window.alert(String((e && e.message) || e || "Failed to open fresh card"));
-                    }
-                  }
-                }, _t("btn.card")),
-                h("button", {
-                  className: "btn",
-                  onClick: function () {
-                    try {
-                      const lib2 = (window.TaksOnboarding && window.TaksOnboarding.lib) || null;
-                      if (lib2 && typeof lib2.setHashRoute === "function") lib2.setHashRoute("create", username);
-                      else window.location.hash = "#onboarding/create:" + encodeURIComponent(username);
-                    } catch (e) {}
-                  }
-                }, _t("btn.edit"))
-              )
-            )
-          );
-        })
-      )
+      h("tbody", null, bodyRows)
     );
   }
 
@@ -492,10 +833,10 @@
     }
 
     useEffect(function () {
-      const known = {};
+      const kända = {};
       (users || []).forEach(function (u) {
         const username = _rowUsername(u);
-        if (username) known[username] = true;
+        if (username) kända[username] = true;
       });
 
       setSelectedMap(function (prev) {
@@ -546,7 +887,7 @@
           db: (typeof meta.db_attached === "boolean") ? (meta.db_attached ? "attached" : "none") : "?",
           source: _colText((meta && meta.db_source) || "no meta")
         }) +
-        " • Voice now: " + _colText(summary.voice_connected_now || 0)
+        " • Tal nu: " + _colText(summary.voice_connected_now || 0)
       ),
       h(PrintToolbar, {
         rows: users,
