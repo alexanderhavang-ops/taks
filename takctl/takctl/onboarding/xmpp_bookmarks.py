@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import socket
@@ -438,10 +439,26 @@ def _publish_bookmarks_once(
         pass
 
     try:
-        connected = xmpp.connect(address=(host, int(port)))
-        if not connected:
-            return _PublishResult(False, f"connect failed to {host}:{port}")
-        xmpp.process(forever=False, timeout=timeout_s + 5)
+        connect_future = xmpp.connect(host=host, port=int(port))
+
+        loop = getattr(xmpp, "loop", None)
+        if loop is None:
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
+        try:
+            if connect_future is not None:
+                loop.run_until_complete(asyncio.wait_for(connect_future, timeout=timeout_s))
+            loop.run_until_complete(asyncio.wait_for(xmpp.disconnected, timeout=timeout_s + 5))
+        except asyncio.TimeoutError as e:
+            try:
+                xmpp.disconnect()
+            except Exception:
+                pass
+            raise RuntimeError(f"timed out waiting for XMPP bookmark publish host={host} port={port}") from e
         return xmpp.result
     except Exception as e:
         return _PublishResult(False, f"{type(e).__name__}: {e}")
