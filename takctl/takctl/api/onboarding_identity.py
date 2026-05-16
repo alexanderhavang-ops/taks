@@ -756,6 +756,14 @@ def create_user(req: Request, username: str, body: UserCreateIn):
     from takctl.onboarding.policy_registry import default_policy_id
     default_pid = default_policy_id()
     policy_id = (ctx.get("policy_id") or default_pid).strip() or default_pid
+    ctx["policy_id"] = policy_id
+
+    try:
+        from takctl.onboarding.channels import augment_ctx_for_policy
+        ctx = augment_ctx_for_policy(ctx)
+    except Exception:
+        pass
+
     try:
         pol = Policy(policy_id=policy_id)
         ident = pol.resolve_identity(ctx)

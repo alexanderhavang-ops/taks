@@ -116,7 +116,7 @@ def _direct_battalion_fal(policy_cfg: dict[str, Any] | None, battalion: Any) -> 
     return ""
 
 
-def _ctx_augmented_for_voice(ctx: dict[str, Any] | None) -> dict[str, Any]:
+def augment_ctx_for_policy(ctx: dict[str, Any] | None) -> dict[str, Any]:
     """
     Voice topology needs battalion_fal. The create-user UI often has only
     battalion=46, so resolve policy FAL context before calling topology.
@@ -186,7 +186,7 @@ def selection_channel_names(selection: dict[str, Any] | None) -> list[str] | Non
 
 
 def derive_channel_sets(ctx: dict[str, Any] | None) -> dict[str, Any]:
-    ctx2 = _ctx_augmented_for_voice(ctx)
+    ctx2 = augment_ctx_for_policy(ctx)
     policy_cfg = _load_policy_cfg(_policy_id_from_ctx(ctx2))
 
     try:
