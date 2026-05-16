@@ -516,6 +516,12 @@
     });
 
     var username = String(user.username || routeUsername || "").trim();
+    var isMartineAccount = username.toLowerCase() === "martine";
+    var voiceUsers = Array.isArray(voice.voice_users) ? voice.voice_users : [];
+    var martineVoiceListeners = Array.isArray(voice.martine_voice_listeners) ? voice.martine_voice_listeners : [];
+    var martineListenerCount = martineVoiceListeners.length;
+    var voiceTopTone = isMartineAccount ? (martineListenerCount ? "good" : "bad") : _voiceTone(voice);
+    var voiceTopText = isMartineAccount ? ("Tal: " + (martineListenerCount ? ("lyssnar på " + String(martineListenerCount) + " kanaler") : "ingen lyssnare")) : _voiceText(voice);
     var groups = Array.isArray(user.groups) ? user.groups : [];
     var cardUrl = (userData && userData.card_url) || (card && card.card_url) || "";
     var onboardStatus = _onboardText((card.onboarding && card.onboarding.status) || (lifecycle.evidence && lifecycle.evidence.onboarding_status));
@@ -551,7 +557,7 @@
         h(StatusBadge, { tone: onboardTone(onboardStatus), text: "Introduktion: " + onboardStatus }),
         h(StatusBadge, { tone: cotStateTone(primaryStateText), text: "CoT: " + primaryStateText }),
         h(StatusBadge, { tone: devices.length ? "good" : "neutral", text: "Enheter: " + String(currentDevices) + " online / " + String(devices.length) + " kända" }),
-        h(StatusBadge, { tone: _voiceTone(voice), text: _voiceText(voice) })
+        h(StatusBadge, { tone: voiceTopTone, text: voiceTopText })
       ),
 
       h("div", {
@@ -677,15 +683,51 @@
             (function () {
               var matchedNames = Array.isArray(voiceUser.matched_user_names) ? voiceUser.matched_user_names : [];
               var channelNames = Array.isArray(voiceUser.channel_names) ? voiceUser.channel_names : [];
-              var statusTone = (voiceUser && voiceUser.connected_now) ? "good" : (matchedNames.length ? "warn" : "bad");
-              var statusText = (voiceUser && voiceUser.connected_now) ? "ANSLUTEN" : (matchedNames.length ? "TIDIGARE SEDD" : "INGEN KOPPLING");
+              var listenerRows = isMartineAccount ? martineVoiceListeners : [];
+              var statusTone = isMartineAccount
+                ? (listenerRows.length ? "good" : "bad")
+                : ((voiceUser && voiceUser.connected_now) ? "good" : (matchedNames.length ? "warn" : "bad"));
+              var statusText = isMartineAccount
+                ? (listenerRows.length ? "LYSSNAR" : "INGEN LYSSNARE")
+                : ((voiceUser && voiceUser.connected_now) ? "ANSLUTEN" : (matchedNames.length ? "TIDIGARE SEDD" : "INGEN KOPPLING"));
 
               return [
                 SectionTitle("Tal"),
                 h(KV, { k: "Status" }, h(StatusBadge, { tone: statusTone, text: statusText })),
-                matchedNames.length ? h(KV, { k: "Matchade talnamn" }, _colText(_join(matchedNames))) : null,
-                channelNames.length ? h(KV, { k: "Talkanaler" }, _colText(_voiceChannelsText(channelNames))) : null,
-                h(KV, { k: "Enheter anslutna till tal nu" }, _colText(voiceConnectedDevices))
+
+                isMartineAccount
+                  ? h(KV, { k: "Martine-lyssnare" }, _colText(listenerRows.length ? (String(listenerRows.length) + " anslutna") : "—"))
+                  : null,
+
+                isMartineAccount && listenerRows.length
+                  ? h("div", {
+                      style: {
+                        display: "grid",
+                        gap: "6px",
+                        marginTop: "8px"
+                      }
+                    }, listenerRows.map(function (lu, idx) {
+                      return h("div", {
+                        key: String((lu && lu.session) || idx),
+                        style: {
+                          display: "grid",
+                          gridTemplateColumns: "minmax(180px, 1fr) minmax(180px, 1fr)",
+                          gap: "8px",
+                          padding: "6px 8px",
+                          border: "1px solid var(--border)",
+                          borderRadius: "10px",
+                          background: "rgba(255,255,255,0.03)"
+                        }
+                      },
+                        h("div", null, h(Pill, null, _colText((lu && lu.channel) || "—"))),
+                        h("div", { className: "muted" }, _colText((lu && lu.name) || "—"))
+                      );
+                    }))
+                  : null,
+
+                (!isMartineAccount && matchedNames.length) ? h(KV, { k: "Matchade talnamn" }, _colText(_join(matchedNames))) : null,
+                (!isMartineAccount && channelNames.length) ? h(KV, { k: "Talkanaler" }, _colText(_voiceChannelsText(channelNames))) : null,
+                h(KV, { k: isMartineAccount ? "Lyssnare anslutna nu" : "Enheter anslutna till tal nu" }, _colText(isMartineAccount ? listenerRows.length : voiceConnectedDevices))
               ];
             })()
           ),

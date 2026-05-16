@@ -1,5 +1,31 @@
 from __future__ import annotations
 
+
+def _mumble_users_for_ui(mumble_snapshot):
+    out = []
+    for u in list((mumble_snapshot or {}).get("users") or []):
+        if not isinstance(u, dict):
+            continue
+        name = str(u.get("name") or "").strip()
+        if not name:
+            continue
+        out.append({
+            "name": name,
+            "session": u.get("session"),
+            "channel": str(u.get("channel_name") or u.get("channel") or "").strip(),
+            "connected_now": bool(u.get("connected_now", True)),
+        })
+    out.sort(key=lambda x: (str(x.get("channel") or ""), str(x.get("name") or ""), str(x.get("session") or "")))
+    return out
+
+
+def _mumble_martine_listeners_for_ui(mumble_snapshot):
+    return [
+        u for u in _mumble_users_for_ui(mumble_snapshot)
+        if str(u.get("name") or "") == "martine-voice"
+        or str(u.get("name") or "").startswith("martine-voice-")
+    ]
+
 from takctl.onboarding.password_policy import generate_friendly_password
 
 
@@ -1014,6 +1040,18 @@ def voice_live(username: str, recent_minutes: int = Query(120, ge=1, le=24 * 60)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"voice live failed: {type(e).__name__}: {e}")
 
+    try:
+        from takctl.services.mumble_live import snapshot_mumble_live
+
+        mumble_snapshot = snapshot_mumble_live()
+    except Exception as e:
+        mumble_snapshot = {
+            "server": {"host": None, "port": None, "connected": False},
+            "raw_counts": {"channels": 0, "users": 0, "devices": 0},
+            "users": [],
+            "error": f"snapshot_mumble_live failed: {type(e).__name__}: {e}",
+        }
+
     voice = (card or {}).get("voice")
     if not isinstance(voice, dict):
         voice = {
@@ -1031,7 +1069,18 @@ def voice_live(username: str, recent_minutes: int = Query(120, ge=1, le=24 * 60)
             },
             "devices": [],
             "raw_counts": {"channels": 0, "users": 0, "devices": 0},
+            "voice_users": _mumble_users_for_ui(mumble_snapshot),
+            "martine_voice_listeners": _mumble_martine_listeners_for_ui(mumble_snapshot),
         }
+
+    if isinstance(voice, dict):
+        voice = dict(voice)
+        voice["voice_users"] = _mumble_users_for_ui(mumble_snapshot)
+        voice["martine_voice_listeners"] = _mumble_martine_listeners_for_ui(mumble_snapshot)
+        if not voice.get("raw_counts"):
+            voice["raw_counts"] = dict((mumble_snapshot or {}).get("raw_counts") or {})
+        if (mumble_snapshot or {}).get("error") and not voice.get("error"):
+            voice["error"] = (mumble_snapshot or {}).get("error")
 
     return JSONResponse(
         voice,
