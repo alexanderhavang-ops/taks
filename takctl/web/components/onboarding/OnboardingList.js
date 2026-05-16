@@ -430,22 +430,25 @@
     const configured = _configuredCallsign(row);
     const observed = _currentObservedCallsign(row);
     if (configured && observed && configured.toUpperCase() !== observed.toUpperCase()) {
-      return "Online som " + observed;
+      return "Sedd som " + observed;
     }
     return "";
   }
 
   function _onboardingText(row) {
     const activity = (row && row.activity) || {};
-    const current = _currentDevices(row);
+    const devices = (row && Array.isArray(row.devices)) ? row.devices : [];
+    const current = devices.filter(function (d) { return String((d && d.state) || "").toLowerCase() === "current"; });
+
     if (activity.cot_seen === true || current.length > 0) return "Klar";
 
-    const raw = String((row && row.onboarding_status) || "").trim().toLowerCase();
-    if (!raw) return "Pending";
-    if (raw === "new") return "Pending";
-    if (raw === "emailed") return "Mail sent";
-    if (raw === "printed") return "Card printed";
-    return raw.charAt(0).toUpperCase() + raw.slice(1);
+    const raw = String((row && row.onboarding_status) || ((row && row.lifecycle && row.lifecycle.evidence) ? row.lifecycle.evidence.onboarding_status : "") || "").trim().toLowerCase();
+    if (raw === "done") return "Klar";
+    if (raw === "nedladdat") return "Nedladdat";
+    if (raw === "started") return "Påbörjad";
+    if (raw === "invited") return "Inbjuden";
+    if (raw === "new") return "Ny";
+    return raw || "—";
   }
 
   function _onboardingTone(row) {

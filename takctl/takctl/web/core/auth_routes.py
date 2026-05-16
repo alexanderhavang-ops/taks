@@ -10,12 +10,12 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from takctl.services.marti_auth import check_userauthfile
+from takctl.services.marti_auth import check_selected_user_store
 
 RUNTIME_DIR = Path("/opt/tak/tools/takctl")
 SECRET_FILE = RUNTIME_DIR / "secrets" / "session.key"
 COOKIE_NAME = "takctl_session"
-SESSION_TTL = 8 * 3600  # 8 hours
+SESSION_TTL = 8 * 3600
 
 
 def _load_secret() -> bytes:
@@ -88,7 +88,7 @@ def mount_auth_routes(app: FastAPI) -> None:
         if not username or not password:
             raise HTTPException(status_code=400, detail="username and password required")
 
-        res = check_userauthfile(username, password)
+        res = check_selected_user_store(username, password)
         if not res.ok:
             raise HTTPException(status_code=401, detail=f"Invalid credentials ({(res.error or '')[:160]})")
 

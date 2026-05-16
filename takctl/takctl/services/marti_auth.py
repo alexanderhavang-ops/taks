@@ -1,10 +1,15 @@
 from __future__ import annotations
-from pathlib import Path
 
 import base64
+import os
 import ssl
+import subprocess
+import tempfile
+import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional
 
 
@@ -25,9 +30,6 @@ def check_basic_auth(
 ) -> MartiAuthResult:
     """
     Validate username/password by attempting a protected Marti endpoint using HTTP Basic auth.
-
-    - url: choose an endpoint that requires auth (version often does)
-    - verify_tls=False for now (local loopback). Later we can wire to TAK CA bundle.
     """
     userpass = f"{username}:{password}".encode("utf-8")
     auth = base64.b64encode(userpass).decode("ascii")
@@ -41,44 +43,32 @@ def check_basic_auth(
 
     try:
         with urllib.request.urlopen(req, timeout=timeout_s, context=ctx) as resp:
-            # If we get here, auth succeeded
             return MartiAuthResult(ok=True, status=getattr(resp, "status", None))
     except urllib.error.HTTPError as e:
-        # 401/403 expected for bad creds; other codes indicate config/endpoint mismatch
         return MartiAuthResult(ok=False, status=getattr(e, "code", None), error=str(e))
     except Exception as e:
         return MartiAuthResult(ok=False, status=None, error=str(e))
 
 
-# ------------------------------------------------------------
-# Option C auth: validate against Marti UserAuthenticationFile.xml
-# ------------------------------------------------------------
-import os
-import xml.etree.ElementTree as ET
-
 _MARTI_NS = {"m": "http://bbn.com/marti/xml/bindings"}
 
+
 def _bcrypt_or_crypt_check(password: str, hashed: str) -> bool:
-    """
-    Verify bcrypt hashes from Marti user file.
-    Prefers python 'bcrypt' if available; falls back to stdlib 'crypt' if supported.
-    """
     pw = password.encode("utf-8")
     h = hashed.encode("utf-8")
 
-    # 1) Preferred: bcrypt module
     try:
         import bcrypt  # type: ignore
         return bool(bcrypt.checkpw(pw, h))
     except Exception:
         pass
 
-    # 2) Fallback: crypt (depends on system libcrypt support for $2a/$2b)
     try:
         import crypt  # type: ignore
         return crypt.crypt(password, hashed) == hashed
     except Exception:
         return False
+
 
 def check_userauthfile(
     username: str,
@@ -88,12 +78,7 @@ def check_userauthfile(
 ) -> MartiAuthResult:
     """
     Validate username/password against Marti's UserAuthenticationFile.xml.
-
-    Supported:
-      - passwordHashed="true" with bcrypt hashes ($2a$ / $2b$)
-      - passwordHashed="false" plaintext password in 'password' attribute
-
-    Returns MartiAuthResult(ok=..., error=...)
+    Used only when backing_user_store=userauthfile.
     """
     try:
         if not os.path.exists(path):
@@ -102,14 +87,12 @@ def check_userauthfile(
         xml = Path(path).read_text(encoding="utf-8")
         root = ET.fromstring(xml)
 
-        # Find matching <User identifier="...">
-        users = root.findall("m:User", _MARTI_NS) or root.findall("User")  # tolerate missing ns
+        users = root.findall("m:User", _MARTI_NS) or root.findall("User")
         for u in users:
             ident = u.attrib.get("identifier", "")
             if ident != username:
                 continue
 
-            # Some users may be cert-only (no password attr)
             stored = u.attrib.get("password")
             if stored is None:
                 return MartiAuthResult(ok=False, status=None, error="User has no password attribute")
@@ -117,10 +100,9 @@ def check_userauthfile(
             hashed_flag = (u.attrib.get("passwordHashed", "true").lower() == "true")
 
             if not hashed_flag:
-                # plaintext compare
-                return MartiAuthResult(ok=(password == stored), status=200 if password == stored else 401)
+                ok = password == stored
+                return MartiAuthResult(ok=ok, status=200 if ok else 401)
 
-            # hashed compare (bcrypt)
             ok = _bcrypt_or_crypt_check(password, stored)
             return MartiAuthResult(ok=ok, status=200 if ok else 401)
 
@@ -128,3 +110,82 @@ def check_userauthfile(
 
     except Exception as e:
         return MartiAuthResult(ok=False, status=None, error=str(e))
+
+
+def check_ldap_bind(
+    username: str,
+    password: str,
+    *,
+    timeout_s: int = 4,
+) -> MartiAuthResult:
+    """
+    Validate username/password against LDAP by binding as the expected user DN.
+    The password is passed via a temporary file so it does not appear in argv.
+    """
+    if not username or not password:
+        return MartiAuthResult(ok=False, status=400, error="username and password required")
+
+    try:
+        from takctl.services.ldap_user_store import load_ldap_config
+
+        cfg = load_ldap_config()
+        user_dn = cfg.user_dn(username)
+    except Exception as e:
+        return MartiAuthResult(ok=False, status=None, error=f"LDAP config error: {e}")
+
+    pw_path = None
+    try:
+        fd, pw_path = tempfile.mkstemp(prefix="takctl-ldap-bind-", text=True)
+        try:
+            os.fchmod(fd, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(password)
+        except Exception:
+            try:
+                os.close(fd)
+            except Exception:
+                pass
+            raise
+
+        cp = subprocess.run(
+            ["ldapwhoami", "-x", "-H", cfg.uri, "-D", user_dn, "-y", pw_path],
+            text=True,
+            capture_output=True,
+            timeout=timeout_s,
+        )
+
+        if cp.returncode == 0:
+            return MartiAuthResult(ok=True, status=200)
+
+        msg = (cp.stderr or cp.stdout or f"ldapwhoami exited {cp.returncode}").strip()
+        return MartiAuthResult(ok=False, status=401, error=msg)
+
+    except subprocess.TimeoutExpired:
+        return MartiAuthResult(ok=False, status=None, error="LDAP bind timed out")
+    except FileNotFoundError:
+        return MartiAuthResult(ok=False, status=None, error="ldapwhoami not found")
+    except Exception as e:
+        return MartiAuthResult(ok=False, status=None, error=str(e))
+    finally:
+        if pw_path:
+            try:
+                os.unlink(pw_path)
+            except Exception:
+                pass
+
+
+def check_selected_user_store(username: str, password: str) -> MartiAuthResult:
+    """
+    Validate TAKCTL web login using the configured backing user store.
+    """
+    try:
+        from takctl.services.ldap_user_store import selected_backing_user_store
+
+        store = selected_backing_user_store()
+    except Exception as e:
+        return MartiAuthResult(ok=False, status=None, error=f"Could not determine backing_user_store: {e}")
+
+    if store == "ldap":
+        return check_ldap_bind(username, password)
+
+    return check_userauthfile(username, password)
