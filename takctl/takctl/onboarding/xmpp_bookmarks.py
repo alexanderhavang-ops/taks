@@ -234,26 +234,59 @@ def derive_user_bookmarks(
             available_rooms = [fallback]
             default_rooms = [fallback]
 
-    def _conf_for_room(room: str) -> dict[str, Any]:
+    nick = (
+        str(ctx.get("callsign") or "").strip()
+        or str(ident_d.get("callsign") or "").strip()
+        or username
+    )
+
+    def _conf_for_room(room: str, *, legacy_case: bool = False) -> dict[str, Any]:
+        label = str(room or "").strip()
+        localpart = label if legacy_case else label.lower()
+        display_name = label if legacy_case else localpart
         return {
-            "name": room,
-            "jid": f"{room}@conference.{domain}",
+            "name": display_name,
+            "jid": f"{localpart}@conference.{domain}",
             "nick": nick,
             "autojoin": True,
         }
 
-    nick = (
-        str(ident_d.get("callsign") or "").strip()
-        or str(ctx.get("callsign") or "").strip()
-        or username
-    )
+    def _dedupe_conferences(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for item in items:
+            jid = str(item.get("jid") or "").strip()
+            if not jid or jid in seen:
+                continue
+            seen.add(jid)
+            out.append(item)
+        return out
 
     rooms = list(dict.fromkeys(rooms))
     available_rooms = list(dict.fromkeys(list(available_rooms) + list(rooms)))
     default_rooms = list(dict.fromkeys(default_rooms))
 
+    # TakChat should autojoin the user's selected channels, plus the battalion
+    # channel when it is part of the derived/available channel set. Without this,
+    # BatL-* only becomes "available" and is not autojoined by clients.
+    for room in available_rooms:
+        room_s = str(room or "").strip()
+        if room_s.lower().startswith("batl-") and room_s not in rooms:
+            rooms.insert(0, room_s)
+
+    rooms = list(dict.fromkeys(rooms))
+
     conferences = [_conf_for_room(room) for room in rooms]
+
+    # Publish canonical lowercase MUC JIDs, but include legacy mixed-case JIDs
+    # in the retract set so old bookmarks like BatL-VQ@conference... are removed.
     available_conferences = [_conf_for_room(room) for room in available_rooms]
+    available_conferences += [
+        _conf_for_room(room, legacy_case=True)
+        for room in available_rooms
+        if str(room or "").strip() and str(room or "").strip() != str(room or "").strip().lower()
+    ]
+    available_conferences = _dedupe_conferences(available_conferences)
 
     return {
         "username": username,

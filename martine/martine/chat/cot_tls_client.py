@@ -450,6 +450,47 @@ def resolve_username_for_client_uid(client_uid: str) -> str:
     return subject_dn
 
 
+
+def geochat_seed_groups_enabled() -> bool:
+    """Feature flag for old GeoChat group seeding workaround.
+
+    Default is OFF. OpenFire/Martine mediated invites are now the preferred
+    channel-join path.
+    """
+    paths = [
+        Path("/opt/tak/tools/takctl/conf.d/martine.conf"),
+        Path("/opt/tak/tools/martine/conf.d/martine-server.conf"),
+    ]
+    keys = {
+        "martine_geochat_seed_groups_enabled",
+        "martine.geochat.seed_groups_enabled",
+    }
+
+    for path in paths:
+        try:
+            if not path.exists():
+                continue
+            for raw in path.read_text(errors="replace").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                if k.strip() not in keys:
+                    continue
+                return v.strip().strip('"').strip("'").lower() in {
+                    "1",
+                    "true",
+                    "yes",
+                    "y",
+                    "on",
+                    "enabled",
+                }
+        except Exception:
+            continue
+
+    return False
+
+
 def resolve_seed_plan_for_username(username: str) -> dict[str, Any]:
     u = str(username or "").strip()
     if not u:
@@ -844,7 +885,8 @@ def maybe_process_recent_devices(sock: ssl.SSLSocket, cfg) -> None:
         if not state.get("hello_sent_at"):
             hello_msg = (
                 f"Hej {recipient_callsign}. Jag är {cfg.callsign}. "
-                "Du kan ställa frågor till mig här i chatten."
+                "Detta meddelande går över GeoChat/CoT. "
+                "Du kan ställa frågor till mig här i GeoChatten."
             )
             send_event(
                 sock,
@@ -868,7 +910,7 @@ def maybe_process_recent_devices(sock: ssl.SSLSocket, cfg) -> None:
             time.sleep(0.10)
 
         prev_hash = str(state.get("chat_groups_seed_assignment_hash") or "").strip()
-        if seed_channels and assignment_hash and assignment_hash != prev_hash:
+        if geochat_seed_groups_enabled() and seed_channels and assignment_hash and assignment_hash != prev_hash:
             for group_name in seed_channels:
                 send_event(
                     sock,

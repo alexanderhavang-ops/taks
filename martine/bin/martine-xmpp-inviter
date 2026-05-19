@@ -1,0 +1,593 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+import ssl
+import time
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from typing import Any
+
+import slixmpp
+
+LOG = logging.getLogger("martine.xmpp")
+
+DOMAIN_CONF = [
+    Path("/opt/tak/tools/takctl/conf.d/node.conf"),
+    Path("/opt/tak/tools/martine/conf.d/node.conf"),
+]
+MARTINE_SECRET_CONF = Path("/opt/tak/tools/takctl/secrets.d/martine.conf")
+BOOKMARK_DIR = Path("/opt/tak/takctl-state/onboarding/xmpp_bookmarks/done")
+STATE_PATH = Path("/opt/tak/tools/martine/state/xmpp_inviter/state.json")
+VOICE_TRANSCRIPTS_CURRENT_JSONL = Path("/opt/tak/tools/martine/state/voice_transcribe/transcripts/current.jsonl")
+OPENFIRE_DB_FILES = [
+    Path("/var/lib/openfire/embedded-db/openfire.script"),
+    Path("/var/lib/openfire/embedded-db/openfire.log"),
+]
+
+HOST = "127.0.0.1"
+PORT = 5222
+MARTINE_USER = "martine"
+MARTINE_NICK = "Martine"
+POLL_SEC = 30
+INVITE_COOLDOWN_SEC = 15 * 60
+
+
+def read_kv(paths: list[Path]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for p in paths:
+        if not p.exists():
+            continue
+        for raw in p.read_text(errors="replace").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or line.startswith("["):
+                continue
+            m = re.match(r"^([A-Za-z0-9_.-]+)\s*=\s*(.*)$", line)
+            if not m:
+                continue
+            out[m.group(1).strip()] = m.group(2).strip().strip('"').strip("'")
+    return out
+
+
+def node_domain() -> str:
+    cfg = read_kv(DOMAIN_CONF)
+    for key in ("node_fqdn", "fqdn", "domain", "tak_host"):
+        v = (cfg.get(key) or "").strip()
+        if v:
+            return v.lower()
+    raise RuntimeError("could not determine node domain/fqdn")
+
+
+
+def martine_password() -> str:
+    cfg = read_kv([MARTINE_SECRET_CONF])
+    for key in ("martine_user_password", "xmpp_password", "openfire_password", "password"):
+        v = (cfg.get(key) or "").strip()
+        if v:
+            return v
+    raise RuntimeError(f"no martine XMPP password found in {MARTINE_SECRET_CONF}")
+
+
+def split_sql_values(s: str) -> list[str]:
+    out: list[str] = []
+    cur: list[str] = []
+    in_q = False
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if ch == "'":
+            cur.append(ch)
+            if in_q and i + 1 < len(s) and s[i + 1] == "'":
+                cur.append(s[i + 1])
+                i += 2
+                continue
+            in_q = not in_q
+            i += 1
+            continue
+        if ch == "," and not in_q:
+            out.append("".join(cur).strip())
+            cur = []
+            i += 1
+            continue
+        cur.append(ch)
+        i += 1
+    out.append("".join(cur).strip())
+    return out
+
+
+def unquote_sql(v: str) -> str:
+    v = v.strip()
+    if len(v) >= 2 and v[0] == "'" and v[-1] == "'":
+        return v[1:-1].replace("''", "'")
+    return v
+
+
+def muc_rooms_from_openfire(domain: str) -> list[str]:
+    names: set[str] = set()
+
+    for path in OPENFIRE_DB_FILES:
+        if not path.exists():
+            continue
+        for line in path.read_text(errors="replace").splitlines():
+            prefix = "INSERT INTO OFMUCROOM VALUES("
+            if prefix not in line:
+                continue
+            inner = line.split(prefix, 1)[1]
+            if inner.endswith(")"):
+                inner = inner[:-1]
+            vals = split_sql_values(inner)
+            if len(vals) < 5:
+                continue
+            name = unquote_sql(vals[4]).strip().lower()
+            if name:
+                names.add(name)
+
+    return [f"{name}@conference.{domain}" for name in sorted(names)]
+
+
+
+
+def voice_channel_to_muc_jid(channel: str, domain: str) -> str:
+    name = str(channel or "").strip().lower()
+    name = re.sub(r"[^a-z0-9-]+", "-", name).strip("-")
+    if not name:
+        name = "voice"
+    return f"{name}@conference.{domain}"
+
+
+def format_voice_transcript_message(event: dict[str, Any]) -> str:
+    speaker = str(event.get("speaker") or "okänd").strip()
+    channel = str(event.get("channel") or "").strip()
+    text = str(event.get("text") or "").strip()
+    return f"🎙️ Transkription {channel}: {speaker}: {text}"
+
+def load_jobs(domain: str) -> list[dict[str, Any]]:
+    jobs: list[dict[str, Any]] = []
+
+    if not BOOKMARK_DIR.exists():
+        return jobs
+
+    for path in sorted(BOOKMARK_DIR.glob("*.json")):
+        try:
+            job = json.loads(path.read_text())
+        except Exception as e:
+            LOG.warning("skip unreadable job path=%s err=%s", path, e)
+            continue
+
+        username = str(job.get("username") or path.stem).strip()
+        target_jid = str(job.get("jid") or f"{username}@{domain}").strip().lower()
+        if not username or not target_jid or username == MARTINE_USER:
+            continue
+
+        rooms: list[str] = []
+        for c in job.get("conferences") or []:
+            jid = str((c or {}).get("jid") or "").strip().lower()
+            if jid:
+                rooms.append(jid)
+
+        # Be forgiving while the bookmark path is still evolving.
+        if not rooms:
+            for c in job.get("available_conferences") or []:
+                jid = str((c or {}).get("jid") or "").strip().lower()
+                if jid:
+                    rooms.append(jid)
+
+        rooms = list(dict.fromkeys(rooms))
+        if not rooms:
+            continue
+
+        jobs.append(
+            {
+                "username": username,
+                "target_jid": target_jid,
+                "rooms": rooms,
+            }
+        )
+
+    return jobs
+
+
+def load_state() -> dict[str, Any]:
+    try:
+        if STATE_PATH.exists():
+            return json.loads(STATE_PATH.read_text())
+    except Exception as e:
+        LOG.warning("state read failed path=%s err=%s", STATE_PATH, e)
+    return {"invites": {}}
+
+
+def save_state(state: dict[str, Any]) -> None:
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = STATE_PATH.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2, sort_keys=True))
+    tmp.replace(STATE_PATH)
+
+
+class MartineInviter(slixmpp.ClientXMPP):
+    def __init__(self, domain: str, password: str):
+        self.domain = domain
+        self.joined_rooms: set[str] = set()
+        self.presence_online: dict[str, str] = {}
+        self.state = load_state()
+        self._voice_transcript_offset_initialized = False
+
+        super().__init__(f"{MARTINE_USER}@{domain}", password)
+
+        self.ssl_context = ssl.create_default_context()
+        self.ssl_context.check_hostname = False
+        self.ssl_context.verify_mode = ssl.CERT_NONE
+
+        self.add_event_handler("session_start", self.session_start)
+        self.add_event_handler("failed_auth", self.failed_auth)
+        self.add_event_handler("presence_available", self.presence_available)
+        self.add_event_handler("presence_unavailable", self.presence_unavailable)
+        self.add_event_handler("message", self.message)
+
+    def _presence_is_tak_client(self, pres: Any) -> bool:
+        xml = str(pres)
+        return "urn:xmpp:tak" in xml and "<uid>" in xml and "</uid>" in xml
+
+    def presence_available(self, pres: Any) -> None:
+        try:
+            full = str(pres.get_from()).strip().lower()
+        except Exception:
+            return
+
+        if not full or "/" not in full:
+            return
+
+        bare = full.split("/", 1)[0]
+        if bare.startswith(f"{MARTINE_USER}@"):
+            return
+        if "@conference." in bare:
+            return
+        if not bare.endswith("@" + self.domain.lower()):
+            return
+
+        if not self._presence_is_tak_client(pres):
+            LOG.debug("presence ignored non-TAK full=%s", full)
+            return
+
+        self.presence_online[bare] = full
+        LOG.info("presence online bare=%s full=%s", bare, full)
+
+    def _callsign_for_bare_jid(self, bare: str) -> str:
+        bare = str(bare or "").strip().lower()
+        for job in load_jobs(self.domain):
+            jid = str(job.get("target_jid") or "").strip().lower()
+            if jid != bare:
+                continue
+            username = str(job.get("username") or "").strip()
+            # Bookmark jobs often carry nick/callsign in conference nick fields.
+            # Fall back to username if not available.
+            return username or bare.split("@", 1)[0]
+        return bare.split("@", 1)[0]
+
+    async def message(self, msg: Any) -> None:
+        mtype = str(msg.get("type") or "chat").strip().lower()
+        if mtype not in {"chat", "normal"}:
+            return
+
+        body = str(msg.get("body") or "").strip()
+        if not body:
+            return
+
+        frm = str(msg.get("from") or "").strip().lower()
+        if not frm:
+            return
+
+        bare = frm.split("/", 1)[0]
+        if bare.startswith(f"{MARTINE_USER}@"):
+            return
+        if "@conference." in bare:
+            # Keep MUC listening for later. For now, answer direct 1:1 only.
+            return
+
+        sender_callsign = self._callsign_for_bare_jid(bare)
+        sender_uid = ""
+        live = self.presence_online.get(bare)
+        if live:
+            # Resource often carries TAK UID-ish identity. Good enough as sender_uid
+            # until we parse/stash the <tak><uid> presence value separately.
+            sender_uid = live.split("/", 1)[1]
+
+        LOG.info(
+            "xmpp question accepted from=%s sender_callsign=%s question=%r",
+            frm,
+            sender_callsign,
+            body[:500],
+        )
+
+        try:
+            from martine.agent.simple_agent import run_once
+
+            result = await asyncio.to_thread(
+                run_once,
+                body,
+                sender_uid=sender_uid,
+                sender_callsign=sender_callsign,
+            )
+            answer = str(result.get("answer") or "").strip()
+            run_id = str(result.get("run_id") or "")
+            ok = bool(result.get("ok"))
+            err = str(result.get("error") or "")
+        except Exception as e:
+            LOG.exception("xmpp agent failed from=%s", frm)
+            answer = f"Jag kunde inte svara just nu. Fel: {type(e).__name__}: {e}"
+            run_id = ""
+            ok = False
+            err = str(e)
+
+        if not answer:
+            answer = f"Jag kunde inte svara just nu. Fel: {err or 'okänt fel'}"
+
+        self.send_message(mto=frm, mbody=answer, mtype="chat")
+        LOG.info("xmpp reply sent to=%s ok=%s run_id=%s", frm, ok, run_id)
+
+    def presence_unavailable(self, pres: Any) -> None:
+        try:
+            full = str(pres.get_from()).strip().lower()
+        except Exception:
+            return
+
+        bare = full.split("/", 1)[0]
+        if self.presence_online.get(bare) == full:
+            self.presence_online.pop(bare, None)
+            LOG.info("presence offline bare=%s full=%s", bare, full)
+
+    async def session_start(self, _event: Any) -> None:
+        LOG.info("xmpp session_start jid=%s", self.boundjid.bare)
+
+        try:
+            await self.get_roster()
+            LOG.info("xmpp roster loaded")
+        except Exception as e:
+            LOG.warning("xmpp roster load failed: %s: %s", type(e).__name__, e)
+
+        self.send_presence()
+
+        # Best-effort: ask the server/contacts for current presence after Martine
+        # reconnects, so we do not have to wait for a phone-side reconnect.
+        for job in load_jobs(self.domain):
+            target = str(job.get("target_jid") or "").strip().lower()
+            if not target:
+                continue
+            try:
+                self.send_presence(pto=target, ptype="probe")
+                LOG.info("presence probe sent target=%s", target)
+            except Exception as e:
+                LOG.debug("presence probe failed target=%s err=%s", target, e)
+
+        await asyncio.sleep(1.0)
+
+        while True:
+            try:
+                await self.tick()
+            except Exception:
+                LOG.exception("tick failed")
+            await asyncio.sleep(POLL_SEC)
+
+    def failed_auth(self, event: Any) -> None:
+        LOG.error("xmpp auth failed for %s: %s", self.boundjid.bare, event)
+        self.disconnect()
+
+    async def tick(self) -> None:
+        rooms = muc_rooms_from_openfire(self.domain)
+        all_jobs = load_jobs(self.domain)
+        online = dict(self.presence_online)
+        jobs = [j for j in all_jobs if str(j.get("target_jid") or "").lower() in online]
+
+        LOG.info(
+            "tick rooms=%d jobs=%d presence_online=%d eligible=%d joined=%d",
+            len(rooms),
+            len(all_jobs),
+            len(online),
+            len(jobs),
+            len(self.joined_rooms),
+        )
+
+        for room in rooms:
+            if room in self.joined_rooms:
+                continue
+            self.plugin["xep_0045"].join_muc(room, MARTINE_NICK)
+            self.joined_rooms.add(room)
+            LOG.info("joined room=%s nick=%s", room, MARTINE_NICK)
+            await asyncio.sleep(0.05)
+
+        await asyncio.sleep(1.0)
+
+        await self.publish_new_voice_transcripts()
+
+        now = int(time.time())
+        invites = self.state.setdefault("invites", {})
+
+        hello = self.state.setdefault("xmpp_hello", {})
+
+        for job in jobs:
+            target = job["target_jid"]
+            target_live = online.get(str(target).lower(), target)
+            username = job["username"]
+
+            self.ensure_roster_contact(target=target, username=username)
+
+            if not hello.get(target):
+                self.send_xmpp_hello(target=target_live, username=username)
+                hello[target] = now
+                LOG.info("xmpp hello sent username=%s target=%s live=%s", username, target, target_live)
+                await asyncio.sleep(0.1)
+
+            for room in job["rooms"]:
+                if room not in self.joined_rooms:
+                    self.plugin["xep_0045"].join_muc(room, MARTINE_NICK)
+                    self.joined_rooms.add(room)
+                    LOG.info("joined user-room=%s nick=%s", room, MARTINE_NICK)
+                    await asyncio.sleep(0.1)
+
+                key = f"{target}|{room}"
+                last = int(invites.get(key, 0) or 0)
+                if now - last < INVITE_COOLDOWN_SEC:
+                    continue
+
+                self.send_mediated_invite(room=room, target=target_live)
+                invites[key] = now
+                LOG.info("invite sent username=%s target=%s live=%s room=%s", username, target, target_live, room)
+                await asyncio.sleep(0.1)
+
+        save_state(self.state)
+
+    async def publish_new_voice_transcripts(self) -> None:
+        voice_state = self.state.setdefault("voice_transcripts", {})
+
+        path = VOICE_TRANSCRIPTS_CURRENT_JSONL
+        if not path.exists():
+            return
+
+        try:
+            size = path.stat().st_size
+        except Exception as e:
+            LOG.debug("voice transcript stat failed path=%s err=%s", path, e)
+            return
+
+        offset = int(voice_state.get("offset", 0) or 0)
+
+        # First run after feature install: do not replay old transcript history.
+        if not self._voice_transcript_offset_initialized and not voice_state.get("initialized"):
+            voice_state["offset"] = size
+            voice_state["initialized"] = True
+            self._voice_transcript_offset_initialized = True
+            save_state(self.state)
+            LOG.info("voice transcript tail initialized path=%s offset=%d", path, size)
+            return
+
+        self._voice_transcript_offset_initialized = True
+
+        if offset > size:
+            LOG.info("voice transcript file shrank path=%s old_offset=%d new_size=%d", path, offset, size)
+            offset = 0
+
+        if offset == size:
+            return
+
+        try:
+            with path.open("r", encoding="utf-8") as fh:
+                fh.seek(offset)
+                lines = fh.readlines()
+                new_offset = fh.tell()
+        except Exception as e:
+            LOG.warning("voice transcript read failed path=%s err=%s", path, e)
+            return
+
+        for raw in lines:
+            line = raw.strip()
+            if not line:
+                continue
+
+            try:
+                event = json.loads(line)
+            except Exception as e:
+                LOG.warning("voice transcript bad json err=%s line=%r", e, line[:300])
+                continue
+
+            segment_id = str(event.get("segment_id") or "").strip()
+            channel = str(event.get("channel") or "").strip()
+            text = str(event.get("text") or "").strip()
+
+            if not segment_id or not channel or not text:
+                continue
+
+            room = voice_channel_to_muc_jid(channel, self.domain)
+
+            if room not in self.joined_rooms:
+                self.plugin["xep_0045"].join_muc(room, MARTINE_NICK)
+                self.joined_rooms.add(room)
+                LOG.info("joined voice-transcript room=%s nick=%s", room, MARTINE_NICK)
+                await asyncio.sleep(0.2)
+
+            body = format_voice_transcript_message(event)
+            self.send_message(mto=room, mbody=body, mtype="groupchat")
+            LOG.info(
+                "voice transcript sent segment_id=%s speaker=%s channel=%s room=%s text=%r",
+                segment_id,
+                str(event.get("speaker") or ""),
+                channel,
+                room,
+                text[:300],
+            )
+            await asyncio.sleep(0.1)
+
+        voice_state["offset"] = new_offset
+        voice_state["initialized"] = True
+        save_state(self.state)
+
+    def ensure_roster_contact(self, target: str, username: str) -> None:
+        """Best-effort: make user visible as a Martine contact and request presence.
+
+        This updates Martine's roster only. The user's own roster should still be
+        provisioned during onboarding/bookmark sync when credentials are available.
+        """
+        try:
+            iq = self.Iq()
+            iq["type"] = "set"
+            iq["roster"]["items"] = {
+                target: {
+                    "name": username,
+                    "subscription": "both",
+                }
+            }
+            iq.send(timeout=5)
+        except Exception as e:
+            LOG.debug("martine roster set failed target=%s err=%s", target, e)
+
+        try:
+            self.send_presence_subscription(pto=target, ptype="subscribe")
+        except Exception as e:
+            LOG.debug("martine presence subscribe failed target=%s err=%s", target, e)
+
+    def send_xmpp_hello(self, target: str, username: str) -> None:
+        msg = self.make_message(mto=target, mtype="chat")
+        msg["body"] = (
+            f"Hej {username}. Jag är Martine. "
+            "Detta meddelande går över XMPP/OpenFire/TakChat. "
+            "Jag kommer bjuda in dig till dina OpenFire-kanaler när du är ansluten."
+        )
+        msg.send()
+
+    def send_mediated_invite(self, room: str, target: str) -> None:
+        msg = self.make_message(mto=room)
+        x = ET.Element("{http://jabber.org/protocol/muc#user}x")
+        inv = ET.SubElement(x, "{http://jabber.org/protocol/muc#user}invite", {"to": target})
+        reason = ET.SubElement(inv, "{http://jabber.org/protocol/muc#user}reason")
+        reason.text = "TAKS channel invite"
+        msg.append(x)
+        msg.send()
+
+
+async def amain() -> int:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+    domain = node_domain()
+    password = martine_password()
+
+    xmpp = MartineInviter(domain=domain, password=password)
+    xmpp.register_plugin("xep_0030")
+    xmpp.register_plugin("xep_0045")
+
+    LOG.info("starting domain=%s host=%s port=%s user=%s", domain, HOST, PORT, MARTINE_USER)
+
+    await xmpp.connect(host=HOST, port=PORT)
+    await xmpp.disconnected
+    return 0
+
+
+def main() -> int:
+    return asyncio.run(amain())
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

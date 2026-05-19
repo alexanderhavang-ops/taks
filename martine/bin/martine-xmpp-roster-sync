@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import asyncio
+import json
+import ssl
+from pathlib import Path
+from typing import Any
+
+import slixmpp
+from takctl.onboarding.xmpp_bookmarks import _password_from_store
+
+DOMAIN = "46hvbat.aws.tak-hv-sandbox.se"
+HOST = "127.0.0.1"
+PORT = 5222
+BOOKMARK_DIR = Path("/opt/tak/takctl-state/onboarding/xmpp_bookmarks/done")
+MARTINE_SECRET = Path("/opt/tak/tools/takctl/secrets.d/martine.conf")
+
+
+def martine_password() -> str:
+    for raw in MARTINE_SECRET.read_text(errors="replace").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        if k.strip() == "martine_user_password":
+            return v.strip().strip('"').strip("'")
+    raise RuntimeError(f"martine_user_password missing in {MARTINE_SECRET}")
+
+
+def load_users() -> list[dict[str, str]]:
+    out = []
+    seen = set()
+
+    for path in sorted(BOOKMARK_DIR.glob("*.json")):
+        try:
+            d = json.loads(path.read_text())
+        except Exception:
+            continue
+
+        username = str(d.get("username") or path.stem).strip()
+        if not username or username == "martine":
+            continue
+
+        jid = str(d.get("jid") or f"{username}@{DOMAIN}").strip().lower()
+        nick = str(d.get("nick") or username).strip()
+
+        if jid in seen:
+            continue
+        seen.add(jid)
+
+        out.append({"username": username, "jid": jid, "nick": nick})
+
+    return out
+
+
+class Client(slixmpp.ClientXMPP):
+    def __init__(self, jid: str, password: str, actions: list[dict[str, Any]]):
+        super().__init__(jid, password)
+        self.actions = actions
+        self.result: list[dict[str, Any]] = []
+
+        self.ssl_context = ssl.create_default_context()
+        self.ssl_context.check_hostname = False
+        self.ssl_context.verify_mode = ssl.CERT_NONE
+
+        self.add_event_handler("session_start", self.start)
+        self.add_event_handler("failed_auth", self.failed_auth)
+
+    async def start(self, _event: Any) -> None:
+        self.send_presence()
+        await asyncio.sleep(0.5)
+
+        for a in self.actions:
+            contact = a["contact"]
+            name = a["name"]
+
+            iq = self.Iq()
+            iq["type"] = "set"
+            iq["roster"]["items"] = {
+                contact: {
+                    "name": name,
+                    "subscription": "both",
+                }
+            }
+
+            try:
+                await iq.send(timeout=10)
+                self.result.append({"ok": True, "contact": contact, "name": name})
+            except Exception as e:
+                self.result.append({
+                    "ok": False,
+                    "contact": contact,
+                    "name": name,
+                    "error": f"{type(e).__name__}: {e}",
+                })
+
+            try:
+                self.send_presence_subscription(pto=contact, ptype="subscribe")
+                self.send_presence_subscription(pto=contact, ptype="subscribed")
+            except Exception:
+                pass
+
+            await asyncio.sleep(0.2)
+
+        await asyncio.sleep(1.0)
+        self.disconnect()
+
+    def failed_auth(self, event: Any) -> None:
+        self.result.append({"ok": False, "error": f"failed_auth: {event}"})
+        self.disconnect()
+
+
+async def run_client(jid: str, password: str, actions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    x = Client(jid, password, actions)
+    await x.connect(host=HOST, port=PORT)
+    await asyncio.wait_for(x.disconnected, timeout=30)
+    return x.result
+
+
+async def main() -> None:
+    users = load_users()
+    print(json.dumps({"users": users}, indent=2, ensure_ascii=False))
+
+    # User side: make Martine visible as a contact.
+    for u in users:
+        username = u["username"]
+        try:
+            pw = _password_from_store(username)
+        except Exception as e:
+            print(json.dumps({"username": username, "ok": False, "error": f"password lookup: {type(e).__name__}: {e}"}, ensure_ascii=False))
+            continue
+
+        if not pw:
+            print(json.dumps({"username": username, "ok": False, "error": "missing user password"}, ensure_ascii=False))
+            continue
+
+        result = await run_client(
+            f"{username}@{DOMAIN}",
+            pw,
+            [{"contact": f"martine@{DOMAIN}", "name": "Martine"}],
+        )
+        print(json.dumps({"owner": username, "result": result}, indent=2, ensure_ascii=False))
+
+    # Martine side: track users as contacts so normal user presence can flow.
+    martine_actions = [
+        {"contact": u["jid"], "name": u["nick"] or u["username"]}
+        for u in users
+    ]
+    result = await run_client(f"martine@{DOMAIN}", martine_password(), martine_actions)
+    print(json.dumps({"owner": "martine", "result": result}, indent=2, ensure_ascii=False))
+
+
+asyncio.run(main())
