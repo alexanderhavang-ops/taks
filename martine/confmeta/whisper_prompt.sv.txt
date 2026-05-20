@@ -1,0 +1,66 @@
+Du transkriberar svensk militär radiotrafik och TAK/VX/Mumble-tal.
+Språket är svenska. Behåll svenska militära facktermer, callsigns och kanalnamn.
+Om något låter som ett svenskt militärt callsign, välj callsign/kanalnamn framför vanliga ord.
+
+Vanliga callsigns och enheter:
+EAPQ1, EAPQ2, Martine, VQ, RQ, SQ, TQ, QQ, PQ, AQ, BQ, CQ, UPK.
+BatL-VQ, PlutL-PQ, PlutL-AQ, PlutL-BQ, PlutL-CQ, KompL-QQ, GruppL-EAPQ, GruppL-EAQQ.
+
+Svenskt bokstaveringsalfabet som ofta används i tal:
+A Adam, B Bertil, C Cesar, D David, E Erik, F Filip, G Gustav, H Helge,
+I Ivar, J Johan, K Kalle, L Ludvig, M Martin, N Niklas, O Olof, P Petter,
+Q Quintus, R Rudolf, S Sigurd, T Tore, U Urban, V Viktor, W Wilhelm,
+X Xerxes, Y Yngve, Z Zäta, Å Åke, Ä Ärlig, Ö Östen.
+
+Bokstaverade förkortningar:
+UPK = Urban Petter Kalle.
+AQ = Adam Quintus.
+BQ = Bertil Quintus.
+CQ = Cesar Quintus.
+PQ = Petter Quintus.
+VQ = Viktor Quintus.
+RQ = Rudolf Quintus.
+SQ = Sigurd Quintus.
+TQ = Tore Quintus.
+QQ = Quintus Quintus.
+
+Vanliga grupp-/plutonscallsigns med bokstavering:
+EA = Erik Adam, EB = Erik Bertil, EC = Erik Cesar, ED = Erik David,
+EE = Erik Erik, EF = Erik Filip, EG = Erik Gustav, EH = Erik Helge.
+FA = Filip Adam, FB = Filip Bertil, FC = Filip Cesar, FD = Filip David,
+FE = Filip Erik, FF = Filip Filip, FG = Filip Gustav, FH = Filip Helge.
+GA = Gustav Adam, GB = Gustav Bertil, GC = Gustav Cesar, GD = Gustav David,
+GE = Gustav Erik, GF = Gustav Filip, GG = Gustav Gustav, GH = Gustav Helge.
+HA = Helge Adam, HB = Helge Bertil, HC = Helge Cesar, HD = Helge David,
+HE = Helge Erik, HF = Helge Filip, HG = Helge Gustav, HH = Helge Helge.
+
+Kombinerade callsigns:
+EAPQ, EBPQ, ECPQ, EDPQ, EEPQ, EFPQ, EGPQ, EHPQ,
+FAPQ, FBPQ, FCPQ, FDPQ, FEPQ, FFPQ, FGPQ, FHPQ,
+GAPQ, GBPQ, GCPQ, GDPQ, GEPQ, GFPQ, GGPQ, GHPQ,
+HAPQ, HBPQ, HCPQ, HDPQ, HEPQ, HFPQ, HGPQ, HHPQ.
+EAAQ, EBAQ, ECAQ, EDAQ, EEAQ, EFAQ, EGAQ, EHAQ.
+EABQ, EBBQ, ECBQ, EDBQ, EEBQ, EFBQ, EGBQ, EHBQ.
+EACQ, EBCQ, ECCQ, EDCQ, EECQ, EFCQ, EGCQ, EHCQ.
+
+Vanliga termer:
+bataljon, kompani, pluton, grupp, stab, ledningspluton, bataljonsledning,
+kompaniledning, plutonledning, gruppchef, ställföreträdare, signalist,
+samband, sambandskontroll, sambandstjänst, lägesbild, order, rapport,
+stridsvärde, stridsberedskap, marschberedskap, omgruppering, framryckning,
+avmarsch, fordonskolonn, brytpunkt, marschmål, objekt, skyddsobjekt,
+observationsplats, eldställning, samlingsplats, grupperingsplats, UPK.
+
+Rapportformat och doktrinord:
+TNR, FORS, PEDARS, 7S, 8S, sedan, stridskontakt, fiende, egen trupp,
+terräng, tid, riktning, avstånd, bedömt läge, åtgärd, kvarstanna,
+avvakta, repetera, bekräfta, kvittera, uppfattat, kom, slut kom.
+
+Exempel på fraser:
+"Bekräfta mottaget."
+"Rapportera stridsvärde."
+"EAPQ1 från EAPQ2, kom."
+"PlutL-PQ, sambandstest."
+"BatL-VQ, detta är EAPQ1."
+"UPK, Urban Petter Kalle."
+"Omgruppera till samlingsplats."

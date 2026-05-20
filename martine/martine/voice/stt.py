@@ -5,6 +5,7 @@ import tempfile
 import wave
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 from .config import ConfigError, VoiceConfig
 from .models import AudioSegment
@@ -14,6 +15,11 @@ LOCAL_MODEL_DIR_BY_NAME = {
     "small": Path("/opt/tak/tools/martine/state/models/faster-whisper-small"),
     "large-v3": Path("/opt/tak/tools/martine/state/models/faster-whisper-large-v3"),
 }
+
+WHISPER_PROMPT_CANDIDATES = [
+    Path("/opt/tak/tools/martine/conf.d/whisper_prompt.sv.txt"),
+    Path("/opt/taks/martine/confmeta/whisper_prompt.sv.txt"),
+]
 
 
 @dataclass(frozen=True)
@@ -27,6 +33,8 @@ class FasterWhisperTranscriber:
     def __init__(self, cfg: VoiceConfig) -> None:
         self.cfg = cfg
         self._model = None
+        self._initial_prompt: Optional[str] = None
+        self._initial_prompt_loaded = False
 
     def transcribe_segment(self, segment: AudioSegment) -> TranscriptionResult:
         self._validate_segment(segment)
@@ -55,6 +63,7 @@ class FasterWhisperTranscriber:
             str(wav_path),
             language=self.cfg.language,
             task=self.cfg.task,
+            initial_prompt=self._load_initial_prompt(),
             condition_on_previous_text=False,
             beam_size=1,
             vad_filter=False,
@@ -68,6 +77,28 @@ class FasterWhisperTranscriber:
                 texts.append(t)
 
         return _normalize_text(" ".join(texts))
+
+    def _load_initial_prompt(self) -> str | None:
+        if self._initial_prompt_loaded:
+            return self._initial_prompt
+
+        self._initial_prompt_loaded = True
+
+        for path in WHISPER_PROMPT_CANDIDATES:
+            try:
+                text = path.read_text(encoding="utf-8").strip()
+            except FileNotFoundError:
+                continue
+            except OSError:
+                continue
+
+            text = _normalize_prompt(text)
+            if text:
+                self._initial_prompt = text
+                return self._initial_prompt
+
+        self._initial_prompt = None
+        return None
 
     def _get_model(self):
         if self._model is not None:
@@ -146,3 +177,15 @@ def _looks_like_cuda_available() -> bool:
 
 def _normalize_text(value: str) -> str:
     return " ".join(value.split())
+
+
+def _normalize_prompt(value: str) -> str:
+    lines: list[str] = []
+    for raw in str(value or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("#") or line.startswith(";"):
+            continue
+        lines.append(line)
+    return "\n".join(lines)

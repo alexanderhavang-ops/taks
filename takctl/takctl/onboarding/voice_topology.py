@@ -82,13 +82,17 @@ def _seed_channels_from_ctx(derived: dict[str, Any]) -> list[str]:
 
     seeds: list[str] = []
 
-    # Ledningspluton / P-kompani: pluton + bataljon.
+    # Ledningspluton / P-kompani: stab-/ledningspluton + bataljon.
+    # P-kompani ska inte använda vanlig pluton-FAL som AP/BP här.
+    # För 46/VQ blir stab-/ledningsplutonens talkanal PlutL-PQ.
     # Detta ska gälla även om identiteten råkar bära gruppprefix, t.ex. EAPQ1.
     if company_fal.startswith("P"):
-        if platoon_channel and battalion_channel:
-            seeds.extend([platoon_channel, battalion_channel])
-        elif platoon_channel:
-            seeds.append(platoon_channel)
+        battalion_second = battalion_fal[1:2] if len(battalion_fal) >= 2 else ""
+        staff_platoon_channel = f"PlutL-P{battalion_second}" if battalion_second else ""
+        if staff_platoon_channel and battalion_channel:
+            seeds.extend([staff_platoon_channel, battalion_channel])
+        elif staff_platoon_channel:
+            seeds.append(staff_platoon_channel)
         elif battalion_channel:
             seeds.append(battalion_channel)
         return _uniq(seeds)
