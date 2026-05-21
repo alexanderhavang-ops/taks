@@ -203,8 +203,6 @@ class Policy:
             except Exception:
                 return False
 
-        if not _nonempty(ctx.get("callsign")) and _nonempty(g.get("callsign")):
-            ctx["callsign"] = g.get("callsign")
         if not _nonempty(ctx.get("team")) and _nonempty(g.get("team")):
             ctx["team"] = g.get("team")
         if not _nonempty(ctx.get("atak_role_type")) and _nonempty(g.get("atak_role_type")):

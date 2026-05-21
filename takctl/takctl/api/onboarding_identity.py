@@ -504,6 +504,7 @@ class UserCreateIn(BaseModel):
     groups_in: List[str] = Field(default_factory=list)
     groups_out: List[str] = Field(default_factory=list)
     ctx: Dict[str, Any] = Field(default_factory=dict)
+    configured_callsign: Optional[str] = Field(default=None, description="Canonical configured callsign override; stored as identity.callsign")
     endpoints: Dict[str, Any] = Field(default_factory=dict)
     channels: Optional[List[str]] = Field(default=None, description="Selected Mumble/VX channels. None or [] means derive defaults.")
     reveal_password: bool = Field(default=True)
@@ -783,6 +784,10 @@ def create_user(req: Request, username: str, body: UserCreateIn):
         raise HTTPException(status_code=500, detail=f"User not found after create/update in configured backing user store: {u}")
 
     ctx = dict(body.ctx or {})
+    ctx.pop("callsign", None)
+    ctx["username"] = u
+    configured_callsign = str(body.configured_callsign or "").strip()
+
     from takctl.onboarding.policy_registry import default_policy_id
     default_pid = default_policy_id()
     policy_id = (ctx.get("policy_id") or default_pid).strip() or default_pid
@@ -798,7 +803,7 @@ def create_user(req: Request, username: str, body: UserCreateIn):
         pol = Policy(policy_id=policy_id)
         ident = pol.resolve_identity(ctx)
         ident_out = {
-            "callsign": ident.callsign,
+            "callsign": configured_callsign or ident.callsign,
             "team": ident.team,
             "atak_role_type": getattr(ident, "atak_role_type", None),
         }

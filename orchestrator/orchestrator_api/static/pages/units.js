@@ -1,5 +1,28 @@
 /* global CORE */
 (function(){
+
+  function setOrchestratorFavicon(){
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">' +
+      '<rect width="64" height="64" rx="12" fill="#0b1220"/>' +
+      '<path d="M8 16 L32 6 L56 16 V34 C56 48 45 57 32 61 C19 57 8 48 8 34 Z" fill="#1f3b73" stroke="#8fd8ff" stroke-width="3"/>' +
+      '<path d="M16 32 H48 M32 16 V48" stroke="#8fd8ff" stroke-width="3" opacity="0.75"/>' +
+      '<circle cx="32" cy="32" r="17" fill="none" stroke="#d7f4ff" stroke-width="2" opacity="0.55"/>' +
+      '<text x="32" y="39" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="800" fill="#ffffff">TO</text>' +
+      '</svg>';
+
+    const href = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+
+    let link = document.querySelector("link[rel~='icon']");
+    if(!link){
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    link.type = 'image/svg+xml';
+    link.href = href;
+  }
+
   function esc(s){
     return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
@@ -351,6 +374,8 @@
   }
 
   function render(container){
+    document.title = 'Units · master';
+    setOrchestratorFavicon();
     loadAndRender(container);
   }
 

@@ -219,6 +219,7 @@
 
   window.PAGES = window.PAGES || {};
   window.PAGES.nodes = function(container){
+    document.title = 'Nodes · master';
     container.innerHTML=`
       <section class="card">
         <div class="card__head">

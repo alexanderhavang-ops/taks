@@ -415,7 +415,6 @@ def resolve_identity_bundle(username: str, req: Request) -> dict[str, Any]:
         "battalion": q(req, "battalion", None),
         "battalion_fal": q(req, "battalion_fal", None),
         "battalion_role": q(req, "battalion_role", None),
-        "callsign": q(req, "callsign", None),
         "callsign_policy": q(req, "callsign_policy", None),
         "team": q(req, "team", None),
         "atak_role_type": q(req, "atak_role_type", None),
@@ -426,6 +425,8 @@ def resolve_identity_bundle(username: str, req: Request) -> dict[str, Any]:
         if v is not None and str(v).strip():
             ctx[k] = v
 
+    ctx.pop("callsign", None)
+    ctx.setdefault("username", username)
     ctx.setdefault("unit", "")
     ctx.setdefault("n", "")
     ctx.setdefault("role", "member")
@@ -439,6 +440,17 @@ def resolve_identity_bundle(username: str, req: Request) -> dict[str, Any]:
     try:
         pol = Policy(policy_id)
         ident = pol.resolve_identity(ctx)
+
+        try:
+            from takctl.onboarding.service_builder import build_service
+            stored_ident = build_service().store.get_identity(username)
+            stored_identity = dict(getattr(stored_ident, "identity", None) or {})
+            stored_callsign = str(stored_identity.get("callsign") or "").strip()
+            if stored_callsign:
+                setattr(ident, "callsign", stored_callsign)
+        except Exception:
+            pass
+
         policy_meta = pol.meta()
     except PolicyError as e:
         raise HTTPException(status_code=400, detail=str(e))

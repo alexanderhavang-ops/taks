@@ -561,6 +561,41 @@
 
     setGeneratedUnitFavicon(ctx);
 
+
+    function nodeBrowserTitle(node){
+      if(!node) return '';
+      return String(
+        ((node.meta || {}).name) ||
+        node.display_name ||
+        node.fqdn ||
+        node.node_id ||
+        node.instance_id ||
+        ''
+      ).trim();
+    }
+
+    function setUnitPageTitle(ctx, activeTab, node){
+      const unitTitle = String((ctx && (ctx.title || ctx.unitPath)) || 'Unit').trim();
+      const tabLabels = {
+        overview: 'Overview',
+        node: 'Node',
+        backups: 'Backups',
+        files: 'Files',
+        config: 'Config',
+        advanced: 'Advanced'
+      };
+      const tabKey = String(activeTab || '').trim();
+      const tabTitle = tabLabels[tabKey] || 'Unit';
+
+      if(tabKey === 'node'){
+        const nodeTitle = nodeBrowserTitle(node);
+        document.title = (nodeTitle || unitTitle) + ' · Node';
+        return;
+      }
+
+      document.title = unitTitle + ' · ' + tabTitle;
+    }
+
     const node = A.findNodeForUnit(nodesResp, unitPath);
     const tabs = unitTabsApi();
 
@@ -597,6 +632,8 @@
     if(!allowedTabs[activeTab]){
       activeTab = 'overview';
     }
+
+    setUnitPageTitle(ctx, activeTab, node);
 
     S.clear(app);
     app.appendChild(renderHeaderCard(ctx));

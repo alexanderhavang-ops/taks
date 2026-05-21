@@ -36,10 +36,17 @@ def derive_grammar(policy_id: str, ctx: Dict[str, Any]) -> Dict[str, Any]:
 
     pid = _s(policy_id).lower()
     if pid and pid != "hemvarnet":
-        unit = _s(ctx.get("unit")) or pid.upper()
+        username = _s(ctx.get("username"))
+        unit = _s(ctx.get("unit"))
         n = _s(ctx.get("n"))
-        callsign = f"{unit}{n}" if unit and n else unit
-        if not callsign:
+
+        if unit and n:
+            callsign = f"{unit}{n}"
+        elif unit:
+            callsign = unit
+        elif username:
+            callsign = username
+        else:
             callsign = pid.upper()
 
         return {

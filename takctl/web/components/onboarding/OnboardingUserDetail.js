@@ -646,7 +646,7 @@
           h(Box, null,
             SectionTitle("Konto"),
             h(KV, { k: "Användarnamn" }, _colText(username)),
-            h(KV, { k: "Konfigurerad anropssignal" }, _colText((card.callsigns && card.callsigns.configured) || header.configured_callsign || header.callsign || ctx.callsign || ident.callsign)),
+            h(KV, { k: "Konfigurerad anropssignal" }, _colText((card.callsigns && card.callsigns.configured) || header.configured_callsign || header.callsign || ident.callsign)),
             h(KV, { k: "Online som" }, _colText((card.callsigns && card.callsigns.current_observed) || (activity && activity.callsign) || "—")),
             h(KV, { k: "Tidigare anropssignaler" }, _colText((function () {
               var cs = (card.callsigns || {});

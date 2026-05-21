@@ -914,6 +914,11 @@
     const [selectedMap, setSelectedMap] = useState({});
     const [printMode, setPrintMode] = useState("cards");
 
+    const known = {};
+    users.map(_rowUsername).filter(Boolean).forEach(function (u) {
+      known[u] = true;
+    });
+
     const selectedUsers = users.map(_rowUsername).filter(function (u) { return !!u && !!selectedMap[u]; });
     const selectedCount = selectedUsers.length;
 

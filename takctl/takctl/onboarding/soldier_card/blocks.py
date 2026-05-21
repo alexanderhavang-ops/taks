@@ -9,7 +9,7 @@ from takctl.onboarding.soldier_card.i18n import t
 def profile_block(*, lang: str | None, username: str, groups: list[str], sel: dict, ident) -> str:
     ctx = ctx_from(ident, sel)
 
-    callsign = norm(ctx.get("callsign")) or safe(username)
+    callsign = norm(getv(ident, "callsign")) or safe(username)
     team = norm(ctx.get("team"))
     atak_role = norm(ctx.get("atak_role_type")) or norm(ctx.get("role"))
     remarks = norm(ctx.get("remarks"))

@@ -55,7 +55,6 @@
     }
 
     ctx.callsign_policy = effectivePolicy;
-    if (norm(callsignEdit)) ctx.callsign = String(callsignEdit);
     if (norm(emailAddr)) ctx.email = String(emailAddr);
 
     const artifacts_requested = {
@@ -73,6 +72,7 @@
       groups_in: splitCsv(groups.groups_in),
       groups_out: splitCsv(groups.groups_out),
       ctx: ctx,
+      configured_callsign: norm(callsignEdit) || null,
       channels: channelsSelected,
       artifacts_requested: artifacts_requested,
       paths: {

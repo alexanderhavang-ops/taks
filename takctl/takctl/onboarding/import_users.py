@@ -215,6 +215,8 @@ def _apply_row(
     row["username"] = username
 
     ctx = _ctx_from_row(row)
+    ctx["username"] = username
+
     password_in = (row.get("password") or "").strip()
     email = (row.get("email") or "").strip()
     admin = _bool(row.get("is_admin", row.get("admin", "")))

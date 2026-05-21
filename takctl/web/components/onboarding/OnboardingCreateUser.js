@@ -169,7 +169,8 @@
           const em = (ctx && ctx.email) ? String(ctx.email) : "";
           if (em) setEmailAddr(em);
 
-          const cso = (ctx && ctx.callsign) ? String(ctx.callsign) : "";
+          const savedIdentity = (j && j.taks_identity && j.taks_identity.identity) ? j.taks_identity.identity : {};
+          const cso = (savedIdentity && savedIdentity.callsign) ? String(savedIdentity.callsign) : "";
           if (cso) {
             callsignDirtyRef.current = true;
             setCallsignEdit(cso);
@@ -354,8 +355,6 @@
 
       const ctx = Object.assign({}, ctxForDerive || {});
       ctx.policy_id = String(policyId || "");
-      if (_norm(callsignEdit)) ctx.callsign = _norm(callsignEdit);
-
       setChannelsBusy(true);
       setChannelsErr("");
 

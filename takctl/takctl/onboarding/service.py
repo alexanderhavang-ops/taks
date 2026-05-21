@@ -114,7 +114,7 @@ def _build_identity(*, ident: Optional[UserIdentity]) -> Dict[str, Any]:
         "squad": ctx.get("squad"),
         "role": ctx.get("role"),
         "battalion_role": ctx.get("battalion_role"),
-        "callsign": ctx.get("callsign") or derived.get("callsign") or derived0.get("callsign"),
+        "callsign": derived0.get("callsign") or derived.get("callsign"),
         "team": ctx.get("team") or derived.get("team") or derived0.get("team"),
         "team_color": ctx.get("team_color") or derived.get("team_color") or derived0.get("team_color"),
         "atak_role_type": ctx.get("atak_role_type") or derived.get("atak_role_type") or derived0.get("atak_role_type"),

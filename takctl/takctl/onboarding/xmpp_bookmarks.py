@@ -235,8 +235,7 @@ def derive_user_bookmarks(
             default_rooms = [fallback]
 
     nick = (
-        str(ctx.get("callsign") or "").strip()
-        or str(ident_d.get("callsign") or "").strip()
+        str(ident_d.get("callsign") or "").strip()
         or username
     )
 

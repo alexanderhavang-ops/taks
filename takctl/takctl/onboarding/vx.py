@@ -196,7 +196,7 @@ def derive_vx_params(*, username: str, groups: list[str], selection: dict | None
     sel = selection or {}
     ctx = (sel.get("ctx") or {}) if isinstance(sel, dict) else {}
 
-    callsign = str(ctx.get("callsign") or username or "user").strip()
+    callsign = str(username or "user").strip()
 
     host = ""
     try:
