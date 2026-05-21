@@ -52,7 +52,7 @@ def _events_path(job_id: str) -> Path:
 
 def _external_base_from_config() -> str | None:
     cfg = load_config()
-    v = (cfg.onboarding_external_base or "").strip()
+    v = (getattr(cfg, "onboarding_external_base", "") or "").strip()
     return v.rstrip("/") if v else None
 
 
