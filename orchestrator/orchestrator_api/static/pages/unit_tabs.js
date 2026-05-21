@@ -81,6 +81,39 @@
     return '';
   }
 
+  function passwordPolicyProblems(value){
+    const p = String(value || '');
+    const problems = [];
+
+    if(p.length < 15) problems.push('too short');
+    if(!/[A-Z]/.test(p)) problems.push('missing uppercase');
+    if(!/[a-z]/.test(p)) problems.push('missing lowercase');
+    if(!/[0-9]/.test(p)) problems.push('missing digit');
+    if(!/[^A-Za-z0-9]/.test(p)) problems.push('missing special char');
+
+    return problems;
+  }
+
+
+
+  function addBootstrapValidationIssues(validation, bootstrapResp){
+    const issues = (((bootstrapResp || {}).validation || {}).issues) || [];
+    if(!Array.isArray(issues)) return;
+
+    issues.forEach(function(x){
+      const msg = String((x && x.message) || '').trim();
+      if(!msg) return;
+
+      addIssue(validation, issue(
+        (x && x.tab) || 'config',
+        (x && x.code) || 'bootstrap_validation',
+        msg,
+        (x && x.target) || 'config-secrets',
+        (x && x.severity) || 'blocker'
+      ));
+    });
+  }
+
   function hasTakserverDeb(filesResp){
     const subtrees = ensureMap((filesResp || {}).subtrees);
     const arr = Array.isArray(subtrees.packages) ? subtrees.packages : [];
@@ -100,6 +133,8 @@
   function computeValidation(node, filesResp, bootstrapResp){
     const v = emptyValidation();
     const maps = mergedBootstrapMaps(bootstrapResp);
+
+    addBootstrapValidationIssues(v, bootstrapResp);
 
     if(!hasTakserverDeb(filesResp)){
       addIssue(v, issue(
@@ -128,6 +163,17 @@
         'config-secrets',
         'blocker'
       ));
+    }else{
+      const adminPasswordProblems = passwordPolicyProblems(adminPassword);
+      if(adminPasswordProblems.length > 0){
+        addIssue(v, issue(
+          'config',
+          'weak_admin_password',
+          'Admin password does not meet policy: ' + adminPasswordProblems.join(', ') + '.',
+          'config-secrets',
+          'blocker'
+        ));
+      }
     }
 
     const fqdnInput = (typeof document !== 'undefined') ? document.getElementById('node_fqdn') : null;

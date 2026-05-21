@@ -73,6 +73,25 @@ def _warn(report: Dict[str, object], msg: str) -> None:
 def _is_placeholder_value(v: str) -> bool:
     return str(v or "").strip().upper() == "CHANGEME"
 
+def _password_policy_problems(v: str) -> List[str]:
+    password = str(v or "")
+    problems: List[str] = []
+
+    if len(password) < 15:
+        problems.append("too short")
+    if not any(c.isupper() for c in password):
+        problems.append("missing uppercase")
+    if not any(c.islower() for c in password):
+        problems.append("missing lowercase")
+    if not any(c.isdigit() for c in password):
+        problems.append("missing digit")
+    if not any(not c.isalnum() for c in password):
+        problems.append("missing special char")
+
+    return problems
+
+
+
 
 def _need_file(report: Dict[str, object], root: Path, relpath: str, label: str) -> Optional[Path]:
     p = root / relpath
@@ -218,6 +237,10 @@ def verify_bundle_tree(bundle_root: str | Path, unit_path: str = "", role: str =
             _err(report, f"missing critical bootstrap secret key: {key}")
         elif _is_placeholder_value(val):
             _err(report, f"placeholder critical bootstrap secret key not allowed: {key}")
+        elif key == "takctl_admin_password":
+            problems = _password_policy_problems(val)
+            if problems:
+                _err(report, f"takctl_admin_password does not meet policy: {', '.join(problems)}")
 
     le_cert = _need_file(report, root, "install/letsencrypt/fullchain.pem", "bundled letsencrypt fullchain")
     le_key = _need_file(report, root, "install/letsencrypt/privkey.pem", "bundled letsencrypt privkey")

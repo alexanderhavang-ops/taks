@@ -78,6 +78,63 @@ def _effective_policy_id(unit_id: str) -> str:
     return ""
 
 
+
+
+def _secret_value_from_texts(texts: Dict[str, str], keys: List[str]) -> str:
+    wanted = {str(k).strip() for k in keys if str(k).strip()}
+    for _name, text in (texts or {}).items():
+        for raw in str(text or "").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or line.startswith(";") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            if k.strip() in wanted:
+                return v.strip()
+    return ""
+
+
+def _password_policy_problems(value: str) -> List[str]:
+    password = str(value or "")
+    problems: List[str] = []
+
+    if len(password) < 15:
+        problems.append("too short")
+    if not any(c.isupper() for c in password):
+        problems.append("missing uppercase")
+    if not any(c.islower() for c in password):
+        problems.append("missing lowercase")
+    if not any(c.isdigit() for c in password):
+        problems.append("missing digit")
+    if not any(not c.isalnum() for c in password):
+        problems.append("missing special char")
+
+    return problems
+
+
+def _bootstrap_validation_issues_from_effective_secrets(eff_sec: Dict[str, str]) -> List[Dict[str, str]]:
+    """Cheap sanitized validation for the existing Unit UI readiness path.
+
+    This must not expose the actual password.
+    """
+    admin_password = _secret_value_from_texts(eff_sec, ["takctl_admin_password", "admin_password"])
+    if not admin_password:
+        return []
+
+    if admin_password.strip().upper() == "CHANGEME":
+        return []
+
+    problems = _password_policy_problems(admin_password)
+    if not problems:
+        return []
+
+    return [{
+        "tab": "config",
+        "code": "weak_admin_password",
+        "message": "Admin password does not meet policy: " + ", ".join(problems) + ".",
+        "target": "config-secrets",
+        "severity": "blocker",
+    }]
+
 def _seed_plan_for_missing(unit_id: str, missing: List[str]) -> Dict[str, Dict[str, Dict[str, str]]]:
     missing_set = {str(x).strip() for x in (missing or []) if str(x).strip()}
     policy_id = _effective_policy_id(unit_id)
@@ -171,6 +228,7 @@ def get_unit_bootstrap(unit_path: str, request: Request) -> Dict[str, Any]:
     eff_sec = effective_file_texts(unit_id, secret=True)
     eff_conf_sources = list_effective_sources(unit_id, secret=False)
     eff_sec_sources = list_effective_sources(unit_id, secret=True)
+    validation_issues = _bootstrap_validation_issues_from_effective_secrets(eff_sec)
 
     return {
         "ok": True,
@@ -187,6 +245,9 @@ def get_unit_bootstrap(unit_path: str, request: Request) -> Dict[str, Any]:
         "effective_sources": {
             "conf_d": eff_conf_sources,
             "secrets_d": eff_sec_sources,
+        },
+        "validation": {
+            "issues": validation_issues,
         },
     }
 
