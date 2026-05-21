@@ -15,6 +15,7 @@ from takctl.onboarding.selection import save_selection
 from takctl.services.backing_user_store import BackingUserStoreError, build_backing_user_store
 from takctl.api.onboarding_identity import _issue_card_link_base
 from takctl.config import load_config
+from takctl.onboarding.import_user_fields import canonicalize_row, derive_username
 
 
 # ------------------------------------------------------------
@@ -27,13 +28,7 @@ def _read_csv(path: Path) -> List[Dict[str, str]]:
     with path.open("r", encoding="utf-8-sig") as f:
         r = csv.DictReader(f)
         for row in r:
-            out: Dict[str, str] = {}
-            for k, v in row.items():
-                kk = (str(k).strip().lower() if k is not None else "")
-                if not kk:
-                    continue
-                out[kk] = (v or "").strip()
-            rows.append(out)
+            rows.append(canonicalize_row(dict(row or {})))
 
     return rows
 
@@ -50,16 +45,16 @@ def _read_xlsx(path: Path) -> List[Dict[str, str]]:
 
     for i, row in enumerate(ws.iter_rows(values_only=True)):
         if i == 0:
-            header = [(str(c).strip().lower() if c is not None else "") for c in row]
+            header = [(str(c).strip() if c is not None else "") for c in row]
             continue
 
-        d: Dict[str, str] = {}
+        raw: Dict[str, str] = {}
         for k, v in zip(header, row):
             if not k:
                 continue
-            d[k] = (str(v).strip() if v is not None else "")
+            raw[k] = (str(v).strip() if v is not None else "")
 
-        rows.append(d)
+        rows.append(canonicalize_row(raw))
 
     return rows
 
@@ -194,9 +189,9 @@ def validate_rows(rows: List[Dict[str, str]]) -> None:
 
     first = rows[0]
 
-    if "username" not in first and not all(x in first for x in IDENTITY_FIELDS):
+    if "username" not in first and "email" not in first and not all(x in first for x in IDENTITY_FIELDS):
         raise RuntimeError(
-            "file must contain either 'username' or identity columns "
+            "file must contain either 'username', 'email', or identity columns "
             "(company, platoon, group, n)"
         )
 
@@ -211,9 +206,13 @@ def _apply_row(
     *,
     update_existing: bool,
 ) -> Dict[str, Any]:
-    username = (row.get("username") or "").strip()
+    email = (row.get("email") or "").strip()
+    username = (row.get("username") or "").strip() or derive_username(row)
     if not username:
-        raise RuntimeError("username is required in import v1")
+        raise RuntimeError("username or email is required in import")
+
+    row = dict(row)
+    row["username"] = username
 
     ctx = _ctx_from_row(row)
     password_in = (row.get("password") or "").strip()

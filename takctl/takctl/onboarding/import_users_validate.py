@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 from takctl.onboarding.import_users import _group_list_from_row
+from takctl.onboarding.import_user_fields import derive_username
 
 SPECIALS = set(r"-_!@#$%^&*(){}[]+=~`|:;<>,./?")
 
@@ -69,7 +70,7 @@ def validate_rows_static(rows: List[Dict[str, str]]) -> Dict[str, Any]:
 
     for idx, row in enumerate(rows, start=1):
         excel_row = idx + 1  # header row is row 1 in Excel
-        username = _norm((row or {}).get("username"))
+        username = _norm((row or {}).get("username")) or derive_username(row or {})
 
         ok_u, reason_u = _username_valid(username)
         if not ok_u:

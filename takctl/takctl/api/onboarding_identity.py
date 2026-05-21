@@ -89,6 +89,7 @@ from takctl.services.backing_user_store import (
 )
 from takctl.onboarding.policy import Policy
 from takctl.config import load_config
+from takctl.services.openfire_presence import openfire_for_username
 from takctl.onboarding.card_ttl import required_card_link_ttl_sec as _required_card_link_ttl_sec
 
 router = APIRouter(tags=["onboarding"])
@@ -601,6 +602,7 @@ def get_user(username: str):
     ident = svc.store.get_identity(u)
     sel = load_selection(u) or {}
 
+    openfire = openfire_for_username(u)
     out = {
         "user": {
             "username": u,
@@ -608,6 +610,8 @@ def get_user(username: str):
         },
         "taks_identity": _identity_out(ident),
         "selection": sel,
+        "openfire": openfire,
+        "xmpp": openfire,
     }
 
     return JSONResponse(out, headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"})

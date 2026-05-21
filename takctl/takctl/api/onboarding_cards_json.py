@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from takctl.onboarding.onboarding_db import maybe_db
 from takctl.onboarding.service_builder import build_service
+from takctl.services.openfire_presence import openfire_for_username
 
 router = APIRouter(tags=["onboarding"])
 
@@ -26,6 +27,11 @@ def onboarding_user_card_json(
         )
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Unknown user: {username}")
+
+    openfire = openfire_for_username(username)
+    if isinstance(card, dict):
+        card["openfire"] = openfire
+        card["xmpp"] = openfire
 
     out = {
         "card": card,

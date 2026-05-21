@@ -203,7 +203,23 @@ def save_state(state: dict[str, Any]) -> None:
     STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     tmp = STATE_PATH.with_suffix(".tmp")
     tmp.write_text(json.dumps(state, indent=2, sort_keys=True))
+    try:
+        tmp.chmod(0o644)
+    except Exception:
+        pass
     tmp.replace(STATE_PATH)
+
+
+def iso_z_from_epoch(ts: int) -> str:
+    try:
+        return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(int(ts)))
+    except Exception:
+        return ""
+
+
+def muc_room_label(room: str) -> str:
+    room = str(room or "").strip()
+    return room.split("@", 1)[0] if room else ""
 
 
 class MartineInviter(slixmpp.ClientXMPP):
@@ -370,6 +386,105 @@ class MartineInviter(slixmpp.ClientXMPP):
                 LOG.exception("tick failed")
             await asyncio.sleep(POLL_SEC)
 
+    def update_openfire_snapshot(self, *, all_jobs: list[dict[str, Any]], online: dict[str, str], now: int) -> None:
+        invites = dict(self.state.get("invites") or {})
+
+        by_username: dict[str, dict[str, Any]] = {}
+        by_jid: dict[str, dict[str, Any]] = {}
+
+        for job in all_jobs:
+            username = str(job.get("username") or "").strip()
+            target = str(job.get("target_jid") or "").strip().lower()
+            if not username or not target:
+                continue
+
+            live = str(online.get(target) or "").strip().lower()
+            live_resource = live.split("/", 1)[1] if "/" in live else ""
+
+            job_rooms = [
+                str(x or "").strip().lower()
+                for x in list(job.get("rooms") or [])
+                if str(x or "").strip()
+            ]
+
+            invite_rows = []
+            invite_rooms = []
+            for key, ts_raw in sorted(invites.items()):
+                key_target, sep, room = str(key or "").partition("|")
+                if not sep:
+                    continue
+                if key_target.strip().lower() != target:
+                    continue
+
+                try:
+                    ts = int(ts_raw or 0)
+                except Exception:
+                    ts = 0
+
+                room = room.strip().lower()
+                invite_rooms.append(room)
+                invite_rows.append(
+                    {
+                        "room": room,
+                        "room_label": muc_room_label(room),
+                        "last_sent_epoch": ts,
+                        "last_sent": iso_z_from_epoch(ts) if ts else "",
+                    }
+                )
+
+            rooms = sorted(set(job_rooms + invite_rooms))
+
+            ent = {
+                "username": username,
+                "jid": target,
+                "online": bool(live),
+                "connected_now": bool(live),
+                "status": "online" if live else "offline",
+                "live_jid": live,
+                "live_resource": live_resource,
+                "last_seen_epoch": int(now) if live else 0,
+                "last_seen": iso_z_from_epoch(now) if live else "",
+                "rooms": rooms,
+                "room_labels": [muc_room_label(x) for x in rooms if muc_room_label(x)],
+                "invites": invite_rows,
+            }
+
+            by_username[username.lower()] = ent
+            by_jid[target] = ent
+
+        martine_jid = f"{MARTINE_USER}@{self.domain}".lower()
+        martine_ent = {
+            "username": MARTINE_USER,
+            "jid": martine_jid,
+            "online": True,
+            "connected_now": True,
+            "status": "online",
+            "bot": True,
+            "service": "martine-xmpp-inviter",
+            "live_jid": str(self.boundjid.full or self.boundjid.bare or martine_jid).lower(),
+            "live_resource": str(getattr(self.boundjid, "resource", "") or ""),
+            "last_seen_epoch": int(now),
+            "last_seen": iso_z_from_epoch(now),
+            "rooms": sorted(self.joined_rooms),
+            "room_labels": [muc_room_label(x) for x in sorted(self.joined_rooms) if muc_room_label(x)],
+            "invites": [],
+        }
+
+        by_username[MARTINE_USER] = martine_ent
+        by_jid[martine_jid] = martine_ent
+
+        self.state["openfire"] = {
+            "source": "martine-xmpp-inviter",
+            "domain": self.domain,
+            "generated_at_epoch": int(now),
+            "generated_at": iso_z_from_epoch(now),
+            "presence_online": dict(sorted(online.items())),
+            "joined_rooms": sorted(self.joined_rooms),
+            "martine": martine_ent,
+            "by_username": by_username,
+            "by_jid": by_jid,
+        }
+
     def failed_auth(self, event: Any) -> None:
         LOG.error("xmpp auth failed for %s: %s", self.boundjid.bare, event)
         self.disconnect()
@@ -436,6 +551,7 @@ class MartineInviter(slixmpp.ClientXMPP):
                 LOG.info("invite sent username=%s target=%s live=%s room=%s", username, target, target_live, room)
                 await asyncio.sleep(0.1)
 
+        self.update_openfire_snapshot(all_jobs=all_jobs, online=online, now=now)
         save_state(self.state)
 
     async def publish_new_voice_transcripts(self) -> None:

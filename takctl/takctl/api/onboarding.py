@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from takctl.onboarding.onboarding_db import maybe_db
 from takctl.onboarding.service_builder import build_service
+from takctl.services.openfire_presence import attach_openfire_to_status
 
 router = APIRouter(tags=["onboarding"])
 
@@ -23,6 +24,8 @@ def onboarding_status(
         unknown_limit=int(unknown_limit),
         recent_minutes=int(recent_minutes),
     )
+
+    attach_openfire_to_status(out)
 
     out["meta"] = {
         "db_attached": db is not None,

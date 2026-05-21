@@ -135,6 +135,39 @@
     );
   }
 
+
+  function ImportFieldHelp() {
+    const rows = [
+      ["username", "username, user, login"],
+      ["email", "Email, email, e-mail, mail, Attendee email"],
+      ["first_name", "First Name, first_name, firstname, Attendee first name"],
+      ["last_name", "Last Name, last_name, lastname, Attendee last name"],
+      ["callsign", "callsign, call sign, anropssignal"],
+      ["groups", "groups, group, grupp"],
+      ["group1/group2/group3", "group1, group2, group3"],
+      ["password", "password, pass, pw"],
+      ["is_admin", "is_admin, admin, administrator"],
+      ["company/platoon/group/n", "company, platoon, group, n"],
+      ["team", "team"],
+      ["atak_role_type", "atak_role_type, role"],
+      ["remarks", "remarks, comments"]
+    ];
+
+    return h("div", { className: "note", style: { marginTop: "10px", marginBottom: "10px" } },
+      h("div", { style: { fontWeight: 700, marginBottom: "6px" } }, _t("import.field_help_title")),
+      h("div", { className: "muted", style: { marginBottom: "8px" } }, _t("import.field_help_required")),
+      h("div", { style: { display: "grid", gridTemplateColumns: "170px 1fr", gap: "5px 12px", alignItems: "start" } },
+        rows.map(function (r, idx) {
+          return [
+            h("div", { key: "field-k-" + idx, style: { fontWeight: 650 } }, r[0]),
+            h("div", { key: "field-v-" + idx, className: "muted", style: { overflowWrap: "anywhere" } }, r[1])
+          ];
+        }).flat()
+      ),
+      h("div", { className: "muted", style: { marginTop: "8px" } }, _t("import.field_help_note"))
+    );
+  }
+
   function OnboardingImportUsersPage() {
     const [file, setFile] = useState(null);
     const [sampleN, setSampleN] = useState(5);
@@ -187,7 +220,7 @@
       if (!file) return;
 
       if (!preview) {
-        setErr("Run preview first.");
+        setErr(_t("import.run_preview_first"));
         return;
       }
 
@@ -250,6 +283,8 @@
         )
       ),
 
+      h(ImportFieldHelp),
+
       h("div", { className: "card", style: { marginTop: "10px" } },
         h("div", { className: "card-title", style: { fontSize: "14px" } }, _t("import.step1")),
 
@@ -285,11 +320,11 @@
           ),
 
           h("button", { className: "btn", disabled: busy || !file, onClick: doValidate },
-            busy ? _t("import.working") : "Validate"
+            busy ? _t("import.working") : _t("import.validate")
           ),
 
           h("button", { className: "btn", onClick: function () { goJobs(); } },
-            "Import jobs"
+            _t("import.jobs")
           )
         ),
 
@@ -355,7 +390,7 @@
 
         h("div", { className: "muted", style: { marginBottom: "10px" } },
           !preview
-            ? "Run preview first."
+            ? _t("import.run_preview_first")
             : !okPreview
               ? "Preview shows missing required columns. Fix them before starting the import job."
               : !validation

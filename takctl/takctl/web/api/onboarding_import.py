@@ -24,7 +24,15 @@ router = APIRouter(prefix="/api/onboarding/import")
 
 
 def _tmp_dir() -> Path:
-    return Path(load_config().onboarding_import_tmp)
+    cfg = load_config()
+
+    # Older/minimal runtime configs may not define onboarding_import_tmp.
+    # Do not 500 the import UI just because this optional path is absent.
+    value = getattr(cfg, "onboarding_import_tmp", None) or "/opt/tak/tools/takctl/state/onboarding_import_tmp"
+
+    path = Path(str(value)).expanduser()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _save_upload(upload: UploadFile) -> Path:

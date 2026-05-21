@@ -676,7 +676,25 @@
             h(KV, { k: "Enheter" }, _colText(String(currentDevices) + " online / " + String(devices.length) + " kända")),
             h(KV, { k: "Aktuell CoT-session" }, _colText(activity && activity.callsign ? (activity.callsign + " / " + _colText(activity.uid)) : "—")),
             h(KV, { k: "Senast sedd" }, _colText(_formatTimestampWithAge(activity && (activity.last_seen || activity.last_cot_time)))),
-            h(KV, { k: "Chat" }, _colText((card.openfire || card.xmpp) ? "XMPP + GeoChat" : ((activity && activity.cot_seen) ? "Endast GeoChat" : "—"))),
+            (function () {
+              var xmpp = (card.openfire || card.xmpp) || {};
+              var hasXmpp = !!(card.openfire || card.xmpp);
+              var online = xmpp.online === true || xmpp.connected_now === true || xmpp.status === "online";
+              var rooms = Array.isArray(xmpp.room_labels) && xmpp.room_labels.length ? xmpp.room_labels : (Array.isArray(xmpp.rooms) ? xmpp.rooms : []);
+              var invites = Array.isArray(xmpp.invites) ? xmpp.invites : [];
+              var chatText = online
+                ? ((xmpp.bot === true) ? "Martine XMPP + GeoChat" : "XMPP online + GeoChat")
+                : (hasXmpp ? "XMPP känd + GeoChat" : ((activity && activity.cot_seen) ? "Endast GeoChat" : "—"));
+
+              return [
+                h(KV, { k: "Chat" }, h(StatusBadge, { tone: online ? "good" : (hasXmpp ? "warn" : "neutral"), text: _colText(chatText) })),
+                h(KV, { k: "XMPP JID" }, _colText(xmpp.jid || "—")),
+                h(KV, { k: "XMPP resource" }, _colText(xmpp.live_resource || "—")),
+                h(KV, { k: "XMPP senast sedd" }, _colText(_formatTimestampWithAge(xmpp.last_seen))),
+                h(KV, { k: "XMPP rum" }, _colText(rooms.length ? rooms.join(", ") : "—")),
+                h(KV, { k: "XMPP invites" }, _colText(invites.length ? invites.map(function (x) { return (x.room_label || x.room || "—") + (x.last_sent ? (" " + x.last_sent) : ""); }).join(", ") : "—"))
+              ];
+            })(),
           ),
 
           h(Box, null,

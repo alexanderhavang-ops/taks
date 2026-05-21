@@ -508,24 +508,173 @@
     const cot = activity.cot_seen === true || _currentDevices(row).length > 0;
 
     const xmpp = (row && (row.xmpp || row.openfire)) || {};
-    const x = (
+    const hasXmpp = !!(row && (row.xmpp || row.openfire));
+    const online = (
       xmpp.connected_now === true ||
       xmpp.connected === true ||
       xmpp.online === true ||
       xmpp.status === "online"
     );
 
-    if (x && cot) return "XMPP + GeoChat";
-    if (x) return "XMPP";
+    if (xmpp.bot === true && online && cot) return "Martine XMPP + GeoChat";
+    if (xmpp.bot === true && online) return "Martine XMPP";
+    if (online && cot) return "XMPP online + GeoChat";
+    if (online) return "XMPP online";
+    if (hasXmpp && cot) return "XMPP känd + GeoChat";
+    if (hasXmpp) return "XMPP känd";
     if (cot) return "Endast GeoChat";
     return "—";
   }
 
   function _chatTone(row) {
     const t = _chatText(row);
-    if (t === "XMPP + GeoChat") return "good";
-    if (t === "XMPP" || t === "Endast GeoChat") return "warn";
+    if (t === "XMPP online + GeoChat" || t === "Martine XMPP + GeoChat") return "good";
+    if (t === "XMPP online" || t === "Martine XMPP") return "good";
+    if (t === "XMPP känd + GeoChat" || t === "XMPP känd" || t === "Endast GeoChat") return "warn";
     return "neutral";
+  }
+
+  function _chatDetailText(row) {
+    const xmpp = (row && (row.xmpp || row.openfire)) || {};
+    if (!xmpp || !Object.keys(xmpp).length) return "";
+
+    const rooms = _asArray(xmpp.room_labels).length ? _asArray(xmpp.room_labels) : _asArray(xmpp.rooms);
+    const online = (
+      xmpp.connected_now === true ||
+      xmpp.connected === true ||
+      xmpp.online === true ||
+      xmpp.status === "online"
+    );
+
+    if (xmpp.bot === true) {
+      return rooms.length ? (String(rooms.length) + " XMPP-rum") : "bot-session online";
+    }
+
+    if (online) {
+      if (rooms.length) return rooms.slice(0, 2).join(", ") + (rooms.length > 2 ? " +" + String(rooms.length - 2) : "");
+      return "TAK-client online";
+    }
+
+    if (rooms.length) return rooms.slice(0, 2).join(", ") + (rooms.length > 2 ? " +" + String(rooms.length - 2) : "");
+    if (xmpp.jid) return "JID känd";
+    return "";
+  }
+
+
+  function _channelLabel(raw) {
+    var x = String(raw || "").trim();
+    if (!x) return "";
+
+    x = x.split("@", 1)[0];
+    x = x.replace(/^\s+|\s+$/g, "");
+    if (!x) return "";
+
+    var parts = x.split("-");
+    if (parts.length < 2) return x;
+
+    var prefix = parts[0].toLowerCase();
+    var rest = parts.slice(1).join("-").toUpperCase();
+
+    var pretty = {
+      "batl": "BatL",
+      "plutl": "PlutL",
+      "kompl": "KompL",
+      "gruppl": "GruppL"
+    }[prefix] || parts[0];
+
+    return pretty + "-" + rest;
+  }
+
+  function _channelKey(raw) {
+    return _channelLabel(raw).toLowerCase();
+  }
+
+  function _addChannelKind(map, raw, kind) {
+    var label = _channelLabel(raw);
+    var key = _channelKey(raw);
+    if (!label || !key) return;
+
+    if (!map[key]) map[key] = { label: label, tal: false, chat: false };
+    map[key][kind] = true;
+  }
+
+  function _voiceChannelNames(row) {
+    var out = [];
+    var vs = (row && row.voice_summary) || {};
+    out = out.concat(_asArray(vs.channel_names));
+
+    var vu = _voiceUser(row);
+    out = out.concat(_asArray(vu.channel_names));
+
+    return out;
+  }
+
+  function _chatRoomNames(row) {
+    var xmpp = (row && (row.xmpp || row.openfire)) || {};
+    var rooms = _asArray(xmpp.room_labels).length ? _asArray(xmpp.room_labels) : _asArray(xmpp.rooms);
+    return rooms;
+  }
+
+  function _combinedChannelRows(row) {
+    var xmpp = (row && (row.xmpp || row.openfire)) || {};
+    var map = {};
+
+    var xmppOnline = (
+      xmpp.connected_now === true ||
+      xmpp.connected === true ||
+      xmpp.online === true ||
+      xmpp.status === "online" ||
+      xmpp.bot === true
+    );
+
+    _voiceChannelNames(row).forEach(function (ch) {
+      _addChannelKind(map, ch, "tal");
+    });
+
+    _chatRoomNames(row).forEach(function (ch) {
+      _addChannelKind(map, ch, "chat");
+    });
+
+    var rows = Object.keys(map).sort().map(function (k) {
+      var r = map[k];
+      r.chat_online = !!xmppOnline;
+      r.tal_online = !!r.tal;
+      return r;
+    });
+
+    if (xmpp.bot === true) {
+      var n = _asArray(xmpp.rooms).length || _asArray(xmpp.room_labels).length;
+      return [{
+        label: n ? String(n) + " XMPP-rum" : "XMPP-bot",
+        tal: false,
+        chat: true,
+        chat_online: true,
+        bot: true
+      }];
+    }
+
+    return rows;
+  }
+
+  function _renderCombinedChannels(row) {
+    var rows = _combinedChannelRows(row);
+
+    if (!rows.length) return _colText("—");
+
+    return h("div", { style: { display: "grid", gap: "4px", maxWidth: "320px" } },
+      rows.slice(0, 5).map(function (r, idx) {
+        return h("div", {
+          key: "chan:" + idx,
+          style: { display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }
+        },
+          h("span", { style: { fontWeight: 650 } }, _colText(r.label)),
+          r.tal ? _pill("tal", r.tal_online ? "good" : "warn") : null,
+          r.chat ? _pill("chat", r.chat_online ? "good" : "warn") : null
+        );
+      }).concat(rows.length > 5 ? [
+        h("div", { key: "more", className: "muted", style: { fontSize: "11px" } }, "+" + String(rows.length - 5) + " fler")
+      ] : [])
+    );
   }
 
   function _voiceForDevice(row, d) {
@@ -660,18 +809,7 @@
             }, gamlaButtonText) : null
           )
         ),
-        h("td", null, _pill(_voiceText(u), _voiceTone2(u))),
-        h("td", null, _pill(_chatText(u), _chatTone(u))),
-        h("td", null,
-          h("div", {
-            style: {
-              maxWidth: "260px",
-              whiteSpace: "normal",
-              overflowWrap: "anywhere",
-              wordBreak: "break-word"
-            }
-          }, _colText(_channelText(u)))
-        ),
+        h("td", null, _renderCombinedChannels(u)),
         h("td", null, _renderActions(username))
       ));
 
@@ -686,9 +824,7 @@
             h("td", null, ""),
             h("td", null, _pill("Online", "good")),
             h("td", null, _colText(_deviceTech(d))),
-            h("td", null, _pill(_deviceVoiceText(u, d), _deviceVoiceTone(u, d))),
-            h("td", null, _pill(_chatText(u), _chatTone(u))),
-            h("td", null, _colText(_deviceVoiceText(u, d))),
+            h("td", null, _renderCombinedChannels(u)),
             h("td", null, "")
           ));
         });
@@ -709,9 +845,7 @@
             h("td", null, ""),
             h("td", null, _pill(label, tone)),
             h("td", null, _colText(_deviceTech(d))),
-            h("td", null, _pill(_deviceVoiceText(u, d), _deviceVoiceTone(u, d))),
-            h("td", null, _pill(_chatText(u), _chatTone(u))),
-            h("td", null, _colText(_deviceVoiceText(u, d))),
+            h("td", null, _renderCombinedChannels(u)),
             h("td", null, "")
           ));
         });
@@ -730,8 +864,6 @@
           h("th", null, "Introduktion"),
           h("th", null, "CoT"),
           h("th", null, "Enheter"),
-          h("th", null, "Tal"),
-          h("th", null, "Chat"),
           h("th", null, "Kanaler"),
           h("th", null, _t("list.actions"))
         )

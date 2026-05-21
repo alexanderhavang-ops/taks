@@ -195,7 +195,7 @@ def _ensure_venv() -> None:
     # takctl-web deps + postgres driver
     subprocess.run(
         ["sudo", "-u", "tak", str(venv_py), "-m", "pip", "install", "-q",
-         "fastapi", "uvicorn", "python-multipart", "psycopg2-binary", "requests", "mcp", "pypdf", "fastembed"],
+         "fastapi", "uvicorn", "python-multipart", "openpyxl", "psycopg2-binary", "requests", "mcp", "pypdf", "fastembed"],
         check=True,
     )
 
