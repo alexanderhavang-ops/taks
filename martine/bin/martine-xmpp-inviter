@@ -50,6 +50,7 @@ MARTINE_USER = "martine"
 MARTINE_NICK = "Martine"
 POLL_SEC = 30
 INVITE_COOLDOWN_SEC = 15 * 60
+RECONCILE_SEC = 120
 
 _VALID_XMPP_USER_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
 
@@ -340,6 +341,116 @@ def load_jobs(domain: str) -> list[dict[str, Any]]:
     return jobs
 
 
+
+def merge_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge desired invite jobs by target JID, preserving room order."""
+    by_target: dict[str, dict[str, Any]] = {}
+
+    for job in jobs:
+        target = str(job.get("target_jid") or "").strip().lower()
+        username = str(job.get("username") or target.split("@", 1)[0]).strip().lower()
+        if not target or not username:
+            continue
+
+        cur = by_target.setdefault(
+            target,
+            {
+                "username": username,
+                "target_jid": target,
+                "rooms": [],
+            },
+        )
+
+        rooms = cur.setdefault("rooms", [])
+        for room in job.get("rooms") or []:
+            r = str(room or "").strip().lower()
+            if r and r not in rooms:
+                rooms.append(r)
+
+    return [
+        j for j in by_target.values()
+        if valid_invite_job(j, node_domain()) and j.get("rooms")
+    ]
+
+
+def desired_jobs_from_policy(domain: str) -> list[dict[str, Any]]:
+    """Derive current XMPP invite targets from LDAP users and TAKS policy.
+
+    This intentionally does not write bookmark job files. Martine is the
+    reconciler: every RECONCILE_SEC it recomputes desired users/rooms and then
+    invites once per user+room using persistent state.
+    """
+    try:
+        from takctl.config import load_config
+        from takctl.onboarding.openfire_rooms import (
+            OPENFIRE_DB,
+            _current_openfire_rooms,
+            _ldap_users,
+            _node_context,
+            _norm_room_name,
+            derive_policy_room_labels,
+        )
+
+        cfg = load_config()
+        ctx = _node_context(cfg)
+        labels = derive_policy_room_labels(ctx)
+
+        if not OPENFIRE_DB.exists():
+            LOG.warning("reconcile skipped: OpenFire DB missing path=%s", OPENFIRE_DB)
+            return []
+
+        rooms_by_local = _current_openfire_rooms(
+            OPENFIRE_DB.read_text(errors="replace"),
+            domain,
+        )
+
+        default_rooms: list[str] = []
+        for label in labels.get("default") or []:
+            local = _norm_room_name(str(label))
+            room = rooms_by_local.get(local)
+            if room and room.get("jid"):
+                default_rooms.append(str(room["jid"]).lower())
+
+        if not default_rooms:
+            if "ledning" in rooms_by_local:
+                default_rooms = [str(rooms_by_local["ledning"]["jid"]).lower()]
+            elif rooms_by_local:
+                first = sorted(rooms_by_local)[0]
+                default_rooms = [str(rooms_by_local[first]["jid"]).lower()]
+
+        default_rooms = list(dict.fromkeys(default_rooms))
+
+        if not default_rooms:
+            LOG.warning("reconcile skipped: no default OpenFire rooms available")
+            return []
+
+        skip = {"admin", MARTINE_USER, "taksvc", "openfire"}
+        out: list[dict[str, Any]] = []
+
+        for user in _ldap_users(cfg):
+            username = str(user.get("uid") or "").strip().lower()
+            if not username or username in skip:
+                continue
+            if not _VALID_XMPP_USER_RE.match(username):
+                LOG.warning("reconcile skip invalid username=%r", username)
+                continue
+
+            out.append(
+                {
+                    "username": username,
+                    "target_jid": f"{username}@{domain}".lower(),
+                    "rooms": list(default_rooms),
+                    "source": "dynamic-policy-reconcile",
+                }
+            )
+
+        return out
+
+    except Exception as e:
+        LOG.warning("dynamic policy reconcile failed: %s: %s", type(e).__name__, e)
+        return []
+
+
 def load_state() -> dict[str, Any]:
     try:
         if STATE_PATH.exists():
@@ -385,6 +496,8 @@ class MartineInviter(slixmpp.ClientXMPP):
         self.xmpp_ca_file = str(settings.get("ca_file") or "")
         self.joined_rooms: set[str] = set()
         self.presence_online: dict[str, str] = {}
+        self.dynamic_jobs: list[dict[str, Any]] = []
+        self.last_reconcile_epoch = 0
         self.state = load_state()
         self._voice_transcript_offset_initialized = False
 
@@ -457,7 +570,7 @@ class MartineInviter(slixmpp.ClientXMPP):
 
     def _callsign_for_bare_jid(self, bare: str) -> str:
         bare = str(bare or "").strip().lower()
-        for job in load_jobs(self.domain):
+        for job in merge_jobs(self.dynamic_jobs + load_jobs(self.domain)):
             jid = str(job.get("target_jid") or "").strip().lower()
             if jid != bare:
                 continue
@@ -636,9 +749,13 @@ class MartineInviter(slixmpp.ClientXMPP):
 
         self.send_presence()
 
-        # Best-effort: ask the server/contacts for current presence after Martine
-        # reconnects, so we do not have to wait for a phone-side reconnect.
-        for job in load_jobs(self.domain):
+        # Best-effort: derive current LDAP/policy targets and ask the
+        # server/contacts for current presence after Martine reconnects.
+        self.dynamic_jobs = desired_jobs_from_policy(self.domain)
+        self.last_reconcile_epoch = int(time.time())
+        LOG.info("reconcile initial desired_jobs=%d file_jobs=%d", len(self.dynamic_jobs), len(load_jobs(self.domain)))
+
+        for job in merge_jobs(self.dynamic_jobs + load_jobs(self.domain)):
             target = str(job.get("target_jid") or "").strip().lower()
             if not target:
                 continue
@@ -765,7 +882,24 @@ class MartineInviter(slixmpp.ClientXMPP):
 
     async def tick(self) -> None:
         rooms = muc_rooms_from_openfire(self.domain)
-        all_jobs = load_jobs(self.domain)
+        now = int(time.time())
+
+        if now - self.last_reconcile_epoch >= RECONCILE_SEC:
+            self.dynamic_jobs = desired_jobs_from_policy(self.domain)
+            self.last_reconcile_epoch = now
+            LOG.info("reconcile desired_jobs=%d file_jobs=%d", len(self.dynamic_jobs), len(load_jobs(self.domain)))
+
+            for job in self.dynamic_jobs:
+                target = str(job.get("target_jid") or "").strip().lower()
+                if not target:
+                    continue
+                try:
+                    self.send_presence(pto=target, ptype="probe")
+                    LOG.debug("presence probe sent target=%s", target)
+                except Exception as e:
+                    LOG.debug("presence probe failed target=%s err=%s", target, e)
+
+        all_jobs = merge_jobs(self.dynamic_jobs + load_jobs(self.domain))
         online = dict(self.presence_online)
         # Process valid jobs even when presence is not yet visible.
         # First contact often happens before roster/presence is established; the
@@ -820,7 +954,7 @@ class MartineInviter(slixmpp.ClientXMPP):
 
                 key = f"{target}|{room}"
                 last = int(invites.get(key, 0) or 0)
-                if now - last < INVITE_COOLDOWN_SEC:
+                if last:
                     continue
 
                 self.send_mediated_invite(room=room, target=target_live)
