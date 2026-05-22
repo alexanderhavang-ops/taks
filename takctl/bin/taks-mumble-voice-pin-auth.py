@@ -116,10 +116,14 @@ def recent_takserver_seen(callsign: str, uid: str) -> tuple[bool, str]:
     if not TAKSERVER_MESSAGING_LOG.exists():
         return False, "takserver-messaging.log missing"
 
+    # TAK Server logs callsigns with client-provided casing, while VX/Mumble
+    # names may be normalized differently. Match callsign case-insensitively,
+    # but keep UID exact.
     callsign_re = re.escape(callsign)
     uid_re = re.escape(uid)
     pat = re.compile(
-        rf"Set client for subscription: tls:\d+ to {callsign_re} \({uid_re}\) source=([0-9a-fA-F:.]+):(\d+)"
+        rf"Set client for subscription: tls:\d+ to {callsign_re} \({uid_re}\) source=([0-9a-fA-F:.]+):(\d+)",
+        re.IGNORECASE,
     )
 
     last = None

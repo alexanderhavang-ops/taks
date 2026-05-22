@@ -15,7 +15,7 @@ import urllib.parse
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from orchestrator_core.config import load_orch_config, load_secrets_config
-from orchestrator_core.core import NodeRequest, aws_dry_run, aws_launch, aws_list_nodes, aws_snooze, aws_terminate, aws_wake, plan_node, resolve_ubuntu_ami
+from orchestrator_core.core import NodeRequest, aws_dry_run, aws_launch, aws_list_nodes, aws_reconcile_node_dns, aws_snooze, aws_terminate, aws_wake, plan_node, resolve_ubuntu_ami
 from orchestrator_core.nodes_state import delete_node, get_node, list_nodes, touch_heartbeat, upsert_node
 from orchestrator_core.units_state import clear_unit_restore_backup_selection, create_unit, delete_unit_backup, ensure_unit_orchestrator_secret, get_unit_backup, get_unit_restore_backup_selection, list_unit_backups, list_units, save_unit_backup, set_unit_restore_backup_selection
 
@@ -885,7 +885,38 @@ def nodes_heartbeat(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
         extra["node_health"] = req.get("node_health")
 
     rec = touch_heartbeat(node_id, status=status, extra=extra)
-    return {"ok": True, "node_id": node_id, "last_seen_ts": rec.get("last_seen_ts"), "status": rec.get("status")}
+
+    # DNS reconciliation belongs here as a safety net: launch-time Route53 can
+    # race EC2 public-IP assignment or be overwritten by an old node. A live
+    # heartbeat with fqdn+public_ip is the best current truth. Do not fail the
+    # heartbeat if Route53 is temporarily unavailable.
+    dns_change = None
+    dns_error = None
+    heartbeat_public_ip = str(req.get("public_ip") or "").strip()
+    heartbeat_fqdn = str(req.get("fqdn") or rec.get("fqdn") or "").strip().rstrip(".")
+    if not heartbeat_fqdn and "." in node_id:
+        heartbeat_fqdn = node_id.strip().rstrip(".")
+
+    if heartbeat_fqdn and heartbeat_public_ip:
+        try:
+            dns_change = aws_reconcile_node_dns(
+                fqdn=heartbeat_fqdn,
+                public_ip=heartbeat_public_ip,
+            )
+        except Exception as e:
+            dns_error = repr(e)
+
+    out = {
+        "ok": True,
+        "node_id": node_id,
+        "last_seen_ts": rec.get("last_seen_ts"),
+        "status": rec.get("status"),
+    }
+    if dns_change:
+        out["dns_change"] = dns_change
+    if dns_error:
+        out["dns_error"] = dns_error
+    return out
 
 
 

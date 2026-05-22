@@ -1,8 +1,9 @@
-[martine_voice]
+# Martine voice transcription listener
 enabled = true
 
 # Mumble
-channel = TQ
+# "*" means Martine starts listener bots for active channels instead of one fixed channel.
+channel = *
 username = martine-voice
 host = 127.0.0.1
 port = 64738

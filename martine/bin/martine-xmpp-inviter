@@ -13,6 +13,8 @@ from typing import Any
 
 import slixmpp
 
+from martine.xmpp_muc_spool import maybe_spool_xmpp_muc_message
+
 LOG = logging.getLogger("martine.xmpp")
 
 DOMAIN_CONF = [
@@ -582,6 +584,15 @@ class MartineInviter(slixmpp.ClientXMPP):
 
     async def message(self, msg: Any) -> None:
         mtype = str(msg.get("type") or "chat").strip().lower()
+        if mtype == "groupchat":
+            try:
+                spooled = maybe_spool_xmpp_muc_message(msg, own_nicks={MARTINE_NICK})
+                if spooled:
+                    LOG.debug("xmpp groupchat spooled from=%s", str(msg.get("from") or "").strip().lower())
+            except Exception as e:
+                LOG.warning("xmpp groupchat spool failed: %s: %s", type(e).__name__, e)
+            return
+
         if mtype not in {"chat", "normal"}:
             return
 

@@ -45,7 +45,7 @@ def _upload_package_https(*, tak_host: str, zip_path: Path, response_path: Path)
         host=str(tak_host),
         port=LOCAL_MARTI_HTTPS_PORT,
         context=ctx,
-        timeout=30,
+        timeout=300,
     )
     try:
         conn.request(

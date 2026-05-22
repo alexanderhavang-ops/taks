@@ -24,7 +24,11 @@ def _read_kv(paths: list[Path]) -> dict[str, str]:
     for p in paths:
         if not p.exists() or not p.is_file():
             continue
-        for raw in p.read_text(errors="replace").splitlines():
+        try:
+            lines = p.read_text(errors="replace").splitlines()
+        except OSError:
+            continue
+        for raw in lines:
             s = raw.strip()
             if not s or s.startswith("#") or "=" not in s:
                 continue

@@ -792,11 +792,21 @@ print("CHANGED=1")
 
 
 def _ensure_martine_openfire_db_acl() -> None:
+    """Grant Martine read-only access to metadata needed for XMPP reconciliation.
+
+    Martine runs as user tak. It needs to read OpenFire room metadata and the
+    LDAP service-account bind secret to derive desired XMPP invite targets from
+    LDAP. Keep access read-only; do not chown/chmod these files.
+    """
     for cmd in (
         ["sudo", "setfacl", "-m", "u:tak:x", "/var/lib/openfire"],
         ["sudo", "setfacl", "-m", "u:tak:rx", "/var/lib/openfire/embedded-db"],
         ["sudo", "setfacl", "-m", "u:tak:r", "/var/lib/openfire/embedded-db/openfire.script"],
         ["sudo", "setfacl", "-m", "u:tak:r", "/var/lib/openfire/embedded-db/openfire.log"],
+        ["sudo", "setfacl", "-m", "u:tak:x", "/etc/taks"],
+        ["sudo", "setfacl", "-m", "u:tak:r", "/etc/taks/ldap-secrets.conf"],
+        ["sudo", "setfacl", "-m", "u:tak:x", "/opt/tak/tools/takctl/secrets.d"],
+        ["sudo", "setfacl", "-m", "u:tak:r", "/opt/tak/tools/takctl/secrets.d/ldap.conf"],
     ):
         _run(cmd, check=False)
 
@@ -821,6 +831,196 @@ def _sync_xmpp_bookmark_jobs() -> None:
             ],
             check=False,
         )
+
+
+def _ensure_openfire_tls_keystore(cfg: dict[str, str]) -> bool:
+    """Populate OpenFire's Java keystore with the node server certificate.
+
+    OpenFire does not automatically use TAK Server's TLS material. The Debian
+    package creates placeholder stores under /etc/openfire/security; the server
+    keystore can be a valid 32-byte empty JKS. If left empty, OpenFire will not
+    advertise STARTTLS on 5222 and direct TLS on 5223 fails the handshake.
+    """
+    import shutil
+    import tempfile
+
+    fqdn = str(cfg.get("fqdn", "") or "").strip().lower()
+    if not fqdn:
+        raise RuntimeError("openfire_server.core: cannot provision TLS keystore without fqdn")
+
+    security_dir = Path("/etc/openfire/security")
+    keystore = security_dir / "keystore"
+    client_truststore = security_dir / "client.truststore"
+    storepass = "changeit"
+    alias = fqdn
+
+    cert_candidates: list[tuple[Path, Path, Path | None, str]] = [
+        (
+            Path(f"/opt/tak/certs/files/{fqdn}.pem"),
+            Path(f"/opt/tak/certs/files/{fqdn}.key"),
+            Path(f"/opt/tak/certs/files/{fqdn}-trusted.pem"),
+            "tak-node",
+        ),
+        (
+            Path(f"/opt/tak/certs/files/02_SERVER/takserver-{fqdn}.pem"),
+            Path(f"/opt/tak/certs/files/02_SERVER/takserver-{fqdn}.key"),
+            Path(f"/opt/tak/certs/files/02_SERVER/takserver-{fqdn}-trusted.pem"),
+            "takserver",
+        ),
+        (
+            Path(f"/etc/letsencrypt/live/{fqdn}/fullchain.pem"),
+            Path(f"/etc/letsencrypt/live/{fqdn}/privkey.pem"),
+            Path(f"/etc/letsencrypt/live/{fqdn}/chain.pem"),
+            "letsencrypt",
+        ),
+    ]
+
+    cert: Path | None = None
+    key: Path | None = None
+    chain: Path | None = None
+    source = ""
+
+    for c, k, ch, src in cert_candidates:
+        if c.exists() and k.exists():
+            cert = c
+            key = k
+            chain = ch if ch and ch.exists() else None
+            source = src
+            break
+
+    if not cert or not key:
+        raise RuntimeError(
+            "openfire_server.core: no usable server cert/key found for OpenFire "
+            f"(fqdn={fqdn})"
+        )
+
+    def _tak_cert_password() -> str:
+        """Return the TAK certificate/key password if the key is encrypted."""
+        meta = Path("/opt/tak/certs/cert-metadata.sh")
+        if not meta.exists():
+            return ""
+
+        # Avoid sourcing directly into this Python process. Parse the simple
+        # shell assignment shape written by TAK cert tooling, e.g. PASS='...'.
+        for raw in meta.read_text(errors="replace").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            if k.strip() not in ("PASS", "CERT_PASS", "PASSWORD"):
+                continue
+            return v.strip().strip('"').strip("'")
+        return ""
+
+    def _keystore_has_private_key_alias() -> bool:
+        if not keystore.exists():
+            return False
+        r = _run(
+            [
+                "sudo", "keytool", "-list", "-v",
+                "-keystore", str(keystore),
+                "-storepass", storepass,
+                "-alias", alias,
+            ],
+            check=False,
+        )
+        text = (r.stdout or "") + "\n" + (r.stderr or "")
+        return r.returncode == 0 and "PrivateKeyEntry" in text
+
+    if _keystore_has_private_key_alias():
+        print(f"openfire_server.core: OpenFire TLS keystore already has private key alias {alias}")
+        return False
+
+    tmpd = Path(tempfile.mkdtemp(prefix="openfire-tls-keystore."))
+    try:
+        tmp_p12 = tmpd / "server.p12"
+        tmp_jks = tmpd / "keystore"
+        passout_file = tmpd / "openfire-storepass.txt"
+        passin_file = tmpd / "tak-keypass.txt"
+
+        passout_file.write_text(storepass, encoding="utf-8")
+        passout_file.chmod(0o600)
+
+        cert_pass = _tak_cert_password()
+        if cert_pass:
+            passin_file.write_text(cert_pass, encoding="utf-8")
+            passin_file.chmod(0o600)
+
+        p12_cmd = [
+            "sudo", "openssl", "pkcs12", "-export",
+            "-in", str(cert),
+            "-inkey", str(key),
+            "-name", alias,
+            "-out", str(tmp_p12),
+            "-passout", f"file:{passout_file}",
+        ]
+
+        if cert_pass:
+            p12_cmd.extend(["-passin", f"file:{passin_file}"])
+
+        if chain and chain.exists():
+            p12_cmd.extend(["-certfile", str(chain)])
+
+        _run(p12_cmd)
+
+        _run([
+            "sudo", "keytool", "-importkeystore",
+            "-srckeystore", str(tmp_p12),
+            "-srcstoretype", "PKCS12",
+            "-srcstorepass", storepass,
+            "-srcalias", alias,
+            "-destkeystore", str(tmp_jks),
+            "-deststoretype", "JKS",
+            "-deststorepass", storepass,
+            "-destkeypass", storepass,
+            "-destalias", alias,
+            "-noprompt",
+        ])
+
+        _run(["sudo", "install", "-d", "-o", "openfire", "-g", "openfire", "-m", "0750", str(security_dir)])
+        _run([
+            "sudo", "install",
+            "-o", "openfire",
+            "-g", "openfire",
+            "-m", "0640",
+            str(tmp_jks),
+            str(keystore),
+        ])
+
+        # Let optional client-certificate validation trust TAK client certs.
+        # This is not required for password auth, but keeps <cert><policy>wanted</policy>
+        # sane when clients do present TAK-issued certificates.
+        ca_candidates = [
+            Path("/opt/tak/certs/files/00_CA/ca.pem"),
+            Path("/opt/tak/certs/files/00_CA/root-ca.pem"),
+            Path("/opt/tak/certs/files/ca.pem"),
+            Path("/opt/tak/certs/files/root-ca.pem"),
+        ]
+        for idx, ca in enumerate(ca_candidates, 1):
+            if not ca.exists():
+                continue
+            _run([
+                "sudo", "keytool", "-importcert",
+                "-keystore", str(client_truststore),
+                "-storepass", storepass,
+                "-alias", f"taks-ca-{idx}",
+                "-file", str(ca),
+                "-noprompt",
+            ], check=False)
+
+        if client_truststore.exists():
+            _run(["sudo", "chown", "openfire:openfire", str(client_truststore)], check=False)
+            _run(["sudo", "chmod", "0640", str(client_truststore)], check=False)
+
+        print(
+            "openfire_server.core: provisioned OpenFire TLS keystore "
+            f"alias={alias} source={source} cert={cert}"
+        )
+        return True
+
+    finally:
+        shutil.rmtree(tmpd, ignore_errors=True)
+
 
 def _autosetup_xml(cfg: dict[str, str]) -> str:
     fqdn = str(cfg["fqdn"] or "").strip()
@@ -1039,6 +1239,7 @@ class _Action:
             "ca-certificates",
             "curl",
             "acl",
+            "openssl",
         ])
 
         java_ok = subprocess.run(
@@ -1080,6 +1281,7 @@ class _Action:
         _run(["sudo", "systemctl", "enable", SERVICE])
 
         if setup_was_complete:
+            _ensure_openfire_tls_keystore(cfg)
             _ensure_runtime_xml_policy(cfg)
             _ensure_embedded_db_auth_provider_consistency(cfg)
             _ensure_embedded_db_muc_rooms(cfg)
@@ -1090,6 +1292,7 @@ class _Action:
             _run(["sudo", "systemctl", "restart", SERVICE])
             if _wait_for_setup_complete():
                 _run(["sudo", "systemctl", "stop", SERVICE], check=False)
+                _ensure_openfire_tls_keystore(cfg)
                 _ensure_runtime_xml_policy(cfg)
                 _ensure_embedded_db_auth_provider_consistency(cfg)
                 _ensure_embedded_db_muc_rooms(cfg)

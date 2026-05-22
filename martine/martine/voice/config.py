@@ -165,9 +165,7 @@ def _read_kv_file(path: Path) -> dict[str, str]:
         if line.startswith("#") or line.startswith(";"):
             continue
         if line.startswith("[") and line.endswith("]"):
-            raise ConfigError(
-                f"Unexpected INI section header in {path}:{lineno}: {line}"
-            )
+            continue
         if "=" not in line:
             raise ConfigError(
                 f"Invalid config line in {path}:{lineno}: expected key=value"

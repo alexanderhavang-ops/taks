@@ -225,6 +225,23 @@ def _upsert_node_dns(*, zone_id: str, fqdn: str, public_ip: str, ttl: int = 60) 
     return dict(resp.get("ChangeInfo") or {})
 
 
+def aws_reconcile_node_dns(*, fqdn: str, public_ip: str) -> Dict[str, Any]:
+    """
+    Idempotently point a node FQDN at the public IP reported by a live node.
+
+    Launch already attempts this once, but heartbeat is the source of truth when
+    EC2/DNS timing races or a replacement node reports its final public IP later.
+    """
+    zone_id = _route53_zone_id()
+    fqdn = str(fqdn or "").strip().rstrip(".")
+    public_ip = str(public_ip or "").strip()
+
+    if not zone_id or not fqdn or not public_ip:
+        return {}
+
+    return _upsert_node_dns(zone_id=zone_id, fqdn=fqdn, public_ip=public_ip)
+
+
 def aws_launch(req: NodeRequest) -> Dict[str, Any]:
     r = region()
     plan = plan_node(req)

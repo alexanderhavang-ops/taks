@@ -1,0 +1,21 @@
+[Unit]
+Description=Martine Mumble voice transcription listener
+After=network-online.target mumble-server.service taks-mumble-voice-pin-auth.service
+Wants=network-online.target mumble-server.service taks-mumble-voice-pin-auth.service
+ConditionPathExists=/opt/tak/tools/martine/martine/voice/main.py
+ConditionPathExists=/opt/tak/tools/takctl/conf.d/martine_voice.conf
+
+[Service]
+Type=simple
+User=tak
+Group=tak
+WorkingDirectory=/opt/tak/tools/martine
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/tak/tools/martine:/opt/tak/tools/takctl
+ExecStart=/opt/tak/tools/martine/.venv/bin/python -m martine.voice.main
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
