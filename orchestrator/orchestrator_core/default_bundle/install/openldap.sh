@@ -194,6 +194,131 @@ EOF_LDIF
   rm -f "$tmp"
 }
 
+
+db_dn_for_base() {
+  local base="$1"
+  ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -o ldif-wrap=no \
+    -b cn=config "(olcSuffix=${base})" dn 2>/dev/null \
+    | sed -n 's/^dn: //p' | head -n 1
+}
+
+ensure_local_root_manage_acl() {
+  local base="$1"
+  local db_dn tmp
+  db_dn="$(db_dn_for_base "$base")"
+  [ -n "$db_dn" ] || die "could not find slapd config database for suffix $base"
+
+  if ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -o ldif-wrap=no \
+      -b "$db_dn" -s base olcAccess 2>/dev/null \
+      | grep -q 'gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth'; then
+    log "local root EXTERNAL manage ACL already present"
+    return 0
+  fi
+
+  tmp="$(mktemp)"
+  cat > "$tmp" <<EOF_LDIF
+dn: ${db_dn}
+changetype: modify
+add: olcAccess
+olcAccess: {0}to * by dn.exact="gidNumber=0+uidNumber=0,cn=peercred,cn=external,cn=auth" manage by * break
+EOF_LDIF
+
+  ldapmodify -Q -Y EXTERNAL -H ldapi:/// -f "$tmp"
+  rm -f "$tmp"
+  log "added local root EXTERNAL manage ACL"
+}
+
+ensure_memberof_overlay() {
+  local base="$1"
+  local db_dn tmp
+  db_dn="$(db_dn_for_base "$base")"
+  [ -n "$db_dn" ] || die "could not find slapd config database for suffix $base"
+
+  if ! ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -o ldif-wrap=no \
+      -b cn=config "(olcModuleLoad=*memberof*)" dn 2>/dev/null | grep -q '^dn:'; then
+    tmp="$(mktemp)"
+    cat > "$tmp" <<'EOF_LDIF'
+dn: cn=module{0},cn=config
+changetype: modify
+add: olcModuleLoad
+olcModuleLoad: memberof
+EOF_LDIF
+    ldapmodify -Q -Y EXTERNAL -H ldapi:/// -f "$tmp"
+    rm -f "$tmp"
+    log "loaded OpenLDAP memberof module"
+  else
+    log "OpenLDAP memberof module already loaded"
+  fi
+
+  if ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -o ldif-wrap=no \
+      -b "$db_dn" -s one "(olcOverlay=*memberof*)" dn 2>/dev/null | grep -q '^dn:'; then
+    log "OpenLDAP memberof overlay already present"
+    return 0
+  fi
+
+  tmp="$(mktemp)"
+  cat > "$tmp" <<EOF_LDIF
+dn: olcOverlay=memberof,${db_dn}
+objectClass: olcOverlayConfig
+objectClass: olcMemberOf
+olcOverlay: memberof
+olcMemberOfDangling: ignore
+olcMemberOfRefInt: TRUE
+olcMemberOfGroupOC: groupOfNames
+olcMemberOfMemberAD: member
+olcMemberOfMemberOfAD: memberOf
+EOF_LDIF
+
+  ldapadd -Q -Y EXTERNAL -H ldapi:/// -f "$tmp"
+  rm -f "$tmp"
+  log "added OpenLDAP memberof overlay"
+}
+
+retouch_memberof_existing_groups() {
+  local base="$1" groups="$2"
+  local src ldif
+  src="$(mktemp)"
+  ldif="$(mktemp)"
+
+  ldapsearch -Q -Y EXTERNAL -H ldapi:/// -LLL -o ldif-wrap=no \
+    -b "ou=${groups},${base}" "(objectClass=groupOfNames)" dn member > "$src" 2>/dev/null || {
+      rm -f "$src" "$ldif"
+      log "skipping memberOf retouch; group search failed"
+      return 0
+    }
+
+  awk '
+    function emit() {
+      if (dn != "" && n > 0) {
+        print "dn: " dn
+        print "changetype: modify"
+        print "delete: member"
+        for (i = 1; i <= n; i++) print member[i]
+        print "-"
+        print "add: member"
+        for (i = 1; i <= n; i++) print member[i]
+        print ""
+      }
+      dn = ""
+      n = 0
+      delete member
+    }
+    /^dn: / { emit(); dn = substr($0, 5); next }
+    /^member::? / { n++; member[n] = $0; next }
+    /^$/ { emit(); next }
+    END { emit() }
+  ' "$src" > "$ldif"
+
+  if [ -s "$ldif" ]; then
+    ldapmodify -Q -Y EXTERNAL -H ldapi:/// -f "$ldif" >/tmp/taks-openldap-memberof-retouch.log 2>&1 || {
+      cat /tmp/taks-openldap-memberof-retouch.log >&2 || true
+      log "memberOf retouch failed; continuing because future writes will be handled by overlay"
+    }
+  fi
+
+  rm -f "$src" "$ldif"
+}
+
 seed_directory() {
   local uri="$1" base="$2" people="$3" groups="$4" services="$5" service_dn="$6" admin_dn="$7" service_pw="$8" admin_pw="$9"
   local base_dc service_hash
@@ -304,11 +429,15 @@ EOF_DEBCONF
 
   reset_olc_rootpw "$base" "$admin_pw"
 
+  ensure_local_root_manage_acl "$base"
+  ensure_memberof_overlay "$base"
+
   if ! ldapsearch -LLL -x -H "$uri" -D "$admin_dn" -w "$admin_pw" -b "$base" -s base dn >/dev/null 2>&1; then
     die "LDAP admin bind failed after root password reset; see /tmp/taks-openldap-rootpw.log"
   fi
 
   seed_directory "$uri" "$base" "$people" "$groups" "$services" "$service_dn" "$admin_dn" "$service_pw" "$admin_pw"
+  retouch_memberof_existing_groups "$base" "$groups"
 
   if ldapsearch -LLL -x -H "$uri" -D "$service_dn" -w "$service_pw" -b "$base" -s base dn >/dev/null 2>&1; then
     log "initialized local LDAP at $base"

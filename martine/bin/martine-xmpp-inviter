@@ -28,12 +28,43 @@ OPENFIRE_DB_FILES = [
     Path("/var/lib/openfire/embedded-db/openfire.log"),
 ]
 
-HOST = "127.0.0.1"
-PORT = 5222
+DEFAULT_XMPP_HOST = "127.0.0.1"
+DEFAULT_XMPP_PORT = 5222
+DEFAULT_XMPP_TRANSPORT = "loopback_plain"
+DEFAULT_XMPP_AUTH = "password"
+
+XMPP_CONF = [
+    Path("/opt/tak/tools/takctl/conf.d/xmpp.conf"),
+    Path("/opt/tak/tools/takctl/conf.d/martine.conf"),
+    Path("/opt/tak/tools/martine/conf.d/xmpp.conf"),
+    Path("/opt/tak/tools/martine/conf.d/martine.conf"),
+]
+XMPP_SECRET_CONF = [
+    Path("/opt/tak/tools/takctl/secrets.d/xmpp.conf"),
+    Path("/opt/tak/tools/takctl/secrets.d/martine.conf"),
+    Path("/opt/tak/tools/martine/secrets.d/xmpp.conf"),
+    Path("/opt/tak/tools/martine/secrets.d/martine.conf"),
+]
+
 MARTINE_USER = "martine"
 MARTINE_NICK = "Martine"
 POLL_SEC = 30
 INVITE_COOLDOWN_SEC = 15 * 60
+
+_VALID_XMPP_USER_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,127}$")
+
+
+def valid_invite_job(job: dict[str, Any], domain: str) -> bool:
+    username = str(job.get("username") or "").strip().lower()
+    target = str(job.get("target_jid") or "").strip().lower()
+    if not _VALID_XMPP_USER_RE.match(username):
+        return False
+    if not target.startswith(username + "@"):
+        return False
+    if not target.endswith("@" + str(domain).lower()):
+        return False
+    return True
+
 
 
 def read_kv(paths: list[Path]) -> dict[str, str]:
@@ -63,12 +94,126 @@ def node_domain() -> str:
 
 
 def martine_password() -> str:
-    cfg = read_kv([MARTINE_SECRET_CONF])
+    cfg = read_kv([MARTINE_SECRET_CONF] + XMPP_SECRET_CONF)
     for key in ("martine_user_password", "xmpp_password", "openfire_password", "password"):
         v = (cfg.get(key) or "").strip()
         if v:
             return v
     raise RuntimeError(f"no martine XMPP password found in {MARTINE_SECRET_CONF}")
+
+
+def _truthy(value: object, default: bool = False) -> bool:
+    if value is None:
+        return default
+    s = str(value).strip().lower()
+    if not s:
+        return default
+    return s in ("1", "true", "yes", "y", "on", "enabled")
+
+
+def _loopback_host(host: str) -> bool:
+    return str(host or "").strip().lower() in ("127.0.0.1", "localhost", "::1")
+
+
+def xmpp_settings() -> dict[str, Any]:
+    cfg = read_kv(DOMAIN_CONF + XMPP_CONF)
+    sec = read_kv(XMPP_SECRET_CONF)
+
+    host = (
+        cfg.get("xmpp_host")
+        or cfg.get("openfire_xmpp_host")
+        or DEFAULT_XMPP_HOST
+    ).strip()
+
+    port_raw = (
+        cfg.get("xmpp_port")
+        or cfg.get("openfire_xmpp_port")
+        or str(DEFAULT_XMPP_PORT)
+    ).strip()
+
+    try:
+        port = int(port_raw)
+    except Exception:
+        raise RuntimeError(f"invalid xmpp_port={port_raw!r}")
+
+    transport = (
+        cfg.get("xmpp_transport")
+        or cfg.get("openfire_xmpp_transport")
+        or DEFAULT_XMPP_TRANSPORT
+    ).strip().lower().replace("-", "_")
+
+    auth = (
+        cfg.get("xmpp_auth")
+        or cfg.get("openfire_xmpp_auth")
+        or DEFAULT_XMPP_AUTH
+    ).strip().lower().replace("-", "_")
+
+    tls_verify = _truthy(
+        cfg.get("xmpp_tls_verify", cfg.get("openfire_xmpp_tls_verify", "false")),
+        default=False,
+    )
+
+    allow_unencrypted_loopback = _truthy(
+        cfg.get(
+            "xmpp_allow_unencrypted_loopback",
+            cfg.get("openfire_xmpp_allow_unencrypted_loopback", "true"),
+        ),
+        default=True,
+    )
+
+    client_cert = (
+        sec.get("xmpp_client_cert")
+        or cfg.get("xmpp_client_cert")
+        or ""
+    ).strip()
+
+    client_key = (
+        sec.get("xmpp_client_key")
+        or cfg.get("xmpp_client_key")
+        or ""
+    ).strip()
+
+    ca_file = (
+        sec.get("xmpp_ca_file")
+        or cfg.get("xmpp_ca_file")
+        or ""
+    ).strip()
+
+    valid_transports = {"loopback_plain", "starttls", "direct_tls"}
+    valid_auth = {"password", "external"}
+
+    if transport not in valid_transports:
+        raise RuntimeError(
+            "invalid xmpp_transport="
+            f"{transport!r}; expected one of {sorted(valid_transports)}"
+        )
+
+    if auth not in valid_auth:
+        raise RuntimeError(
+            "invalid xmpp_auth="
+            f"{auth!r}; expected one of {sorted(valid_auth)}"
+        )
+
+    if transport == "loopback_plain" and not _loopback_host(host):
+        raise RuntimeError(f"refusing loopback_plain XMPP to non-loopback host: {host}")
+
+    if transport == "loopback_plain" and not allow_unencrypted_loopback:
+        raise RuntimeError("xmpp_transport=loopback_plain but xmpp_allow_unencrypted_loopback=false")
+
+    if auth == "external" and not (client_cert and client_key):
+        raise RuntimeError("xmpp_auth=external requires xmpp_client_cert and xmpp_client_key")
+
+    return {
+        "host": host,
+        "port": port,
+        "transport": transport,
+        "auth": auth,
+        "tls_verify": tls_verify,
+        "allow_unencrypted_loopback": allow_unencrypted_loopback,
+        "client_cert": client_cert,
+        "client_key": client_key,
+        "ca_file": ca_file,
+    }
 
 
 def split_sql_values(s: str) -> list[str]:
@@ -109,9 +254,14 @@ def muc_rooms_from_openfire(domain: str) -> list[str]:
     names: set[str] = set()
 
     for path in OPENFIRE_DB_FILES:
-        if not path.exists():
+        try:
+            if not path.exists():
+                continue
+            lines = path.read_text(errors="replace").splitlines()
+        except OSError as e:
+            LOG.warning("cannot read OpenFire DB file path=%s error=%s", path, e)
             continue
-        for line in path.read_text(errors="replace").splitlines():
+        for line in lines:
             prefix = "INSERT INTO OFMUCROOM VALUES("
             if prefix not in line:
                 continue
@@ -223,8 +373,16 @@ def muc_room_label(room: str) -> str:
 
 
 class MartineInviter(slixmpp.ClientXMPP):
-    def __init__(self, domain: str, password: str):
+    def __init__(self, domain: str, password: str, settings: dict[str, Any]):
         self.domain = domain
+        self.xmpp_host = str(settings.get("host") or DEFAULT_XMPP_HOST)
+        self.xmpp_port = int(settings.get("port") or DEFAULT_XMPP_PORT)
+        self.xmpp_transport = str(settings.get("transport") or DEFAULT_XMPP_TRANSPORT)
+        self.xmpp_auth = str(settings.get("auth") or DEFAULT_XMPP_AUTH)
+        self.xmpp_tls_verify = bool(settings.get("tls_verify"))
+        self.xmpp_client_cert = str(settings.get("client_cert") or "")
+        self.xmpp_client_key = str(settings.get("client_key") or "")
+        self.xmpp_ca_file = str(settings.get("ca_file") or "")
         self.joined_rooms: set[str] = set()
         self.presence_online: dict[str, str] = {}
         self.state = load_state()
@@ -232,20 +390,32 @@ class MartineInviter(slixmpp.ClientXMPP):
 
         super().__init__(f"{MARTINE_USER}@{domain}", password)
 
-        self.ssl_context = ssl.create_default_context()
-        self.ssl_context.check_hostname = False
-        self.ssl_context.verify_mode = ssl.CERT_NONE
+        self.ssl_context = ssl.create_default_context(cafile=self.xmpp_ca_file or None)
+        if not self.xmpp_tls_verify:
+            self.ssl_context.check_hostname = False
+            self.ssl_context.verify_mode = ssl.CERT_NONE
 
-        # Martine talks to local OpenFire on loopback. OpenFire currently offers
-        # SASL on 5222 without STARTTLS; slixmpp rejects that by default.
-        # This allowance is safe only for loopback-local service traffic.
-        if HOST not in ("127.0.0.1", "localhost", "::1"):
-            raise RuntimeError(f"refusing unencrypted XMPP SASL to non-loopback host: {HOST}")
+        if self.xmpp_client_cert and self.xmpp_client_key:
+            self.ssl_context.load_cert_chain(self.xmpp_client_cert, self.xmpp_client_key)
 
-        try:
-            self["feature_mechanisms"].unencrypted_plain = True
-        except Exception as e:
-            LOG.warning("could not enable local unencrypted SASL allowance: %s", e)
+        if self.xmpp_transport == "direct_tls":
+            # Legacy/direct TLS XMPP, normally 5223. TLS starts immediately.
+            self.use_ssl = True
+        elif self.xmpp_transport == "starttls":
+            # Standard XMPP on 5222 upgraded with STARTTLS before SASL.
+            self.use_ssl = False
+            self.use_tls = True
+            self.force_starttls = True
+        elif self.xmpp_transport == "loopback_plain":
+            # Local service bridge only: plaintext SASL allowed only to loopback.
+            if not _loopback_host(self.xmpp_host):
+                raise RuntimeError(f"refusing unencrypted XMPP SASL to non-loopback host: {self.xmpp_host}")
+            try:
+                self["feature_mechanisms"].unencrypted_plain = True
+            except Exception as e:
+                LOG.warning("could not enable local unencrypted SASL allowance: %s", e)
+        else:
+            raise RuntimeError(f"unsupported xmpp_transport={self.xmpp_transport}")
 
         self.connected_ok = False
         self.last_error = ""
@@ -380,12 +550,16 @@ class MartineInviter(slixmpp.ClientXMPP):
             "jid": jid,
             "live_jid": str(getattr(self.boundjid, "full", "") or getattr(self.boundjid, "bare", "") or jid).lower(),
             "domain": self.domain,
-            "host": HOST,
-            "port": PORT,
-            "use_ssl": False,
-            "encrypted": False,
-            "auth_transport": "loopback-5222-sasl",
-            "starttls": False,
+            "host": self.xmpp_host,
+            "port": self.xmpp_port,
+            "transport": self.xmpp_transport,
+            "auth": self.xmpp_auth,
+            "use_ssl": self.xmpp_transport == "direct_tls",
+            "encrypted": self.xmpp_transport in ("direct_tls", "starttls"),
+            "auth_transport": f"{self.xmpp_transport}-{self.xmpp_auth}",
+            "starttls": self.xmpp_transport == "starttls",
+            "tls_verify": self.xmpp_tls_verify,
+            "client_cert_configured": bool(self.xmpp_client_cert and self.xmpp_client_key),
             "last_seen_epoch": now_i if str(status or "").lower() == "online" else 0,
             "last_seen": iso_z_from_epoch(now_i) if str(status or "").lower() == "online" else "",
             "last_tick_epoch": now_i,
@@ -593,7 +767,10 @@ class MartineInviter(slixmpp.ClientXMPP):
         rooms = muc_rooms_from_openfire(self.domain)
         all_jobs = load_jobs(self.domain)
         online = dict(self.presence_online)
-        jobs = [j for j in all_jobs if str(j.get("target_jid") or "").lower() in online]
+        # Process valid jobs even when presence is not yet visible.
+        # First contact often happens before roster/presence is established; the
+        # loop below falls back from live resource JID to bare JID.
+        jobs = [j for j in all_jobs if valid_invite_job(j, self.domain)]
 
         LOG.info(
             "tick rooms=%d jobs=%d presence_online=%d eligible=%d joined=%d",
@@ -788,16 +965,25 @@ async def amain() -> int:
     )
 
     domain = node_domain()
-    password = martine_password()
+    settings = xmpp_settings()
+    password = "" if settings["auth"] == "external" else martine_password()
 
-    xmpp = MartineInviter(domain=domain, password=password)
+    xmpp = MartineInviter(domain=domain, password=password, settings=settings)
     xmpp.register_plugin("xep_0030")
     xmpp.register_plugin("xep_0045")
 
-    LOG.info("starting domain=%s host=%s port=%s user=%s", domain, HOST, PORT, MARTINE_USER)
+    LOG.info(
+        "starting domain=%s host=%s port=%s transport=%s auth=%s user=%s",
+        domain,
+        settings["host"],
+        settings["port"],
+        settings["transport"],
+        settings["auth"],
+        MARTINE_USER,
+    )
 
     try:
-        await xmpp.connect(host=HOST, port=PORT)
+        await xmpp.connect(host=settings["host"], port=settings["port"])
         await xmpp.disconnected
     except Exception as e:
         xmpp.last_error = f"{type(e).__name__}: {e}"
