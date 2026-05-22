@@ -29,6 +29,13 @@ SECRET_FILE = SECRET_DIR / "openfire.conf"
 BOOTSTRAP_NODE_CONF = Path("/etc/taks-bootstrap.d/config.d/node.conf")
 TAKCTL_NODE_CONF = Path("/opt/tak/tools/takctl/conf.d/node.conf")
 
+CONFIG_DIRS = [
+    Path("/etc/taks-bootstrap.d/config.d"),
+    Path("/etc/taks"),
+    Path("/opt/tak/tools/takctl/conf.d"),
+    Path("/opt/tak/tools/martine/conf.d"),
+]
+
 
 def _env_first(env: dict[str, str], *keys: str, default: str = "") -> str:
     for key in keys:
@@ -106,6 +113,16 @@ def _read_simple_kv(path: Path) -> dict[str, str]:
         val = _strip_quotes(v)
         if key:
             out[key] = val
+    return out
+
+
+def _read_config_files() -> dict[str, str]:
+    out: dict[str, str] = {}
+    for root in CONFIG_DIRS:
+        if not root.exists() or not root.is_dir():
+            continue
+        for path in sorted(root.glob("*.conf")):
+            out.update(_read_simple_kv(path))
     return out
 
 
@@ -203,7 +220,8 @@ def _persist_openfire_admin_password_for_install(password: str) -> None:
     os.replace(tmp, SECRET_FILE)
 
 def _cfg(ctx: Context) -> dict[str, str]:
-    env = dict(ctx.env or {})
+    env = _read_config_files()
+    env.update(dict(ctx.env or {}))
     sec = _read_secret_cfg()
 
     version = _env_first(
@@ -360,10 +378,10 @@ def _wait_for_setup_complete(timeout_s: int = 90) -> bool:
 def _ensure_embedded_db_auth_provider_consistency(cfg: dict[str, str]) -> bool:
     """Ensure OpenFire uses LDAP users/auth when TAKS backing_user_store=ldap.
 
-    This repairs the embedded HSQLDB script while OpenFire is stopped. It owns
-    the OpenFire LDAP/provider properties as a coherent block to avoid duplicate
-    rows, malformed concatenated rows, stale replay rows, and accidental LDAPS
-    against a plain ldap://127.0.0.1:389 service.
+    Fresh OpenFire/HSQLDB often has schema in openfire.log while openfire.script
+    still contains only the DB prologue. In that state, managed rows must be
+    written to the transaction log, not the script, or OpenFire will fail during
+    replay with out-of-order INSERT statements.
     """
     if str(cfg.get("backing_user_store", "") or "").strip().lower() != "ldap":
         print("openfire_server.core: backing_user_store is not ldap; leaving OpenFire providers unchanged")
@@ -397,23 +415,12 @@ def sql_unquote(v: str) -> str:
 def prop_line(k: str, v: str, encrypted: int = 0) -> str:
     return f"INSERT INTO OFPROPERTY VALUES({sql_quote(k)},{sql_quote(v)},{int(encrypted)},NULL)"
 
-def ensure_prop(text: str, key: str, value: str, encrypted: int = 0) -> tuple[str, bool]:
-    # After strip_managed_props(), the key should not exist. This still makes
-    # the helper robust if the cleanup changes later.
-    pat = re.compile(r"INSERT INTO OFPROPERTY VALUES\('" + re.escape(key) + r"','(?:''|[^'])*',\d+,NULL\)")
-    line = prop_line(key, value, encrypted)
-    if pat.search(text):
-        old = pat.search(text).group(0)
-        if old == line:
-            return text, False
-        return pat.sub(line, text, count=1), True
-
-    rows = list(re.finditer(r"INSERT INTO OFPROPERTY VALUES\(.*?\)\n?", text))
-    if rows:
-        pos = rows[-1].end()
-        return text[:pos] + line + "\n" + text[pos:], True
-
-    return text.rstrip() + "\n" + line + "\n", True
+def insert_before_log_footer(text: str, block: str) -> str:
+    footers = list(re.finditer(r"^\s*SET FILES LOG SIZE .*$", text, flags=re.M))
+    if footers:
+        pos = footers[-1].start()
+        return text[:pos].rstrip() + "\n" + block + text[pos:]
+    return text.rstrip() + "\n" + block
 
 uri = urlparse(str(cfg.get("ldap_uri") or "ldap://127.0.0.1:389"))
 scheme = (uri.scheme or "ldap").lower()
@@ -453,8 +460,6 @@ if scheme == "ldaps":
         "ldap.startTLSEnabled": "false",
     })
 else:
-    # TAKS default is local plain LDAP on 127.0.0.1:389. Do not let stale
-    # OpenFire properties attempt SSL/StartTLS against that plain port.
     props.update({
         "ldap.encryption": "none",
         "ldap.sslEnabled": "false",
@@ -465,52 +470,64 @@ else:
 managed_keys = set(props)
 
 def strip_managed_props(text: str) -> str:
-    out: list[str] = []
+    out = []
     for line in text.splitlines():
         stripped = line.strip()
-
-        # Leftover tail from previously malformed SQL rows.
         if re.fullmatch(r"',0,NULL\)", stripped):
             continue
-
         m = re.match(r"INSERT INTO OFPROPERTY VALUES\('((?:''|[^'])*)',", stripped)
         if m and sql_unquote(m.group(1)) in managed_keys:
             continue
-
         out.append(line)
-
     return "\n".join(out) + "\n"
 
-old_s = db.read_text(encoding="utf-8", errors="replace")
-s = strip_managed_props(old_s)
-changed = s != old_s
+script_text = db.read_text(encoding="utf-8", errors="replace")
+log_text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
 
-for k, v in props.items():
-    s, ch = ensure_prop(s, k, v, 0)
-    changed = changed or ch
+script_has_schema = re.search(r"CREATE\s+TABLE\s+(?:PUBLIC\.)?OFPROPERTY\b", script_text, re.I) is not None
+log_has_schema = re.search(r"CREATE\s+TABLE\s+(?:PUBLIC\.)?OFPROPERTY\b", log_text, re.I) is not None
 
-log_changed = False
-if log.exists():
-    old_log = log.read_text(encoding="utf-8", errors="replace")
-    new_log = strip_managed_props(old_log)
-    if new_log != old_log:
-        log.write_text(new_log, encoding="utf-8")
-        log_changed = True
+if script_has_schema:
+    target = db
+    old = script_text
+    kind = "script"
+elif log_has_schema:
+    target = log
+    old = log_text
+    kind = "log"
+else:
+    print("openfire_server.core: OpenFire ofProperty schema not present yet; deferring LDAP DB repair")
+    print("CHANGED=0")
+    raise SystemExit(0)
 
-if not changed and not log_changed:
+s = strip_managed_props(old)
+rows = [prop_line(k, v, 0) for k, v in props.items()]
+
+if kind == "log":
+    block = "/*C2*/SET SCHEMA PUBLIC\n" + "\n".join(rows) + "\nCOMMIT\n"
+    new_s = insert_before_log_footer(s, block)
+else:
+    insert_at = None
+    prop_rows = list(re.finditer(r"INSERT INTO OFPROPERTY VALUES\(.*?\)\n?", s))
+    if prop_rows:
+        insert_at = prop_rows[-1].end()
+    if insert_at is None:
+        schema_rows = list(re.finditer(r"CREATE\s+TABLE\s+(?:PUBLIC\.)?OFPROPERTY\(.*?\)\s*$", s, flags=re.I | re.M))
+        insert_at = schema_rows[-1].end() if schema_rows else len(s)
+    block = "".join(row + "\n" for row in rows)
+    new_s = s[:insert_at] + "\n" + block + s[insert_at:]
+
+if new_s == old:
     print("openfire_server.core: OpenFire LDAP provider/properties already consistent")
     print("CHANGED=0")
     raise SystemExit(0)
 
 stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-backup = db.with_name(db.name + f".ldap.bak-{stamp}")
-shutil.copy2(db, backup)
-db.write_text(s, encoding="utf-8")
+backup = target.with_name(target.name + f".ldap.bak-{stamp}")
+shutil.copy2(target, backup)
+target.write_text(new_s, encoding="utf-8")
 
-print(
-    "openfire_server.core: ensured OpenFire LDAP provider/properties "
-    f"(scheme={scheme} host={host} port={port}); backup={backup}"
-)
+print(f"openfire_server.core: ensured OpenFire LDAP provider/properties in {kind}; backup={backup}")
 print("CHANGED=1")
 """.replace("__DB_PATH__", str(EMBEDDED_DB_SCRIPT)).replace("__CFG_JSON__", json.dumps(cfg))
 
@@ -526,6 +543,7 @@ print("CHANGED=1")
 
     return "CHANGED=1" in str(r.stdout or "")
 
+
 def _room_local_name(label: str) -> str:
     return "".join(
         ch if ch.isalnum() else "-"
@@ -535,7 +553,9 @@ def _room_local_name(label: str) -> str:
 
 def _desired_conference_rooms(cfg: dict[str, str]) -> list[dict[str, str]]:
     fqdn = str(cfg.get("fqdn", "") or "").strip().lower()
-    unit = fqdn.split(".", 1)[0].strip() if fqdn else ""
+    unit = str(cfg.get("unit", "") or "").strip().lower()
+    if not unit and fqdn:
+        unit = fqdn.split(".", 1)[0].strip()
     if not unit:
         raise RuntimeError("openfire_server.core: cannot derive conference rooms without fqdn/unit")
 
@@ -565,7 +585,6 @@ def _desired_conference_rooms(cfg: dict[str, str]) -> list[dict[str, str]]:
     }
 
     labels: list[str] = []
-
     try:
         from takctl.onboarding.channels import derive_channel_sets
         sets = derive_channel_sets(ctx)
@@ -587,7 +606,6 @@ def _desired_conference_rooms(cfg: dict[str, str]) -> list[dict[str, str]]:
 
     out: list[dict[str, str]] = []
     seen: set[str] = set()
-
     for label in labels:
         local = _room_local_name(label)
         if not local or local in seen:
@@ -596,16 +614,11 @@ def _desired_conference_rooms(cfg: dict[str, str]) -> list[dict[str, str]]:
             raise RuntimeError(f"openfire_server.core: OpenFire MUC room name exceeds 50 chars: {local}")
         seen.add(local)
         out.append({"local": local, "natural": label})
-
     return out
 
 
 def _ensure_embedded_db_muc_rooms(cfg: dict[str, str]) -> bool:
-    """
-    Seed OpenFire persistent MUC rooms from the same harmonized channel topology
-    that Mumble uses. Local room names are normalized slugs, while naturalName
-    keeps the human label.
-    """
+    """Seed OpenFire persistent MUC rooms from harmonized TAKS channels."""
     rooms = _desired_conference_rooms(cfg)
 
     code = r"""
@@ -628,26 +641,24 @@ def sql_quote(v: str) -> str:
 def sql_unquote(v: str) -> str:
     return str(v).replace("''", "'")
 
+def insert_before_log_footer(text: str, block: str) -> str:
+    footers = list(re.finditer(r"^\s*SET FILES LOG SIZE .*$", text, flags=re.M))
+    if footers:
+        pos = footers[-1].start()
+        return text[:pos].rstrip() + "\n" + block + text[pos:]
+    return text.rstrip() + "\n" + block
+
 def room_insert(service_id: int, room_id: int, room: dict[str, str], now_ms: str) -> str:
     local = str(room.get("local") or "").strip()
     natural = str(room.get("natural") or local).strip() or local
     qlocal = sql_quote(local)
     qnatural = sql_quote(natural)
     desc = sql_quote("TAKS voice/chat channel " + natural)
-
-    # ofMucRoom column order as in OpenFire 5.x schema:
-    # serviceID, roomID, creationDate, modificationDate, name, naturalName,
-    # description, lockedDate, emptyDate, canChangeSubject, maxUsers,
-    # publicRoom, moderated, membersOnly, canInvite, roomPassword,
-    # canDiscoverJID, logEnabled, retireOnDeletion, preserveHistOnDel,
-    # subject, rolesToBroadcast, useReservedNick, canChangeNick,
-    # canRegister, allowpm, fmucEnabled, fmucOutboundNode, fmucOutboundMode,
-    # fmucInboundNodes
     return (
         "INSERT INTO OFMUCROOM VALUES("
         f"{service_id},{room_id},'{now_ms}','{now_ms}',"
         f"{qlocal},{qnatural},{desc},"
-        "NULL,NULL,"
+        "'0',NULL,"
         "1,0,1,0,0,1,NULL,1,1,0,0,NULL,7,0,1,1,0,0,NULL,0,NULL"
         ")"
     )
@@ -657,42 +668,43 @@ if not db.exists():
     print("CHANGED=0")
     raise SystemExit(0)
 
-s = db.read_text(encoding="utf-8", errors="replace")
+script_text = db.read_text(encoding="utf-8", errors="replace")
+log_text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+
+script_has_schema = re.search(r"CREATE\s+TABLE\s+(?:PUBLIC\.)?OFMUCROOM\b", script_text, re.I) is not None
+log_has_schema = re.search(r"CREATE\s+TABLE\s+(?:PUBLIC\.)?OFMUCROOM\b", log_text, re.I) is not None
+
+if script_has_schema:
+    target = db
+    s = script_text
+    kind = "script"
+elif log_has_schema:
+    target = log
+    s = log_text
+    kind = "log"
+else:
+    print("openfire_server.core: OpenFire ofMucRoom schema not present yet; deferring room seed")
+    print("CHANGED=0")
+    raise SystemExit(0)
 
 svc = re.search(r"INSERT INTO OFMUCSERVICE VALUES\((\d+),'conference'(?:,|\))", s)
 if not svc:
     svc_id_row = re.search(r"INSERT INTO OFID VALUES\(26,(\d+)\)", s)
     service_id = int(svc_id_row.group(1)) if svc_id_row else 1
-
-    existing_service_ids = [
-        int(m.group(1))
-        for m in re.finditer(r"INSERT INTO OFMUCSERVICE VALUES\((\d+),", s)
-    ]
+    existing_service_ids = [int(m.group(1)) for m in re.finditer(r"INSERT INTO OFMUCSERVICE VALUES\((\d+),", s)]
     if existing_service_ids:
         service_id = max(service_id, max(existing_service_ids) + 1)
-
     svc_line = f"INSERT INTO OFMUCSERVICE VALUES({service_id},'conference','Public Chatrooms',0)\n"
-
     if svc_id_row:
         s = re.sub(r"INSERT INTO OFID VALUES\(26,\d+\)", f"INSERT INTO OFID VALUES(26,{service_id + 1})", s, count=1)
     else:
-        last_ofid = list(re.finditer(r"INSERT INTO OFID VALUES\(\d+,\d+\)\n?", s))
-        if last_ofid:
-            pos = last_ofid[-1].end()
-            s = s[:pos] + f"INSERT INTO OFID VALUES(26,{service_id + 1})\n" + s[pos:]
-        else:
-            s = s + "\n" + f"INSERT INTO OFID VALUES(26,{service_id + 1})\n"
-
+        s = s.rstrip() + f"\nINSERT INTO OFID VALUES(26,{service_id + 1})\n"
     service_rows = list(re.finditer(r"INSERT INTO OFMUCSERVICE VALUES\(.*?\)\n?", s))
     if service_rows:
         pos = service_rows[-1].end()
         s = s[:pos] + svc_line + s[pos:]
     else:
-        rows = list(re.finditer(r"INSERT INTO OFPROPERTY VALUES\(.*?\)\n?", s))
-        pos = rows[-1].end() if rows else len(s)
-        s = s[:pos] + "\n" + svc_line + s[pos:]
-
-    print(f"openfire_server.core: created OpenFire conference MUC service id={service_id}")
+        s = s.rstrip() + "\n" + svc_line
 else:
     service_id = int(svc.group(1))
 
@@ -708,10 +720,9 @@ for m in re.finditer(r"INSERT INTO OFMUCROOM VALUES\((\d+),(\d+),'[^']*','[^']*'
     if sid == service_id:
         existing.add(sql_unquote(m.group(3)).lower())
 
-# Remove stale pre-context room from earlier incomplete derivation.
 removed_unknown = False
 if "org-unknown-unit" in existing and "org-unknown-unit" not in desired:
-    kept: list[str] = []
+    kept = []
     for line in s.splitlines():
         if "INSERT INTO OFMUCROOM VALUES(" in line and "'org-unknown-unit'" in line:
             removed_unknown = True
@@ -733,22 +744,15 @@ if ofid:
 next_room_id = max(next_room_id, 1)
 
 now_ms = str(int(time.time() * 1000))
-lines: list[str] = []
+room_lines = []
 for room in missing:
-    lines.append(room_insert(service_id, next_room_id, room, now_ms))
+    room_lines.append(room_insert(service_id, next_room_id, room, now_ms))
     next_room_id += 1
 
 if ofid:
     s = re.sub(r"INSERT INTO OFID VALUES\(27,\d+\)", f"INSERT INTO OFID VALUES(27,{next_room_id})", s, count=1)
 else:
-    last_ofid = list(re.finditer(r"INSERT INTO OFID VALUES\(\d+,\d+\)\n?", s))
-    if last_ofid:
-        pos = last_ofid[-1].end()
-        s = s[:pos] + f"INSERT INTO OFID VALUES(27,{next_room_id})\n" + s[pos:]
-    else:
-        print("openfire_server.core: could not find OFID rows; leaving rooms unchanged")
-        print("CHANGED=0")
-        raise SystemExit(0)
+    s = s.rstrip() + f"\nINSERT INTO OFID VALUES(27,{next_room_id})\n"
 
 service_rows = list(re.finditer(r"INSERT INTO OFMUCSERVICE VALUES\(.*?\)\n?", s))
 if not service_rows:
@@ -757,27 +761,20 @@ if not service_rows:
     raise SystemExit(0)
 
 insert_pos = service_rows[-1].end()
-insert_text = "".join(line + "\n" for line in lines)
+insert_text = "".join(line + "\n" for line in room_lines)
+if kind == "log" and insert_text:
+    insert_text = insert_text + "COMMIT\n"
 new_s = s[:insert_pos] + insert_text + s[insert_pos:]
 
+if kind == "log":
+    new_s = insert_before_log_footer("", new_s) if not new_s.strip() else new_s
+
 stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-backup = db.with_name(db.name + f".mucrooms.bak-{stamp}")
-shutil.copy2(db, backup)
-db.write_text(new_s, encoding="utf-8")
+backup = target.with_name(target.name + f".mucrooms.bak-{stamp}")
+shutil.copy2(target, backup)
+target.write_text(new_s, encoding="utf-8")
 
-if log.exists():
-    old_log = log.read_text(encoding="utf-8", errors="replace")
-    kept_log = [
-        line for line in old_log.splitlines()
-        if "INSERT INTO OFMUCROOM VALUES(" not in line
-        and "org-unknown-unit" not in line
-    ]
-    log.write_text("\n".join(kept_log) + ("\n" if kept_log else ""), encoding="utf-8")
-
-print(
-    f"openfire_server.core: seeded {len(missing)} OpenFire MUC rooms under conference; "
-    f"removed_unknown={str(removed_unknown).lower()} backup={backup}"
-)
+print(f"openfire_server.core: seeded {len(missing)} OpenFire MUC rooms in {kind}; removed_unknown={str(removed_unknown).lower()} backup={backup}")
 print("CHANGED=1")
 """.replace("__DB_PATH__", str(EMBEDDED_DB_SCRIPT)).replace("__ROOMS_JSON__", json.dumps(rooms))
 
@@ -795,10 +792,6 @@ print("CHANGED=1")
 
 
 def _ensure_martine_openfire_db_acl() -> None:
-    """Allow the Martine/tak service user to read OpenFire MUC metadata.
-
-    Keep this read-only; do not chown/chmod OpenFire data files.
-    """
     for cmd in (
         ["sudo", "setfacl", "-m", "u:tak:x", "/var/lib/openfire"],
         ["sudo", "setfacl", "-m", "u:tak:rx", "/var/lib/openfire/embedded-db"],
@@ -809,21 +802,18 @@ def _ensure_martine_openfire_db_acl() -> None:
 
 
 def _sync_xmpp_bookmark_jobs() -> None:
-    """Best-effort sync of XMPP invite/bookmark jobs for current LDAP users."""
     py = Path("/opt/tak/tools/martine/.venv/bin/python")
     if not py.exists():
         print("openfire_server.core: martine venv not present; skipping XMPP bookmark sync")
         return
 
-    env = dict(os.environ)
-    env["PYTHONPATH"] = "/opt/tak/tools/takctl:" + env.get("PYTHONPATH", "")
-
+    env_path = "/opt/tak/tools/takctl:" + os.environ.get("PYTHONPATH", "")
     for subcmd in ("clean-jobs", "backfill-jobs"):
         _run(
             [
                 "sudo",
                 "env",
-                f"PYTHONPATH={env['PYTHONPATH']}",
+                f"PYTHONPATH={env_path}",
                 str(py),
                 "-m",
                 "takctl.onboarding.openfire_rooms",

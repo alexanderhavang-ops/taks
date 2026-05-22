@@ -149,28 +149,33 @@ render_auth_block() {
       # overridden for a shared/external LDAP directory.
       tak_ldap_url="$(cfg_value ldap_auth_url '')"
       if [ -z "$tak_ldap_url" ]; then
-        tak_ldap_url="${uri%/}/${people_base}"
+        tak_ldap_url="$uri"
       fi
 
       tak_userstring="$(cfg_value ldap_auth_userstring '')"
       if [ -z "$tak_userstring" ]; then
-        case "$user_string" in
-          *,${people_base}) tak_userstring="${user_string%,${people_base}}" ;;
-          *) tak_userstring="uid={username}" ;;
-        esac
+        tak_userstring="$user_string"
       fi
 
       update_interval="$(cfg_value ldap_update_interval_sec 60)"
       group_object_class="$(cfg_value ldap_group_object_class groupOfNames)"
       group_name_attr="$(cfg_value ldap_group_name_attr cn)"
       group_member_attr="$(cfg_value ldap_group_member_attr member)"
-      group_regex="$(cfg_value ldap_group_name_extractor_regex '^cn=([^,]+),.*$')"
+      group_regex="$(cfg_value ldap_group_name_extractor_regex '^cn=([^,]+)(?:,.*)?$')"
+      x509_group_cache_default_active="$(cfg_value x509_use_group_cache_default_active true)"
+      x509_group_cache_default_updates_active="$(cfg_value x509_use_group_cache_default_updates_active true)"
 
       [ -n "$service_pw" ] || die "backing_user_store=ldap but ldap_service_account_password is missing"
 
       cat <<EOF_AUTH
-    <auth x509useGroupCache="true">
+    <auth
+        default="ldap"
+        x509useGroupCache="true"
+        x509UseGroupCacheDefaultActive="$(xml_attr "$x509_group_cache_default_active")"
+        x509UseGroupCacheDefaultUpdatesActive="$(xml_attr "$x509_group_cache_default_updates_active")">
         <ldap
+            style="DS"
+            x509Groups="true"
             url="$(xml_attr "$tak_ldap_url")"
             userstring="$(xml_attr "$tak_userstring")"
             updateInterval="$(xml_attr "$update_interval")"
@@ -404,7 +409,7 @@ main() {
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Configuration xmlns="http://bbn.com/marti/xml/config">
     <network multicastTTL="5" serverId="${server_id}" version="5.6-RELEASE-6-HEAD">
-        <input _name="stdssl" protocol="tls" port="8089" coreVersion="2" clientAuth="true"/>
+        <input auth="x509" _name="stdssl" protocol="tls" port="8089" coreVersion="2" clientAuth="true"/>
         <input _name="quic" protocol="quic" port="8090"/>
         <input auth="anonymous" _name="replayudp" protocol="udp" port="6969"/>
         <connector port="8443" _name="https"/>
