@@ -208,7 +208,11 @@ class Policy:
         if not _nonempty(ctx.get("atak_role_type")) and _nonempty(g.get("atak_role_type")):
             ctx["atak_role_type"] = g.get("atak_role_type")
 
-        callsign = self._normalize_callsign(str(g.get("callsign") or ""))
+        raw_callsign = str(g.get("callsign") or "").strip()
+        if str(self.policy_id or "").strip().lower() != "hemvarnet":
+            callsign = raw_callsign
+        else:
+            callsign = self._normalize_callsign(raw_callsign)
 
         team_override = (str(ctx.get("team")).strip() if ctx.get("team") is not None else "")
         team = team_override if team_override else self.resolve_team(ctx)

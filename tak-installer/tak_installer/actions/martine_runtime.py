@@ -177,6 +177,7 @@ def _ensure_venv() -> None:
             "psycopg2-binary",
             "fastembed",
             "pymumble",
+            "slixmpp",
             "faster-whisper",
             "ctranslate2",
         ],

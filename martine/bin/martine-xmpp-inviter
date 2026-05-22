@@ -236,6 +236,21 @@ class MartineInviter(slixmpp.ClientXMPP):
         self.ssl_context.check_hostname = False
         self.ssl_context.verify_mode = ssl.CERT_NONE
 
+        # Martine talks to local OpenFire on loopback. OpenFire currently offers
+        # SASL on 5222 without STARTTLS; slixmpp rejects that by default.
+        # This allowance is safe only for loopback-local service traffic.
+        if HOST not in ("127.0.0.1", "localhost", "::1"):
+            raise RuntimeError(f"refusing unencrypted XMPP SASL to non-loopback host: {HOST}")
+
+        try:
+            self["feature_mechanisms"].unencrypted_plain = True
+        except Exception as e:
+            LOG.warning("could not enable local unencrypted SASL allowance: %s", e)
+
+        self.connected_ok = False
+        self.last_error = ""
+        self.write_bridge_state("starting")
+
         self.add_event_handler("session_start", self.session_start)
         self.add_event_handler("failed_auth", self.failed_auth)
         self.add_event_handler("presence_available", self.presence_available)
@@ -354,8 +369,90 @@ class MartineInviter(slixmpp.ClientXMPP):
             self.presence_online.pop(bare, None)
             LOG.info("presence offline bare=%s full=%s", bare, full)
 
+    def _bridge_dict(self, status: str, error: str = "", now: int | None = None) -> dict[str, Any]:
+        now_i = int(now or time.time())
+        rooms = sorted(self.joined_rooms)
+        jid = f"{MARTINE_USER}@{self.domain}".lower()
+        return {
+            "service": "martine-xmpp-inviter",
+            "status": str(status or "unknown"),
+            "connected_now": str(status or "").lower() == "online",
+            "jid": jid,
+            "live_jid": str(getattr(self.boundjid, "full", "") or getattr(self.boundjid, "bare", "") or jid).lower(),
+            "domain": self.domain,
+            "host": HOST,
+            "port": PORT,
+            "use_ssl": False,
+            "encrypted": False,
+            "auth_transport": "loopback-5222-sasl",
+            "starttls": False,
+            "last_seen_epoch": now_i if str(status or "").lower() == "online" else 0,
+            "last_seen": iso_z_from_epoch(now_i) if str(status or "").lower() == "online" else "",
+            "last_tick_epoch": now_i,
+            "last_tick": iso_z_from_epoch(now_i),
+            "joined_rooms": rooms,
+            "joined_room_labels": [muc_room_label(x) for x in rooms if muc_room_label(x)],
+            "joined_room_count": len(rooms),
+            "last_error": str(error or self.last_error or ""),
+        }
+
+    def write_bridge_state(self, status: str, error: str = "", now: int | None = None) -> None:
+        now_i = int(now or time.time())
+        bridge = self._bridge_dict(status, error, now_i)
+        martine_jid = f"{MARTINE_USER}@{self.domain}".lower()
+
+        martine_ent = {
+            "username": MARTINE_USER,
+            "jid": martine_jid,
+            "online": bool(bridge["connected_now"]),
+            "connected_now": bool(bridge["connected_now"]),
+            "status": "online" if bridge["connected_now"] else str(status or "offline"),
+            "bot": True,
+            "service": "martine-xmpp-inviter",
+            "live_jid": bridge["live_jid"],
+            "live_resource": str(getattr(self.boundjid, "resource", "") or ""),
+            "last_seen_epoch": bridge["last_seen_epoch"],
+            "last_seen": bridge["last_seen"],
+            "rooms": bridge["joined_rooms"],
+            "room_labels": bridge["joined_room_labels"],
+            "invites": [],
+            "bridge": bridge,
+        }
+
+        snap = self.state.get("openfire")
+        if not isinstance(snap, dict):
+            snap = {}
+
+        by_username = snap.get("by_username")
+        if not isinstance(by_username, dict):
+            by_username = {}
+        by_username[MARTINE_USER] = martine_ent
+
+        by_jid = snap.get("by_jid")
+        if not isinstance(by_jid, dict):
+            by_jid = {}
+        by_jid[martine_jid] = martine_ent
+
+        snap.update({
+            "source": "martine-xmpp-inviter",
+            "domain": self.domain,
+            "generated_at_epoch": now_i,
+            "generated_at": iso_z_from_epoch(now_i),
+            "bridge": bridge,
+            "martine": martine_ent,
+            "joined_rooms": bridge["joined_rooms"],
+            "by_username": by_username,
+            "by_jid": by_jid,
+        })
+
+        self.state["openfire"] = snap
+        save_state(self.state)
+
     async def session_start(self, _event: Any) -> None:
+        self.connected_ok = True
+        self.last_error = ""
         LOG.info("xmpp session_start jid=%s", self.boundjid.bare)
+        self.write_bridge_state("online")
 
         try:
             await self.get_roster()
@@ -476,6 +573,7 @@ class MartineInviter(slixmpp.ClientXMPP):
         self.state["openfire"] = {
             "source": "martine-xmpp-inviter",
             "domain": self.domain,
+            "bridge": self._bridge_dict("online", now=now),
             "generated_at_epoch": int(now),
             "generated_at": iso_z_from_epoch(now),
             "presence_online": dict(sorted(online.items())),
@@ -486,7 +584,9 @@ class MartineInviter(slixmpp.ClientXMPP):
         }
 
     def failed_auth(self, event: Any) -> None:
+        self.last_error = f"auth failed: {event}"
         LOG.error("xmpp auth failed for %s: %s", self.boundjid.bare, event)
+        self.write_bridge_state("auth_failed", self.last_error)
         self.disconnect()
 
     async def tick(self) -> None:
@@ -696,9 +796,25 @@ async def amain() -> int:
 
     LOG.info("starting domain=%s host=%s port=%s user=%s", domain, HOST, PORT, MARTINE_USER)
 
-    await xmpp.connect(host=HOST, port=PORT)
-    await xmpp.disconnected
-    return 0
+    try:
+        await xmpp.connect(host=HOST, port=PORT)
+        await xmpp.disconnected
+    except Exception as e:
+        xmpp.last_error = f"{type(e).__name__}: {e}"
+        LOG.exception("xmpp connect/run failed")
+        xmpp.write_bridge_state("connect_failed", xmpp.last_error)
+        return 2
+
+    if xmpp.connected_ok:
+        xmpp.last_error = "disconnected"
+        xmpp.write_bridge_state("disconnected", xmpp.last_error)
+    else:
+        if not xmpp.last_error:
+            xmpp.last_error = "disconnected before session_start"
+        xmpp.write_bridge_state("auth_failed", xmpp.last_error)
+
+    # This is a daemon. Any disconnect should be restarted by systemd.
+    return 2
 
 
 def main() -> int:

@@ -101,6 +101,21 @@ def openfire_for_username(username: str) -> dict[str, Any] | None:
     snap = load_openfire_snapshot()
     by_username = _as_dict(snap.get("by_username"))
     ent = _as_dict(by_username.get(u))
+    if not ent and u == "martine":
+        bridge = _as_dict(snap.get("bridge"))
+        martine = _as_dict(snap.get("martine"))
+        if bridge or martine:
+            ent = dict(martine)
+            ent.setdefault("username", "martine")
+            ent.setdefault("jid", bridge.get("jid") or "martine")
+            ent.setdefault("bot", True)
+            ent.setdefault("service", bridge.get("service") or "martine-xmpp-inviter")
+            ent.setdefault("status", bridge.get("status") or "unknown")
+            ent.setdefault("connected_now", bool(bridge.get("connected_now")))
+            ent.setdefault("online", bool(bridge.get("connected_now")))
+            ent.setdefault("rooms", bridge.get("joined_rooms") or [])
+            ent.setdefault("room_labels", bridge.get("joined_room_labels") or [])
+            ent.setdefault("bridge", bridge)
     if not ent:
         return None
 
@@ -113,6 +128,20 @@ def openfire_for_username(username: str) -> dict[str, Any] | None:
 def attach_openfire_to_status(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         return payload
+
+    snap = load_openfire_snapshot()
+    if snap:
+        payload["openfire"] = {
+            "source": snap.get("source") or "martine-xmpp-inviter",
+            "state_path": str(STATE_PATH),
+            "domain": snap.get("domain") or "",
+            "generated_at": snap.get("generated_at") or "",
+            "generated_at_epoch": snap.get("generated_at_epoch") or 0,
+            "bridge": _as_dict(snap.get("bridge")),
+            "martine": _as_dict(snap.get("martine")),
+            "joined_rooms": _as_list(snap.get("joined_rooms")),
+        }
+        payload["xmpp"] = payload["openfire"]
 
     users = payload.get("users")
     if not isinstance(users, list):

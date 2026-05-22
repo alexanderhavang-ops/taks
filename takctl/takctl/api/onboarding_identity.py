@@ -31,40 +31,11 @@ from takctl.onboarding.password_policy import generate_friendly_password
 
 def _gen_strong_password(length: int = 20) -> str:
     """
-    Generate a Marti-compliant password.
-
-    Rule (as enforced by UserManager.jar in your setup):
-      - min 15 chars
-      - at least 1 uppercase, 1 lowercase, 1 number
-      - at least 1 special character from:
-        [-_!@#$%^&*(){}[]+=~`|:;<>,./?]
+    Backwards-compatible wrapper. Keep all generated onboarding/user
+    passwords on the shared friendly policy.
     """
-    import secrets
-
-    specials = r"-_!@#$%^&*(){}[]+=~`|:;<>,./?"
-    uppers = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    lowers = "abcdefghijklmnopqrstuvwxyz"
-    digits = "0123456789"
-
-    n = max(int(length), 15)
-
-    chars = [
-        secrets.choice(uppers),
-        secrets.choice(lowers),
-        secrets.choice(digits),
-        secrets.choice(specials),
-    ]
-
-    alphabet = uppers + lowers + digits + specials
-    while len(chars) < n:
-        chars.append(secrets.choice(alphabet))
-
-    for i in range(len(chars) - 1, 0, -1):
-        j = secrets.randbelow(i + 1)
-        chars[i], chars[j] = chars[j], chars[i]
-
-    return "".join(chars)
-
+    n = max(20, min(int(length or 20), 24))
+    return generate_friendly_password(min_len=n, max_len=24)
 
 import json
 from datetime import datetime, timezone

@@ -1,0 +1,19 @@
+[Unit]
+Description=Martine XMPP/OpenFire inviter and presence bridge
+After=network-online.target openfire.service martine-cot.service
+Wants=network-online.target openfire.service
+ConditionPathExists=/opt/tak/tools/martine/bin/martine-xmpp-inviter
+
+[Service]
+Type=simple
+User=tak
+Group=tak
+WorkingDirectory=/opt/tak/tools/martine
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONPATH=/opt/tak/tools/martine:/opt/tak/tools/takctl
+ExecStart=/opt/tak/tools/martine/.venv/bin/python /opt/tak/tools/martine/bin/martine-xmpp-inviter
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

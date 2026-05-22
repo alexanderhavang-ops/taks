@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-import secrets
 from pathlib import Path
 from typing import List, Dict, Any, Callable, Optional
 
@@ -16,6 +15,7 @@ from takctl.services.backing_user_store import BackingUserStoreError, build_back
 from takctl.api.onboarding_identity import _issue_card_link_base
 from takctl.config import load_config
 from takctl.onboarding.import_user_fields import canonicalize_row, derive_username
+from takctl.onboarding.password_policy import generate_friendly_password
 
 
 # ------------------------------------------------------------
@@ -114,33 +114,14 @@ def _group_list_from_row(row: Dict[str, str]) -> List[str]:
 
 def _gen_strong_password(length: int = 20) -> str:
     """
-    Marti/UserManager-compatible:
-      - min 15 chars
-      - uppercase, lowercase, digit, special
+    Backwards-compatible name for account password generation.
+
+    Generated onboarding/user passwords must be copy/paste-safe:
+      - only A-Z, a-z, 0-9, # and %
+      - no quotes, backticks, spaces, shell metacharacters, XML-hostile punctuation
     """
-    specials = r"-_!@#$%^&*(){}[]+=~`|:;<>,./?"
-    uppers = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-    lowers = "abcdefghijklmnopqrstuvwxyz"
-    digits = "0123456789"
-
-    n = max(int(length), 15)
-
-    chars = [
-        secrets.choice(uppers),
-        secrets.choice(lowers),
-        secrets.choice(digits),
-        secrets.choice(specials),
-    ]
-
-    alphabet = uppers + lowers + digits + specials
-    while len(chars) < n:
-        chars.append(secrets.choice(alphabet))
-
-    for i in range(len(chars) - 1, 0, -1):
-        j = secrets.randbelow(i + 1)
-        chars[i], chars[j] = chars[j], chars[i]
-
-    return "".join(chars)
+    n = max(20, min(int(length or 20), 24))
+    return generate_friendly_password(min_len=n, max_len=24)
 
 
 def _ctx_from_row(row: Dict[str, str]) -> Dict[str, Any]:

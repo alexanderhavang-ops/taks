@@ -202,8 +202,24 @@ def verify_bundle_tree(bundle_root: str | Path, unit_path: str = "", role: str =
 
     fqdn = (conf.get("node_fqdn") or conf.get("fqdn") or "").strip()
     node_cert_model = (conf.get("node_cert_model") or "").strip()
+    openfire_enabled = (conf.get("openfire_enabled") or "true").strip().lower()
+    backing_user_store = (conf.get("backing_user_store") or "userauthfile").strip().lower()
+
     report["derived"]["fqdn"] = fqdn
     report["derived"]["node_cert_model"] = node_cert_model
+    report["derived"]["openfire_enabled"] = openfire_enabled
+    report["derived"]["backing_user_store"] = backing_user_store
+
+    openfire_is_enabled = openfire_enabled in ("1", "true", "yes", "on", "enabled")
+    ldap_backed = backing_user_store in ("ldap", "ldap_local", "openldap")
+
+    if openfire_is_enabled and not ldap_backed:
+        _err(
+            report,
+            "openfire_enabled=true requires backing_user_store=ldap; "
+            f"got backing_user_store={backing_user_store or '<empty>'}. "
+            "Set backing_user_store=ldap or set openfire_enabled=false."
+        )
 
     if not fqdn:
         _err(report, "missing critical bootstrap key: fqdn/node_fqdn")
