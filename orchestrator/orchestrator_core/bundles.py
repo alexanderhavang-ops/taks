@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from orchestrator_core.branding_resolver import materialize_branding_bundle
 from orchestrator_core.bundle_verify import verify_bundle_tree
+from orchestrator_core.devops_pki import provision_node_devops_tls
 from orchestrator_core.config import load_orch_config, load_secrets_config
 from orchestrator_core.unit_bootstrap import effective_bootstrap_for_bundle
 from orchestrator_core.units_state import ensure_unit_orchestrator_secret
@@ -904,6 +905,7 @@ def _materialize_bundle_tree(root: Path, *, unit_path: str, role: str) -> Dict[s
             overlays.append(_materialize_generic_subtree(root, unit_path=unit_path, role=role, subtree=subtree))
 
     overlays.append(_copy_letsencrypt_tls_material(root, unit_path=unit_path))
+    overlays.append(provision_node_devops_tls(root, _default_node_fqdn(unit_path, _read_unit_meta(unit_path))))
 
     return {
         "bundle_root": str(root),
