@@ -6,11 +6,11 @@ The orchestrator owns a dedicated private DevOps CA, separate from TAK Server's 
 
 ## Issuance and custody
 
-- Store the CA certificate, signing key, and orchestrator client identity in `/etc/taks-devops/tls/` on the orchestrator, on persistent encrypted storage, with restricted root/service-account access. Back up the CA key encrypted, with access logged and limited to designated operators. Do not put it in Git, image snapshots, logs, or node bundles.
+- Store the CA certificate, signing key, and orchestrator client identity in the orchestrator persistent `state/devops-pki/` directory, on persistent encrypted storage, with restricted root/service-account access. Back up the CA key encrypted, with access logged and limited to designated operators. Do not put it in Git, image snapshots, logs, or node bundles.
 - Initialize the CA once. Never silently replace a missing, invalid, or expiring CA when another CA already exists. A missing key with an existing certificate is a hard failure.
 - At each complete bundle build, generate a new node server key and a 90-day server certificate with DNS SAN `devops.<node-fqdn>`. Include only the node key, server certificate, and public CA certificate in the bundle.
 - Generate an orchestrator client certificate signed by the same CA; keep its private key on the orchestrator. Rotate this client certificate before expiry. Validate chain, key correspondence, validity and SAN before publishing a bundle.
-- Bundle archives contain a private node key and must be access-controlled and retained only as long as necessary. Serve bundles via authenticated transport; avoid public-readable archives.
+- Bundle archives contain a private node key and must be access-controlled and retained only as long as necessary. Serve bundles over HTTPS using the per-launch `X-TAKS-Bootstrap` token (six-hour validity); deny missing or invalid tokens. The credential lives in EC2 user data and is not embedded in the archive. Restrict access to EC2 user data and redact it from logs.
 
 ## Renewal and cattle-model replacement
 
