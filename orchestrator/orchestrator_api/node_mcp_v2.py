@@ -5,12 +5,14 @@ Node-side endpoints are a separate deployment dependency.
 """
 import json
 import os
+from pathlib import Path
 import re
 import ssl
 import urllib.error
 import urllib.request
 
 from fastapi import APIRouter, HTTPException, Request
+from orchestrator_core.config import load_orch_config
 from orchestrator_core.nodes_state import get_node
 from orchestrator_core.units_state import ensure_unit_orchestrator_secret
 from .api_v2 import require_operator
@@ -72,9 +74,9 @@ async def node_mcp(node_id: str, domain: str, request: Request):
     if domain == "devops":
         # Separate SNI hostname, private CA and client identity. The public
         # Let's Encrypt certificate is never consulted for DevOps requests.
-        ca = os.environ.get("TAKS_DEVOPS_CA_CERT", "/etc/taks-devops/tls/ca.crt")
-        cert = os.environ.get("TAKS_DEVOPS_CLIENT_CERT", "/etc/taks-devops/tls/client.crt")
-        key = os.environ.get("TAKS_DEVOPS_CLIENT_KEY", "/etc/taks-devops/tls/client.key")
+        ca = os.environ.get("TAKS_DEVOPS_CA_CERT", str(Path(load_orch_config().paths.state_dir) / "devops-pki" / "ca.crt"))
+        cert = os.environ.get("TAKS_DEVOPS_CLIENT_CERT", str(Path(load_orch_config().paths.state_dir) / "devops-pki" / "client.crt"))
+        key = os.environ.get("TAKS_DEVOPS_CLIENT_KEY", str(Path(load_orch_config().paths.state_dir) / "devops-pki" / "client.key"))
         try:
             context = ssl.create_default_context(cafile=ca)
             context.load_cert_chain(certfile=cert, keyfile=key)
