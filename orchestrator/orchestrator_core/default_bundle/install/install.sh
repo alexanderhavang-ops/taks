@@ -507,6 +507,7 @@ main() {
     fi
   fi
 
+  run_step "devops-mtls" "$BUNDLE_ROOT/install/devops-mtls.sh"
   run_step "taks-node-health" "$BUNDLE_ROOT/install/taks-node-health.sh"
 
   log "install complete"
