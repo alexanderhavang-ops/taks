@@ -4,6 +4,7 @@ This is a narrow JSON request/response bridge, not a full streaming MCP proxy.
 Node-side endpoints are a separate deployment dependency.
 """
 import json
+import os
 import re
 import ssl
 import urllib.error
@@ -68,7 +69,21 @@ async def node_mcp(node_id: str, domain: str, request: Request):
     secret = ensure_unit_orchestrator_secret(unit)
     if not secret:
         raise HTTPException(status_code=503, detail="Node credential unavailable")
-    url = "https://" + fqdn + "/api/orchestrator/mcp/" + domain
+    if domain == "devops":
+        # Separate SNI hostname, private CA and client identity. The public
+        # Let's Encrypt certificate is never consulted for DevOps requests.
+        ca = os.environ.get("TAKS_DEVOPS_CA_CERT", "/etc/taks-devops/tls/ca.crt")
+        cert = os.environ.get("TAKS_DEVOPS_CLIENT_CERT", "/etc/taks-devops/tls/client.crt")
+        key = os.environ.get("TAKS_DEVOPS_CLIENT_KEY", "/etc/taks-devops/tls/client.key")
+        try:
+            context = ssl.create_default_context(cafile=ca)
+            context.load_cert_chain(certfile=cert, keyfile=key)
+        except (OSError, ssl.SSLError) as exc:
+            raise HTTPException(status_code=503, detail="DevOps mTLS credentials unavailable") from exc
+        url = "https://devops." + fqdn + "/api/orchestrator/mcp/devops"
+    else:
+        context = ssl.create_default_context()
+        url = "https://" + fqdn + "/api/orchestrator/mcp/taks"
     req = urllib.request.Request(
         url, data=body, method="POST",
         headers={"Authorization": "Bearer " + secret,
@@ -76,7 +91,7 @@ async def node_mcp(node_id: str, domain: str, request: Request):
                  "Accept": "application/json"},
     )
     opener = urllib.request.build_opener(
-        urllib.request.HTTPSHandler(context=ssl.create_default_context()),
+        urllib.request.HTTPSHandler(context=context),
         NoRedirect(),
     )
     try:
