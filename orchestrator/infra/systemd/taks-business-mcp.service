@@ -1,0 +1,22 @@
+[Unit]
+Description=TAKS Business MCP (independent of DevOps MCP)
+After=network-online.target taks-orch.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/tak-orch/orchestrator
+Environment=PYTHONPATH=/opt/tak-orch/orchestrator
+Environment=TAKS_MCP_HOST=127.0.0.1
+Environment=TAKS_MCP_PORT=8766
+ExecStart=/opt/tak-orch/.venv/bin/python -m taks_mcp.server
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

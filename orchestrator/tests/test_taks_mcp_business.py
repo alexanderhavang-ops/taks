@@ -1,0 +1,57 @@
+"""Domain boundary tests for the TAKS business MCP."""
+import unittest
+from taks_mcp.business import register_taks_tools
+
+
+class Registry:
+    def __init__(self):
+        self.tools = {}
+
+    def tool(self):
+        def register(fn):
+            self.tools[fn.__name__] = fn
+            return fn
+        return register
+
+
+class BusinessTests(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        self.state = "running"
+        def api(method, path, data=None):
+            self.calls.append((method, path))
+            if path == "/api/v2/nodes":
+                return {"items": [{"node_id": "49hvbat", "aws_state": self.state}]}
+            if path == "/api/v2/nodes/preview":
+                return {"plan": {"role": "tak-node"}}
+            return {"ok": True}
+        self.registry = Registry()
+        register_taks_tools(self.registry, api)
+
+    def test_no_devops_tools(self):
+        self.assertFalse(any(name.startswith(("fs_", "host_", "aws_", "daemon_"))
+                             for name in self.registry.tools))
+
+    def test_confirmation_required(self):
+        result = self.registry.tools["taks_node_snooze"]("49hvbat")
+        self.assertTrue(result["confirmation_required"])
+        self.assertFalse(self.calls)
+
+    def test_stop_and_wake(self):
+        self.assertTrue(self.registry.tools["taks_node_snooze"]("49hvbat", True)["ok"])
+        self.assertEqual(self.calls[-1], ("POST", "/api/v2/nodes/49hvbat/snooze"))
+        self.state = "stopped"
+        self.assertTrue(self.registry.tools["taks_node_wake"]("49hvbat", True)["ok"])
+
+    def test_wrong_state(self):
+        result = self.registry.tools["taks_node_wake"]("49hvbat", True)
+        self.assertFalse(result["ok"])
+        self.assertEqual(len(self.calls), 1)
+
+    def test_invalid_node_id(self):
+        result = self.registry.tools["taks_node_snooze"]("../49hvbat", True)
+        self.assertFalse(result["ok"])
+        self.assertFalse(self.calls)
+
+if __name__ == "__main__":
+    unittest.main()
