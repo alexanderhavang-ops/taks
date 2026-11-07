@@ -30,7 +30,7 @@ def jinja_env() -> Environment:
     )
 
 
-def render_cloud_init(*, unit_path: str, role: str, fqdn: str, hostname: str) -> str:
+def render_cloud_init(*, unit_path: str, role: str, fqdn: str, hostname: str, bootstrap_token: str = '') -> str:
     """
     Render cloud-init for a node.
 
@@ -47,6 +47,7 @@ def render_cloud_init(*, unit_path: str, role: str, fqdn: str, hostname: str) ->
         fqdn=fqdn,
         hostname=hostname,
         orch_api_url=orch_api_url,
+        bootstrap_token=bootstrap_token,
     )
 
 
@@ -112,6 +113,7 @@ class NodeRequest:
     # Bundle naming
     bundle_name: str | None = None
     bundle_ttl: int | None = None
+    bootstrap_token: str = ''
 def plan_node(req: NodeRequest) -> Dict[str, Any]:
     r = region()
     ami = resolve_ubuntu_ami(region_name=r)
@@ -122,6 +124,7 @@ def plan_node(req: NodeRequest) -> Dict[str, Any]:
         role=req.role,
         fqdn=req.fqdn,
         hostname=req.hostname,
+        bootstrap_token=req.bootstrap_token,
     )
     validate_cloud_init(ci)
 
