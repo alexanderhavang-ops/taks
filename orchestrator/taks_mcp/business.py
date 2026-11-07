@@ -54,6 +54,33 @@ def register_taks_tools(mcp, api_call=call):
         return {"plan": result["plan"]} if isinstance(result, dict) and "plan" in result else result
 
     @mcp.tool()
+    def taks_node_dry_run(unit_path: str, fqdn: str = "", instance_type: str = "") -> dict:
+        """Validate TAK node provisioning through the orchestrator AWS dry-run."""
+        preview = taks_node_preview(unit_path, fqdn, instance_type)
+        if not isinstance(preview, dict) or preview.get("ok") is False:
+            return preview
+        return api_call("POST", "/api/v2/nodes/dry-run",
+                        {"unit_path": unit_path, "role": "tak-node",
+                         **({"fqdn": fqdn} if fqdn else {}),
+                         **({"instance_type": instance_type} if instance_type else {})})
+
+    @mcp.tool()
+    def taks_node_health(node_id: str) -> dict:
+        """Return the TAKS product-health checks for a registered node."""
+        if not NODE_ID.fullmatch(node_id):
+            return {"ok": False, "error": "Invalid node ID"}
+        inventory = api_call("GET", "/api/v2/nodes")
+        if not isinstance(inventory, dict) or inventory.get("ok") is False:
+            return {"ok": False, "error": "Inventory unavailable"}
+        matches = [n for n in inventory.get("items", [])
+                   if isinstance(n, dict) and n.get("node_id") == node_id]
+        if len(matches) != 1:
+            return {"ok": False, "error": "Node not uniquely registered"}
+        node = matches[0]
+        return {"ok": True, "node_id": node_id, "aws_state": node.get("aws_state"),
+                "status": node.get("status"), "checks": node.get("checks", {})}
+
+    @mcp.tool()
     def taks_node_launch(unit_path: str, confirm_launch: bool = False,
                          fqdn: str = "", instance_type: str = "") -> dict:
         """Provision a paid TAK node only after explicit confirmation."""
