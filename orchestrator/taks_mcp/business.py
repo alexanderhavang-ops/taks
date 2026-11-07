@@ -39,6 +39,24 @@ def register_taks_tools(mcp, api_call=call):
         return api_call("GET", "/api/v2/nodes")
 
     @mcp.tool()
+    def taks_bundle_readiness(unit_path: str) -> dict:
+        """Validate the complete TAKS bundle offline without booting a node."""
+        if not UNIT.fullmatch(unit_path):
+            return {"ok": False, "error": "Invalid unit path"}
+        return api_call("POST", "/api/v2/bundles/readiness",
+                        {"unit_path": unit_path, "role": "tak-node"})
+
+    @mcp.tool()
+    def taks_bundle_build(unit_path: str, confirm_build: bool = False) -> dict:
+        """Create a validated bundle archive on the orchestrator; never starts EC2."""
+        if not UNIT.fullmatch(unit_path):
+            return {"ok": False, "error": "Invalid unit path"}
+        if not confirm_build:
+            return {"ok": False, "confirmation_required": True, "unit_path": unit_path}
+        return api_call("POST", "/api/v2/bundles/build",
+                        {"unit_path": unit_path, "role": "tak-node"})
+
+    @mcp.tool()
     def taks_node_preview(unit_path: str, fqdn: str = "", instance_type: str = "") -> dict:
         """Preview a TAK node provisioning plan."""
         if not UNIT.fullmatch(unit_path):
