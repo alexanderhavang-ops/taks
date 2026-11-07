@@ -14,7 +14,14 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-PKI_DIR = Path(os.environ.get("TAKS_DEVOPS_PKI_DIR", "/etc/taks-devops/tls"))
+from orchestrator_core.config import load_orch_config
+
+
+def _pki_dir() -> Path:
+    return Path(os.environ.get("TAKS_DEVOPS_PKI_DIR", str(Path(load_orch_config().paths.state_dir) / "devops-pki")))
+
+
+PKI_DIR = _pki_dir()
 FQDN = re.compile(r"(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?")
 
 
