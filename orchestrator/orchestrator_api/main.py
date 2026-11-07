@@ -10,6 +10,7 @@ from .units_v2 import router as units_v2_router
 from .unit_files_v2 import router as unit_files_v2_router
 from .unit_bootstrap_v2 import router as unit_bootstrap_v2_router
 from .settings_v2 import router as settings_v2_router
+from .node_mcp_v2 import router as node_mcp_v2_router
 
 app = FastAPI(title="taks-orchestrator", version="0.2.0")
 
@@ -30,3 +31,4 @@ app.include_router(settings_v2_router)
 
 # API v2 (authoritative)
 app.include_router(api_v2_router)
+app.include_router(node_mcp_v2_router)
