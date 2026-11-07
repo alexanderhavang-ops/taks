@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import tarfile
 import tempfile
 from pathlib import Path
@@ -166,6 +167,26 @@ def verify_bundle_tree(bundle_root: str | Path, unit_path: str = "", role: str =
     _need_file(report, root, "install/devops-mtls.sh", "DevOps mTLS installer")
     if (devops_tls / "ca.key").exists() or (devops_tls / "client.key").exists():
         _err(report, "orchestrator signing/client key must never be bundled")
+    if all((devops_tls / name).is_file() for name in ("ca.crt", "node.crt", "node.key")):
+        try:
+            subprocess.run(["openssl", "verify", "-CAfile", str(devops_tls / "ca.crt"),
+                            str(devops_tls / "node.crt")], check=True, capture_output=True, timeout=15)
+            subprocess.run(["openssl", "x509", "-in", str(devops_tls / "node.crt"),
+                            "-noout", "-checkend", "604800"], check=True, capture_output=True, timeout=15)
+            cert_pub = subprocess.check_output(
+                ["openssl", "x509", "-in", str(devops_tls / "node.crt"), "-pubkey", "-noout"], timeout=15)
+            key_pub = subprocess.check_output(
+                ["openssl", "pkey", "-in", str(devops_tls / "node.key"), "-pubout"], timeout=15)
+            if cert_pub != key_pub:
+                _err(report, "DevOps TLS certificate and private key do not match")
+            san = subprocess.check_output(
+                ["openssl", "x509", "-in", str(devops_tls / "node.crt"),
+                 "-noout", "-ext", "subjectAltName"], timeout=15).decode("ascii", "replace")
+            expected_fqdn = _load_kv_dir(root / "install" / "taks-bootstrap" / "config.d").get("fqdn", "")
+            if not expected_fqdn or f"DNS:devops.{expected_fqdn}" not in san:
+                _err(report, "DevOps TLS certificate SAN does not match node FQDN")
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            _err(report, f"DevOps mTLS certificate verification failed: {type(exc).__name__}")
     for name in ("devops.py", "taks.py"):
         _need_file(report, root, f"taks-source/takctl/takctl/web/mcp_domains/{name}", "node MCP domain")
     _need_file(report, root, "taks-source/takctl/takctl/web/api/orchestrator_mcp.py", "node MCP router")
