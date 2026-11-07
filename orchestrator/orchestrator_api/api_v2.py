@@ -20,6 +20,7 @@ from orchestrator_core.nodes_state import delete_node, get_node, list_nodes, tou
 from orchestrator_core.units_state import clear_unit_restore_backup_selection, create_unit, delete_unit_backup, ensure_unit_orchestrator_secret, get_unit_backup, get_unit_restore_backup_selection, list_unit_backups, list_units, save_unit_backup, set_unit_restore_backup_selection
 
 from .auth import verify_token, verify_basic_auth
+from .service_auth import service_auth_ok
 from .bundles_v2 import bundle_name_for_unit, bundle_dir, ensure_unit_bundle, get_unit_bundle_readiness
 
 router = APIRouter(prefix="/api/v2")
@@ -62,7 +63,7 @@ def _basic_auth_ok(request: Request) -> bool:
 
 
 def require_operator(request: Request) -> None:
-    if _cookie_auth_ok(request) or _basic_auth_ok(request):
+    if service_auth_ok(request) or _cookie_auth_ok(request) or _basic_auth_ok(request):
         return
     raise HTTPException(status_code=401, detail="Unauthorized (session cookie or BASIC auth required)")
 
