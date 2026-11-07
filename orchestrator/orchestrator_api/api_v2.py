@@ -319,7 +319,9 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
         missing = ", ".join([str(x) for x in (readiness.get("missing") or [])]) or "unknown"
         raise HTTPException(status_code=400, detail=f"Unit config not ready for spawn: {missing}")
 
-    ensure_unit_bundle(nr.unit_path, nr.role)
+    bundle_path = ensure_unit_bundle(nr.unit_path, nr.role)
+    from orchestrator_core.bundle_download_auth import issue
+    nr.bootstrap_token = issue(bundle_path.name)
 
     launch = aws_launch(nr)
     instance_id = str(launch.get("instance_id") or "").strip()
