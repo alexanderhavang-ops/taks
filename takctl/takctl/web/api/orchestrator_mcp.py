@@ -13,43 +13,24 @@ from takctl.web.api.orchestrator import require_orchestrator_secret
 
 router = APIRouter(prefix="/api/orchestrator", tags=["orchestrator-mcp"])
 MAX_BODY = 65536
-TOOL_SCHEMAS = {
-    "devops": [
-        {"name": "host_identity", "description": "Read the node hostname and OS release",
-         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
-    ],
-    "taks": [
-        {"name": "runtime_status", "description": "Check local TAKCTL runtime availability",
-         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
-    ],
-}
+from takctl.web.mcp_domains import devops, taks
 
+DOMAINS = {"devops": devops, "taks": taks}
 
 def _run_tool(domain: str, name: str, args: dict) -> dict:
-    allowed = {tool["name"] for tool in TOOL_SCHEMAS[domain]}
-    if name not in allowed:
+    module = DOMAINS[domain]
+    if name not in {tool["name"] for tool in module.TOOLS}:
         raise HTTPException(status_code=403, detail="Tool not allowed in domain")
-    if args:
-        raise HTTPException(status_code=400, detail="Tool takes no arguments")
-    if domain == "devops":
-        os_release = Path("/etc/os-release")
-        values = {}
-        if os_release.is_file():
-            for line in os_release.read_text(encoding="utf-8").splitlines():
-                if line.startswith(("ID=", "VERSION_ID=", "PRETTY_NAME=")):
-                    key, val = line.split("=", 1)
-                    values[key] = val.strip('"')
-        data = {"hostname": os.uname().nodename, "os": values}
-    else:
-        data = {"takctl_runtime": Path("/opt/tak/tools/takctl").is_dir(),
-                "node_config": Path("/etc/taks/unit.json").is_file()}
-    return {"content": [{"type": "text", "text": json.dumps(data, sort_keys=True)}]}
+    try:
+        return module.call(name, args)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/mcp/{domain}")
 async def node_mcp(domain: str, request: Request):
     require_orchestrator_secret(request)
-    if domain not in TOOL_SCHEMAS:
+    if domain not in DOMAINS:
         raise HTTPException(status_code=404, detail="Unknown MCP domain")
     if request.headers.get("content-type", "").split(";")[0].strip().lower() != "application/json":
         raise HTTPException(status_code=415, detail="JSON required")
@@ -69,7 +50,7 @@ async def node_mcp(domain: str, request: Request):
         raise HTTPException(status_code=400, detail="Invalid params")
     method = message.get("method")
     if method == "tools/list":
-        result = {"tools": TOOL_SCHEMAS[domain]}
+        result = {"tools": DOMAINS[domain].TOOLS}
     elif method == "tools/call":
         name, args = params.get("name"), params.get("arguments", {})
         if not isinstance(name, str) or not isinstance(args, dict):
