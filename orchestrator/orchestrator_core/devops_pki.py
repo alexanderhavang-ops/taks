@@ -8,6 +8,7 @@ from __future__ import annotations
 import fcntl
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import tempfile
@@ -62,7 +63,7 @@ def _issue(ca: Path, ca_key: Path, cert: Path, key: Path,
                  "-subj", f"/CN={common_name}")
         _openssl("x509", "-req", "-in", str(csr),
                  "-CA", str(ca), "-CAkey", str(ca_key),
-                 "-CAcreateserial", "-out", str(tmp_cert),
+                 "-set_serial", "0x" + secrets.token_hex(16), "-out", str(tmp_cert),
                  "-days", "90", "-sha256", "-extfile", str(ext))
         if not _valid_cert(tmp_cert, ca) or not _matches(tmp_cert, tmp_key):
             raise RuntimeError("issued DevOps certificate failed validation")
