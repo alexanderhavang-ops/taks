@@ -501,8 +501,9 @@ main() {
       log "taks step completed"
       log_state "taks/apply" "Succeeded"
     else
-      log "WARNING: taks step failed; continuing"
+      log "ERROR: taks step failed; aborting provisioning"
       log_state "taks/apply" "Failed"
+      exit 1
     fi
   fi
 
