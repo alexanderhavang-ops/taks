@@ -1,3 +1,4 @@
+import re
 # orchestrator/orchestrator_api/api_v2.py
 from __future__ import annotations
 
@@ -233,6 +234,38 @@ def api_status() -> Dict[str, Any]:
 # ----------------------------
 # Nodes: preview / dry-run / launch (operator auth)
 # ----------------------------
+@router.post("/bundles/readiness")
+def bundles_readiness(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    """Materialize and validate a bundle without launching a node."""
+    require_operator(request)
+    unit_path = str(req.get("unit_path") or "").strip()
+    role = str(req.get("role") or "tak-node").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", unit_path):
+        raise HTTPException(status_code=400, detail="Invalid unit path")
+    return get_unit_bundle_readiness(unit_path, role)
+
+
+@router.post("/bundles/build")
+def bundles_build(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    """Generate an archive from current local source; never starts an EC2 node."""
+    require_operator(request)
+    unit_path = str(req.get("unit_path") or "").strip()
+    role = str(req.get("role") or "tak-node").strip()
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*", unit_path):
+        raise HTTPException(status_code=400, detail="Invalid unit path")
+    report = get_unit_bundle_readiness(unit_path, role)
+    if not report.get("ok"):
+        return {"ok": False, "verify": report}
+    path = ensure_unit_bundle(unit_path, role)
+    import tarfile
+    with tarfile.open(path, "r:gz") as archive:
+        names = archive.getnames()
+    return {"ok": True, "bundle_name": path.name, "bytes": path.stat().st_size,
+            "entries": len(names),
+            "has_taks_mcp": any(n.endswith("/takctl/takctl/web/mcp_domains/taks.py") for n in names),
+            "has_devops_mcp": any(n.endswith("/takctl/takctl/web/mcp_domains/devops.py") for n in names)}
+
+
 @router.post("/nodes/preview")
 def nodes_preview(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     require_operator(request)
