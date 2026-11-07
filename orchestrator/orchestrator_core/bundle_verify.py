@@ -160,6 +160,15 @@ def verify_bundle_tree(bundle_root: str | Path, unit_path: str = "", role: str =
     cert_layout_sh = _need_file(report, root, "install/tak-certs-layout.sh", "cert layout script")
     coreconfig_sh = _need_file(report, root, "install/tak-coreconfig-render.sh", "CoreConfig render script")
     taks_sh = _need_file(report, root, "install/taks.sh", "taks apply script")
+    devops_tls = root / "install" / "devops-mtls"
+    for name in ("ca.crt", "node.crt", "node.key"):
+        _need_file(report, root, f"install/devops-mtls/{name}", "DevOps mTLS identity")
+    _need_file(report, root, "install/devops-mtls.sh", "DevOps mTLS installer")
+    if (devops_tls / "ca.key").exists() or (devops_tls / "client.key").exists():
+        _err(report, "orchestrator signing/client key must never be bundled")
+    for name in ("devops.py", "taks.py"):
+        _need_file(report, root, f"taks-source/takctl/takctl/web/mcp_domains/{name}", "node MCP domain")
+    _need_file(report, root, "taks-source/takctl/takctl/web/api/orchestrator_mcp.py", "node MCP router")
     taks_source = root / "taks-source"
     if not taks_source.is_dir():
         _err(report, "missing taks-source directory")
