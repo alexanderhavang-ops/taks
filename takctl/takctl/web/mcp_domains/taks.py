@@ -6,6 +6,7 @@ remain behind explicit tool authorization; discovery is not a generic
 privilege-escalating HTTP proxy.
 """
 import json
+import urllib.request
 from pathlib import Path
 
 TOOLS = [
@@ -25,8 +26,8 @@ def call(name, args):
     elif name == "api_surface":
         # Import lazily to avoid startup cycles; use the app's registered
         # routes rather than hard-coded or stale API documentation.
-        from takctl.web.app import app
-        schema = app.openapi()
+        with urllib.request.urlopen("http://127.0.0.1:8080/openapi.json", timeout=5) as response:
+            schema = json.load(response)
         data = {
             "title": schema.get("info", {}).get("title", "TAKCTL"),
             "paths": {
