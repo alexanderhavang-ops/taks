@@ -84,7 +84,7 @@ def register_taks_tools(mcp, api_call=call):
 
     @mcp.tool()
     def taks_node_devops_probe(node_id: str, operation: str = "tools/list",
-                               service: str = "", lines: int = 40, path: str = "") -> dict:
+                               service: str = "", lines: int = 40, path: str = "", file: str = "") -> dict:
         """Query a registered node's restricted read-only DevOps MCP over mTLS."""
         if not NODE_ID.fullmatch(node_id):
             return {"ok": False, "error": "Invalid node ID"}
@@ -92,6 +92,7 @@ def register_taks_tools(mcp, api_call=call):
             "tools/list", "host_identity", "host_resources", "listening_ports",
             "service_list", "service_status", "service_logs",
             "nginx_check", "cert_status", "file_stat", "installer_tail",
+            "java_processes", "takserver_logs", "takserver_readiness",
         }
         if operation not in allowed:
             return {"ok": False, "error": "DevOps tool not allowed"}
@@ -104,10 +105,16 @@ def register_taks_tools(mcp, api_call=call):
             ):
                 return {"ok": False, "error": "Service not allowlisted"}
             arguments["service"] = service
-        if operation in ("service_logs", "installer_tail"):
+        if operation in ("service_logs", "installer_tail", "takserver_logs"):
             if type(lines) is not int or not 1 <= lines <= 80:
                 return {"ok": False, "error": "Invalid line count"}
             arguments["lines"] = lines
+        if operation == "takserver_logs":
+            if file:
+                if (len(file) > 128 or not re.fullmatch(r"[A-Za-z0-9_.-]+", file)
+                        or file in (".", "..")):
+                    return {"ok": False, "error": "Invalid log filename"}
+                arguments["file"] = file
         if operation == "cert_status":
             if "." not in node_id:
                 return {"ok": False, "error": "FQDN required"}
