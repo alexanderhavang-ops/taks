@@ -5,7 +5,7 @@ set -euo pipefail
 lineage=/etc/letsencrypt/live/aws.tak-hv-sandbox.se
 dest=/opt/tak-orch/state/artifacts/letsencrypt/aws.tak-hv-sandbox.se
 
-if [[ -n "\${RENEWED_LINEAGE:-}" ]]; then
+if [[ -n "${RENEWED_LINEAGE:-}" ]]; then
   [[ "$(readlink -f "$RENEWED_LINEAGE")" == "$(readlink -f "$lineage")" ]] || exit 0
 fi
 [[ "$(id -u)" == 0 ]] || { echo "root required" >&2; exit 1; }
@@ -21,7 +21,7 @@ openssl x509 -in "$lineage/fullchain.pem" -noout -ext subjectAltName |
   { echo "Expected wildcard SAN missing" >&2; exit 1; }
 
 group="$(stat -c '%g' "$dest/privkey.pem")"
-temp="$(mktemp -d "\${dest}.staging.XXXXXXXX")"
+temp="$(mktemp -d "${dest}.staging.XXXXXXXX")"
 trap 'rm -rf "$temp"' EXIT
 install -o ubuntu -g "$group" -m 0640 "$lineage/fullchain.pem" "$temp/fullchain.pem"
 install -o ubuntu -g "$group" -m 0640 "$lineage/privkey.pem" "$temp/privkey.pem"
