@@ -303,7 +303,9 @@ def nodes_dry_run(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     require_operator(request)
     _require_route53_prereqs_for_node_launch()
     nr = _node_req(req)
-    return aws_dry_run(nr)
+    aws_result = aws_dry_run(nr)
+    readiness = get_unit_bundle_readiness(nr.unit_path, nr.role)
+    return {**aws_result, "bundle_readiness": readiness}
 
 
 @router.post("/nodes/launch")
