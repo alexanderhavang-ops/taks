@@ -83,6 +83,19 @@ def register_taks_tools(mcp, api_call=call):
                          **({"instance_type": instance_type} if instance_type else {})})
 
     @mcp.tool()
+    def taks_node_devops_probe(node_id: str, operation: str = "tools/list") -> dict:
+        """Probe registered node DevOps MCP over orchestrator mTLS; only tools/list or host_identity."""
+        if not NODE_ID.fullmatch(node_id):
+            return {"ok": False, "error": "Invalid node ID"}
+        if operation not in ("tools/list", "host_identity"):
+            return {"ok": False, "error": "Only tools/list or host_identity permitted"}
+        message = {"jsonrpc": "2.0", "id": 1,
+                   "method": "tools/list" if operation == "tools/list" else "tools/call"}
+        if operation == "host_identity":
+            message["params"] = {"name": "host_identity", "arguments": {}}
+        return api_call("POST", "/api/v2/nodes/" + node_id + "/mcp/devops", message)
+
+    @mcp.tool()
     def taks_node_health(node_id: str) -> dict:
         """Return the TAKS product-health checks for a registered node."""
         if not NODE_ID.fullmatch(node_id):
