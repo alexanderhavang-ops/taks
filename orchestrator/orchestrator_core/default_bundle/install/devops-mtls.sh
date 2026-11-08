@@ -65,7 +65,7 @@ getent group systemd-journal >/dev/null || { echo "systemd-journal group unavail
 usermod -aG systemd-journal tak
 sudoers="/etc/sudoers.d/taks-node-devops-nginx-check"
 tmp_sudo="$(mktemp)"
-printf '%s\\n' 'tak ALL=(root) NOPASSWD: /usr/sbin/nginx -t' > "$tmp_sudo"
+printf '%s\n' 'tak ALL=(root) NOPASSWD: /usr/sbin/nginx -t' > "$tmp_sudo"
 chmod 0440 "$tmp_sudo"
 visudo -cf "$tmp_sudo" >/dev/null
 install -m 0440 "$tmp_sudo" "$sudoers"
