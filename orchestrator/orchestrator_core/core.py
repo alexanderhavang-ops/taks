@@ -462,7 +462,9 @@ def aws_list_nodes() -> Dict[str, Any]:
     for res in resp.get("Reservations", []):
         for i in res.get("Instances", []):
             state = str((i.get("State") or {}).get("Name") or "").strip().lower()
-            if state in {"terminated", "shutting-down"}:
+            # Keep shutting-down visible until AWS confirms termination;
+            # Launch must not race a still-existing instance.
+            if state == "terminated":
                 continue
 
             tags = {str(t.get("Key") or ""): str(t.get("Value") or "") for t in (i.get("Tags") or [])}
