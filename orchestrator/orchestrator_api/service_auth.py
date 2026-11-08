@@ -16,7 +16,7 @@ STATIC_ALLOWED = {
     ("POST", "/api/v2/bundles/readiness"),
     ("POST", "/api/v2/bundles/build"),
 }
-LIFECYCLE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/(?:snooze|wake)$")
+LIFECYCLE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/(?:pause|resume|shutdown|snooze|wake|terminate)$")
 
 
 def service_auth_ok(request):
