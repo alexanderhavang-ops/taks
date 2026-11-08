@@ -32,6 +32,14 @@ class BusinessTests(unittest.TestCase):
         self.assertFalse(any(name.startswith(("fs_", "host_", "aws_", "daemon_"))
                              for name in self.registry.tools))
 
+    def test_node_devops_probe_is_read_only(self):
+        probe = self.registry.tools["taks_node_devops_probe"]
+        self.assertEqual(probe("49hvbat", "tools/list"), {"ok": True})
+        self.assertEqual(self.calls[-1], ("POST", "/api/v2/nodes/49hvbat/mcp/devops"))
+        self.assertEqual(probe("49hvbat", "host_identity"), {"ok": True})
+        self.assertFalse(probe("49hvbat", "tools/call")["ok"])
+        self.assertFalse(probe("../bad", "tools/list")["ok"])
+
     def test_confirmation_required(self):
         result = self.registry.tools["taks_node_snooze"]("49hvbat")
         self.assertTrue(result["confirmation_required"])
