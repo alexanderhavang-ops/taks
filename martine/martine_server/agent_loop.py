@@ -125,7 +125,7 @@ def _instructions(system_prompt: str, ctx: RunContext, final_format: str, refere
         "Do not perform onboarding or send packages unless the user asked for it. "
     )
     if reference_titles:
-        suffix += "\\nAvailable uploaded reference-document titles (not their content): " + json.dumps(reference_titles[:60], ensure_ascii=False) + ". Search documents before relying on them."
+        suffix += "\nAvailable uploaded reference-document titles (not their content): " + json.dumps(reference_titles[:60], ensure_ascii=False) + ". Search documents before relying on them."
     if "json" in final_format.lower() or ctx.output_schema:
         suffix += (
             "\nFinal output MUST be a valid JSON object with no markdown fences "
