@@ -411,8 +411,10 @@ def aws_wake(instance_id: str, *, fqdn: str = "") -> Dict[str, Any]:
     }
 
 
-def aws_terminate(instance_id: str) -> Dict[str, Any]:
+def aws_terminate(instance_id: str, *, fqdn: str = "") -> Dict[str, Any]:
+    """Permanently terminate a node; unlike Pause, it cannot be resumed."""
     iid = str(instance_id or "").strip()
+    fqdn = str(fqdn or "").strip()
     if not iid:
         raise ValueError("missing instance_id")
 
@@ -422,11 +424,27 @@ def aws_terminate(instance_id: str) -> Dict[str, Any]:
 
     items = list(resp.get("TerminatingInstances") or [])
     row = items[0] if items else {}
+
+    # Retire both public endpoints rather than leaving DNS pointing to the dead instance.
+    zone_id = _route53_zone_id()
+    dns_change = None
+    dns_error = None
+    if zone_id and fqdn:
+        try:
+            dns_change = _upsert_node_dns(zone_id=zone_id, fqdn=fqdn, public_ip="192.0.2.1")
+        except Exception as exc:
+            # Do not hide a successful irreversible EC2 termination due to a DNS failure.
+            dns_error = type(exc).__name__
+
     return {
         "instance_id": iid,
         "previous_state": ((row.get("PreviousState") or {}).get("Name") or "").strip() or None,
-        "current_state": ((row.get("CurrentState") or {}).get("Name") or "").strip() or "terminating",
+        "current_state": ((row.get("CurrentState") or {}).get("Name") or "").strip() or "shutting-down",
         "region": r,
+        "fqdn": fqdn or None,
+        "route53_zone_id": zone_id or None,
+        "dns_change": dns_change,
+        "dns_error": dns_error,
     }
 
 
