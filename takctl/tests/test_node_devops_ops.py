@@ -36,6 +36,18 @@ class NodeDevopsTests(unittest.TestCase):
         self.assertEqual(run.call_args.args[0][0], "systemctl")
         self.assertNotIn("restart", run.call_args.args[0])
 
+    def test_nginx_test_uses_only_fixed_sudo_command(self):
+        with patch.object(devops, "_run", return_value={"exit_code": 0}) as run:
+            devops.call("nginx_check", {})
+        self.assertEqual(run.call_args.args[0],
+                         ["sudo", "-n", "/usr/sbin/nginx", "-t"])
+
+    def test_cert_status_rejects_untrusted_fqdn(self):
+        with self.assertRaises(ValueError):
+            devops.call("cert_status", {})
+        value = devops.call("cert_status", {"fqdn": "../etc/shadow"})
+        self.assertIn("Node FQDN unavailable", value["content"][0]["text"])
+
     def test_expected_ports(self):
         self.assertIn(8446, devops.PORTS)
         self.assertIn(8089, devops.PORTS)
