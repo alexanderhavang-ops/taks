@@ -541,7 +541,7 @@
         setNodeLaunchInfo(null);
 
         try{
-          const j = await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/wake', {});
+          const j = await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/resume', {});
           if(j && j.wake) setNodeLaunchInfo(j.wake);
           setNodeActionStatus('Resume requested. Väntar på heartbeat…', 'ok');
           startNodeProgressPoll(S.getRouteUnitPath());
@@ -563,7 +563,7 @@
         setNodeActionStatus('Pause requested… stoppar instans och flyttar DNS…', 'muted');
 
         try{
-          const j = await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/snooze', {});
+          const j = await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/pause', {});
           if(j && j.snooze) setNodeLaunchInfo(j.snooze);
           setNodeActionStatus('Pause requested.', 'ok');
           setTimeout(function(){ render(); }, 700);
@@ -584,7 +584,7 @@
         setNodeActionStatus('Shutting down permanently…', 'muted');
 
         try{
-          await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/terminate', {});
+          await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/shutdown', {});
           setNodeActionStatus('Permanent shutdown requested.', 'ok');
           alert('Permanent shutdown requested för ' + nodeId);
           setTimeout(function(){ render(); }, 700);
