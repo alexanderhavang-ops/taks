@@ -205,19 +205,23 @@ def _upsert_node_dns(*, zone_id: str, fqdn: str, public_ip: str, ttl: int = 60) 
     if not public_ip:
         raise RuntimeError("missing public_ip for dns upsert")
 
+    # The DevOps MCP has its own mTLS SNI vhost at devops.<node-fqdn>.
+    # Update both records in one Route53 change batch so they stay in sync
+    # across launch, heartbeat reconciliation, snooze, and wake.
     r53 = boto3.client("route53")
     change_batch = {
-        "Comment": f"TAKS node DNS upsert for {fqdn}",
+        "Comment": f"TAKS node and DevOps DNS upsert for {fqdn}",
         "Changes": [
             {
                 "Action": "UPSERT",
                 "ResourceRecordSet": {
-                    "Name": fqdn,
+                    "Name": name,
                     "Type": "A",
                     "TTL": ttl,
                     "ResourceRecords": [{"Value": public_ip}],
                 },
             }
+            for name in (fqdn, f"devops.{fqdn}")
         ],
     }
 
