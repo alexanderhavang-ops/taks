@@ -510,23 +510,22 @@ def _write_effective_bootstrap(root: Path, *, unit_path: str) -> Dict[str, Any]:
 
 
 def _find_letsencrypt_artifact_dir(unit_path: str) -> Path:
-    """Use Certbot's current wildcard lineage, never a potentially stale artifact copy.
+    """Read the managed mirror of the live Certbot wildcard lineage.
 
-    This intentionally fails closed when Certbot material is unavailable. A bundle
-    containing an expired certificate must not be published as a successful build.
+    Certbot's private-key directory is intentionally root-only. A root-owned
+    renewal hook refreshes this mirror after issuance and on initial setup.
+    Bundle builds fail closed if the mirror is missing or invalid.
     """
     cfg = load_orch_config()
-    lineage = Path(cfg.letsencrypt.artifact_cert_dir).name
-    if not lineage or lineage in (".", "..") or "/" in lineage:
-        raise ValueError("invalid configured LetsEncrypt lineage name")
-    src = Path("/etc/letsencrypt/live") / lineage
-    if not (src / "fullchain.pem").is_file() or not (src / "privkey.pem").is_file():
-        raise ValueError(f"current Certbot TLS material unavailable at {src}")
-    return src
+    base = Path(cfg.letsencrypt.artifact_cert_dir)
+    if not (base / "fullchain.pem").is_file() or not (base / "privkey.pem").is_file():
+        raise ValueError(f"missing synchronized LetsEncrypt material: {base}")
+    return base
 
 
 def _validate_letsencrypt_tls_material(src_dir: Path, unit_path: str) -> None:
-    """Reject expiring, mismatched or hostname-incompatible certificate material."""
+    """Reject expiring, mismatched, or hostname-incompatible certificate material."""
+    import re
     import subprocess
 
     cert = src_dir / "fullchain.pem"
@@ -536,27 +535,23 @@ def _validate_letsencrypt_tls_material(src_dir: Path, unit_path: str) -> None:
         try:
             return subprocess.check_output(args, stderr=subprocess.PIPE, timeout=15)
         except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-            raise ValueError(f"Certbot TLS validation failed: {type(exc).__name__}") from exc
+            raise ValueError(f"TLS certificate validation failed: {type(exc).__name__}") from exc
 
-    # Require at least seven days' validity at bundle build time.
     check("openssl", "x509", "-in", str(cert), "-noout", "-checkend", "604800")
     cert_pub = check("openssl", "x509", "-in", str(cert), "-pubkey", "-noout")
     key_pub = check("openssl", "pkey", "-in", str(key), "-pubout")
     if cert_pub != key_pub:
-        raise ValueError("Certbot certificate and private key do not match")
+        raise ValueError("TLS certificate and private key do not match")
 
     fqdn = _default_node_fqdn(unit_path, _read_unit_meta(unit_path)).lower().rstrip(".")
     san = check("openssl", "x509", "-in", str(cert), "-noout", "-ext", "subjectAltName").decode("ascii", "replace")
-    dns_names = set()
-    import re
-    for name in re.findall(r"DNS:([^,\s]+)", san):
-        dns_names.add(name.lower().rstrip("."))
+    dns_names = {name.lower().rstrip(".") for name in re.findall(r"DNS:([^,\s]+)", san)}
     if fqdn not in dns_names and not any(
-        pattern.startswith("*.") and fqdn.endswith(pattern[1:])
-        and fqdn.count(".") == pattern.count(".")
-        for pattern in dns_names
+        name.startswith("*.") and fqdn.endswith(name[1:])
+        and fqdn.count(".") == name.count(".")
+        for name in dns_names
     ):
-        raise ValueError(f"Certbot certificate does not cover node hostname: {fqdn}")
+        raise ValueError(f"TLS certificate does not cover node hostname: {fqdn}")
 
 
 def _copy_letsencrypt_tls_material(root: Path, *, unit_path: str) -> Dict[str, Any]:
@@ -570,9 +565,8 @@ def _copy_letsencrypt_tls_material(root: Path, *, unit_path: str) -> Dict[str, A
     bytes_total = 0
     bytes_total += _copy_file(src_dir / "fullchain.pem", dst_cert)
     bytes_total += _copy_file(src_dir / "privkey.pem", dst_key)
-
-    # Check the copied pair, too, in case a renewal raced with the copy.
     _validate_letsencrypt_tls_material(dst_dir, unit_path)
+
     return {
         "kind": "letsencrypt_tls_material",
         "src_dir": str(src_dir),
