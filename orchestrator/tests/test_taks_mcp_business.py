@@ -43,6 +43,24 @@ class BusinessTests(unittest.TestCase):
         self.state = "stopped"
         self.assertTrue(self.registry.tools["taks_node_wake"]("49hvbat", True)["ok"])
 
+    def test_permanent_shutdown_requires_confirmation(self):
+        result = self.registry.tools["taks_node_shutdown"]("49hvbat")
+        self.assertTrue(result["confirmation_required"])
+        self.assertFalse(self.calls)
+
+    def test_permanent_shutdown_uses_terminate_not_pause(self):
+        result = self.registry.tools["taks_node_shutdown"]("49hvbat", True)
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.calls[-1], ("POST", "/api/v2/nodes/49hvbat/terminate"))
+
+    def test_paused_node_can_resume_but_not_pause_again(self):
+        self.state = "stopped"
+        result = self.registry.tools["taks_node_snooze"]("49hvbat", True)
+        self.assertFalse(result["ok"])
+        result = self.registry.tools["taks_node_wake"]("49hvbat", True)
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.calls[-1], ("POST", "/api/v2/nodes/49hvbat/wake"))
+
     def test_wrong_state(self):
         result = self.registry.tools["taks_node_wake"]("49hvbat", True)
         self.assertFalse(result["ok"])
