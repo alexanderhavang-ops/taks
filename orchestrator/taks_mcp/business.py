@@ -107,14 +107,8 @@ def register_taks_tools(mcp, api_call=call):
         preview = taks_node_preview(unit_path, fqdn, instance_type)
         if not isinstance(preview, dict) or preview.get("ok") is False:
             return preview
-        inventory = api_call("GET", "/api/v2/nodes")
-        if not isinstance(inventory, dict) or inventory.get("ok") is False:
-            return {"ok": False, "error": "Inventory unavailable"}
-        for group in ("items", "untracked_items", "orphaned_items"):
-            for node in inventory.get(group, []):
-                if isinstance(node, dict) and (node.get("unit_path") == unit_path or
-                   (fqdn and node.get("fqdn") == fqdn)) and node.get("aws_state") not in ("terminated", "shutting-down"):
-                    return {"ok": False, "error": "Node already exists"}
+        # The REST API enforces AWS-authoritative duplicate prevention.
+        # Never treat an orphaned, terminated registry record as a live node.
         return api_call("POST", "/api/v2/nodes/launch",
                         {"unit_path": unit_path, "role": "tak-node",
                          **({"fqdn": fqdn} if fqdn else {}),
