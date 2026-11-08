@@ -14,6 +14,7 @@ SRC_MARTINE_BIN_ROOT = None
 DST_MARTINE_ROOT = Path("/opt/tak/tools/martine")
 DST_MARTINE_PKG_ROOT = DST_MARTINE_ROOT / "martine"
 DST_MARTINE_SERVER_ROOT = DST_MARTINE_ROOT / "martine_server"
+DST_MARTINE_TESTS_ROOT = DST_MARTINE_ROOT / "tests"
 DST_MARTINE_BIN_ROOT = DST_MARTINE_ROOT / "bin"
 DST_MARTINE_STATE_ROOT = DST_MARTINE_ROOT / "state"
 DST_MARTINE_VENV = DST_MARTINE_ROOT / ".venv"
@@ -195,6 +196,7 @@ def apply(ctx) -> None:
     src_martine_root = Path(ctx.repo_root) / "martine"
     src_martine_pkg_root = src_martine_root / "martine"
     src_martine_server_root = src_martine_root / "martine_server"
+    src_martine_tests_root = src_martine_root / "tests"
     src_martine_bin_root = src_martine_root / "bin"
 
     if not src_martine_pkg_root.exists():
@@ -207,6 +209,8 @@ def apply(ctx) -> None:
 
     if src_martine_bin_root.exists():
         _rsync_dir(src_martine_bin_root, DST_MARTINE_BIN_ROOT)
+    if src_martine_tests_root.exists():
+        _rsync_dir(src_martine_tests_root, DST_MARTINE_TESTS_ROOT)
 
     _ensure_runtime_dirs()
     _fix_runtime_perms()
