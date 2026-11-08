@@ -56,15 +56,21 @@ async def node_mcp(node_id: str, domain: str, request: Request):
     params = message.get("params", {})
     if not isinstance(params, dict):
         raise HTTPException(status_code=400, detail="Invalid MCP parameters")
-    # Service-token callers are deliberately restricted to read-only DevOps
-    # discovery and identity. Human operator auth can use the general bridge.
+    # Service-token callers may only invoke the explicitly enumerated
+    # read-only diagnostics below. This is NOT a general remote shell proxy.
     if service_auth_ok(request):
-        if domain != "devops" or (
-            method == "tools/call" and (
-                params.get("name") != "host_identity" or params.get("arguments", {}) != {}
-            )
+        safe_tools = {
+            "host_identity", "host_resources", "listening_ports",
+            "service_list", "service_status", "service_logs",
+            "nginx_check", "cert_status", "file_stat", "installer_tail",
+        }
+        if domain != "devops":
+            raise HTTPException(status_code=403, detail="Service MCP domain not allowed")
+        if method == "tools/call" and (
+            params.get("name") not in safe_tools or
+            not isinstance(params.get("arguments", {}), dict)
         ):
-            raise HTTPException(status_code=403, detail="Service MCP method not allowed")
+            raise HTTPException(status_code=403, detail="Service MCP tool not allowed")
     if method == "tools/call":
         name = params.get("name")
         if not isinstance(name, str) or not name:

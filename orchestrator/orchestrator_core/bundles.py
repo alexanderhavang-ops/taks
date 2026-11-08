@@ -387,6 +387,16 @@ def _copy_repo_snapshot(dst_root: Path) -> Dict[str, Any]:
     dst = dst_root / "taks-source"
     _reset_dir(dst)
     result = _copy_tree_filtered(src, dst)
+    # Always take the node diagnostics shipped with this deployed orchestrator
+    # release, not a possibly stale /opt/taks source checkout.
+    node_devops = default_bundle_dir() / "node-devops" / "devops.py"
+    if not node_devops.is_file():
+        raise RuntimeError("Node DevOps source missing from deployed orchestrator")
+    target = dst / "takctl" / "takctl" / "web" / "mcp_domains" / "devops.py"
+    if not target.parent.is_dir():
+        raise RuntimeError("TAKCTL node DevOps package missing from source snapshot")
+    _copy_file(node_devops, target)
+    result["node_devops_overlay"] = str(node_devops)
     result.update(
         {
             "kind": "repo_snapshot",
