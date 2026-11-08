@@ -323,7 +323,7 @@ def _copy_file(src: Path, dst: Path) -> int:
     return src.stat().st_size
 
 
-def _copy_tree_filtered(src: Path, dst: Path) -> Dict[str, Any]:
+def _copy_tree_filtered(src: Path, dst: Path, *, skip_root_packages: bool = False) -> Dict[str, Any]:
     files = 0
     bytes_total = 0
 
@@ -334,7 +334,7 @@ def _copy_tree_filtered(src: Path, dst: Path) -> Dict[str, Any]:
         cur = Path(cur_root)
         rel_dir = cur.relative_to(src)
 
-        dirnames[:] = sorted(d for d in dirnames if not _should_skip_repo_dir(d))
+        dirnames[:] = sorted(d for d in dirnames if not _should_skip_repo_dir(d) and not (skip_root_packages and rel_dir == Path('.') and d == 'packages'))
         out_dir = dst / rel_dir
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -915,7 +915,15 @@ def _materialize_packages_subtree(root: Path, *, unit_path: str, role: str) -> D
     with chosen_deb.open("rb") as source:
         for chunk in iter(lambda: source.read(4 * 1024 * 1024), b""):
             digest.update(chunk)
-    total_bytes += _copy_file(chosen_deb, dst / chosen_deb.name)
+    # Readiness builds are temporary and may run on a small EC2 disk.
+    # A hardlink is safe here: the staged package is read-only for the service
+    # and tarball creation sees the same bytes without a redundant 658 MB copy.
+    destination = dst / chosen_deb.name
+    try:
+        os.link(chosen_deb, destination)
+        total_bytes += chosen_deb.stat().st_size
+    except OSError:
+        total_bytes += _copy_file(chosen_deb, destination)
     total_files += 1
 
     debs = sorted(dst.glob("takserver_*_all.deb"))
@@ -939,13 +947,13 @@ def _materialize_bundle_tree(root: Path, *, unit_path: str, role: str) -> Dict[s
 
     overlays: List[Dict[str, Any]] = []
 
-    overlays.append(_copy_tree_filtered(default_bundle_dir(), root))
+    overlays.append(_copy_tree_filtered(default_bundle_dir(), root, skip_root_packages=True))
 
     if load_orch_config().bundles.include_taks_source:
         overlays.append(_copy_repo_snapshot(root))
 
-    overlays.append(_copy_tree_filtered(role_bundle_overlay_dir(role), root))
-    overlays.append(_copy_tree_filtered(unit_bundle_overlay_dir(unit_path), root))
+    overlays.append(_copy_tree_filtered(role_bundle_overlay_dir(role), root, skip_root_packages=True))
+    overlays.append(_copy_tree_filtered(unit_bundle_overlay_dir(unit_path), root, skip_root_packages=True))
 
     overlays.append({"generated": "config/unit.json", "kind": "unit_config", "path": str(_write_unit_config(root, unit_path=unit_path, role=role))})
     overlays.append(_write_node_env(root, unit_path=unit_path))
