@@ -70,6 +70,14 @@ class BusinessTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(self.calls[-1], ("POST", "/api/v2/nodes/49hvbat/resume"))
 
+    def test_launch_delegates_duplicate_validation_to_aws_aware_api(self):
+        # The old instance may still have a stale local record after termination.
+        # Only the REST API's fresh AWS inventory can decide if new Launch is safe.
+        self.state = "terminated"
+        result = self.registry.tools["taks_node_launch"]("49hvbat", True)
+        self.assertTrue(result["ok"])
+        self.assertEqual(self.calls[-1], ("POST", "/api/v2/nodes/launch"))
+
     def test_wrong_state(self):
         result = self.registry.tools["taks_node_wake"]("49hvbat", True)
         self.assertFalse(result["ok"])
