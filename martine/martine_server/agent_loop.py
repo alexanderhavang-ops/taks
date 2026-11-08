@@ -172,13 +172,17 @@ async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final
                 ),
             )
             session = _chat_session(ctx)
-            result = await Runner.run(
-                agent,
-                user_input,
-                session=session,
-                max_turns=max(1, min(int(ctx.max_turns), int(ctx.max_tool_calls) + 1)),
-            )
-            return result, provider
+            try:
+                result = await Runner.run(
+                    agent,
+                    user_input,
+                    session=session,
+                    max_turns=max(1, min(int(ctx.max_turns), int(ctx.max_tool_calls) + 1)),
+                )
+                return result, provider
+            finally:
+                if session is not None:
+                    session.close()
     finally:
         await client.close()
 
