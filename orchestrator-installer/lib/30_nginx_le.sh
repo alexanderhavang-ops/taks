@@ -54,7 +54,7 @@ install_certbot_artifact_management(){
   # Scoped MCP entry point; no access to a general root shell.
   local tmp
   tmp="$(mktemp /tmp/taks-cert-sudoers.XXXXXXXX)"
-  printf 'ubuntu ALL=(root) NOPASSWD: %s\\n' "$helper" > "$tmp"
+  printf 'ubuntu ALL=(root) NOPASSWD: %s\n' "$helper" > "$tmp"
   chmod 0440 "$tmp"
   visudo -cf "$tmp" || { rm -f "$tmp"; die "invalid certificate-sync sudoers"; }
   install -o root -g root -m 0440 "$tmp" /etc/sudoers.d/90-taks-cert-sync
