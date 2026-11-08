@@ -86,7 +86,28 @@ def _chat_session(ctx: RunContext):
     return SQLiteSession(session_id, str(root / "conversations.sqlite3"))
 
 
-def _instructions(system_prompt: str, ctx: RunContext, final_format: str) -> str:
+async def _reference_titles(mcp) -> list[str]:
+    """Preserve the old loop's document-name discovery without reimplementing RAG."""
+    try:
+        result = await mcp.call_tool("list_reference_docs", {"only_active": True})
+        for part in getattr(result, "content", []):
+            raw = getattr(part, "text", None)
+            if not raw:
+                continue
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                titles = [
+                    str(item.get("title") or item.get("filename") or "").strip()
+                    for item in parsed.get("items", [])
+                    if isinstance(item, dict) and item.get("active", True)
+                ]
+                return [t for t in titles if t][:60]
+    except Exception:
+        pass
+    return []
+
+
+def _instructions(system_prompt: str, ctx: RunContext, final_format: str, reference_titles: list[str] | None = None) -> str:
     context = {
         "client": ctx.client,
         "workload": ctx.workload,
@@ -103,6 +124,8 @@ def _instructions(system_prompt: str, ctx: RunContext, final_format: str) -> str
         "from the run context. Never invent another sender identity. "
         "Do not perform onboarding or send packages unless the user asked for it. "
     )
+    if reference_titles:
+        suffix += "\\nAvailable uploaded reference-document titles (not their content): " + json.dumps(reference_titles[:60], ensure_ascii=False) + ". Search documents before relying on them."
     if "json" in final_format.lower() or ctx.output_schema:
         suffix += (
             "\nFinal output MUST be a valid JSON object with no markdown fences "
@@ -132,12 +155,14 @@ async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final
     try:
         async with MCPServerStdio(
             name="Martine tools",
+            cache_tools_list=True,
             params=params,
             client_session_timeout_seconds=45,
         ) as mcp:
+            reference_titles = await _reference_titles(mcp)
             agent = Agent(
                 name="Martine",
-                instructions=_instructions(system_prompt, ctx, final_format),
+                instructions=_instructions(system_prompt, ctx, final_format, reference_titles),
                 model=model,
                 mcp_servers=[mcp],
                 model_settings=ModelSettings(
