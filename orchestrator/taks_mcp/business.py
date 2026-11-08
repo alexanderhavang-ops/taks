@@ -108,8 +108,21 @@ def register_taks_tools(mcp, api_call=call):
         if len(matches) != 1:
             return {"ok": False, "error": "Node not uniquely registered"}
         node = matches[0]
-        return {"ok": True, "node_id": node_id, "aws_state": node.get("aws_state"),
-                "status": node.get("status"), "checks": node.get("checks", {})}
+        result = {"ok": True, "node_id": node_id, "aws_state": node.get("aws_state"),
+                  "status": node.get("status"), "checks": node.get("checks", {})}
+        # Include a narrow diagnostic while the client's tool catalog catches up.
+        # Only probe an online running node; this never grants general tool execution.
+        if node.get("aws_state") == "running" and node.get("status") == "online":
+            path = "/api/v2/nodes/" + node_id + "/mcp/devops"
+            listing = api_call("POST", path,
+                               {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+            result["devops_mcp"] = {"tools_list": listing}
+            if isinstance(listing, dict) and isinstance(listing.get("result"), dict):
+                result["devops_mcp"]["host_identity"] = api_call(
+                    "POST", path,
+                    {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+                     "params": {"name": "host_identity", "arguments": {}}})
+        return result
 
     @mcp.tool()
     def taks_node_launch(unit_path: str, confirm_launch: bool = False,
