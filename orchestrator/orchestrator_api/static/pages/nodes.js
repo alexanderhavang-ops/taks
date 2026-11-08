@@ -38,7 +38,7 @@
   async function terminateNode(id){
     if(!confirm('Permanently shut down node ' + id + '?\n\nThis terminates the EC2 instance and deletes its instance storage. It cannot be resumed. Launch will create a new instance.')) return;
     try{
-      const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/terminate`, {});
+      const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/shutdown`, {});
       alert('Permanent shutdown requested for ' + id + '\n\n' + JSON.stringify(j.terminate || j || {}, null, 2));
       load();
     }catch(e){
@@ -51,7 +51,7 @@
   async function snoozeNode(id){
     if(!confirm('Pause node ' + id + '?\n\nDin runtime data överlever detta. Inget går förlorat på noden.\n\nKostnaden för denna nod när den sover är liten och begränsad till kostnaden för storage.')) return;
     try{
-      const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/snooze`, {});
+      const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/pause`, {});
       alert('Pause requested for ' + id + '\n\n' + JSON.stringify(j.snooze || j || {}, null, 2));
       load();
     }catch(e){
@@ -64,7 +64,7 @@
   async function wakeNode(id){
     if(!confirm('Resume paused node ' + id + '?')) return;
     try{
-      const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/wake`, {});
+      const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/resume`, {});
       alert('Resume requested for ' + id + '\n\n' + JSON.stringify(j.wake || j || {}, null, 2));
       load();
     }catch(e){
