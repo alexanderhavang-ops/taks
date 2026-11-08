@@ -16,6 +16,7 @@ from orchestrator_core.config import load_orch_config
 from orchestrator_core.nodes_state import get_node
 from orchestrator_core.units_state import ensure_unit_orchestrator_secret
 from .api_v2 import require_operator
+from .service_auth import service_auth_ok
 
 router = APIRouter(prefix="/api/v2")
 NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
@@ -55,6 +56,15 @@ async def node_mcp(node_id: str, domain: str, request: Request):
     params = message.get("params", {})
     if not isinstance(params, dict):
         raise HTTPException(status_code=400, detail="Invalid MCP parameters")
+    # Service-token callers are deliberately restricted to read-only DevOps
+    # discovery and identity. Human operator auth can use the general bridge.
+    if service_auth_ok(request):
+        if domain != "devops" or (
+            method == "tools/call" and (
+                params.get("name") != "host_identity" or params.get("arguments", {}) != {}
+            )
+        ):
+            raise HTTPException(status_code=403, detail="Service MCP method not allowed")
     if method == "tools/call":
         name = params.get("name")
         if not isinstance(name, str) or not name:
