@@ -145,3 +145,24 @@ def register_taks_tools(mcp, api_call=call):
     def taks_node_wake(node_id: str, confirm_wake: bool = False) -> dict:
         """Start a stopped TAK node after confirmation."""
         return lifecycle(node_id, "wake", confirm_wake)
+
+    @mcp.tool()
+    def taks_node_shutdown(node_id: str, confirm_shutdown: bool = False) -> dict:
+        """Permanently terminate an existing TAK node EC2 instance; it cannot resume."""
+        if not NODE_ID.fullmatch(node_id):
+            return {"ok": False, "error": "Invalid node ID"}
+        if not confirm_shutdown:
+            return {"ok": False, "confirmation_required": True, "node_id": node_id}
+        inventory = api_call("GET", "/api/v2/nodes")
+        if not isinstance(inventory, dict) or inventory.get("ok") is False:
+            return {"ok": False, "error": "Inventory unavailable"}
+        matches = [n for n in inventory.get("items", [])
+                   if isinstance(n, dict) and n.get("node_id") == node_id]
+        if len(matches) != 1:
+            return {"ok": False, "error": "Node not uniquely registered"}
+        if matches[0].get("aws_state") not in ("running", "stopped", "pending", "stopping"):
+            return {"ok": False, "error": "Invalid lifecycle state",
+                    "aws_state": matches[0].get("aws_state")}
+        return api_call("POST", "/api/v2/nodes/" + node_id + "/terminate", {})
+
+
