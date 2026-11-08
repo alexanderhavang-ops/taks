@@ -205,6 +205,8 @@ orch_app_install(){
 
   install -d -m 0755 -o www-data -g www-data /opt/tak-orch
   rsync -a --delete ${BASE_DIR}/../orchestrator/ /opt/tak-orch/orchestrator/
+  # Installer is root, but application runtime and future MCP deployments are ubuntu-owned.
+  chown -R ubuntu:ubuntu /opt/tak-orch/orchestrator
 
   orch_materialize_runtime_config "$preserve"
 
