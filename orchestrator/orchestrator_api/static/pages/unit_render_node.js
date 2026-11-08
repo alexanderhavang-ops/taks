@@ -273,33 +273,33 @@
       actions.appendChild(S.el('button', {
         id: 'node_wake_btn',
         className: 'btn',
-        text: 'Wake',
+        text: 'Resume',
         'data-node-id': nodeId
       }));
       actions.appendChild(S.el('button', {
         id: 'node_terminate_btn',
         className: 'btn btn--danger',
-        text: 'Terminera',
+        text: 'Shutdown permanently',
         'data-node-id': nodeId
       }));
     }else if(isLiveish){
       actions.appendChild(S.el('button', {
         id: 'node_snooze_btn',
         className: 'btn btn--secondary',
-        text: 'Snooze',
+        text: 'Pause',
         'data-node-id': nodeId
       }));
       actions.appendChild(S.el('button', {
         id: 'node_terminate_btn',
         className: 'btn btn--danger',
-        text: 'Terminera',
+        text: 'Shutdown permanently',
         'data-node-id': nodeId
       }));
     }else{
       actions.appendChild(S.el('button', {
         id: 'node_launch_btn',
         className: 'btn btn--danger',
-        text: 'Starta'
+        text: 'Launch new node'
       }));
     }
 
@@ -535,15 +535,15 @@
       wakeBtn.onclick = async function(){
         const nodeId = String(wakeBtn.getAttribute('data-node-id') || '').trim();
         if(!nodeId) return;
-        if(!confirm('Väck stoppad nod ' + nodeId + '?')) return;
+        if(!confirm('Resume paused node ' + nodeId + '?')) return;
 
-        setNodeActionStatus('Wake begärs… väntar på AWS-start och DNS-refresh…', 'muted');
+        setNodeActionStatus('Resume requested… väntar på AWS-start och DNS-refresh…', 'muted');
         setNodeLaunchInfo(null);
 
         try{
           const j = await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/wake', {});
           if(j && j.wake) setNodeLaunchInfo(j.wake);
-          setNodeActionStatus('Wake begärd. Väntar på heartbeat…', 'ok');
+          setNodeActionStatus('Resume requested. Väntar på heartbeat…', 'ok');
           startNodeProgressPoll(S.getRouteUnitPath());
           setTimeout(function(){ render(); }, 700);
         }catch(e){
@@ -558,14 +558,14 @@
       snoozeBtn.onclick = async function(){
         const nodeId = String(snoozeBtn.getAttribute('data-node-id') || '').trim();
         if(!nodeId) return;
-        if(!confirm('Snooze/stoppa nod ' + nodeId + '?\n\nDin runtime data överlever detta. Inget går förlorat på noden.\n\nKostnaden för denna nod när den sover är liten och begränsad till kostnaden för storage.')) return;
+        if(!confirm('Pause node ' + nodeId + '?\n\nDin runtime data överlever detta. Inget går förlorat på noden.\n\nKostnaden för denna nod när den sover är liten och begränsad till kostnaden för storage.')) return;
 
-        setNodeActionStatus('Snooze begärs… stoppar instans och flyttar DNS…', 'muted');
+        setNodeActionStatus('Pause requested… stoppar instans och flyttar DNS…', 'muted');
 
         try{
           const j = await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/snooze', {});
           if(j && j.snooze) setNodeLaunchInfo(j.snooze);
-          setNodeActionStatus('Snooze begärd.', 'ok');
+          setNodeActionStatus('Pause requested.', 'ok');
           setTimeout(function(){ render(); }, 700);
         }catch(e){
           const msg = String(e && e.message ? e.message : e);
@@ -579,14 +579,14 @@
       terminateBtn.onclick = async function(){
         const nodeId = String(terminateBtn.getAttribute('data-node-id') || '').trim();
         if(!nodeId) return;
-        if(!confirm('Terminera nod ' + nodeId + '?\n\nTerminering innebär att du destruerar noden. DIN DATA KOMMER RADERAS. MKAY?')) return;
+        if(!confirm('Permanently shut down node ' + nodeId + '?\n\nThis terminates the EC2 instance and deletes its instance storage. It cannot be resumed.')) return;
 
-        setNodeActionStatus('Terminerar…', 'muted');
+        setNodeActionStatus('Shutting down permanently…', 'muted');
 
         try{
           await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/terminate', {});
-          setNodeActionStatus('Terminering begärd.', 'ok');
-          alert('Terminering begärd för ' + nodeId);
+          setNodeActionStatus('Permanent shutdown requested.', 'ok');
+          alert('Permanent shutdown requested för ' + nodeId);
           setTimeout(function(){ render(); }, 700);
         }catch(e){
           const msg = String(e && e.message ? e.message : e);
