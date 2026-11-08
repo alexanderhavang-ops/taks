@@ -9,6 +9,7 @@ from orchestrator_core.units_state import list_units
 
 BOOTSTRAP_CONFIG_DIRNAME = "config.d"
 BOOTSTRAP_SECRETS_DIRNAME = "secrets.d"
+GLOBAL_BOOTSTRAP_SOURCE = "<global>"
 
 
 def _state_dir() -> Path:
@@ -26,6 +27,21 @@ def _safe_unit_fs(unit_path: str) -> str:
     if not parts or any(p in (".", "..") for p in parts):
         raise ValueError("invalid unit_path")
     return "/".join(parts)
+
+
+def global_bootstrap_dir(*, secret: bool) -> Path:
+    """Orchestrator-level base layer inherited by every unit in every tree."""
+    kind = BOOTSTRAP_SECRETS_DIRNAME if secret else BOOTSTRAP_CONFIG_DIRNAME
+    return _state_dir() / "bootstrap" / kind
+
+
+def _files_in_dir(root: Path) -> Dict[str, Path]:
+    found: Dict[str, Path] = {}
+    if root.is_dir():
+        for p in sorted(root.rglob("*.conf")):
+            if p.is_file() and not p.is_symlink():
+                found[str(p.relative_to(root))] = p
+    return found
 
 
 def unit_root(unit_path: str) -> Path:
@@ -114,14 +130,7 @@ def local_file_path(unit_path: str, *, secret: bool, name: str) -> Path:
 
 
 def list_local_files(unit_path: str, *, secret: bool) -> Dict[str, Path]:
-    root = _local_dir(unit_path, secret=secret)
-    out: Dict[str, Path] = {}
-    if not root.exists():
-        return out
-    for p in sorted(root.rglob("*.conf")):
-        if p.is_file():
-            out[str(p.relative_to(root))] = p
-    return out
+    return _files_in_dir(_local_dir(unit_path, secret=secret))
 
 
 def local_file_texts(unit_path: str, *, secret: bool) -> Dict[str, str]:
@@ -130,6 +139,8 @@ def local_file_texts(unit_path: str, *, secret: bool) -> Dict[str, str]:
 
 def effective_kv_by_file(unit_path: str, *, secret: bool) -> Dict[str, Dict[str, str]]:
     merged: Dict[str, Dict[str, str]] = {}
+    for name, p in _files_in_dir(global_bootstrap_dir(secret=secret)).items():
+        merged[name] = _parse_simple_kv(p)
     for src_unit in inheritance_chain_root_to_leaf(unit_path):
         for name, p in list_local_files(src_unit, secret=secret).items():
             cur = merged.setdefault(name, {})
@@ -147,6 +158,8 @@ def effective_file_texts(unit_path: str, *, secret: bool) -> Dict[str, str]:
 
 def list_effective_sources(unit_path: str, *, secret: bool) -> Dict[str, List[str]]:
     out: Dict[str, List[str]] = {}
+    for name in _files_in_dir(global_bootstrap_dir(secret=secret)):
+        out.setdefault(name, []).append(GLOBAL_BOOTSTRAP_SOURCE)
     for src_unit in inheritance_chain_root_to_leaf(unit_path):
         for name in list_local_files(src_unit, secret=secret).keys():
             out.setdefault(name, []).append(src_unit)
