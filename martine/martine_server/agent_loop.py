@@ -139,7 +139,7 @@ def _instructions(system_prompt: str, ctx: RunContext, final_format: str, refere
 
 async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final_format: str):
     from agents import Agent, ModelSettings, RunConfig, Runner
-    from agents.mcp import MCPServerStdio
+    from agents.mcp import MCPServerStdio, create_static_tool_filter
     from martine.mcp_server.client import _build_child_env
     import sys
 
@@ -155,6 +155,7 @@ async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final
         async with MCPServerStdio(
             name="Martine tools",
             cache_tools_list=True,
+            tool_filter=create_static_tool_filter(blocked_tool_names=["martine_offline_self_test"]),
             params=params,
             client_session_timeout_seconds=45,
         ) as mcp:
