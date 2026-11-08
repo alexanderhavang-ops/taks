@@ -49,7 +49,7 @@
   }
 
   async function snoozeNode(id){
-    if(!confirm('Pause node ' + id + '?\n\nDin runtime data överlever detta. Inget går förlorat på noden.\n\nKostnaden för denna nod när den sover är liten och begränsad till kostnaden för storage.')) return;
+    if(!confirm('Pause node ' + id + '?\n\nThe EC2 instance and its attached EBS volumes are preserved. Compute charges stop, storage charges remain.')) return;
     try{
       const j = await CORE.api('POST', `/api/v2/nodes/${encodeURIComponent(id)}/pause`, {});
       alert('Pause requested for ' + id + '\n\n' + JSON.stringify(j.snooze || j || {}, null, 2));
