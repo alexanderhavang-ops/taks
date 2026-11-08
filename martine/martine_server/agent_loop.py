@@ -63,13 +63,13 @@ def _runtime_model():
         if not api_key:
             raise RuntimeError("Martine OpenAI API key missing (martine_openai_api_key or OPENAI_API_KEY)")
         client = AsyncOpenAI(api_key=api_key)
-        return OpenAIResponsesModel(model=model_name, openai_client=client), provider
+        return OpenAIResponsesModel(model=model_name, openai_client=client), provider, client
     if provider == "local":
         base_url = str(cfg.get("martine_agent_base_url", "http://127.0.0.1:11434/v1")).strip()
         if not (base_url.startswith("http://127.0.0.1:") or base_url.startswith("http://localhost:")):
             raise ValueError("Local inference URL must use loopback; proxy remote models separately")
         client = AsyncOpenAI(base_url=base_url, api_key="local")
-        return OpenAIChatCompletionsModel(model=model_name, openai_client=client), provider
+        return OpenAIChatCompletionsModel(model=model_name, openai_client=client), provider, client
     raise ValueError(f"Unsupported Martine agent provider: {provider}")
 
 
@@ -123,36 +123,39 @@ async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final
     # TAK documents, CoT SA, routes and onboarding remain in Martine's MCP.
     # Keep sensitive traces on the node, not on the model provider.
     set_tracing_disabled(True)
-    model, provider = _runtime_model()
+    model, provider, client = _runtime_model()
     params = {
         "command": sys.executable,
         "args": ["-m", "martine.main", "mcp-stdio"],
         "env": _build_child_env(),
     }
-    async with MCPServerStdio(
-        name="Martine tools",
-        params=params,
-        client_session_timeout_seconds=45,
-    ) as mcp:
-        agent = Agent(
-            name="Martine",
-            instructions=_instructions(system_prompt, ctx, final_format),
-            model=model,
-            mcp_servers=[mcp],
-            model_settings=ModelSettings(
-                max_tokens=max(128, int(ctx.max_output_tokens)),
-                parallel_tool_calls=False,
-                store=False,
-            ),
-        )
-        session = _chat_session(ctx)
-        result = await Runner.run(
-            agent,
-            user_input,
-            session=session,
-            max_turns=max(1, int(ctx.max_turns)),
-        )
-        return result, provider
+    try:
+        async with MCPServerStdio(
+            name="Martine tools",
+            params=params,
+            client_session_timeout_seconds=45,
+        ) as mcp:
+            agent = Agent(
+                name="Martine",
+                instructions=_instructions(system_prompt, ctx, final_format),
+                model=model,
+                mcp_servers=[mcp],
+                model_settings=ModelSettings(
+                    max_tokens=max(128, int(ctx.max_output_tokens)),
+                    parallel_tool_calls=False,
+                    store=False,
+                ),
+            )
+            session = _chat_session(ctx)
+            result = await Runner.run(
+                agent,
+                user_input,
+                session=session,
+                max_turns=max(1, min(int(ctx.max_turns), int(ctx.max_tool_calls) + 1)),
+            )
+            return result, provider
+    finally:
+        await client.close()
 
 
 class AgentLoop:
@@ -184,9 +187,14 @@ class AgentLoop:
                 {"kind": type(item).__name__}
                 for item in getattr(result, "new_items", [])
             ]
+            tool_results = [
+                {"tool_name": "mcp", "tool_response": {"structured": str(getattr(item, "output", ""))[:12000]}}
+                for item in getattr(result, "new_items", [])
+                if type(item).__name__ == "ToolCallOutputItem"
+            ]
             out = AgentLoopResult(
                 ok=True, answer_text=answer, answer_json=structured,
-                turns=items, tool_results=[],
+                turns=items, tool_results=tool_results,
             )
             self.trace.write_json("99_result.json", {
                 "ok": True, "provider": provider, "answer": answer,
