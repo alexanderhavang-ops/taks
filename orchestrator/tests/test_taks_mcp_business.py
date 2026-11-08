@@ -40,6 +40,14 @@ class BusinessTests(unittest.TestCase):
         self.assertFalse(probe("49hvbat", "tools/call")["ok"])
         self.assertFalse(probe("../bad", "tools/list")["ok"])
 
+    def test_node_devops_operations_are_bounded(self):
+        probe = self.registry.tools["taks_node_devops_probe"]
+        self.assertFalse(probe("49hvbat", "shell_exec")["ok"])
+        self.assertFalse(probe("49hvbat", "service_status", service="sshd.service")["ok"])
+        self.assertFalse(probe("49hvbat", "file_stat", path="/etc/shadow")["ok"])
+        self.assertFalse(probe("49hvbat", "installer_tail", lines=10000)["ok"])
+        self.assertEqual(probe("49hvbat", "service_logs", service="takserver.service")["ok"], True)
+
     def test_confirmation_required(self):
         result = self.registry.tools["taks_node_snooze"]("49hvbat")
         self.assertTrue(result["confirmation_required"])
