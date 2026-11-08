@@ -5,7 +5,8 @@ import sys
 
 from martine.agent.simple_agent import run_once
 from martine.config import load_config
-from martine.llm.bedrock_adapter import MartineLlm
+from martine_server.agent_loop import _read_private_key
+from martine_server.config import load_config as load_agent_config
 from martine.mcp_server.client import call_tool_via_mcp, list_tools_via_mcp
 from martine.mcp_server.fastmcp_app import run_stdio, run_streamable_http
 from martine.mcp_server.server import call_tool, list_tools
@@ -102,21 +103,28 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if cmd == "llm-info":
-        llm = MartineLlm()
-        print(json.dumps(llm.info(), indent=2, sort_keys=True))
+        agent_cfg = load_agent_config().raw
+        provider = str(agent_cfg.get("martine_agent_provider", "openai")).strip().lower()
+        print(json.dumps({
+            "runtime": "openai-agents",
+            "provider": provider,
+            "model": agent_cfg.get("martine_agent_model", "gpt-5-mini"),
+            "local_base_url": agent_cfg.get("martine_agent_base_url", "") if provider == "local" else "",
+            "api_key_configured": bool(_read_private_key()) if provider == "openai" else True,
+        }, indent=2, sort_keys=True))
         return 0
 
     if cmd == "llm-smoke":
         prompt = argv[1] if len(argv) >= 2 else "Reply with exactly: MARTINE_OK"
-        llm = MartineLlm()
-        result = llm.complete_text(
-            prompt=prompt,
-            temperature=0.0,
-            max_tokens=80,
-            purpose="martine:smoke",
-        )
-        print(json.dumps(result, indent=2, sort_keys=True))
-        return 0
+        result = run_once(prompt)
+        print(json.dumps({
+            "ok": result.get("ok", False),
+            "runtime": "openai-agents",
+            "answer": result.get("answer"),
+            "run_id": result.get("run_id"),
+            "error": result.get("error"),
+        }, indent=2, sort_keys=True))
+        return 0 if result.get("ok") else 1
 
     if cmd == "ask":
         if len(argv) < 2:
