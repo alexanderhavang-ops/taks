@@ -138,7 +138,6 @@ async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final
             name="Martine",
             instructions=_instructions(system_prompt, ctx, final_format),
             model=model,
-            output_type=dict if ("json" in final_format.lower() or ctx.output_schema) else None,
             mcp_servers=[mcp],
             model_settings=ModelSettings(
                 max_tokens=max(128, int(ctx.max_output_tokens)),
@@ -172,9 +171,15 @@ class AgentLoop:
             result, provider = asyncio.run(
                 _run_agent(self.ctx, system_prompt, user_input, final_format)
             )
-            structured = result.final_output if isinstance(result.final_output, dict) else None
-            answer = (json.dumps(structured, ensure_ascii=False) if structured is not None
-                      else str(result.final_output or "").strip())
+            answer = str(result.final_output or "").strip()
+            structured = None
+            if "json" in final_format.lower() or self.ctx.output_schema:
+                try:
+                    structured = json.loads(answer)
+                    if not isinstance(structured, dict):
+                        raise ValueError("Expected JSON object")
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"Invalid structured result: {exc}") from exc
             items = [
                 {"kind": type(item).__name__}
                 for item in getattr(result, "new_items", [])
