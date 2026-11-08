@@ -430,6 +430,9 @@ EOF_DEBCONF
   reset_olc_rootpw "$base" "$admin_pw"
 
   ensure_local_root_manage_acl "$base"
+  # Install TAK Server 5.8 schema before directory users can be created.
+  # Host-native slapd only; no Docker LDAP stack.
+  bash "$(dirname "$0")/tak-ldap-schema.sh"
   ensure_memberof_overlay "$base"
 
   if ! ldapsearch -LLL -x -H "$uri" -D "$admin_dn" -w "$admin_pw" -b "$base" -s base dn >/dev/null 2>&1; then

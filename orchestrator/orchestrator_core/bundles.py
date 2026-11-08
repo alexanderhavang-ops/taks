@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import subprocess
 import os
 import shutil
 import tarfile
@@ -862,22 +864,30 @@ def _is_takserver_deb_path(rel_file: Path) -> bool:
     return rel_file.name.startswith("takserver_") and rel_file.name.endswith("_all.deb")
 
 
+# Release artifacts are staged outside Git. Never select a stale 5.6
+# package from the unit/role overlays and never guess via glob order.
+TAKSERVER_RELEASE = "5.8-RELEASE92"
+TAKSERVER_DEB_NAME = f"takserver_{TAKSERVER_RELEASE}_all.deb"
+TAKSERVER_STAGE_DIR = Path("/home/ubuntu/taks-packages")
+TAKSERVER_DEB_MIN_BYTES = 100_000_000
+
+
 def _select_takserver_deb(sources: Sequence[Path]) -> Path:
-    chosen: Optional[Path] = None
+    # Explicit staging path; the same source is used by all units.
+    chosen = TAKSERVER_STAGE_DIR / TAKSERVER_DEB_NAME
+    if not chosen.is_file() or chosen.is_symlink():
+        raise ValueError(f"Required pinned TAK Server 5.8 package missing: {chosen}")
+    if chosen.stat().st_size < TAKSERVER_DEB_MIN_BYTES:
+        raise ValueError(f"TAK Server 5.8 package unexpectedly small: {chosen}")
 
-    for src in sources:
-        if not src.exists():
-            continue
-        matches = [p for p in sorted(src.rglob("takserver_*_all.deb")) if p.is_file() and not _should_skip_repo_file(p.name)]
-        if len(matches) > 1:
-            names = ", ".join(str(p.relative_to(src)) for p in matches)
-            raise ValueError(f"packages subtree has multiple takserver debs in {src}: {names}")
-        if len(matches) == 1:
-            chosen = matches[0]
-
-    if chosen is None:
-        raise ValueError("packages subtree missing takserver_*_all.deb across all sources")
-
+    # Verify Debian control metadata, not just the filename.
+    result = subprocess.run(
+        ["dpkg-deb", "--field", str(chosen), "Package", "Version", "Architecture"],
+        capture_output=True, text=True, timeout=30, check=True,
+    )
+    fields = dict(line.split(": ", 1) for line in result.stdout.splitlines() if ": " in line)
+    if fields.get("Package") != "takserver" or fields.get("Version") != TAKSERVER_RELEASE or fields.get("Architecture") != "all":
+        raise ValueError(f"Unexpected TAK Server package metadata: {fields}")
     return chosen
 
 
@@ -899,6 +909,12 @@ def _materialize_packages_subtree(root: Path, *, unit_path: str, role: str) -> D
         if item.get("exists"):
             copied.append(item)
 
+    # Stream the checksum instead of using the DevOps MCP hash endpoint,
+    # which has a small-file limit. Checksum is included in bundle manifest.
+    digest = hashlib.sha256()
+    with chosen_deb.open("rb") as source:
+        for chunk in iter(lambda: source.read(4 * 1024 * 1024), b""):
+            digest.update(chunk)
     total_bytes += _copy_file(chosen_deb, dst / chosen_deb.name)
     total_files += 1
 
@@ -911,6 +927,8 @@ def _materialize_packages_subtree(root: Path, *, unit_path: str, role: str) -> D
         "kind": "effective_packages",
         "sources": copied,
         "selected_takserver_deb": chosen_deb.name,
+        "selected_takserver_sha256": digest.hexdigest(),
+        "selected_takserver_source": str(chosen_deb),
         "files": total_files,
         "bytes": total_bytes,
     }

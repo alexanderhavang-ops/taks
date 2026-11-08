@@ -22,24 +22,10 @@ have_cmd() {
 }
 
 find_deb() {
-  local p
-  for p in \
-    "$BUNDLE_ROOT/packages/takserver_5.6-RELEASE6_all.deb" \
-    "$BUNDLE_ROOT/files/packages/takserver_5.6-RELEASE6_all.deb" \
-    "$BUNDLE_ROOT/takserver_5.6-RELEASE6_all.deb"
-  do
-    if [ -f "$p" ]; then
-      TAKSERVER_DEB="$p"
-      return 0
-    fi
-  done
-
-  TAKSERVER_DEB="$(find "$BUNDLE_ROOT" -maxdepth 4 -type f -name 'takserver_*_all.deb' | head -n 1 || true)"
-  if [ -n "${TAKSERVER_DEB:-}" ]; then
-    return 0
-  fi
-
-  return 1
+  # Clean cattle only: require the release explicitly selected in the bundle.
+  TAKSERVER_DEB="$BUNDLE_ROOT/packages/takserver_5.8-RELEASE92_all.deb"
+  [ -f "$TAKSERVER_DEB" ] || fail "missing pinned TAK Server 5.8 RELEASE92 deb in bundle"
+  return 0
 }
 
 find_optional_sig_material() {
@@ -49,29 +35,24 @@ find_optional_sig_material() {
 
 ensure_pgdg_repo_if_needed() {
   export DEBIAN_FRONTEND=noninteractive
-
-  if apt-cache show postgresql-15 >/dev/null 2>&1 && \
-     apt-cache show postgresql-15-postgis-3 >/dev/null 2>&1; then
-    log "postgresql-15 packages already available in apt"
+  if apt-cache show postgresql-18 >/dev/null 2>&1 &&
+     apt-cache show postgresql-18-postgis-3 >/dev/null 2>&1; then
+    log "PostgreSQL 18 and PostGIS 3 available"
     return 0
   fi
 
-  log "postgresql-15 packages not available; adding PGDG repo"
+  log "enabling PGDG repository for PostgreSQL 18"
   apt-get update -y
   apt-get install -y ca-certificates curl gnupg postgresql-common lsb-release
-
   install -d /usr/share/postgresql-common/pgdg
   curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
     https://www.postgresql.org/media/keys/ACCC4CF8.asc
-
   . /etc/os-release
-  echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt ${VERSION_CODENAME}-pgdg main" \
+  printf 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$VERSION_CODENAME" \
     > /etc/apt/sources.list.d/pgdg.list
-
   apt-get update -y
-
-  apt-cache show postgresql-15 >/dev/null 2>&1 || fail "postgresql-15 still unavailable after adding PGDG repo"
-  apt-cache show postgresql-15-postgis-3 >/dev/null 2>&1 || fail "postgresql-15-postgis-3 still unavailable after adding PGDG repo"
+  apt-cache show postgresql-18 >/dev/null 2>&1 || fail "postgresql-18 unavailable"
+  apt-cache show postgresql-18-postgis-3 >/dev/null 2>&1 || fail "postgresql-18-postgis-3 unavailable"
 }
 
 verify_deb_if_material_present() {
@@ -122,8 +103,8 @@ install_prereqs() {
     unzip \
     uuid-runtime \
     openjdk-17-jdk \
-    postgresql-15 \
-    postgresql-15-postgis-3
+    postgresql-18 \
+    postgresql-18-postgis-3
 }
 
 install_deb() {
@@ -169,7 +150,7 @@ start_takserver() {
 
 postcheck() {
   log "dpkg status"
-  dpkg -l | awk '/takserver|postgresql-15|postgis/ {print}' | sed 's/^/[takserver]   /' || true
+  dpkg -l | awk '/takserver|postgresql-18|postgis/ {print}' | sed 's/^/[takserver]   /' || true
 
   log "postgresql cluster status"
   if have_cmd pg_lsclusters; then
@@ -195,10 +176,7 @@ postcheck() {
 main() {
   require_root
 
-  if ! find_deb; then
-    log "no takserver deb in bundle; skipping takserver install phase"
-    exit 0
-  fi
+  find_deb
 
   find_optional_sig_material
   ensure_pgdg_repo_if_needed
