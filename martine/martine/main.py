@@ -9,7 +9,6 @@ from martine_server.agent_loop import _read_private_key
 from martine_server.config import load_config as load_agent_config
 from martine.mcp_server.client import call_tool_via_mcp, list_tools_via_mcp
 from martine.mcp_server.fastmcp_app import run_stdio, run_streamable_http
-from martine.mcp_server.server import call_tool, list_tools
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -69,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if cmd == "mcp-tools":
-        print(json.dumps({"tools": list_tools()}, indent=2, sort_keys=True))
+        print(json.dumps({"tools": list_tools_via_mcp()}, indent=2, sort_keys=True))
         return 0
 
     if cmd == "mcp-call":
@@ -77,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
             raise SystemExit("usage: python -m martine.main mcp-call <tool_name> [json_args]")
         tool_name = argv[1]
         tool_args = json.loads(argv[2]) if len(argv) >= 3 else {}
-        result = call_tool(tool_name, tool_args)
+        result = call_tool_via_mcp(tool_name, tool_args)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
 
