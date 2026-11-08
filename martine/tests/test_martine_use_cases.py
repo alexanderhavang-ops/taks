@@ -6,6 +6,7 @@ reference retrieval. It does not rely on a paid model response.
 from __future__ import annotations
 
 import asyncio
+from contextlib import ExitStack
 import json
 import tempfile
 import unittest
@@ -97,6 +98,55 @@ class CoTUseCases(unittest.TestCase):
 
 
 class DocumentUseCases(unittest.TestCase):
+    def test_takctl_pdf_ingest_flows_into_martine_keyword_rag(self):
+        """Real queue/registry/structure/chunk/search with only PDF extraction faked."""
+        from takctl.services import docs_ingest, docs_paths
+        from martine.tools import docs_ref
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            fake_pdf = root / "sample.pdf"
+            fake_pdf.write_bytes(b"%PDF-1.4 synthetic extraction fixture")
+            extracted = (
+                "CHAPTER 1: FIELD REPORTS\\n"
+                + "Bravo patrol must check the field radio before a mission.\\n" * 50
+            )
+            mapping = {
+                "DOCS_ROOT": root / "docs",
+                "DOCS_REGISTRY_DIR": root / "docs" / "registry",
+                "DOCS_RAW_DIR": root / "docs" / "raw",
+                "DOCS_DERIVED_DIR": root / "docs" / "derived",
+                "DOCS_INDEX_DIR": root / "docs" / "index",
+            }
+            with ExitStack() as stack:
+                for key, value in mapping.items():
+                    stack.enter_context(patch.object(docs_paths, key, value))
+                stack.enter_context(patch.object(
+                    docs_ingest, "extract_pdf_text", return_value=(extracted, "fixture")
+                ))
+                stack.enter_context(patch.object(
+                    docs_ref, "REGISTRY_PATH", mapping["DOCS_REGISTRY_DIR"] / "docs.json"
+                ))
+                stack.enter_context(patch.object(
+                    docs_ref, "DERIVED_ROOT", mapping["DOCS_DERIVED_DIR"]
+                ))
+                queued = docs_ingest.queue_uploaded_pdf(
+                    temp_upload_path=fake_pdf, original_filename="field_manual.pdf",
+                    content_type="application/pdf", title="Field Manual",
+                )
+                self.assertTrue(queued["ok"], queued)
+                processed = docs_ingest.process_queued_pdf(queued["doc_id"])
+                self.assertTrue(processed["ok"], processed)
+                self.assertGreater(processed["chunk_count"], 0)
+                result = docs_ref.search_reference_docs(query="Bravo patrol")
+                self.assertGreater(result["count"], 0)
+                self.assertEqual(result["items"][0]["doc_id"], queued["doc_id"])
+                second = docs_ingest.queue_uploaded_pdf(
+                    temp_upload_path=fake_pdf, original_filename="field_manual.pdf",
+                    content_type="application/pdf", title="Field Manual",
+                )
+                self.assertTrue(second["dedup"])
+                self.assertEqual(second["doc_id"], queued["doc_id"])
+
     def test_uploaded_pdf_chunks_and_context(self):
         from martine.tools import docs_ref
         with tempfile.TemporaryDirectory() as d:
