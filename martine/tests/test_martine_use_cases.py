@@ -16,6 +16,33 @@ from unittest.mock import patch
 
 
 class CoTUseCases(unittest.TestCase):
+    def test_cot_stream_fragmented_and_concatenated(self):
+        from martine.chat.cot_tls_client import CoTEventFramer, recv_xml
+
+        first = b'<event uid="one"><detail><remarks>hej</remarks></detail></event>'
+        second = b'<event uid="two"><detail><remarks>ok</remarks></detail></event>'
+        chunks = [b"<?xml version='1.0'?>\n" + first[:10], first[10:] + second]
+        class FakeSocket:
+            def __init__(self):
+                self.reads = list(chunks)
+            def settimeout(self, value):
+                pass
+            def recv(self, n):
+                return self.reads.pop(0)
+        sock = FakeSocket()
+        framer = CoTEventFramer()
+        self.assertIsNone(recv_xml(sock, framer=framer))
+        self.assertEqual(ET.fromstring(recv_xml(sock, framer=framer)).attrib["uid"], "one")
+        # Second event already buffered; no third recv() should be needed.
+        self.assertEqual(ET.fromstring(recv_xml(sock, framer=framer)).attrib["uid"], "two")
+        self.assertEqual(sock.reads, [])
+
+    def test_cot_xml_buffer_limit(self):
+        from martine.chat.cot_tls_client import CoTEventFramer
+        framer = CoTEventFramer()
+        with self.assertRaises(ValueError):
+            framer.feed(b"x" * (framer.MAX_BUFFER + 1))
+
     def test_send_direct_geochat_and_xml_escaping(self):
         from martine.chat.cot_tls_client import build_atak_chat_xml
         xml = build_atak_chat_xml(
