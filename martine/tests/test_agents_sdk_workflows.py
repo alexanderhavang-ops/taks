@@ -73,6 +73,40 @@ class RealAgentsSdkUseCases(unittest.TestCase):
         self.assertTrue(result.tool_results)
         self.assertIn("uploaded manuals", result.answer_text)
 
+    def test_session_continuity_and_sender_isolation(self):
+        from agents.testing import ScriptedModel, assistant_message
+        first_model = ScriptedModel([[assistant_message("Bravo is north.")]])
+        second_model = ScriptedModel([[assistant_message("I remember Bravo.")]])
+        other_model = ScriptedModel([[assistant_message("New user.")]])
+        clients = [AsyncMock(), AsyncMock(), AsyncMock()]
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            instances = [(first_model, "openai", clients[0]),
+                         (second_model, "openai", clients[1]),
+                         (other_model, "openai", clients[2])]
+            with patch(
+                "martine_server.agent_loop._runtime_model",
+                side_effect=instances,
+            ):
+                for idx, (uid, question) in enumerate((
+                    ("ANDROID-ALEX", "Where is Bravo?"),
+                    ("ANDROID-ALEX", "What did I ask?"),
+                    ("ANDROID-BOB", "Hello"),
+                )):
+                    ctx = make_ctx(root, uid=uid)
+                    run = AgentLoop(ctx, TraceWriter(ctx.trace_root, f"run-{idx}")).run(
+                        system_prompt="You are Martine.",
+                        user_input=question,
+                    )
+                    self.assertTrue(run.ok, run.error)
+        first_model.assert_complete()
+        second_model.assert_complete()
+        other_model.assert_complete()
+        historical = json.dumps(second_model.first_call.input, ensure_ascii=False)
+        isolated = json.dumps(other_model.first_call.input, ensure_ascii=False)
+        self.assertIn("Where is Bravo?", historical)
+        self.assertNotIn("Where is Bravo?", isolated)
+
     def test_llm3_structured_report_contract(self):
         from agents.testing import assistant_message
         result = self._run(
