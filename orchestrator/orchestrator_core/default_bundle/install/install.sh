@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUNDLE_ROOT="$ROOT"
@@ -19,6 +19,16 @@ log_state() {
 log() {
   printf '[install] %s\n' "$*"
 }
+
+# Always emit a terminal failure event if the installer aborts.
+installer_failure() {
+  local rc=$?
+  trap - ERR
+  log_state "install/main" "Failed"
+  printf '[install] FAILED rc=%s\\n' "$rc" >&2
+  exit "$rc"
+}
+trap installer_failure ERR
 
 read_simple_kv() {
   local path="$1"
