@@ -637,14 +637,16 @@ def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
     resolved = _resolve_instance_for_node_record(rec, node_id)
     instance_id = str(resolved.get("instance_id") or "").strip()
 
-    term = aws_terminate(instance_id)
+    term = aws_terminate(instance_id, fqdn=str(rec.get("fqdn") or "").strip())
 
     patch = {
         "node_id": rec.get("node_id") or node_id,
         "instance_id": instance_id,
         "aws_instance_id": instance_id,
         "status": "terminating",
-        "aws_state": term.get("current_state") or "terminating",
+        "aws_state": term.get("current_state") or "shutting-down",
+        "public_ip": "",
+        "aws_public_ip": "",
     }
     updated = upsert_node(str(rec.get("node_id") or node_id), patch)
     return {"ok": True, "terminate": term, "node": updated}
