@@ -40,22 +40,31 @@ artifact_source_cert_path(){ local d; d="$(le_domain)"; printf '%s' "/etc/letsen
 artifact_source_key_path(){ local d; d="$(le_domain)"; printf '%s' "/etc/letsencrypt/live/${d}/privkey.pem"; }
 artifact_tls_dir(){ _orch_cfg_py "letsencrypt.artifact_cert_dir"; }
 
+install_certbot_artifact_management(){
+  # The installer is already root. Only this immutable root-owned helper may
+  # read Certbot private keys and update the restricted bundle artifact.
+  local script="${BASE_DIR}/../orchestrator/bin/sync-wildcard-cert-artifact.sh"
+  local helper="/usr/local/sbin/taks-sync-wildcard-cert"
+  local hook="/etc/letsencrypt/renewal-hooks/deploy/90-taks-wildcard-artifact"
+  [[ -f "$script" ]] || die "missing certificate sync helper: $script"
+  install -d -m 0755 /usr/local/sbin /etc/letsencrypt/renewal-hooks/deploy /etc/sudoers.d
+  install -o root -g root -m 0755 "$script" "$helper"
+  # Certbot runs the hook as root after a successful renewal.
+  install -o root -g root -m 0755 "$script" "$hook"
+  # Scoped MCP entry point; no access to a general root shell.
+  local tmp
+  tmp="$(mktemp /tmp/taks-cert-sudoers.XXXXXXXX)"
+  printf 'ubuntu ALL=(root) NOPASSWD: %s\\n' "$helper" > "$tmp"
+  chmod 0440 "$tmp"
+  visudo -cf "$tmp" || { rm -f "$tmp"; die "invalid certificate-sync sudoers"; }
+  install -o root -g root -m 0440 "$tmp" /etc/sudoers.d/90-taks-cert-sync
+  rm -f "$tmp"
+}
+
 sync_le_cert_to_artifacts(){
-  local src_cert src_key dst_dir
-  src_cert="$(artifact_source_cert_path)"
-  src_key="$(artifact_source_key_path)"
-  dst_dir="$(artifact_tls_dir)"
-
-  if [[ ! -f "$src_cert" || ! -f "$src_key" ]]; then
-    log "No LE cert material to sync into artifacts for $(le_domain)"
-    return 0
-  fi
-
-  install -d -m 0750 -o ubuntu -g taks-state "$dst_dir"
-  install -m 0640 -o ubuntu -g taks-state "$src_cert" "$dst_dir/fullchain.pem"
-  install -m 0640 -o ubuntu -g taks-state "$src_key" "$dst_dir/privkey.pem"
-
-  log "Synced LE cert material into $dst_dir"
+  local helper="/usr/local/sbin/taks-sync-wildcard-cert"
+  [[ -x "$helper" ]] || die "certificate sync helper not installed"
+  "$helper" || die "unable to synchronize live Certbot TLS material"
 }
 
 choose_tls_paths(){
@@ -232,7 +241,6 @@ le_cert_obtain(){
   case "$mode" in
     dns-route53|dns_route53|wildcard_dns_01|WILDCARD_DNS_01)
       le_cert_obtain_dns_route53
-      sync_le_cert_to_artifacts
       ;;
     http-01|http01|HTTP_01)
       le_cert_obtain_http01
