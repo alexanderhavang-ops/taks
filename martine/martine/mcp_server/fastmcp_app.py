@@ -342,6 +342,40 @@ def send_map_onboarding_tool(
     )
 
 
+@mcp.tool(name="martine_offline_self_test")
+def martine_offline_self_test() -> dict:
+    """Run fixed Martine regression suites locally, without API inference calls.
+
+    This is a bounded diagnostic, not arbitrary command execution.
+    """
+    import os
+    import subprocess
+
+    tests_dir = Path("/opt/tak/tools/martine/tests")
+    if not tests_dir.is_dir():
+        return {"ok": False, "error": "Martine node tests are not installed"}
+    env = dict(os.environ)
+    env["OPENAI_AGENTS_DISABLE_TRACING"] = "1"
+    env.pop("OPENAI_API_KEY", None)
+    cmd = [
+        sys.executable, "-m", "unittest", "discover",
+        "-s", str(tests_dir), "-p", "test_*.py", "-v",
+    ]
+    try:
+        proc = subprocess.run(
+            cmd, env=env, text=True, capture_output=True,
+            timeout=120, check=False,
+            cwd="/opt/tak/tools/martine",
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "Martine regression timeout after 120 seconds"}
+    return {
+        "ok": proc.returncode == 0,
+        "exit_code": proc.returncode,
+        "summary": (proc.stdout + "\n" + proc.stderr)[-10000:],
+    }
+
+
 def run_stdio() -> None:
     mcp.run(transport="stdio")
 
