@@ -108,6 +108,10 @@ def register_taks_tools(mcp, api_call=call):
             if type(lines) is not int or not 1 <= lines <= 80:
                 return {"ok": False, "error": "Invalid line count"}
             arguments["lines"] = lines
+        if operation == "cert_status":
+            if "." not in node_id:
+                return {"ok": False, "error": "FQDN required"}
+            arguments["fqdn"] = node_id
         if operation == "file_stat":
             if path not in (
                 "/opt/tak/CoreConfig.xml", "/etc/nginx/nginx.conf",
