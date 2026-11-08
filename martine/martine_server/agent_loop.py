@@ -62,13 +62,13 @@ def _runtime_model():
         api_key = _read_private_key()
         if not api_key:
             raise RuntimeError("Martine OpenAI API key missing (martine_openai_api_key or OPENAI_API_KEY)")
-        client = AsyncOpenAI(api_key=api_key)
+        client = AsyncOpenAI(api_key=api_key, timeout=90.0)
         return OpenAIResponsesModel(model=model_name, openai_client=client), provider, client
     if provider == "local":
         base_url = str(cfg.get("martine_agent_base_url", "http://127.0.0.1:11434/v1")).strip()
         if not (base_url.startswith("http://127.0.0.1:") or base_url.startswith("http://localhost:")):
             raise ValueError("Local inference URL must use loopback; proxy remote models separately")
-        client = AsyncOpenAI(base_url=base_url, api_key="local")
+        client = AsyncOpenAI(base_url=base_url, api_key="local", timeout=90.0)
         return OpenAIChatCompletionsModel(model=model_name, openai_client=client), provider, client
     raise ValueError(f"Unsupported Martine agent provider: {provider}")
 
@@ -138,14 +138,13 @@ def _instructions(system_prompt: str, ctx: RunContext, final_format: str, refere
 
 
 async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final_format: str):
-    from agents import Agent, ModelSettings, Runner, set_tracing_disabled
+    from agents import Agent, ModelSettings, RunConfig, Runner
     from agents.mcp import MCPServerStdio
     from martine.mcp_server.client import _build_child_env
     import sys
 
     # TAK documents, CoT SA, routes and onboarding remain in Martine's MCP.
     # Keep sensitive traces on the node, not on the model provider.
-    set_tracing_disabled(True)
     model, provider, client = _runtime_model()
     params = {
         "command": sys.executable,
@@ -167,8 +166,8 @@ async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final
                 mcp_servers=[mcp],
                 model_settings=ModelSettings(
                     max_tokens=max(128, int(ctx.max_output_tokens)),
-                    parallel_tool_calls=False,
-                    store=False,
+                    parallel_tool_calls=False if provider == "openai" else None,
+                    store=False if provider == "openai" else None,
                 ),
             )
             session = _chat_session(ctx)
@@ -178,6 +177,7 @@ async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final
                     user_input,
                     session=session,
                     max_turns=max(1, min(int(ctx.max_turns), int(ctx.max_tool_calls) + 1)),
+                    run_config=RunConfig(tracing_disabled=True),
                 )
                 return result, provider
             finally:
@@ -185,6 +185,24 @@ async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final
                     session.close()
     finally:
         await client.close()
+
+
+def _tool_outputs(items: Any) -> list[dict[str, Any]]:
+    """Keep simple_agent's final tool_result shape compatible with old MCP calls."""
+    results: list[dict[str, Any]] = []
+    for item in items or []:
+        if type(item).__name__ != "ToolCallOutputItem":
+            continue
+        output = getattr(item, "output", "")
+        if isinstance(output, str):
+            try:
+                output = json.loads(output)
+            except (ValueError, TypeError):
+                output = {"raw_text": output[:12000]}
+        if not isinstance(output, dict):
+            output = {"value": str(output)[:12000]}
+        results.append({"tool_name": "mcp", "tool_response": output})
+    return results
 
 
 class AgentLoop:
@@ -216,11 +234,7 @@ class AgentLoop:
                 {"kind": type(item).__name__}
                 for item in getattr(result, "new_items", [])
             ]
-            tool_results = [
-                {"tool_name": "mcp", "tool_response": {"structured": str(getattr(item, "output", ""))[:12000]}}
-                for item in getattr(result, "new_items", [])
-                if type(item).__name__ == "ToolCallOutputItem"
-            ]
+            tool_results = _tool_outputs(getattr(result, "new_items", []))
             out = AgentLoopResult(
                 ok=True, answer_text=answer, answer_json=structured,
                 turns=items, tool_results=tool_results,
