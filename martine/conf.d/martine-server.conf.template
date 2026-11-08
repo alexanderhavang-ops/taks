@@ -18,3 +18,11 @@ martine.client.llm3.timeline.phase3.detail.max_output_tokens = 8000
 martine.client.llm3.timeline.phase3.card.max_output_tokens = 4000
 martine.client.llm3.weather.phase3.detail.max_output_tokens = 6000
 martine.client.llm3.weather.phase3.card.max_output_tokens = 4000
+
+# OpenAI Agents SDK runtime (openai | local).
+# OpenAI key: OPENAI_API_KEY or private takctl/secrets.d/martine.conf
+# field martine_openai_api_key. Never store API keys in conf.d.
+martine_agent_provider = openai
+martine_agent_model = gpt-5-mini
+# Local provider must offer an OpenAI-compatible Chat Completions endpoint.
+martine_agent_base_url = http://127.0.0.1:11434/v1
