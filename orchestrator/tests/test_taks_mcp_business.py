@@ -51,6 +51,23 @@ class BusinessTests(unittest.TestCase):
         self.state = "stopped"
         self.assertTrue(self.registry.tools["taks_node_wake"]("49hvbat", True)["ok"])
 
+    def test_node_health_probes_only_online_running_node(self):
+        def api(method, path, data=None):
+            self.calls.append((method, path))
+            if path == "/api/v2/nodes":
+                return {"items": [{"node_id": "49hvbat", "aws_state": "running",
+                                   "status": "online", "checks": {}}]}
+            if path.endswith("/mcp/devops"):
+                if data["method"] == "tools/list":
+                    return {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "host_identity"}]}}
+                return {"jsonrpc": "2.0", "id": 2, "result": {"content": []}}
+            return {"ok": True}
+        registry = Registry()
+        register_taks_tools(registry, api)
+        result = registry.tools["taks_node_health"]("49hvbat")
+        self.assertIn("host_identity", str(result["devops_mcp"]))
+        self.assertEqual(self.calls[-1], ("POST", "/api/v2/nodes/49hvbat/mcp/devops"))
+
     def test_named_pause_and_resume(self):
         paused = self.registry.tools["taks_node_pause"]("49hvbat", True)
         self.assertTrue(paused["ok"])
