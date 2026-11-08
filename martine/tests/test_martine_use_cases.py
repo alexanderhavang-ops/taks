@@ -144,6 +144,42 @@ class DocumentUseCases(unittest.TestCase):
                 self.assertFalse(result["ok"])
 
 
+class TacticalUseCases(unittest.TestCase):
+    def test_distance_and_bearing_math_without_database(self):
+        from martine.tools.cot_sa import distance_m, bearing_deg
+        self.assertAlmostEqual(distance_m(0, 0, 0, 1) / 1000, 111.2, delta=1)
+        self.assertEqual(bearing_deg(0, 0, 0, 1), 90)
+
+    def test_invalid_route_profile_is_rejected_before_network(self):
+        from martine.tools.osrm_geo import _validate_profile, _validate_point
+        self.assertEqual(_validate_profile("foot"), "foot")
+        with self.assertRaises(ValueError):
+            _validate_profile("helicopter")
+        with self.assertRaises(ValueError):
+            _validate_point("origin", 100.0, 1.0)
+
+
+class OnboardingUseCases(unittest.TestCase):
+    def test_voice_requires_destination_without_sending(self):
+        from martine.tools.voice_onboarding import send_voice_onboarding
+        response = send_voice_onboarding(target_callsign="")
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["tool"], "send_voice_onboarding")
+
+    def test_plugin_requires_explicit_target_and_package(self):
+        from martine.tools.plugin_onboarding import send_plugin_onboarding
+        no_target = send_plugin_onboarding(target_callsign="", package_id="plugins-basic")
+        no_package = send_plugin_onboarding(target_callsign="Alex", package_id="")
+        self.assertFalse(no_target["ok"])
+        self.assertFalse(no_package["ok"])
+
+    def test_maps_require_explicit_target(self):
+        from martine.tools.map_onboarding import send_map_onboarding
+        result = send_map_onboarding(target_callsign="")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["tool"], "send_map_onboarding")
+
+
 class MCPUseCases(unittest.TestCase):
     def test_real_stdio_tool_discovery_and_clock(self):
         """Calls the same child-process FastMCP server used by the new agent."""
