@@ -626,6 +626,7 @@ def _resolve_instance_for_node_record(rec: Dict[str, Any], node_id: str) -> Dict
     }
 
 
+@router.post("/nodes/{node_id}/shutdown")
 @router.post("/nodes/{node_id}/terminate")
 def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
     require_operator(request)
@@ -652,6 +653,7 @@ def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
     return {"ok": True, "terminate": term, "node": updated}
 
 
+@router.post("/nodes/{node_id}/pause")
 @router.post("/nodes/{node_id}/snooze")
 def nodes_snooze(node_id: str, request: Request) -> Dict[str, Any]:
     require_operator(request)
@@ -679,6 +681,7 @@ def nodes_snooze(node_id: str, request: Request) -> Dict[str, Any]:
     return {"ok": True, "snooze": snooze, "node": updated}
 
 
+@router.post("/nodes/{node_id}/resume")
 @router.post("/nodes/{node_id}/wake")
 def nodes_wake(node_id: str, request: Request) -> Dict[str, Any]:
     require_operator(request)
