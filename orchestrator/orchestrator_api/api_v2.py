@@ -363,7 +363,13 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
         "public_ip": launch.get("public_ip"),
         "aws_private_ip": launch.get("private_ip"),
         "aws_public_ip": launch.get("public_ip"),
-        "last_seen_ts": None,
+        # Reusing the stable node ID must not retain health/install history
+        # from a terminated EC2 instance. None would be ignored by upsert_node.
+        "last_seen_ts": 0,
+        "checks": {},
+        "services": {},
+        "node_health": {},
+        "install": {},
         "meta": {
             "launch_source": "api_v2",
             "name": nr.name,
