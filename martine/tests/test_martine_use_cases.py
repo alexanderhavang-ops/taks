@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 from contextlib import ExitStack
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -231,6 +233,23 @@ class OnboardingUseCases(unittest.TestCase):
 
 
 class MCPUseCases(unittest.TestCase):
+    def test_takctl_web_venv_loads_agents_sdk_and_martine_mcp(self):
+        """The TAKCTL /ask and LLM3 callers use this venv, not Martine's."""
+        python = Path("/opt/tak/tools/takctl/.venv/bin/python")
+        if not python.is_file():
+            self.skipTest("TAKCTL node virtualenv not mounted in this environment")
+        from martine.mcp_server.client import _build_child_env
+        proc = subprocess.run(
+            [str(python), "-c",
+             "from agents import Agent, Runner; "
+             "from martine.mcp_server.fastmcp_app import mcp; "
+             "print('TAKCTL_MARTINE_IMPORT_OK')"],
+            env=_build_child_env(), cwd="/opt/tak/tools/martine",
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr[-3000:])
+        self.assertIn("TAKCTL_MARTINE_IMPORT_OK", proc.stdout)
+
     def test_real_stdio_tool_discovery_and_clock(self):
         """Calls the same child-process FastMCP server used by the new agent."""
         from martine.mcp_server.client import _list_tools_async, _call_tool_async
