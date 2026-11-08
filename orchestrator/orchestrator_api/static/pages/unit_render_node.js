@@ -512,7 +512,7 @@
 
     if(launchBtn){
       launchBtn.onclick = async function(){
-        setNodeActionStatus('Startar… förbereder bundle och begär AWS-instans…', 'muted');
+        setNodeActionStatus('Launching a NEW EC2 instance from the current bundle…', 'muted');
         setNodeLaunchInfo(null);
         try{
           const j = await A.callNode('/api/v2/nodes/launch');
@@ -537,13 +537,13 @@
         if(!nodeId) return;
         if(!confirm('Resume paused node ' + nodeId + '?')) return;
 
-        setNodeActionStatus('Resume requested… väntar på AWS-start och DNS-refresh…', 'muted');
+        setNodeActionStatus('Resuming the same EC2 instance and refreshing DNS…', 'muted');
         setNodeLaunchInfo(null);
 
         try{
           const j = await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/resume', {});
           if(j && j.wake) setNodeLaunchInfo(j.wake);
-          setNodeActionStatus('Resume requested. Väntar på heartbeat…', 'ok');
+          setNodeActionStatus('Resume requested. Waiting for node heartbeat…', 'ok');
           startNodeProgressPoll(S.getRouteUnitPath());
           setTimeout(function(){ render(); }, 700);
         }catch(e){
@@ -558,9 +558,9 @@
       snoozeBtn.onclick = async function(){
         const nodeId = String(snoozeBtn.getAttribute('data-node-id') || '').trim();
         if(!nodeId) return;
-        if(!confirm('Pause node ' + nodeId + '?\n\nDin runtime data överlever detta. Inget går förlorat på noden.\n\nKostnaden för denna nod när den sover är liten och begränsad till kostnaden för storage.')) return;
+        if(!confirm('Pause node ' + nodeId + '?\n\nThe EC2 instance and its attached EBS volumes are preserved. Compute charges stop, storage charges remain.')) return;
 
-        setNodeActionStatus('Pause requested… stoppar instans och flyttar DNS…', 'muted');
+        setNodeActionStatus('Pausing the existing EC2 instance and parking DNS…', 'muted');
 
         try{
           const j = await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/pause', {});
@@ -586,7 +586,7 @@
         try{
           await CORE.api('POST', '/api/v2/nodes/' + encodeURIComponent(nodeId) + '/shutdown', {});
           setNodeActionStatus('Permanent shutdown requested.', 'ok');
-          alert('Permanent shutdown requested för ' + nodeId);
+          alert('Permanent shutdown requested for ' + nodeId);
           setTimeout(function(){ render(); }, 700);
         }catch(e){
           const msg = String(e && e.message ? e.message : e);
