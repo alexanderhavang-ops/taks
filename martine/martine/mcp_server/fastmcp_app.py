@@ -358,14 +358,16 @@ def martine_offline_self_test() -> dict:
     env["OPENAI_AGENTS_DISABLE_TRACING"] = "1"
     env.pop("OPENAI_API_KEY", None)
     cmd = [
-        sys.executable, "-m", "unittest", "discover",
-        "-s", str(tests_dir), "-p", "test_*.py", "-v",
+        sys.executable, "-m", "unittest", "-v",
+        "test_agents_migration",
+        "test_agents_sdk_workflows",
+        "test_martine_use_cases",
     ]
     try:
         proc = subprocess.run(
             cmd, env=env, text=True, capture_output=True,
             timeout=120, check=False,
-            cwd="/opt/tak/tools/martine",
+            cwd=str(tests_dir),
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "Martine regression timeout after 120 seconds"}
