@@ -510,26 +510,53 @@ def _write_effective_bootstrap(root: Path, *, unit_path: str) -> Dict[str, Any]:
 
 
 def _find_letsencrypt_artifact_dir(unit_path: str) -> Path:
-    unit_meta = _read_unit_meta(unit_path)
-    fqdn = _default_node_fqdn(unit_path, unit_meta)
+    """Read the managed mirror of the live Certbot wildcard lineage.
+
+    Certbot's private-key directory is intentionally root-only. A root-owned
+    renewal hook refreshes this mirror after issuance and on initial setup.
+    Bundle builds fail closed if the mirror is missing or invalid.
+    """
     cfg = load_orch_config()
-
     base = Path(cfg.letsencrypt.artifact_cert_dir)
-    candidates = [
-        base / fqdn,
-        base,
-    ]
+    if not (base / "fullchain.pem").is_file() or not (base / "privkey.pem").is_file():
+        raise ValueError(f"missing synchronized LetsEncrypt material: {base}")
+    return base
 
-    for cand in candidates:
-        if (cand / "fullchain.pem").is_file() and (cand / "privkey.pem").is_file():
-            return cand
 
-    tried = ", ".join(str(c) for c in candidates)
-    raise ValueError(f"missing letsencrypt artifact cert pair for {fqdn}; tried: {tried}")
+def _validate_letsencrypt_tls_material(src_dir: Path, unit_path: str) -> None:
+    """Reject expiring, mismatched, or hostname-incompatible certificate material."""
+    import re
+    import subprocess
+
+    cert = src_dir / "fullchain.pem"
+    key = src_dir / "privkey.pem"
+
+    def check(*args: str) -> bytes:
+        try:
+            return subprocess.check_output(args, stderr=subprocess.PIPE, timeout=15)
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            raise ValueError(f"TLS certificate validation failed: {type(exc).__name__}") from exc
+
+    check("openssl", "x509", "-in", str(cert), "-noout", "-checkend", "604800")
+    cert_pub = check("openssl", "x509", "-in", str(cert), "-pubkey", "-noout")
+    key_pub = check("openssl", "pkey", "-in", str(key), "-pubout")
+    if cert_pub != key_pub:
+        raise ValueError("TLS certificate and private key do not match")
+
+    fqdn = _default_node_fqdn(unit_path, _read_unit_meta(unit_path)).lower().rstrip(".")
+    san = check("openssl", "x509", "-in", str(cert), "-noout", "-ext", "subjectAltName").decode("ascii", "replace")
+    dns_names = {name.lower().rstrip(".") for name in re.findall(r"DNS:([^,\s]+)", san)}
+    if fqdn not in dns_names and not any(
+        name.startswith("*.") and fqdn.endswith(name[1:])
+        and fqdn.count(".") == name.count(".")
+        for name in dns_names
+    ):
+        raise ValueError(f"TLS certificate does not cover node hostname: {fqdn}")
 
 
 def _copy_letsencrypt_tls_material(root: Path, *, unit_path: str) -> Dict[str, Any]:
     src_dir = _find_letsencrypt_artifact_dir(unit_path)
+    _validate_letsencrypt_tls_material(src_dir, unit_path)
     dst_dir = root / "install" / "letsencrypt"
     _reset_dir(dst_dir)
 
@@ -538,6 +565,7 @@ def _copy_letsencrypt_tls_material(root: Path, *, unit_path: str) -> Dict[str, A
     bytes_total = 0
     bytes_total += _copy_file(src_dir / "fullchain.pem", dst_cert)
     bytes_total += _copy_file(src_dir / "privkey.pem", dst_key)
+    _validate_letsencrypt_tls_material(dst_dir, unit_path)
 
     return {
         "kind": "letsencrypt_tls_material",
@@ -547,7 +575,6 @@ def _copy_letsencrypt_tls_material(root: Path, *, unit_path: str) -> Dict[str, A
         "files": 2,
         "bytes": bytes_total,
     }
-
 
 def _first_existing_dir(candidates: Sequence[Path]) -> Optional[Path]:
     for p in candidates:
