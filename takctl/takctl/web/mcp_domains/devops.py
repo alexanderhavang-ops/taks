@@ -232,7 +232,7 @@ def _netstat_listeners():
         if port not in PORTS:
             continue
         owner = parts[5] if len(parts) == 6 else ""
-        pids = sorted(set(int(x) for x in re.findall(r"pid=(\\d+)", owner)))
+        pids = sorted(set(int(x) for x in re.findall(r"pid=(\d+)", owner)))
         entries.append({"port": port, "address": local, "pids": pids})
     return {"listeners": entries, "visibility": "PIDs only when visible to the node MCP user"}
 
