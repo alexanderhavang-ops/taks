@@ -324,8 +324,28 @@ restart_takserver_if_present() {
 
   sleep 2
 
-  log "removing stale generated /opt/tak/TAKIgniteConfig.xml before final start"
-  rm -f /opt/tak/TAKIgniteConfig.xml
+  # TAK Server's IgniteConfigurationHolder copies this example at JVM startup
+  # without an atomic create. Its parallel JVMs can race, causing
+  # FileAlreadyExistsException and leaving 8089/8443/8446 unavailable.
+  # Materialize once while every TAK JVM is stopped, before service start.
+  local ignite_example="/opt/tak/TAKIgniteConfig.example.xml"
+  local ignite_active="/opt/tak/TAKIgniteConfig.xml"
+  [ -s "$ignite_example" ] || {
+    log "ERROR: missing TAK Ignite example config: $ignite_example"
+    return 1
+  }
+  if [ ! -s "$ignite_active" ]; then
+    log "initializing TAK Ignite config from release-packaged example"
+    install -o tak -g tak -m 0644 "$ignite_example" "$ignite_active"
+  else
+    log "TAK Ignite config already exists; preserving it"
+  fi
+  [ -s "$ignite_active" ] || {
+    log "ERROR: TAK Ignite configuration still missing"
+    return 1
+  }
+  chown tak:tak "$ignite_active"
+  chmod 0644 "$ignite_active"
 
   if [ "$have_systemd" -eq 1 ]; then
     log "starting takserver after taks apply"
