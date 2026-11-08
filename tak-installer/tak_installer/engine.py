@@ -103,12 +103,14 @@ def run_plan(ctx: Context, plan_ids: Iterable[str]) -> int:
         except Exception as e:
             msg = str(e).strip() or e.__class__.__name__
             print(f"ERROR: action raised exception: {a.ID}: {msg}")
+            _log_state(f"tak-installer:{a.ID}", "Failed")
             # Common hint for nginx actions
             if "FQDN not set" in msg:
                 print("HINT: set node_fqdn in runtime/bootstrap conf.d before running tak-installer apply")
             return 2
 
         if rc != 0:
+            _log_state(f"tak-installer:{a.ID}", "Failed")
             print(f"ERROR: action failed: {a.ID} (rc={rc})")
             return rc
 
