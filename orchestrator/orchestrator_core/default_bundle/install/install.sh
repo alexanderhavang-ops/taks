@@ -521,6 +521,8 @@ main() {
   run_step "taks-node-health" "$BUNDLE_ROOT/install/taks-node-health.sh"
 
   log "install complete"
+  # Do not allow the ERR trap to emit a contradictory Failed after success.
+  trap - ERR
   log_state "install/main" "Succeeded"
 }
 
