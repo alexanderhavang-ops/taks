@@ -172,6 +172,7 @@ def _ensure_venv() -> None:
         [
             "sudo", "-u", "tak", str(venv_py), "-m", "pip", "install", "-q",
             "mcp",
+            "openai-agents",
             "requests",
             "boto3",
             "psycopg2-binary",
