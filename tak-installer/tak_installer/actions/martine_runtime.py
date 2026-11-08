@@ -172,7 +172,7 @@ def _ensure_venv() -> None:
     subprocess.run(
         [
             "sudo", "-u", "tak", str(venv_py), "-m", "pip", "install", "-q",
-            "mcp",
+            "mcp>=1.19,<2",
             "openai-agents==0.24.0",
             "requests",
             "boto3",
