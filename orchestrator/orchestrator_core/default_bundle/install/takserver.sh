@@ -48,7 +48,7 @@ ensure_pgdg_repo_if_needed() {
   curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
     https://www.postgresql.org/media/keys/ACCC4CF8.asc
   . /etc/os-release
-  printf 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\\n' "$VERSION_CODENAME" \
+  printf 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$VERSION_CODENAME" \
     > /etc/apt/sources.list.d/pgdg.list
   apt-get update -y
   apt-cache show postgresql-18 >/dev/null 2>&1 || fail "postgresql-18 unavailable"
