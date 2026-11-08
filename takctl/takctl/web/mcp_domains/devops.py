@@ -207,8 +207,8 @@ def _takserver_logs(args):
     if "lines" in result:
         # Avoid emitting common credential assignment patterns from logs.
         result["lines"] = re.sub(
-            r"(?im)(password|passwd|secret|token|credential|api[_-]?key)(\\s*[:=]\\s*)\\S+",
-            r"\\1\\2[REDACTED]", result["lines"])
+            r"(?im)(password|passwd|secret|token|credential|api[_-]?key)(\s*[:=]\s*)\S+",
+            r"\1\2[REDACTED]", result["lines"])
     return {"file": selected, **result}
 
 def _takserver_readiness():
