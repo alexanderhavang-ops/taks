@@ -49,6 +49,10 @@ TOOLS = [
     entry("file_stat", "Stat one explicitly allowlisted configuration or installer file",
           {"path": STR}, ["path"]),
     entry("installer_tail", "Read last N bounded installer event lines", {"lines": INT}),
+    entry("java_processes", "Sample TAK Java process CPU and RSS without command-line arguments"),
+    entry("takserver_logs", "Discover allowlisted TAK Server logs or read a bounded tail",
+          {"file": STR, "lines": INT}),
+    entry("takserver_readiness", "Combine TAK listeners, Java CPU and auth backend readiness"),
 ]
 
 def _run(argv, timeout=8, limit=10000):
@@ -130,6 +134,111 @@ def _cert(fqdn):
     return _run(["openssl", "x509", "-in", str(cert), "-noout",
                  "-dates", "-subject", "-ext", "subjectAltName"])
 
+
+# Read-only TAK Server startup observability. Never expose Java command lines,
+# full CoreConfig.xml, authentication records, or arbitrary filesystem paths.
+TAK_LOG_DIRS = ("/opt/tak/logs", "/opt/tak/log", "/var/log/takserver")
+TAK_LOG_SUFFIXES = (".log", ".out")
+def _java_snapshot():
+    found = {}
+    proc = Path("/proc")
+    for path in proc.iterdir():
+        if not path.name.isdigit():
+            continue
+        try:
+            comm = (path / "comm").read_text().strip()
+            if comm != "java":
+                continue
+            raw = (path / "cmdline").read_bytes().lower()
+            if b"takserver" not in raw and b"marti" not in raw and b"tak." not in raw:
+                continue
+            fields = (path / "stat").read_text().rsplit(") ", 1)[1].split()
+            ticks = int(fields[11]) + int(fields[12])
+            rss_pages = int((path / "statm").read_text().split()[1])
+            found[int(path.name)] = (ticks, rss_pages)
+        except (OSError, ValueError, IndexError):
+            continue
+    return found
+
+def _java_processes():
+    import time
+    before = _java_snapshot()
+    time.sleep(0.3)
+    after = _java_snapshot()
+    hz = os.sysconf("SC_CLK_TCK")
+    page = os.sysconf("SC_PAGE_SIZE")
+    entries = []
+    for pid, (ticks, rss) in after.items():
+        previous = before.get(pid)
+        cpu = round(100.0 * (ticks - previous[0]) / (0.3 * hz), 1) if previous else None
+        entries.append({"pid": pid, "cpu_pct_one_core": cpu,
+                        "rss_mb": round(rss * page / 1048576, 1)})
+    return {"java_processes": sorted(entries, key=lambda x: -(x["cpu_pct_one_core"] or 0))[:12],
+            "sample_seconds": 0.3}
+
+def _tak_log_files():
+    files = {}
+    for root in TAK_LOG_DIRS:
+        directory = Path(root)
+        if not directory.is_dir() or directory.is_symlink():
+            continue
+        try:
+            for p in directory.iterdir():
+                if (not p.is_symlink() and p.is_file()
+                        and p.name.lower().endswith(TAK_LOG_SUFFIXES)):
+                    files[p.name] = str(p)
+        except OSError:
+            continue
+    return files
+
+def _takserver_logs(args):
+    names = _tak_log_files()
+    selected = args.get("file", "")
+    if selected:
+        if selected not in names:
+            raise ValueError("TAK log filename not in discovered allowlist")
+        files = [selected]
+    else:
+        files = sorted(names)[:30]
+    if not selected:
+        return {"files": [{"name": name, "path": names[name]} for name in files],
+                "hint": "Specify a discovered filename to read a bounded tail"}
+    result = _tail(names[selected], _lines(args.get("lines", 40)))
+    if "lines" in result:
+        # Avoid emitting common credential assignment patterns from logs.
+        result["lines"] = re.sub(
+            r"(?im)(password|passwd|secret|token|credential|api[_-]?key)(\\s*[:=]\\s*)\\S+",
+            r"\\1\\2[REDACTED]", result["lines"])
+    return {"file": selected, **result}
+
+def _takserver_readiness():
+    ports = _ports()
+    watched = {x["port"]: x["listening"] for x in ports["ports"]}
+    core = Path("/opt/tak/CoreConfig.xml")
+    auth = {"backend": "unknown", "file_expected": None, "file_present": None}
+    if core.is_file():
+        try:
+            import xml.etree.ElementTree as ET
+            root = ET.parse(core).getroot()
+            nodes = [e for e in root.iter() if e.tag.rsplit("}", 1)[-1].lower() == "auth"]
+            if nodes:
+                auth_node = nodes[0]
+                auth["backend"] = auth_node.attrib.get("default", "file")
+                files = [e for e in auth_node.iter() if e.tag.rsplit("}", 1)[-1].lower() == "file"]
+                if files:
+                    location = files[0].attrib.get("location", "")
+                    if location and not Path(location).is_absolute() and ".." not in Path(location).parts:
+                        auth["file_expected"] = True
+                        auth["file_present"] = (core.parent / location).is_file()
+                elif auth["backend"].lower() == "ldap":
+                    auth["file_expected"] = False
+        except (OSError, ET.ParseError):
+            auth["error"] = "CoreConfig not readable or parseable"
+    return {"coreconfig_present": core.is_file(), "auth": auth,
+            "tak_listeners": {str(p): watched.get(p, False) for p in (8089, 8443, 8446)},
+            "java": _java_processes(),
+            "tak_log_files": list(sorted(_tak_log_files()))[:30]}
+
 def _invoke(name, args):
     if name == "host_identity":
         return _identity()
@@ -162,6 +271,12 @@ def _invoke(name, args):
                     "modified": int(st.st_mtime)}
         except OSError as exc:
             return {"ok": False, "error": type(exc).__name__}
+    if name == "java_processes":
+        return _java_processes()
+    if name == "takserver_logs":
+        return _takserver_logs(args)
+    if name == "takserver_readiness":
+        return _takserver_readiness()
     if name == "installer_tail":
         return _tail("/var/log/taks-installer-state.log", _lines(args.get("lines", 40)))
     raise ValueError("Unknown DevOps tool")
