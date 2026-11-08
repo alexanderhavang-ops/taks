@@ -82,7 +82,9 @@ async def _call_tool_async(name: str, arguments: Dict[str, Any] | None = None) -
                     structured = None
 
             return {
-                "ok": not bool(getattr(result, "isError", False)),
+                "ok": not bool(getattr(result, "isError", False)) and not (
+                    isinstance(structured, dict) and structured.get("ok") is False
+                ),
                 "tool_name": name,
                 "arguments": arguments or {},
                 "raw_text_parts": texts,
