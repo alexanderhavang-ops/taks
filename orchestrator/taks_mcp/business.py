@@ -83,16 +83,43 @@ def register_taks_tools(mcp, api_call=call):
                          **({"instance_type": instance_type} if instance_type else {})})
 
     @mcp.tool()
-    def taks_node_devops_probe(node_id: str, operation: str = "tools/list") -> dict:
-        """Probe registered node DevOps MCP over orchestrator mTLS; only tools/list or host_identity."""
+    def taks_node_devops_probe(node_id: str, operation: str = "tools/list",
+                               service: str = "", lines: int = 40, path: str = "") -> dict:
+        """Query a registered node's restricted read-only DevOps MCP over mTLS."""
         if not NODE_ID.fullmatch(node_id):
             return {"ok": False, "error": "Invalid node ID"}
-        if operation not in ("tools/list", "host_identity"):
-            return {"ok": False, "error": "Only tools/list or host_identity permitted"}
+        allowed = {
+            "tools/list", "host_identity", "host_resources", "listening_ports",
+            "service_list", "service_status", "service_logs",
+            "nginx_check", "cert_status", "file_stat", "installer_tail",
+        }
+        if operation not in allowed:
+            return {"ok": False, "error": "DevOps tool not allowed"}
+        arguments = {}
+        if operation in ("service_status", "service_logs"):
+            if service not in (
+                "takserver.service", "takctl-web.service", "nginx.service",
+                "postgresql.service", "slapd.service", "mumble-server.service",
+                "openfire.service", "martine-cot.service", "taks-heartbeat.timer",
+            ):
+                return {"ok": False, "error": "Service not allowlisted"}
+            arguments["service"] = service
+        if operation in ("service_logs", "installer_tail"):
+            if type(lines) is not int or not 1 <= lines <= 80:
+                return {"ok": False, "error": "Invalid line count"}
+            arguments["lines"] = lines
+        if operation == "file_stat":
+            if path not in (
+                "/opt/tak/CoreConfig.xml", "/etc/nginx/nginx.conf",
+                "/var/log/taks-installer-state.log",
+                "/etc/taks-bootstrap.d/config.d/node.conf",
+            ):
+                return {"ok": False, "error": "Path not allowlisted"}
+            arguments["path"] = path
         message = {"jsonrpc": "2.0", "id": 1,
                    "method": "tools/list" if operation == "tools/list" else "tools/call"}
-        if operation == "host_identity":
-            message["params"] = {"name": "host_identity", "arguments": {}}
+        if operation != "tools/list":
+            message["params"] = {"name": operation, "arguments": arguments}
         return api_call("POST", "/api/v2/nodes/" + node_id + "/mcp/devops", message)
 
     @mcp.tool()
