@@ -321,7 +321,7 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     existing = [
         i for i in (aws_list_nodes().get("instances") or [])
         if str(i.get("unit_path") or "").strip() == nr.unit_path
-        and str(i.get("state") or "").lower() not in ("terminated", "shutting-down")
+        and str(i.get("state") or "").lower() != "terminated"
     ]
     if existing:
         raise HTTPException(
