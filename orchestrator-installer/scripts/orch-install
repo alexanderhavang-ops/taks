@@ -56,7 +56,12 @@ apply(){
   nginx_quarantine_conflicts
   write_nginx_canonical
   le_cert_obtain
-  sync_le_cert_to_artifacts
+  case "$(le_mode)" in
+    dns-route53|dns_route53|wildcard_dns_01|WILDCARD_DNS_01)
+      install_certbot_artifact_management
+      sync_le_cert_to_artifacts
+      ;;
+  esac
   nginx_reload_safe
   log "DONE: nginx + LE + artifact sync ready for ${FQDN}"
 }
@@ -75,10 +80,15 @@ verify(){
 
   curl -skf "https://${FQDN}/openapi.json" >/dev/null || die "openapi.json not reachable via nginx"
 
-  if [[ -f "$(artifact_source_cert_path)" && -f "$(artifact_source_key_path)" ]]; then
-    [[ -f "$(artifact_tls_dir)/fullchain.pem" ]] || die "artifact fullchain missing in $(artifact_tls_dir)"
-    [[ -f "$(artifact_tls_dir)/privkey.pem" ]] || die "artifact privkey missing in $(artifact_tls_dir)"
-  fi
+  case "$(le_mode)" in
+    dns-route53|dns_route53|wildcard_dns_01|WILDCARD_DNS_01)
+      [[ -x /usr/local/sbin/taks-sync-wildcard-cert ]] || die "cert sync helper missing"
+      [[ -x /etc/letsencrypt/renewal-hooks/deploy/90-taks-wildcard-artifact ]] || die "certbot renewal hook missing"
+      [[ -f /etc/sudoers.d/90-taks-cert-sync ]] || die "MCP certificate-sync sudo rule missing"
+      [[ -f "$(artifact_tls_dir)/fullchain.pem" ]] || die "artifact fullchain missing"
+      openssl x509 -in "$(artifact_tls_dir)/fullchain.pem" -noout -checkend 604800 >/dev/null || die "artifact certificate expired"
+      ;;
+  esac
 
   log "OK: ${FQDN} nginx+LE+artifact sync+backend verified"
 }
