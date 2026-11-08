@@ -316,6 +316,20 @@ def nodes_launch(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
     _require_route53_prereqs_for_node_launch()
     nr = _node_req(req)
 
+    # Launch creates a new instance; Resume starts the existing paused instance.
+    # Check AWS, not only the potentially stale local node registry.
+    existing = [
+        i for i in (aws_list_nodes().get("instances") or [])
+        if str(i.get("unit_path") or "").strip() == nr.unit_path
+        and str(i.get("state") or "").lower() != "terminated"
+    ]
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=("An EC2 node already exists for this unit. Resume a paused node "
+                    "or Shutdown it permanently before launching a new one."),
+        )
+
     readiness = get_unit_bundle_readiness(nr.unit_path, nr.role)
     if not bool(readiness.get("ok")):
         missing = ", ".join([str(x) for x in (readiness.get("missing") or [])]) or "unknown"
@@ -612,6 +626,7 @@ def _resolve_instance_for_node_record(rec: Dict[str, Any], node_id: str) -> Dict
     }
 
 
+@router.post("/nodes/{node_id}/shutdown")
 @router.post("/nodes/{node_id}/terminate")
 def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
     require_operator(request)
@@ -623,19 +638,22 @@ def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
     resolved = _resolve_instance_for_node_record(rec, node_id)
     instance_id = str(resolved.get("instance_id") or "").strip()
 
-    term = aws_terminate(instance_id)
+    term = aws_terminate(instance_id, fqdn=str(rec.get("fqdn") or "").strip())
 
     patch = {
         "node_id": rec.get("node_id") or node_id,
         "instance_id": instance_id,
         "aws_instance_id": instance_id,
         "status": "terminating",
-        "aws_state": term.get("current_state") or "terminating",
+        "aws_state": term.get("current_state") or "shutting-down",
+        "public_ip": "",
+        "aws_public_ip": "",
     }
     updated = upsert_node(str(rec.get("node_id") or node_id), patch)
     return {"ok": True, "terminate": term, "node": updated}
 
 
+@router.post("/nodes/{node_id}/pause")
 @router.post("/nodes/{node_id}/snooze")
 def nodes_snooze(node_id: str, request: Request) -> Dict[str, Any]:
     require_operator(request)
@@ -663,6 +681,7 @@ def nodes_snooze(node_id: str, request: Request) -> Dict[str, Any]:
     return {"ok": True, "snooze": snooze, "node": updated}
 
 
+@router.post("/nodes/{node_id}/resume")
 @router.post("/nodes/{node_id}/wake")
 def nodes_wake(node_id: str, request: Request) -> Dict[str, Any]:
     require_operator(request)
@@ -697,6 +716,16 @@ def nodes_wake(node_id: str, request: Request) -> Dict[str, Any]:
 @router.delete("/nodes/{node_id}")
 def nodes_delete(node_id: str, request: Request) -> Dict[str, Any]:
     require_operator(request)
+    # Registry deletion must not orphan an actual EC2 instance.
+    record = get_node(node_id)
+    if not record:
+        raise HTTPException(status_code=404, detail=f"node not found: {node_id}")
+    live = [
+        i for i in (aws_list_nodes().get("instances") or [])
+        if str(i.get("instance_id") or "") == str(record.get("instance_id") or "")
+    ]
+    if live:
+        raise HTTPException(status_code=409, detail="EC2 instance still exists; Pause or Shutdown before deleting its record")
     ok = delete_node(node_id)
     if not ok:
         raise HTTPException(status_code=404, detail=f"node not found: {node_id}")

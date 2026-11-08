@@ -132,16 +132,45 @@ def register_taks_tools(mcp, api_call=call):
         if len(matches) != 1:
             return {"ok": False, "error": "Node not uniquely registered"}
         state = matches[0].get("aws_state")
-        if state != ("running" if action == "snooze" else "stopped"):
+        if state != ("running" if action == "pause" else "stopped"):
             return {"ok": False, "error": "Invalid lifecycle state", "aws_state": state}
         return api_call("POST", "/api/v2/nodes/" + node_id + "/" + action, {})
 
     @mcp.tool()
+    def taks_node_pause(node_id: str, confirm_pause: bool = False) -> dict:
+        """Pause node: stop EC2 while preserving instance identity and EBS data."""
+        return lifecycle(node_id, "pause", confirm_pause)
+
+    @mcp.tool()
+    def taks_node_resume(node_id: str, confirm_resume: bool = False) -> dict:
+        """Resume a paused node: start the same EC2 instance."""
+        return lifecycle(node_id, "resume", confirm_resume)
+
+    @mcp.tool()
     def taks_node_snooze(node_id: str, confirm_snooze: bool = False) -> dict:
-        """Stop a running TAK node after confirmation."""
-        return lifecycle(node_id, "snooze", confirm_snooze)
+        """Legacy alias for Pause; preserves the existing EC2 instance."""
+        return lifecycle(node_id, "pause", confirm_snooze)
 
     @mcp.tool()
     def taks_node_wake(node_id: str, confirm_wake: bool = False) -> dict:
-        """Start a stopped TAK node after confirmation."""
-        return lifecycle(node_id, "wake", confirm_wake)
+        """Legacy alias for Resume; starts the same EC2 instance."""
+        return lifecycle(node_id, "resume", confirm_wake)
+
+    @mcp.tool()
+    def taks_node_shutdown(node_id: str, confirm_shutdown: bool = False) -> dict:
+        """Permanently terminate a node EC2 instance; new Launch required to replace it."""
+        if not NODE_ID.fullmatch(node_id):
+            return {"ok": False, "error": "Invalid node ID"}
+        if not confirm_shutdown:
+            return {"ok": False, "confirmation_required": True, "node_id": node_id}
+        inventory = api_call("GET", "/api/v2/nodes")
+        if not isinstance(inventory, dict) or inventory.get("ok") is False:
+            return {"ok": False, "error": "Inventory unavailable"}
+        matches = [n for n in inventory.get("items", [])
+                   if isinstance(n, dict) and n.get("node_id") == node_id]
+        if len(matches) != 1:
+            return {"ok": False, "error": "Node not uniquely registered"}
+        if matches[0].get("aws_state") not in ("running", "stopped", "pending", "stopping"):
+            return {"ok": False, "error": "Invalid lifecycle state",
+                    "aws_state": matches[0].get("aws_state")}
+        return api_call("POST", "/api/v2/nodes/" + node_id + "/shutdown", {})
