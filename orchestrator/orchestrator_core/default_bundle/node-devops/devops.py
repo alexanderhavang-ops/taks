@@ -44,7 +44,8 @@ TOOLS = [
     entry("service_logs", "Read the last N journal lines of an allowlisted service",
           {"service": STR, "lines": INT}, ["service"]),
     entry("nginx_check", "Validate Nginx configuration without changing it"),
-    entry("cert_status", "Inspect node public TLS certificate expiry and SAN without exposing keys"),
+    entry("cert_status", "Inspect node public TLS certificate expiry and SAN without exposing keys",
+          {"fqdn": STR}, ["fqdn"]),
     entry("file_stat", "Stat one explicitly allowlisted configuration or installer file",
           {"path": STR}, ["path"]),
     entry("installer_tail", "Read last N bounded installer event lines", {"lines": INT}),
@@ -118,19 +119,9 @@ def _identity():
         pass
     return {"hostname": socket.gethostname(), "os": values}
 
-def _cert():
-    # Public leaf only. Never access or return certificate private keys.
-    node = Path("/etc/taks-bootstrap.d/config.d/node.conf")
-    fqdn = ""
-    try:
-        for line in node.read_text().splitlines():
-            if line.strip().startswith("fqdn"):
-                key, sep, value = line.partition("=")
-                if sep and key.strip() == "fqdn":
-                    fqdn = value.strip()
-                    break
-    except OSError:
-        pass
+def _cert(fqdn):
+    # The caller supplies the registered node FQDN. The bootstrap node.conf
+    # is intentionally root-readable only, and must never be opened here.
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.-]{0,250}", fqdn or ""):
         return {"ok": False, "error": "Node FQDN unavailable"}
     cert = Path("/etc/letsencrypt/live") / fqdn / "fullchain.pem"
@@ -158,9 +149,9 @@ def _invoke(name, args):
                      "-u", _service(args["service"]), "-n", str(_lines(args.get("lines", 40)))],
                     limit=12000)
     if name == "nginx_check":
-        return _run(["nginx", "-t"], limit=4000)
+        return _run(["sudo", "-n", "/usr/sbin/nginx", "-t"], limit=4000)
     if name == "cert_status":
-        return _cert()
+        return _cert(args["fqdn"])
     if name == "file_stat":
         path = args["path"]
         if not isinstance(path, str) or path not in SAFE_PATHS:

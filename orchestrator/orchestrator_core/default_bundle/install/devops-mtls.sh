@@ -57,4 +57,21 @@ install -m 0644 "$tmp" "$site"
 ln -sfn "$site" "$enabled"
 nginx -t
 systemctl reload nginx
+
+# The TAKCTL web service runs as 'tak'. Grant only read-only observability:
+# journal membership for service diagnostics and one fixed nginx syntax check.
+# No arbitrary sudo, service control or shell privileges.
+getent group systemd-journal >/dev/null || { echo "systemd-journal group unavailable" >&2; exit 1; }
+usermod -aG systemd-journal tak
+sudoers="/etc/sudoers.d/taks-node-devops-nginx-check"
+tmp_sudo="$(mktemp)"
+printf '%s\\n' 'tak ALL=(root) NOPASSWD: /usr/sbin/nginx -t' > "$tmp_sudo"
+chmod 0440 "$tmp_sudo"
+visudo -cf "$tmp_sudo" >/dev/null
+install -m 0440 "$tmp_sudo" "$sudoers"
+rm -f "$tmp_sudo"
+visudo -cf "$sudoers" >/dev/null
+# Restart is required to pick up newly granted systemd-journal membership.
+systemctl restart takctl-web.service
+
 echo "Installed node DevOps mTLS endpoint: devops.$fqdn"
