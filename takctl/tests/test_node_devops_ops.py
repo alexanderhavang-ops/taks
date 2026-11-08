@@ -48,6 +48,29 @@ class NodeDevopsTests(unittest.TestCase):
         value = devops.call("cert_status", {"fqdn": "../etc/shadow"})
         self.assertIn("Node FQDN unavailable", value["content"][0]["text"])
 
+    def test_socket_tools_never_accept_arbitrary_pid_or_command(self):
+        with self.assertRaises(ValueError):
+            devops.call("lsof_tak_java", {"pid": 1})
+        with self.assertRaises(ValueError):
+            devops.call("netstat_listeners", {"command": "sh"})
+
+    def test_netstat_limits_to_expected_ports(self):
+        fixture = ("LISTEN 0 128 127.0.0.1:8089 0.0.0.0:* users:((\\\"java\\\",pid=1234,fd=10))\n"
+                   "LISTEN 0 128 127.0.0.1:2222 0.0.0.0:* users:((\\\"sshd\\\",pid=1,fd=4))\n")
+        with patch.object(devops, "_run", return_value={"exit_code": 0, "stdout": fixture}):
+            data = devops._netstat_listeners()
+        self.assertEqual(len(data["listeners"]), 1)
+        self.assertEqual(data["listeners"][0]["port"], 8089)
+        self.assertEqual(data["listeners"][0]["pids"], [1234])
+
+    def test_lsof_summarizes_no_paths(self):
+        with patch.object(devops, "_java_snapshot", return_value={1234: (5, 7)}), patch.object(
+            devops, "_run", return_value={"exit_code": 0, "stdout": "p1234\ntREG\ntIPv4\n"}):
+            data = devops._lsof_tak_java()
+        self.assertEqual(data["open_files"][0]["total"], 2)
+        self.assertEqual(data["open_files"][0]["sockets"], 1)
+        self.assertNotIn("path", data["open_files"][0])
+
     def test_expected_ports(self):
         self.assertIn(8446, devops.PORTS)
         self.assertIn(8089, devops.PORTS)

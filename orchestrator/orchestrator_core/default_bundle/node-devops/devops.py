@@ -50,6 +50,8 @@ TOOLS = [
           {"path": STR}, ["path"]),
     entry("installer_tail", "Read last N bounded installer event lines", {"lines": INT}),
     entry("java_processes", "Sample TAK Java process CPU and RSS without command-line arguments"),
+    entry("netstat_listeners", "Read selected TCP listeners and visible owning PIDs"),
+    entry("lsof_tak_java", "Summarize open file descriptors for identified TAK JVMs without paths"),
     entry("takserver_logs", "Discover allowlisted TAK Server logs or read a bounded tail",
           {"file": STR, "lines": INT}),
     entry("takserver_readiness", "Combine TAK listeners, Java CPU and auth backend readiness"),
@@ -211,6 +213,53 @@ def _takserver_logs(args):
             r"\1\2[REDACTED]", result["lines"])
     return {"file": selected, **result}
 
+
+def _netstat_listeners():
+    """Selected TCP listeners, including visible owning process information."""
+    result = _run(["ss", "-H", "-ltnp"], timeout=5, limit=20000)
+    if result.get("exit_code") != 0:
+        return {"available": False, "detail": result.get("stderr", "")[:250]}
+    entries = []
+    for line in result.get("stdout", "").splitlines():
+        parts = line.split(None, 5)
+        if len(parts) < 5:
+            continue
+        local = parts[3]
+        try:
+            port = int(local.rsplit(":", 1)[-1])
+        except ValueError:
+            continue
+        if port not in PORTS:
+            continue
+        owner = parts[5] if len(parts) == 6 else ""
+        pids = sorted(set(int(x) for x in re.findall(r"pid=(\d+)", owner)))
+        entries.append({"port": port, "address": local, "pids": pids})
+    return {"listeners": entries, "visibility": "PIDs only when visible to the node MCP user"}
+
+def _lsof_tak_java():
+    """Count TAK JVM file descriptors; never return the raw paths or command lines."""
+    pids = sorted(_java_snapshot())[:12]
+    if not pids:
+        return {"pids": [], "open_files": [], "hint": "No TAK JVM process"}
+    result = _run(["lsof", "-nP", "-p", ",".join(map(str, pids)), "-Fpt"],
+                  timeout=7, limit=25000)
+    if result.get("exit_code") not in (0, 1):
+        return {"available": False, "error": result.get("stderr", "")[:150]}
+    by_pid = {}
+    pid = None
+    for line in result.get("stdout", "").splitlines():
+        if line.startswith("p") and line[1:].isdigit():
+            pid = int(line[1:])
+            by_pid.setdefault(pid, {"pid": pid, "total": 0, "sockets": 0, "regular_files": 0})
+        elif line.startswith("t") and pid in by_pid:
+            entry = by_pid[pid]
+            entry["total"] += 1
+            if line[1:] in ("IPv4", "IPv6", "sock"):
+                entry["sockets"] += 1
+            elif line[1:] == "REG":
+                entry["regular_files"] += 1
+    return {"open_files": list(by_pid.values()), "tool": "lsof", "paths_exposed": False}
+
 def _takserver_readiness():
     ports = _ports()
     watched = {x["port"]: x["listening"] for x in ports["ports"]}
@@ -271,6 +320,10 @@ def _invoke(name, args):
                     "modified": int(st.st_mtime)}
         except OSError as exc:
             return {"ok": False, "error": type(exc).__name__}
+    if name == "netstat_listeners":
+        return _netstat_listeners()
+    if name == "lsof_tak_java":
+        return _lsof_tak_java()
     if name == "java_processes":
         return _java_processes()
     if name == "takserver_logs":

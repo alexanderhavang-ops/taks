@@ -64,6 +64,7 @@ async def node_mcp(node_id: str, domain: str, request: Request):
             "service_list", "service_status", "service_logs",
             "nginx_check", "cert_status", "file_stat", "installer_tail",
             "java_processes", "takserver_logs", "takserver_readiness",
+            "netstat_listeners", "lsof_tak_java",
         }
         if domain != "devops":
             raise HTTPException(status_code=403, detail="Service MCP domain not allowed")

@@ -76,6 +76,22 @@ class BusinessTests(unittest.TestCase):
         self.assertIn("host_identity", str(result["devops_mcp"]))
         self.assertEqual(self.calls[-1], ("POST", "/api/v2/nodes/49hvbat/mcp/devops"))
 
+    def test_business_health_includes_shared_takserver_readiness(self):
+        def api(method, path, data=None):
+            if path == "/api/v2/nodes":
+                return {"items": [{"node_id": "49hvbat", "aws_state": "running",
+                                   "status": "online", "checks": {}}]}
+            if data and data.get("method") == "tools/list":
+                return {"result": {"tools": []}}
+            if data and data.get("params", {}).get("name") == "takserver_readiness":
+                return {"result": {"content": [{"type": "text", "text": "ready"}]}}
+            return {"result": {}}
+        registry = Registry()
+        register_taks_tools(registry, api)
+        result = registry.tools["taks_node_health"]("49hvbat")
+        self.assertIn("takserver_readiness", result)
+        self.assertNotIn("netstat_listeners", result)
+
     def test_named_pause_and_resume(self):
         paused = self.registry.tools["taks_node_pause"]("49hvbat", True)
         self.assertTrue(paused["ok"])

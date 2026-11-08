@@ -93,6 +93,7 @@ def register_taks_tools(mcp, api_call=call):
             "service_list", "service_status", "service_logs",
             "nginx_check", "cert_status", "file_stat", "installer_tail",
             "java_processes", "takserver_logs", "takserver_readiness",
+            "netstat_listeners", "lsof_tak_java",
         }
         if operation not in allowed:
             return {"ok": False, "error": "DevOps tool not allowed"}
@@ -160,6 +161,14 @@ def register_taks_tools(mcp, api_call=call):
                     "POST", path,
                     {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                      "params": {"name": "host_identity", "arguments": {}}})
+            # Shared TAK Server troubleshooting belongs in Business health too.
+            # It is read-only and contains no host-admin or client-management action.
+            readiness = api_call(
+                "POST", path,
+                {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                 "params": {"name": "takserver_readiness", "arguments": {}}})
+            if isinstance(readiness, dict) and isinstance(readiness.get("result"), dict):
+                result["takserver_readiness"] = readiness["result"]
         return result
 
     @mcp.tool()
