@@ -391,3 +391,10 @@ def save_unit_brand(unit_path: str, body: UnitBrandSave, req: Request):
     "path": "brand.json",
   })
 
+
+
+@router.get("/bootstrap/state-backup-bridge.py")
+def state_backup_bridge():
+    # Public source code only. Execution requires an operator's root shell;
+    # this route cannot change a node or access backup artifacts.
+    return _file_or_404(_STATIC_DIR / "bootstrap/state-backup-bridge.py")

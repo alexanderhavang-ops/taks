@@ -507,6 +507,12 @@ main() {
 
   run_step "os-tuning" "$BUNDLE_ROOT/install/os-tuning.sh"
   run_step "takserver" "$BUNDLE_ROOT/install/takserver.sh"
+  if [ -f "$BUNDLE_ROOT/restore/selection.json" ]; then
+    systemctl stop takserver || true
+    log_state "restore/early" "Started"
+    python3 "$BUNDLE_ROOT/install/restore-state.py" "$BUNDLE_ROOT" early
+    log_state "restore/early" "Succeeded"
+  fi
   run_step "tak-certs-config" "$BUNDLE_ROOT/install/tak-certs-config.sh"
 
   log_state "generate_tak_server_certs" "Started"
@@ -519,6 +525,11 @@ main() {
 
   run_step "tak-certs-layout" "$BUNDLE_ROOT/install/tak-certs-layout.sh"
   run_step "openldap" "$BUNDLE_ROOT/install/openldap.sh"
+  if [ -f "$BUNDLE_ROOT/restore/selection.json" ]; then
+    log_state "restore/databases" "Started"
+    python3 "$BUNDLE_ROOT/install/restore-state.py" "$BUNDLE_ROOT" databases
+    log_state "restore/databases" "Succeeded"
+  fi
   run_step "tak-coreconfig-render" "$BUNDLE_ROOT/install/tak-coreconfig-render.sh"
 
   log_state "restart_takserver_if_present" "Started"

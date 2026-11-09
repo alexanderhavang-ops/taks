@@ -65,7 +65,8 @@ def save_unit_backup(unit_path: str, *, backup_id: str, manifest: Dict[str, Any]
     up = _safe_unit_path(unit_path)
     bid = _safe_backup_id(backup_id)
     root = _unit_backup_dir(up, bid)
-    root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    root.chmod(0o700)
 
     manifest_path = root / "manifest.json"
     artifact_path = root / "backup.tar.gz"
@@ -76,6 +77,8 @@ def save_unit_backup(unit_path: str, *, backup_id: str, manifest: Dict[str, Any]
     os.replace(manifest_tmp, manifest_path)
 
     artifact_tmp = artifact_path.with_suffix(".tar.gz.tmp")
+    artifact_tmp.touch(mode=0o600, exist_ok=True)
+    artifact_tmp.chmod(0o600)
     artifact_tmp.write_bytes(bytes(artifact_bytes or b""))
     os.replace(artifact_tmp, artifact_path)
 

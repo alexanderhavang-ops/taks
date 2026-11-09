@@ -1,0 +1,102 @@
+#!/usr/bin/python3 -I
+"""Root-owned, fixed-operation backup reader. Never accepts paths or commands."""
+import hashlib
+import io
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tarfile
+
+PATHS = {
+    'certs': ['/opt/tak/certs'],
+    'config': ['/etc/taks/certs', '/opt/tak/CoreConfig.xml', '/opt/tak/core', '/etc/taks-bootstrap.d/config.d',
+               '/etc/taks-bootstrap.d/secrets.d', '/opt/tak/tools/takctl/conf.d',
+               '/opt/tak/tools/takctl/secrets.d', '/etc/taks/mumble-ice-secret', '/etc/taks/mumble-service-password'],
+    'users': ['/opt/tak/UserAuthenticationFile.xml', '/etc/taks/ldap.conf', '/etc/taks/ldap-secrets.conf', '/etc/ldap'],
+    'documents': ['/opt/tak/Documents', '/opt/tak/documents', '/opt/tak/tools/takctl/state/docs', '/opt/tak/tools/takctl/data/library/documents'],
+    'takctl_state': ['/opt/tak/tools/takctl/state', '/opt/tak/takctl-state'],
+    'martine_state': ['/opt/tak/tools/martine/runtime/identity', '/opt/tak/tools/martine/state/voice_onboarding', '/opt/tak/tools/martine/state/voice_transcribe'],
+    'replay_state': ['/opt/tak/replay'],
+}
+EXCLUDES = ('opt/tak/tools/takctl/state/orchestrator-node-backups', 'opt/tak/tools/takctl/state/llm2', 'opt/tak/tools/takctl/state/llm3')
+
+
+def db_name():
+    for path in sorted(Path('/opt/tak/tools/takctl/conf.d').glob('*.conf')):
+        for line in path.read_text().splitlines():
+            if '=' in line and line.split('=', 1)[0].strip() == 'db_name':
+                name = line.split('=', 1)[1].strip()
+                if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', name):
+                    raise ValueError('Invalid configured database name')
+                return name
+    return 'cot'
+
+
+def run(command):
+    return subprocess.run(command, check=True, stdout=subprocess.PIPE).stdout
+
+
+def ldap_dump():
+    if not Path('/var/lib/ldap/data.mdb').exists():
+        return None
+    # MDB slapcat obtains a consistent read transaction while slapd is online.
+    return run(['/usr/sbin/slapcat', '-n', '1'])
+
+
+def inventory():
+    ldif = ldap_dump()
+    users = sorted(re.findall(r'^uid: (.+)$', ldif.decode(), re.M)) if ldif else []
+    certs = {}
+    for path in sorted(Path('/opt/tak/certs').rglob('*.pem')):
+        if path.is_file() and b'BEGIN CERTIFICATE' in path.read_bytes():
+            certs[str(path)] = hashlib.sha256(run(['/usr/bin/openssl', 'x509', '-in', str(path), '-outform', 'DER'])).hexdigest()
+    tables = run(['/usr/sbin/runuser', '-u', 'postgres', '--', '/usr/bin/psql', '-d', db_name(), '-Atc',
+                  "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"]).decode().splitlines()
+    counts = {}
+    for table in tables:
+        quoted = '"' + table.replace('"', '""') + '"'
+        counts[table] = int(run(['/usr/sbin/runuser', '-u', 'postgres', '--', '/usr/bin/psql', '-d', db_name(), '-Atc', 'SELECT count(*) FROM public.' + quoted]).strip())
+    return {'database': db_name(), 'ldap_users': users, 'certificate_fingerprints': certs, 'postgres_rows': counts}
+
+
+def write_bucket(name, output):
+    if name == 'cot_state':
+        proc = subprocess.run(['/usr/sbin/runuser', '-u', 'postgres', '--', '/usr/bin/pg_dump', '-Fc', db_name()], stdout=output)
+        if proc.returncode:
+            raise RuntimeError('pg_dump failed')
+        return
+    if name not in PATHS:
+        raise ValueError('Unsupported backup bucket')
+    ldif = ldap_dump() if name == 'users' else None
+    def filtered(info):
+        if any(info.name == p or info.name.startswith(p + '/') for p in EXCLUDES):
+            return None
+        return info
+    with tarfile.open(fileobj=output, mode='w|gz') as archive:
+        for value in PATHS[name]:
+            path = Path(value)
+            if path.exists():
+                archive.add(path, arcname=value.lstrip('/'), filter=filtered)
+        if ldif is not None:
+            info = tarfile.TarInfo('state/ldap.ldif')
+            info.size = len(ldif)
+            info.mode = 0o600
+            archive.addfile(info, io.BytesIO(ldif))
+
+
+def main():
+    if os.geteuid() != 0:
+        raise PermissionError('Must run as root')
+    if len(sys.argv) != 2:
+        raise ValueError('Exactly one named backup bucket or inventory is required')
+    if sys.argv[1] == 'inventory':
+        print(json.dumps(inventory()))
+    else:
+        write_bucket(sys.argv[1], sys.stdout.buffer)
+
+
+if __name__ == '__main__':
+    main()

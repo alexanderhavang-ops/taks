@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import runpy
 import subprocess
 import os
 import shutil
@@ -15,7 +16,7 @@ from orchestrator_core.bundle_verify import verify_bundle_tree
 from orchestrator_core.devops_pki import provision_node_devops_tls
 from orchestrator_core.config import load_orch_config, load_secrets_config
 from orchestrator_core.unit_bootstrap import effective_bootstrap_for_bundle
-from orchestrator_core.units_state import ensure_unit_orchestrator_secret
+from orchestrator_core.units_state import ensure_unit_orchestrator_secret, get_unit_restore_backup_selection, get_unit_backup
 
 
 UI_SUBTREES = ("branding", "packages", "users", "plugins", "maps", "missions", "documents", "misc", "logos")
@@ -942,6 +943,28 @@ def _materialize_packages_subtree(root: Path, *, unit_path: str, role: str) -> D
     }
 
 
+def _materialize_restore(root: Path, unit_path: str) -> dict:
+    selection = get_unit_restore_backup_selection(unit_path)
+    backup_id = str(selection.get("backup_id") or "").strip()
+    if not backup_id:
+        return {"kind": "restore", "selected": False}
+    record = get_unit_backup(unit_path, backup_id)
+    if record["manifest"].get("format_version") != 2:
+        raise ValueError("Selected backup needs format version 2 (logical LDAP and checksummed buckets)")
+    validator = runpy.run_path(str(default_bundle_dir() / "install/restore-state.py"))
+    validator["validate_backup"](Path(record["artifact_path"]), unit_path)
+    target = root / "restore"
+    target.mkdir(mode=0o700, parents=True, exist_ok=True)
+    artifact = Path(record["artifact_path"])
+    with artifact.open("rb") as stream:
+        checksum = hashlib.file_digest(stream, "sha256").hexdigest()
+    shutil.copyfile(artifact, target / "backup.tar.gz")
+    (target / "backup.tar.gz").chmod(0o600)
+    meta = {"unit_path": unit_path, "backup_id": backup_id, "sha256": checksum}
+    (target / "selection.json").write_text(json.dumps(meta) + "\n")
+    return {"kind": "restore", "selected": True, **meta}
+
+
 def _materialize_bundle_tree(root: Path, *, unit_path: str, role: str) -> Dict[str, Any]:
     root.mkdir(parents=True, exist_ok=True)
 
@@ -967,6 +990,7 @@ def _materialize_bundle_tree(root: Path, *, unit_path: str, role: str) -> Dict[s
         else:
             overlays.append(_materialize_generic_subtree(root, unit_path=unit_path, role=role, subtree=subtree))
 
+    overlays.append(_materialize_restore(root, unit_path))
     overlays.append(_copy_letsencrypt_tls_material(root, unit_path=unit_path))
     overlays.append(provision_node_devops_tls(root, _default_node_fqdn(unit_path, _read_unit_meta(unit_path))))
 

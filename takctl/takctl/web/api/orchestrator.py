@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -142,3 +143,15 @@ def orchestrator_backup_artifact(request: Request, backup_id: str):
         media_type="application/gzip",
         filename=f"{backup_id}.backup.tar.gz",
     )
+
+
+@router.get("/backup-inventory")
+def orchestrator_backup_inventory(request: Request) -> Dict[str, object]:
+    require_orchestrator_secret(request)
+    from takctl.services.orchestrator_backup import backup_inventory
+    reports = {}
+    for phase in ("early", "databases"):
+        path = Path("/var/lib/taks-restore") / (phase + ".json")
+        if path.is_file():
+            reports[phase] = json.loads(path.read_text())
+    return {"ok": True, "inventory": backup_inventory(), "restore": reports}
