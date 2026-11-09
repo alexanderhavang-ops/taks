@@ -288,7 +288,7 @@ payload = {
 install = parse_install_log(os.environ.get("INSTALL_STATE_LOG", ""))
 if install is not None:
     payload["install"] = install
-    if (install.get("summary") or {}).get("failed_steps", 0):
+    if (install.get("summary") or {}).get("failed_steps", 0) or (install.get("summary") or {}).get("main_state") == "failed":
         try:
             with open("/var/log/cloud-init-output.log", "rb") as log:
                 log.seek(0, 2)
