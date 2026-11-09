@@ -234,6 +234,20 @@ def register_taks_tools(mcp, api_call=call):
                     "POST", path,
                     {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                      "params": {"name": "host_identity", "arguments": {}}})
+            # A non-mutating probe makes node Business MCP availability visible
+            # in the existing health tool even before new plugin methods sync.
+            business_listing = api_call(
+                "POST", "/api/v2/nodes/" + node_id + "/mcp/taks",
+                {"jsonrpc": "2.0", "id": 4, "method": "tools/list"})
+            result["business_mcp"] = {
+                "reachable": isinstance(business_listing, dict)
+                and isinstance(business_listing.get("result"), dict),
+                "tools": [
+                    entry.get("name") for entry in
+                    business_listing.get("result", {}).get("tools", [])
+                    if isinstance(entry, dict)
+                ] if isinstance(business_listing, dict) else [],
+            }
             # Shared TAK Server troubleshooting belongs in Business health too.
             # It is read-only and contains no host-admin or client-management action.
             readiness = api_call(
