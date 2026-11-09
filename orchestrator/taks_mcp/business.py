@@ -184,7 +184,7 @@ def register_taks_tools(mcp, api_call=call):
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", username or ""):
             return {"ok": False, "error": "Invalid TAK username"}
         if not isinstance(email, str) or len(email) > 254 or not re.fullmatch(
-            r"[^@\\s]+@[^@\\s]+\\.[^@\\s]+", email
+            r"[^@\s]+@[^@\s]+\.[^@\s]+", email
         ):
             return {"ok": False, "error": "Invalid email"}
         return business_call(node_id, "onboarding_user_create", {
@@ -201,7 +201,7 @@ def register_taks_tools(mcp, api_call=call):
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", username or ""):
             return {"ok": False, "error": "Invalid TAK username"}
         if not isinstance(email, str) or len(email) > 254 or not re.fullmatch(
-            r"[^@\\s]+@[^@\\s]+\\.[^@\\s]+", email
+            r"[^@\s]+@[^@\s]+\.[^@\s]+", email
         ):
             return {"ok": False, "error": "Invalid email"}
         return business_call(node_id, "onboarding_send_invite", {
