@@ -111,6 +111,20 @@ class StateRestoreTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Bucket checksum mismatch'):
                 restore.restore(bundle, 'early', Path(tmp) / 'root', lambda *a, **k: self.fail('No mutation permitted'))
 
+    def test_digest_supports_python_without_hashlib_file_digest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'archive'
+            data = b'archive payload' * 100000
+            path.write_bytes(data)
+            original = getattr(hashlib, 'file_digest', None)
+            if original is not None:
+                delattr(hashlib, 'file_digest')
+            try:
+                self.assertEqual(restore.digest(path), hashlib.sha256(data).hexdigest())
+            finally:
+                if original is not None:
+                    hashlib.file_digest = original
+
     def test_no_selection_is_a_fresh_cow(self):
         with tempfile.TemporaryDirectory() as tmp:
             restore.restore(Path(tmp), 'early', run=lambda *a, **k: self.fail('No restore commands expected'))

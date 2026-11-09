@@ -956,8 +956,11 @@ def _materialize_restore(root: Path, unit_path: str) -> dict:
     target = root / "restore"
     target.mkdir(mode=0o700, parents=True, exist_ok=True)
     artifact = Path(record["artifact_path"])
+    digest = hashlib.sha256()
     with artifact.open("rb") as stream:
-        checksum = hashlib.file_digest(stream, "sha256").hexdigest()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    checksum = digest.hexdigest()
     shutil.copyfile(artifact, target / "backup.tar.gz")
     (target / "backup.tar.gz").chmod(0o600)
     meta = {"unit_path": unit_path, "backup_id": backup_id, "sha256": checksum}

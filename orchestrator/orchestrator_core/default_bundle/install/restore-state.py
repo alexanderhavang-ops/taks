@@ -25,8 +25,11 @@ PREFIXES = {
 
 
 def digest(path):
+    checksum = hashlib.sha256()
     with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+        for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+            checksum.update(chunk)
+    return checksum.hexdigest()
 
 
 def validate_member(member, prefixes):
