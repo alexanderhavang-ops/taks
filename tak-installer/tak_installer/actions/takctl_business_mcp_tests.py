@@ -1,6 +1,7 @@
 """Run TAKCTL Business MCP permission tests, retaining bounded diagnostic output."""
 from __future__ import annotations
 
+import grp
 import os
 import re
 import subprocess
@@ -36,6 +37,7 @@ def apply(ctx):
         f"timestamp={datetime.now(timezone.utc).isoformat()} exit_code={proc.returncode}\n"
         + output, encoding="utf-8",
     )
+    os.chown(REPORT, -1, grp.getgrnam("tak").gr_gid)
     REPORT.chmod(0o640)
     statuses = [
         line.strip()[:180] for line in output.splitlines()
