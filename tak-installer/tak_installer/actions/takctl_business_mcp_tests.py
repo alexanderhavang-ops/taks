@@ -16,8 +16,8 @@ REPORT = Path("/var/log/taks-business-mcp-tests.log")
 
 def _redact(value: str) -> str:
     return re.sub(
-        r"(?i)(password|secret|api[_-]?key|token)(\\s*[:=]\\s*)\\S+",
-        r"\\1\\2[REDACTED]", value,
+        r"(?i)(password|secret|api[_-]?key|token)(\s*[:=]\s*)\S+",
+        r"\1\2[REDACTED]", value,
     )
 
 
