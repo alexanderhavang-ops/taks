@@ -1,0 +1,17 @@
+{
+  "component": "martine_voice",
+  "fields": {
+    "voice_language": {
+      "type": "string",
+      "default": "sv",
+      "doc": "Speech language: Whisper language code or auto. Independent of UI language. Restart voice service after changing.",
+      "secret": false
+    },
+    "voice_mode": {
+      "type": "string",
+      "default": "fast",
+      "doc": "fast = small/beam 1; accurate = large-v3/beam 5. Apply installer to fetch selected model, then restart voice service. Accuracy mode requires more RAM and CPU.",
+      "secret": false
+    }
+  }
+}

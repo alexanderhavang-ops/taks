@@ -10,7 +10,11 @@ port = 64738
 
 # STT
 provider = faster_whisper
-model = small
+# Language: Whisper language code (sv, en, de, ...) or auto.
+voice_language = sv
+# fast: small model, beam 1; accurate: large-v3 model, beam 5.
+# Accuracy mode needs substantially more RAM and CPU; apply installer to fetch its model.
+voice_mode = fast
 task = transcribe
 inter_threads = 1
 intra_threads = 1

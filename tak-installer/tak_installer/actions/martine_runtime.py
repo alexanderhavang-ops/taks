@@ -116,6 +116,11 @@ def _read_kv_file(path: Path) -> dict[str, str]:
 
 def _selected_voice_model_name() -> str:
     conf = _read_kv_file(Path("/opt/tak/tools/takctl/conf.d/martine_voice.conf"))
+    mode = conf.get("voice_mode", "").strip().lower()
+    if mode:
+        if mode not in {"fast", "accurate"}:
+            raise RuntimeError(f"Invalid voice_mode: {mode}")
+        return {"fast": "small", "accurate": "large-v3"}[mode]
     return conf.get("model", "small").strip() or "small"
 
 

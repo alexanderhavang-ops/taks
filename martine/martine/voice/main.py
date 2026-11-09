@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 import signal
 import sys
 import time
@@ -131,7 +132,7 @@ def _process_segments(
             continue
 
         event = store.append_transcript_for_segment(
-            segment,
+            replace(segment, language=result.language),
             text=text,
         )
 

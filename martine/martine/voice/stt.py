@@ -44,10 +44,10 @@ class FasterWhisperTranscriber:
 
         try:
             self._write_wav(tmp_path, segment)
-            text = self._transcribe_wav(tmp_path)
+            text, language = self._transcribe_wav(tmp_path)
             return TranscriptionResult(
                 text=text,
-                language=self.cfg.language,
+                language=language,
                 duration_ms=segment.duration_ms,
             )
         finally:
@@ -56,16 +56,16 @@ class FasterWhisperTranscriber:
             except Exception:
                 pass
 
-    def _transcribe_wav(self, wav_path: Path) -> str:
+    def _transcribe_wav(self, wav_path: Path) -> tuple[str, str]:
         model = self._get_model()
 
-        segments, _info = model.transcribe(
+        segments, info = model.transcribe(
             str(wav_path),
-            language=self.cfg.language,
+            language=None if self.cfg.language == "auto" else self.cfg.language,
             task=self.cfg.task,
             initial_prompt=self._load_initial_prompt(),
             condition_on_previous_text=False,
-            beam_size=1,
+            beam_size=1 if self.cfg.voice_mode == "fast" else 5,
             vad_filter=False,
             word_timestamps=False,
         )
@@ -76,9 +76,12 @@ class FasterWhisperTranscriber:
             if t:
                 texts.append(t)
 
-        return _normalize_text(" ".join(texts))
+        return _normalize_text(" ".join(texts)), str(info.language)
 
     def _load_initial_prompt(self) -> str | None:
+        # The bundled vocabulary is Swedish; do not bias other languages.
+        if self.cfg.language != "sv":
+            return None
         if self._initial_prompt_loaded:
             return self._initial_prompt
 

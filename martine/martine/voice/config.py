@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 
 class ConfigError(RuntimeError):
@@ -51,6 +52,7 @@ class VoiceConfig:
     transcripts_dir: Path
     runs_dir: Path
     current_jsonl: Path
+    voice_mode: str = "fast"
 
 
 def load_voice_config(paths: VoiceConfigPaths | None = None) -> VoiceConfig:
@@ -64,7 +66,10 @@ def load_voice_config(paths: VoiceConfigPaths | None = None) -> VoiceConfig:
         )
 
     core = _read_kv_optional(paths.core_conf)
-    language = _normalize_language(core.get("language", "sv"), source=str(paths.core_conf))
+    language = _normalize_language(
+        voice.get("voice_language", core.get("language", "sv")),
+        source=str(paths.martine_voice_conf),
+    )
 
     host = _get_str(voice, "host", "127.0.0.1")
     port = _get_int(voice, "port", 64738, minimum=1)
@@ -72,7 +77,14 @@ def load_voice_config(paths: VoiceConfigPaths | None = None) -> VoiceConfig:
     username = _get_str(voice, "username", "martine-voice")
 
     provider = _get_str(voice, "provider", "faster_whisper")
-    model = _get_str(voice, "model", "small")
+    voice_mode = voice.get("voice_mode", "").strip().lower()
+    if voice_mode:
+        _validate_choice("voice_mode", voice_mode, {"fast", "accurate"})
+        model = {"fast": "small", "accurate": "large-v3"}[voice_mode]
+    else:
+        # Preserve model selection on existing installations.
+        model = _get_str(voice, "model", "small")
+        voice_mode = "accurate" if model == "large-v3" else "fast"
     task = _get_str(voice, "task", "transcribe")
     inter_threads = _get_int(voice, "inter_threads", 1, minimum=1)
     intra_threads = _get_int(voice, "intra_threads", 1, minimum=1)
@@ -136,6 +148,7 @@ def load_voice_config(paths: VoiceConfigPaths | None = None) -> VoiceConfig:
         transcripts_dir=transcripts_dir,
         runs_dir=runs_dir,
         current_jsonl=current_jsonl,
+        voice_mode=voice_mode,
     )
 
 
@@ -199,8 +212,14 @@ def _normalize_language(value: str, source: str) -> str:
     if v in mapping:
         return mapping[v]
 
+    if v == "auto":
+        return "auto"
+    code = v.split("_", 1)[0]
+    if re.fullmatch(r"[a-z]{2,3}", code):
+        return code
+
     raise ConfigError(
-        f"Unsupported martine voice language '{value}' from {source}; expected sv or en"
+        f"Unsupported martine voice language '{value}' from {source}; expected a Whisper language code or auto"
     )
 
 
