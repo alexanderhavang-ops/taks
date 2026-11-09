@@ -134,3 +134,11 @@ async def node_mcp(node_id: str, domain: str, request: Request):
     if not isinstance(result, dict) or result.get("jsonrpc") != "2.0" or result.get("id") != message["id"]:
         raise HTTPException(status_code=502, detail="Invalid node JSON-RPC response")
     return result
+
+
+@router.post("/nodes/{node_id}/marti/diagnostics")
+def marti_diagnostics(node_id: str, request: Request):
+    """Read registered node Marti status with its installer TAK administrator."""
+    require_operator(request)
+    from orchestrator_core.marti_admin import diagnose
+    return diagnose(node_id)

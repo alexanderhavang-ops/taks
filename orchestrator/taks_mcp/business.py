@@ -208,6 +208,13 @@ def register_taks_tools(mcp, api_call=call):
             "username": username, "email": email, "confirm_send": True})
 
     @mcp.tool()
+    def taks_node_marti_diagnostics(node_id: str) -> dict:
+        """Read live Marti sessions and enrollment status using the installer TAK admin."""
+        if not NODE_ID.fullmatch(node_id):
+            return {"ok": False, "error": "Invalid node ID"}
+        return api_call("POST", "/api/v2/nodes/" + node_id + "/marti/diagnostics", {})
+
+    @mcp.tool()
     def taks_node_health(node_id: str) -> dict:
         """Return the TAKS product-health checks for a registered node."""
         if not NODE_ID.fullmatch(node_id):
@@ -229,6 +236,7 @@ def register_taks_tools(mcp, api_call=call):
             listing = api_call("POST", path,
                                {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
             result["devops_mcp"] = {"tools_list": listing}
+            result["marti_admin"] = taks_node_marti_diagnostics(node_id)
             if isinstance(listing, dict) and isinstance(listing.get("result"), dict):
                 result["devops_mcp"]["host_identity"] = api_call(
                     "POST", path,
