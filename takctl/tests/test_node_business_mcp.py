@@ -97,7 +97,7 @@ class NodeBusinessMCPTests(unittest.TestCase):
         result = taks._surface(schema)
         self.assertEqual(result["paths"]["/api/onboarding/users/{username}/create"], ["POST"])
         with self.assertRaises(ValueError):
-            taks.call("api_surface", {"path_prefix": "http://example.com"})
+            taks._surface(schema, "http://example.com")
 
 
 if __name__ == "__main__":
