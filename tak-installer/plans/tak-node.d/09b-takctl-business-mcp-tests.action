@@ -1,1 +1,1 @@
-takctl-business-mcp-tests
+# Business MCP tests execute after node mTLS setup in install/install.sh
