@@ -155,7 +155,7 @@ async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final
         async with MCPServerStdio(
             name="Martine tools",
             cache_tools_list=True,
-            tool_filter=create_static_tool_filter(blocked_tool_names=["martine_offline_self_test"]),
+            tool_filter=create_static_tool_filter(blocked_tool_names=["martine_offline_self_test", "martine_live_inference_test"]),
             params=params,
             client_session_timeout_seconds=45,
         ) as mcp:
