@@ -315,7 +315,18 @@ def _bind_user_to_cert(cfg, sec, cert_pem_path: Path) -> None:
             append=False,
             remove=False,
         )
-        print(f"[tak-admin-identity] bind_user_to_cert noted LDAP cert path for {username}")
+        # LDAP authenticates the password, but TAK's LDAP/X509 authenticators
+        # obtain ROLE_ADMIN from FileAuthenticator's username/certificate record.
+        # employeeType=tak-admin alone does not grant Marti administrator access.
+        um = UserMgrService()
+        um.preflight()
+        um.user_set(
+            username, password=password, admin=True,
+            certificate_path=str(cert_pem_path),
+            groups=groups_rw or None, in_groups=groups_in or None,
+            out_groups=groups_out or None,
+        )
+        print(f"[tak-admin-identity] registered TAK admin role and LDAP cert for {username}")
         return
 
     _wait_for_usermgr_ready()
