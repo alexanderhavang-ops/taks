@@ -7,6 +7,7 @@ import secrets
 import string
 import subprocess
 import time
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from xml.sax.saxutils import escape
@@ -69,6 +70,25 @@ def _pkg_version() -> str:
     if p.returncode != 0:
         return ""
     return str(p.stdout or "").strip()
+
+
+REST_API_URL = "https://igniterealtime.org/projects/openfire/plugins/1.12.0/restAPI.jar"
+REST_API_SHA256 = "a1cd5b71437e5d6cd0bbf6a298537baa78f19a50f2104f4c1bb94595a350ccf6"
+
+
+def _ensure_rest_api_plugin():
+    target = Path("/usr/share/openfire/plugins/restAPI.jar")
+    if target.is_file() and hashlib.sha256(target.read_bytes()).hexdigest() == REST_API_SHA256:
+        return
+    request = urllib.request.Request(REST_API_URL)
+    with urllib.request.urlopen(request, timeout=45) as response:
+        data = response.read(20_000_001)
+    if len(data) > 20_000_000 or hashlib.sha256(data).hexdigest() != REST_API_SHA256:
+        raise RuntimeError("Openfire REST API plugin checksum mismatch")
+    cached = CACHE_DIR / "restAPI-1.12.0.jar"
+    cached.write_bytes(data)
+    _run(["sudo", "install", "-d", "-o", "openfire", "-g", "openfire", "-m", "0755", str(target.parent)])
+    _run(["sudo", "install", "-o", "openfire", "-g", "openfire", "-m", "0644", str(cached), str(target)])
 
 
 def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -326,6 +346,7 @@ def _cfg(ctx: Context) -> dict[str, str]:
         "fqdn": fqdn,
         "xmpp_client_cert_policy": xmpp_client_cert_policy,
         "backing_user_store": backing_user_store,
+        "takctl_admin_user": str(env.get("takctl_admin_user") or "admin"),
         "ldap_uri": ldap_uri,
         "ldap_base_dn": ldap_base_dn,
         "ldap_people_ou": ldap_people_ou,
@@ -432,6 +453,11 @@ admin_dn = str(cfg.get("ldap_service_account_dn") or f"cn=taksvc,ou=services,{ba
 admin_pw = str(cfg.get("ldap_service_account_password") or "").strip()
 
 props = {
+    "plugin.restapi.enabled": "true",
+    "plugin.restapi.httpAuth": "basic",
+    "plugin.restapi.allowedIPs": "127.0.0.1,::1",
+    "adminConsole.access.allow-wildcards-in-excludes": "true",
+    "admin.authorizedJIDs": str(cfg.get("takctl_admin_user") or "admin") + "@" + str(cfg.get("fqdn") or "localhost"),
     "provider.auth.className": "org.jivesoftware.openfire.ldap.LdapAuthProvider",
     "provider.user.className": "org.jivesoftware.openfire.ldap.LdapUserProvider",
     "provider.group.className": "org.jivesoftware.openfire.ldap.LdapGroupProvider",
@@ -630,6 +656,7 @@ import json
 import re
 import shutil
 import time
+import urllib.request
 
 db = Path("__DB_PATH__")
 log = db.with_name("openfire.log")
@@ -1270,6 +1297,7 @@ class _Action:
         setup_was_complete = _setup_complete()
 
         _run(["sudo", "systemctl", "stop", SERVICE], check=False)
+        _ensure_rest_api_plugin()
 
         if setup_was_complete:
             print("openfire_server.core: existing setup already complete, leaving openfire.xml as-is")

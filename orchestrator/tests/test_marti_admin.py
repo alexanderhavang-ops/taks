@@ -1,4 +1,3 @@
-import base64
 import io
 import json
 import unittest
@@ -13,6 +12,7 @@ class Response(io.BytesIO):
 
 class MartiAdminTests(unittest.TestCase):
     def setUp(self):
+        m._TOKENS.clear()
         self.node = patch.object(m, 'get_node', return_value={
             'fqdn': 'taklabs.example.com', 'unit_path': 'taklabs'}).start()
         self.bootstrap = patch.object(m, 'effective_bootstrap_for_bundle', return_value={
@@ -23,15 +23,17 @@ class MartiAdminTests(unittest.TestCase):
 
     def test_installer_admin_used_for_fixed_read_only_endpoints(self):
         def respond(request, **kwargs):
+            if request.full_url.endswith('/oauth/token'):
+                self.assertEqual(request.method, 'POST')
+                return Response(json.dumps({'access_token': 'TOKEN', 'token_type': 'Bearer', 'expires_in': 3600}).encode())
             self.assertEqual(request.method, 'GET')
             self.assertTrue(request.full_url.startswith('https://taklabs.example.com:8446/Marti/api/'))
-            self.assertEqual(request.get_header('Authorization'), 'Basic ' +
-                             base64.b64encode(b'takadmin:PRIVATE').decode())
+            self.assertEqual(request.get_header('Authorization'), 'Bearer TOKEN')
             return Response(json.dumps({'callsign': 'Alexander', 'password': 'PRIVATE'}).encode())
         self.opener.open.side_effect = respond
         result = m.diagnose('taklabs.example.com')
         self.assertTrue(result['ok'])
-        self.assertEqual(self.opener.open.call_count, 3)
+        self.assertEqual(self.opener.open.call_count, 4)
         self.assertNotIn('PRIVATE', json.dumps(result))
         self.assertEqual(result['checks']['subscriptions']['data']['callsign'], 'Alexander')
 
@@ -41,6 +43,7 @@ class MartiAdminTests(unittest.TestCase):
         self.opener.open.assert_not_called()
 
     def test_error_body_and_redirect_are_not_exposed(self):
+        m._TOKENS[('taklabs.example.com', 'takadmin', m.hashlib.sha256(b'PRIVATE').digest())] = ('TOKEN', m.time.monotonic() + 3600)
         self.opener.open.side_effect = urllib.error.HTTPError('https://example.com', 403,
             'PRIVATE', {}, io.BytesIO(b'PRIVATE'))
         result = m.diagnose('taklabs.example.com')

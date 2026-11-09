@@ -208,6 +208,25 @@ def register_taks_tools(mcp, api_call=call):
             "username": username, "email": email, "confirm_send": True})
 
     @mcp.tool()
+    def taks_node_service_read(node_id: str, service: str, operation: str, arguments: dict | None = None) -> dict:
+        """Read service-native LDAP, Mumble Ice or Openfire REST diagnostics."""
+        if service not in ("ldap", "mumble", "openfire"):
+            return {"ok": False, "error": "Unsupported service"}
+        return business_call(node_id, "service_read", {
+            "service": service, "operation": operation, "arguments": arguments or {}})
+
+    @mcp.tool()
+    def taks_node_service_write(node_id: str, service: str, operation: str,
+                               arguments: dict | None = None, confirm_write: bool = False) -> dict:
+        """Change LDAP memberships, Mumble channels or Openfire rooms after confirmation."""
+        if confirm_write is not True:
+            return {"ok": False, "confirmation_required": True}
+        if service not in ("ldap", "mumble", "openfire"):
+            return {"ok": False, "error": "Unsupported service"}
+        return business_call(node_id, "service_write", {
+            "service": service, "operation": operation, "arguments": arguments or {}, "confirm_write": True})
+
+    @mcp.tool()
     def taks_node_marti_diagnostics(node_id: str) -> dict:
         """Read live Marti sessions and enrollment status using the installer TAK admin."""
         if not NODE_ID.fullmatch(node_id):

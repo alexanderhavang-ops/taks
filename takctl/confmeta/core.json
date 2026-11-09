@@ -79,6 +79,13 @@
       "label": "TAK LDAP group name extractor regex",
       "type": "text",
       "default": "^cn=([^,]+),.*$"
+    },
+    {
+      "key": "ldap_admin_group",
+      "label": "LDAP Marti administrator group",
+      "type": "text",
+      "default": "TAKS_ADMIN",
+      "description": "LDAP group mapped to Marti ROLE_ADMIN for OAuth requests. Passwords remain in LDAP."
     }
   ],
   "secrets": [

@@ -27,10 +27,12 @@ def apply(ctx):
     if not PYTHON.is_file() or not (tests / "test_node_business_mcp.py").is_file():
         raise RuntimeError("TAKCTL Business MCP test runner or source missing")
     proc = subprocess.run(
-        [str(PYTHON), "-m", "unittest", "-v", "test_node_business_mcp"],
+        [str(PYTHON), "-m", "unittest", "-v", "test_node_business_mcp",
+         "test_marti_oauth", "test_ldap_admin_group", "test_live_marti_oauth", "test_admin_user_store_routing",
+         "test_business_services", "test_live_business_services"],
         cwd=str(tests),
-        env={**os.environ, "PYTHONPATH": str(RUNTIME)},
-        capture_output=True, text=True, timeout=90, check=False,
+        env={**os.environ, "PYTHONPATH": str(RUNTIME), "TAKS_MARTI_LIVE_TESTS": "1", "TAKS_SERVICE_LIVE_TESTS": "1"},
+        capture_output=True, text=True, timeout=180, check=False,
     )
     output = _redact((proc.stdout or "") + "\n" + (proc.stderr or ""))[-14000:]
     REPORT.write_text(

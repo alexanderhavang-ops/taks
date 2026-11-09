@@ -22,7 +22,16 @@ _STR = {"type": "string"}
 _USER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,180}\.[^@\s]{2,30}$")
 _FQDN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{2,250}$")
+_SERVICE = {"service": {"type": "string", "enum": ["ldap", "mumble", "openfire"]},
+            "operation": _STR, "arguments": {"type": "object"}}
 TOOLS = [
+    {"name": "service_read", "description": "Read LDAP users/groups, Mumble Ice channels/users, or Openfire REST sessions/rooms/occupants",
+     "inputSchema": {"type": "object", "properties": _SERVICE,
+                     "required": ["service", "operation"], "additionalProperties": False}},
+    {"name": "service_write", "description": "Write LDAP groups/memberships, Mumble channels, or Openfire rooms; requires confirmation",
+     "inputSchema": {"type": "object", "properties": {**_SERVICE, "confirm_write": {"type": "boolean"}},
+                     "required": ["service", "operation"], "additionalProperties": False}},
+    {"name": "marti_diagnostics", "description": "Read Marti sessions with LDAP-backed administrator OAuth", "inputSchema": _EMPTY},
     {"name": "runtime_status", "description": "Read TAKCTL runtime availability", "inputSchema": _EMPTY},
     {"name": "api_surface", "description": "Discover live TAKCTL OpenAPI routes (discovery, not permission to execute them)", "inputSchema": _SURFACE},
     {"name": "takctl_health", "description": "Read TAKCTL health over fixed loopback endpoint", "inputSchema": _EMPTY},
@@ -123,7 +132,14 @@ def call(name, args):
         return {"content": [{"type": "text", "text": json.dumps({
             "takctl_runtime": Path("/opt/tak/tools/takctl").is_dir(),
             "node_config": Path("/etc/taks/unit.json").is_file()})}]}
-    if name == "api_surface":
+    if name in ("service_read", "service_write"):
+        from takctl.services.business_services import call as service_call
+        result = service_call(args.get("service"), args.get("operation"), args.get("arguments", {}),
+            write=name == "service_write", confirm_write=args.get("confirm_write") is True)
+    elif name == "marti_diagnostics":
+        from takctl.services.marti_api import marti_json
+        result = marti_json("/Marti/api/subscriptions/all")
+    elif name == "api_surface":
         with urllib.request.urlopen(_LOOPBACK + "/openapi.json", timeout=5) as response:
             result = _surface(json.load(response), args.get("path_prefix", ""),
                               args.get("include_details", False))

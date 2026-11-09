@@ -129,7 +129,7 @@ render_auth_block() {
     ldap|ldap_local|openldap)
       local uri base people groups services service_dn service_pw user_string update_interval
       local people_base tak_ldap_url tak_userstring
-      local group_object_class group_name_attr group_member_attr group_regex
+      local group_object_class group_name_attr group_member_attr group_regex admin_group
       uri="$(cfg_value ldap_uri ldap://127.0.0.1:389)"
       base="$(cfg_value ldap_base_dn dc=taks,dc=local)"
       people="$(cfg_value ldap_people_ou people)"
@@ -162,6 +162,7 @@ render_auth_block() {
       group_name_attr="$(cfg_value ldap_group_name_attr cn)"
       group_member_attr="$(cfg_value ldap_group_member_attr member)"
       group_regex="$(cfg_value ldap_group_name_extractor_regex '^cn=([^,]+)(?:,.*)?$')"
+      admin_group="$(cfg_value ldap_admin_group TAKS_ADMIN)"
       x509_group_cache_default_active="$(cfg_value x509_use_group_cache_default_active true)"
       x509_group_cache_default_updates_active="$(cfg_value x509_use_group_cache_default_updates_active true)"
 
@@ -175,6 +176,7 @@ render_auth_block() {
         x509UseGroupCacheDefaultUpdatesActive="$(xml_attr "$x509_group_cache_default_updates_active")">
         <ldap
             style="DS"
+            adminGroup="$(xml_attr "$admin_group")"
             x509Groups="true"
             url="$(xml_attr "$tak_ldap_url")"
             userstring="$(xml_attr "$tak_userstring")"

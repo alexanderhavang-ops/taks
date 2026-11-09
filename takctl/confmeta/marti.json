@@ -10,13 +10,13 @@
     "marti_api_username": {
       "type": "string",
       "default": "taks-api",
-      "doc": "TAKS service user for Marti OAuth login",
+      "doc": "Deprecated: administrative OAuth uses takctl_admin_user.",
       "secret": true
     },
     "marti_api_password": {
       "type": "string",
       "default": "",
-      "doc": "TAKS service user password for Marti OAuth login",
+      "doc": "Deprecated: administrative OAuth uses the canonical takctl_admin_password; do not duplicate it here.",
       "secret": true
     }
   }

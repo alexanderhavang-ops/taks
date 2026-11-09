@@ -4,7 +4,8 @@ from typing import Any
 
 import requests
 
-from takctl.services.marti_api import _base_url, get_auth_header
+from takctl.services.marti_api import marti_request
+from takctl.services.backing_user_store import build_backing_user_store, selected_backing_user_store
 
 
 def _json_or_text(r: requests.Response) -> Any:
@@ -15,35 +16,11 @@ def _json_or_text(r: requests.Response) -> Any:
 
 
 def _request(method: str, path: str, *, json_body: dict | None = None, timeout: int = 20) -> Any:
-    base = _base_url()
-    url = f"{base}/" + str(path or "").lstrip("/")
-    hdr = dict(get_auth_header())
-    hdr["Accept"] = "application/json"
-
-    r = requests.request(
-        method=method.upper(),
-        url=url,
-        headers=hdr,
-        json=json_body,
-        timeout=timeout,
-        verify=False,
-    )
-
-    if r.status_code in (401, 403):
-        hdr = dict(get_auth_header(force_refresh=True))
-        hdr["Accept"] = "application/json"
-        r = requests.request(
-            method=method.upper(),
-            url=url,
-            headers=hdr,
-            json=json_body,
-            timeout=timeout,
-            verify=False,
-        )
+    r = marti_request(method, path, json_body=json_body, timeout=timeout)
 
     data = _json_or_text(r)
     if not r.ok:
-        raise RuntimeError(f"Marti {method.upper()} {path} failed: HTTP {r.status_code}: {data}")
+        raise RuntimeError(f"Marti {method.upper()} request failed: HTTP {r.status_code}")
     return data
 
 
@@ -55,6 +32,10 @@ def create_or_update_user(
     group_list_in: list[str] | None = None,
     group_list_out: list[str] | None = None,
 ) -> Any:
+    if selected_backing_user_store() == "ldap":
+        build_backing_user_store("ldap").ensure_user(username, password=password,
+            groups=group_list, in_groups=group_list_in, out_groups=group_list_out)
+        return {"ok": True, "username": username, "backing_user_store": "ldap"}
     return _request(
         "POST",
         "/user-management/api/new-user",
@@ -69,6 +50,9 @@ def create_or_update_user(
 
 
 def change_user_password(*, username: str, password: str) -> Any:
+    if selected_backing_user_store() == "ldap":
+        build_backing_user_store("ldap").ensure_user(username, password=password, append=True)
+        return {"ok": True, "username": username, "backing_user_store": "ldap"}
     return _request(
         "PUT",
         "/user-management/api/change-user-password",
@@ -86,6 +70,10 @@ def update_groups(
     group_list_in: list[str] | None = None,
     group_list_out: list[str] | None = None,
 ) -> Any:
+    if selected_backing_user_store() == "ldap":
+        build_backing_user_store("ldap").ensure_user(username,
+            groups=group_list, in_groups=group_list_in, out_groups=group_list_out)
+        return {"ok": True, "username": username, "backing_user_store": "ldap"}
     return _request(
         "PUT",
         "/user-management/api/update-groups",
@@ -99,6 +87,9 @@ def update_groups(
 
 
 def delete_user(*, username: str) -> Any:
+    if selected_backing_user_store() == "ldap":
+        build_backing_user_store("ldap").delete_user(username)
+        return {"ok": True, "username": username, "backing_user_store": "ldap"}
     return _request(
         "DELETE",
         f"/user-management/api/delete-user/{username}",

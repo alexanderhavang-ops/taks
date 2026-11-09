@@ -68,7 +68,7 @@ async def node_mcp(node_id: str, domain: str, request: Request):
             "netstat_listeners", "lsof_tak_java",
         }
         safe_business = {
-            "runtime_status", "api_surface", "takctl_health",
+            "runtime_status", "api_surface", "takctl_health", "marti_diagnostics", "service_read", "service_write",
             "onboarding_user_create", "onboarding_send_invite",
         }
         allowed = safe_devops if domain == "devops" else safe_business

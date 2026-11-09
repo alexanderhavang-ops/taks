@@ -970,6 +970,10 @@ class _Action:
 
             server_password = _ensure_secret_file()
             ice_secret = _ensure_hex_secret(ICE_SECRET_FILE)
+            # The authenticated Business MCP uses the same canonical Ice secret.
+            _run(["sudo", "chown", "root:tak", str(ETC_TAKS_DIR), str(ICE_SECRET_FILE)], check=True)
+            _run(["sudo", "chmod", "0750", str(ETC_TAKS_DIR)], check=True)
+            _run(["sudo", "chmod", "0640", str(ICE_SECRET_FILE)], check=True)
             _ensure_service_password_file(server_password)
             _install_tls_material(lineage)
 
