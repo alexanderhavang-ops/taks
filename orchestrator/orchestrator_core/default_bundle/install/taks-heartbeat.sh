@@ -214,7 +214,7 @@ def parse_install_log(path: str):
     running_steps = sum(1 for s in leaf_steps if s.get("state") == "running")
     incomplete_steps = sum(1 for s in leaf_steps if s.get("state") == "incomplete")
 
-    if failed_steps:
+    if failed_steps or main_status.strip().lower() == "failed":
         summary_state = "failed"
     elif main_succeeded and incomplete_steps:
         summary_state = "completed_with_warnings"

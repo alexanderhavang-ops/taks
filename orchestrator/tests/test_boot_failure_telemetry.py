@@ -21,11 +21,12 @@ class BootFailureTelemetryTests(unittest.TestCase):
             return real_open(path, *args, **kwargs)
         with tempfile.TemporaryDirectory() as tmp:
             events = Path(tmp) / 'events'
-            events.write_text('install/main,2026-11-09T17:00:00Z,Failed\n')
+            events.write_text('takserver,2026-11-09T16:59:00Z,Started\ninstall/main,2026-11-09T17:00:00Z,Failed\n')
             output = io.StringIO()
             with patch.dict(os.environ, {'INSTALL_STATE_LOG': str(events), 'NODE_HEALTH_JSON': '/nonexistent'}), patch('builtins.open', side_effect=fake_open), patch.object(Path, 'glob', return_value=[SimpleNamespace(read_text=lambda: 'api_key=' + secret)]), contextlib.redirect_stdout(output):
                 exec(compile(python, '<heartbeat>', 'exec'), {})
             result = json.loads(output.getvalue())
+            self.assertEqual(result['install']['summary']['state'], 'failed')
             tail = result['install']['diagnostics']['tail']
             self.assertIn('Traceback: decoder failed', tail)
             self.assertNotIn(secret, tail)

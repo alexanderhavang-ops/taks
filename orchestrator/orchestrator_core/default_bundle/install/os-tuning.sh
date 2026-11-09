@@ -14,6 +14,9 @@ if [ "$(id -u)" -ne 0 ]; then
   fail "must run as root"
 fi
 
+# Retry transient package mirror failures during fresh-node provisioning.
+printf 'Acquire::Retries "3";\n' > /etc/apt/apt.conf.d/80-taks-retries
+
 SWAPFILE="/swapfile"
 SWAPSIZE_MIB="${SWAPSIZE_MIB:-4096}"
 

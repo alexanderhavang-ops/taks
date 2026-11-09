@@ -45,7 +45,7 @@ ensure_pgdg_repo_if_needed() {
   apt-get update -y
   apt-get install -y ca-certificates curl gnupg postgresql-common lsb-release
   install -d /usr/share/postgresql-common/pgdg
-  curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 --retry-max-time 180 --connect-timeout 15 --max-time 60 -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
     https://www.postgresql.org/media/keys/ACCC4CF8.asc
   . /etc/os-release
   printf 'deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt %s-pgdg main\n' "$VERSION_CODENAME" \
