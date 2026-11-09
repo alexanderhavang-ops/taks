@@ -138,7 +138,11 @@ def call(name, args):
             write=name == "service_write", confirm_write=args.get("confirm_write") is True)
     elif name == "marti_diagnostics":
         from takctl.services.marti_api import marti_json
-        result = marti_json("/Marti/api/subscriptions/all")
+        try:
+            result = {"ok": True, "inputs": marti_json("/Marti/api/inputs"),
+                      "subscriptions": marti_json("/Marti/api/subscriptions/all")}
+        except RuntimeError:
+            result = {"ok": False, "error": "Marti OAuth administrator request failed"}
     elif name == "api_surface":
         with urllib.request.urlopen(_LOOPBACK + "/openapi.json", timeout=5) as response:
             result = _surface(json.load(response), args.get("path_prefix", ""),

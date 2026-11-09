@@ -10,19 +10,19 @@ from takctl.services import marti_api as m
 
 @unittest.skipUnless(os.environ.get('TAKS_MARTI_LIVE_TESTS') == '1', 'requires installed TAK node')
 class LiveMartiOAuthTests(unittest.TestCase):
-    def test_installer_admin_can_read_live_marti_sessions(self):
-        response = m.marti_get('/Marti/api/subscriptions/all', force_refresh=True)
-        self.assertEqual(response.status_code, 200, 'LDAP OAuth admin cannot read Marti sessions')
+    def test_installer_admin_can_read_protected_marti_inputs(self):
+        response = m.marti_get('/Marti/api/inputs', force_refresh=True)
+        self.assertEqual(response.status_code, 200, 'LDAP OAuth admin cannot read protected Marti inputs')
         response.json()
 
-    def test_martine_identity_cannot_read_admin_sessions(self):
+    def test_martine_identity_cannot_read_protected_marti_inputs(self):
         cfg, sec = load_config(), load_secrets()
         user = str(cfg.get('martine_username', 'martine') or 'martine')
         password = str(sec.get('martine_user_password', '') or '')
         self.assertTrue(password, 'Missing ordinary Martine LDAP credential')
         try:
             with patch.object(m, '_credentials', return_value=(user, password)):
-                response = m.marti_get('/Marti/api/subscriptions/all', force_refresh=True)
+                response = m.marti_get('/Marti/api/inputs', force_refresh=True)
             self.assertEqual(response.status_code, 403, 'Ordinary Martine identity has administrator access')
         finally:
             m._TOKEN_CACHE = m._TokenCache()

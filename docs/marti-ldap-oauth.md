@@ -12,7 +12,7 @@ Martine currently uploads/reads mission packages and sends CoT with her own non-
 
 ## Validation
 
-The post-install Business MCP gate runs offline OAuth/group tests and three live checks: administrator session-list access returns 200, ordinary Martine session-list access returns 403, and the administrator has no XML password copy. A failure aborts installation.
+The post-install Business MCP gate runs offline OAuth/group tests and three live checks: administrator access to ROLE_ADMIN-protected `/Marti/api/inputs` returns 200, ordinary Martine access to that same endpoint returns 403, and the administrator has no XML password copy. A failure aborts installation.
 
 ## Deployment
 
@@ -23,3 +23,5 @@ The orchestrator runtime and bundle source are separate deployments. Updating th
 The current middle QR resolves to a ZIP containing `certs/config.pref` and `certs/caCert.p12`, with enrollment enabled and a connection-specific truststore password. It contains no client certificate or embedded LDAP login credentials. Both PKCS#12 files parse; the hybrid enrollment truststore includes the internal TAK CA and public TLS chain. The existing package checker incorrectly warns about a missing unindexed `caPassword` when the valid connection-specific key is `caPassword0`.
 
 Node logs confirmed Alexander's successful LDAP enrollment and subsequent CoT subscription. Enrollment configuration returned 200 using his credentials. These observations do not prove the Android ZIP importer completed enrollment. Capture ATAK-side ImportCertSort, PreferenceControl, CertificateEnrollmentClient and CertificateConfigOperation logs during a failing ZIP import. Do not infer a server failure merely from the red connection indicator, or treat an HTTPS request through an egress proxy as proof that the handset trusts the ZIP's CA chain.
+
+Reading `/Marti/api/subscriptions/all` alone is not proof of administrator privileges: TAK permits authenticated non-admin access to that endpoint. Administrator diagnostics must check a ROLE_ADMIN-protected endpoint such as `/Marti/api/inputs`.

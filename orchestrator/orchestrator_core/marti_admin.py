@@ -17,7 +17,8 @@ NODE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 FQDN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{0,251}[A-Za-z0-9]$")
 PATHS = {
     "subscriptions": "/Marti/api/subscriptions/all",
-    "version": "/Marti/api/server/version",
+    "version": "/Marti/api/version",
+    "admin_authorization": "/Marti/api/inputs",
     "enrollment": "/Marti/api/tls/config",
 }
 LIMIT = 1_048_576
@@ -136,6 +137,6 @@ def diagnose(node_id):
             checks[name] = {"ok": False, "http_status": exc.code}
         except (OSError, ValueError):
             checks[name] = {"ok": False, "error": "Marti connection failed"}
-    return {"ok": checks.get("subscriptions", {}).get("ok", False), "node_id": node_id,
+    return {"ok": checks.get("admin_authorization", {}).get("ok", False), "node_id": node_id,
             "admin_user": username, "credential_source": "installer takctl_admin_password", "authentication": "oauth",
             "checks": checks}

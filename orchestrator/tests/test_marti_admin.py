@@ -33,9 +33,22 @@ class MartiAdminTests(unittest.TestCase):
         self.opener.open.side_effect = respond
         result = m.diagnose('taklabs.example.com')
         self.assertTrue(result['ok'])
-        self.assertEqual(self.opener.open.call_count, 4)
+        self.assertEqual(self.opener.open.call_count, 5)
         self.assertNotIn('PRIVATE', json.dumps(result))
         self.assertEqual(result['checks']['subscriptions']['data']['callsign'], 'Alexander')
+
+    def test_readable_sessions_alone_do_not_prove_admin_access(self):
+        def respond(request, **kwargs):
+            if request.full_url.endswith('/oauth/token'):
+                return Response(json.dumps({'access_token': 'TOKEN', 'expires_in': 3600}).encode())
+            if request.full_url.endswith('/Marti/api/inputs'):
+                raise urllib.error.HTTPError(request.full_url, 403, '', {}, io.BytesIO())
+            return Response(b'{}')
+        self.opener.open.side_effect = respond
+        result = m.diagnose('taklabs.example.com')
+        self.assertTrue(result['checks']['subscriptions']['ok'])
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['checks']['admin_authorization']['http_status'], 403)
 
     def test_missing_admin_secret_does_not_try_network(self):
         self.bootstrap.return_value = {'conf_d': {}, 'secrets_d': {}}
