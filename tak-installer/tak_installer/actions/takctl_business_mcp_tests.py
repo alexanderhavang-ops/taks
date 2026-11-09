@@ -1,6 +1,7 @@
 """Fail node provisioning if Business MCP permissions or redaction regress."""
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 from tak_installer.util import log
@@ -14,10 +15,9 @@ def apply(ctx):
     if not PYTHON.is_file() or not (tests / "test_node_business_mcp.py").is_file():
         raise RuntimeError("TAKCTL Business MCP regression files missing")
     proc = subprocess.run(
-        ["sudo", "-u", "tak", "env",
-         f"PYTHONPATH={RUNTIME}",
-         str(PYTHON), "-m", "unittest", "-v", "test_node_business_mcp"],
-        cwd=str(tests), capture_output=True, text=True, timeout=90, check=False)
+        [str(PYTHON), "-m", "unittest", "-v", "test_node_business_mcp"],
+        cwd=str(tests), env={**os.environ, "PYTHONPATH": str(RUNTIME)},
+        capture_output=True, text=True, timeout=90, check=False)
     statuses = [
         line.strip()[:180] for line in proc.stderr.splitlines()
         if line.startswith("test_") or line.startswith("Ran ") or line.strip() == "OK"
