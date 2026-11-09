@@ -18,7 +18,7 @@ _SURFACE = {"type": "object", "properties": {
 }, "additionalProperties": False}
 _STR = {"type": "string"}
 _USER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
-_EMAIL = re.compile(r"^[^@\\s]{1,64}@[^@\\s]{1,180}\\.[^@\\s]{2,30}$")
+_EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,180}\.[^@\s]{2,30}$")
 _FQDN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.-]{2,250}$")
 TOOLS = [
     {"name": "runtime_status", "description": "Read TAKCTL runtime availability", "inputSchema": _EMPTY},
