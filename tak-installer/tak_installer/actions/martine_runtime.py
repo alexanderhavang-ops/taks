@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import hashlib
+import tempfile
 import subprocess
 from pathlib import Path
 
@@ -161,10 +162,39 @@ print(f"OK prefetched {repo_id} -> {local_dir}")
     )
 
 
-def _ensure_venv(pymumble_wheel: Path) -> None:
-    expected = "2fd030d982ef3a2f84d180fe5f5e544087b0a8f82200e2054057d567426bccbe"
-    if hashlib.sha256(pymumble_wheel.read_bytes()).hexdigest() != expected:
+PYMUMBLE_WHEEL_SHA256 = "2fd030d982ef3a2f84d180fe5f5e544087b0a8f82200e2054057d567426bccbe"
+WHEEL_CACHE_ROOT = Path("/var/cache/taks-wheels")
+
+
+def _stage_pymumble_wheel(source: Path) -> Path:
+    data = source.read_bytes()
+    if hashlib.sha256(data).hexdigest() != PYMUMBLE_WHEEL_SHA256:
         raise RuntimeError("Bundled PyMumble wheel checksum mismatch")
+    # The bootstrap tree contains secrets and stays root-private. Stage this
+    # public artifact separately so the unprivileged pip process can read it.
+    cache = WHEEL_CACHE_ROOT
+    if cache.is_symlink():
+        raise RuntimeError("Wheel cache must not be a symlink")
+    cache.mkdir(mode=0o750, parents=True, exist_ok=True)
+    shutil.chown(cache, "root", "tak")
+    cache.chmod(0o750)
+    staged = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=cache, delete=False) as output:
+            output.write(data)
+            staged = Path(output.name)
+        shutil.chown(staged, "root", "tak")
+        staged.chmod(0o640)
+        destination = cache / source.name
+        staged.replace(destination)
+        return destination
+    finally:
+        if staged is not None:
+            staged.unlink(missing_ok=True)
+
+
+def _ensure_venv(pymumble_wheel: Path) -> None:
+    pymumble_wheel = _stage_pymumble_wheel(pymumble_wheel)
     venv_py = DST_MARTINE_VENV / "bin" / "python"
 
     if not venv_py.exists():

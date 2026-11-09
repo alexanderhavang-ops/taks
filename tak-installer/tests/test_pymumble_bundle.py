@@ -2,6 +2,7 @@ import hashlib
 import importlib.util
 from pathlib import Path
 import sys
+import tempfile
 import tarfile
 import unittest
 from unittest.mock import patch
@@ -34,6 +35,20 @@ class PyMumbleBundleTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'checksum mismatch'):
                 module._ensure_venv(wheel)
             run.assert_not_called()
+
+    def test_root_private_source_is_staged_with_tak_readable_permissions(self):
+        sys.path.insert(0, str(ROOT / 'tak-installer'))
+        spec = importlib.util.spec_from_file_location('martine_runtime_stage_test', ROOT / 'tak-installer/tak_installer/actions/martine_runtime.py')
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        source = VENDOR / 'pymumble-1.6.1-py3-none-any.whl'
+        with tempfile.TemporaryDirectory() as tmp, patch.object(module, 'WHEEL_CACHE_ROOT', Path(tmp) / 'wheels'), patch.object(module.shutil, 'chown') as chown:
+            target = module._stage_pymumble_wheel(source)
+            self.assertEqual(target.read_bytes(), source.read_bytes())
+            self.assertEqual(target.stat().st_mode & 0o777, 0o640)
+            self.assertEqual(target.parent.stat().st_mode & 0o777, 0o750)
+            self.assertTrue(all(call.args[1:] == ('root', 'tak') for call in chown.call_args_list))
+            self.assertEqual(len(list(target.parent.iterdir())), 1)
 
 
 if __name__ == '__main__':
