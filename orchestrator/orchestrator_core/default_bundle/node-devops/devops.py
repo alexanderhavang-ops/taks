@@ -331,7 +331,12 @@ def _invoke(name, args):
     if name == "takserver_readiness":
         return _takserver_readiness()
     if name == "installer_tail":
-        return _tail("/var/log/taks-installer-state.log", _lines(args.get("lines", 40)))
+        lines = _lines(args.get("lines", 40))
+        result = _tail("/var/log/taks-installer-state.log", lines)
+        # Fixed allowlisted test log; no arbitrary file/path arguments.
+        report = _tail("/var/log/taks-business-mcp-tests.log", min(lines, 50))
+        result["business_mcp_test_report"] = report
+        return result
     raise ValueError("Unknown DevOps tool")
 
 def call(name, args):
