@@ -122,6 +122,8 @@ from __future__ import annotations
 import csv
 import json
 import os
+import re
+from pathlib import Path
 from collections import OrderedDict
 
 
@@ -286,6 +288,25 @@ payload = {
 install = parse_install_log(os.environ.get("INSTALL_STATE_LOG", ""))
 if install is not None:
     payload["install"] = install
+    if (install.get("summary") or {}).get("failed_steps", 0):
+        try:
+            with open("/var/log/cloud-init-output.log", "rb") as log:
+                log.seek(0, 2)
+                log.seek(max(0, log.tell() - 24000))
+                tail = log.read().decode("utf-8", errors="replace")
+            # Never send known bootstrap/runtime secrets in failure diagnostics.
+            for directory in (Path("/etc/taks-bootstrap.d/secrets.d"), Path("/opt/tak/tools/takctl/secrets.d")):
+                for secret_file in directory.glob("*.conf"):
+                    for line in secret_file.read_text().splitlines():
+                        if "=" in line and not line.lstrip().startswith("#"):
+                            value = line.split("=", 1)[1].strip().strip("\"'")
+                            if len(value) >= 6:
+                                tail = tail.replace(value, "[REDACTED]")
+            tail = re.sub(r"(?im)((?:password|passwd|secret|token|api[_-]?key)\s*[=:]\s*)[^\s,;]+", r"\1[REDACTED]", tail)
+            tail = re.sub(r"(?is)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----", "[PRIVATE KEY REDACTED]", tail)
+            install["diagnostics"] = {"source": "cloud-init-output.log", "tail": tail[-24000:]}
+        except OSError as error:
+            install["diagnostics"] = {"error": type(error).__name__}
 
 node_health = load_node_health(os.environ.get("NODE_HEALTH_JSON", ""))
 if node_health is not None:
