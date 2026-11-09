@@ -1,32 +1,51 @@
-"""Fail node provisioning if Business MCP permissions or redaction regress."""
+"""Run TAKCTL Business MCP permission tests, retaining bounded diagnostic output."""
 from __future__ import annotations
 
 import os
+import re
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
+
 from tak_installer.util import log
 
 RUNTIME = Path("/opt/tak/tools/takctl")
 PYTHON = RUNTIME / ".venv" / "bin" / "python"
+REPORT = Path("/var/log/taks-business-mcp-tests.log")
+
+
+def _redact(value: str) -> str:
+    return re.sub(
+        r"(?i)(password|secret|api[_-]?key|token)(\\s*[:=]\\s*)\\S+",
+        r"\\1\\2[REDACTED]", value,
+    )
 
 
 def apply(ctx):
     tests = Path(ctx.repo_root) / "takctl" / "tests"
     if not PYTHON.is_file() or not (tests / "test_node_business_mcp.py").is_file():
-        raise RuntimeError("TAKCTL Business MCP regression files missing")
+        raise RuntimeError("TAKCTL Business MCP test runner or source missing")
     proc = subprocess.run(
         [str(PYTHON), "-m", "unittest", "-v", "test_node_business_mcp"],
-        cwd=str(tests), env={**os.environ, "PYTHONPATH": str(RUNTIME)},
-        capture_output=True, text=True, timeout=90, check=False)
+        cwd=str(tests),
+        env={**os.environ, "PYTHONPATH": str(RUNTIME)},
+        capture_output=True, text=True, timeout=90, check=False,
+    )
+    output = _redact((proc.stdout or "") + "\n" + (proc.stderr or ""))[-14000:]
+    REPORT.write_text(
+        f"timestamp={datetime.now(timezone.utc).isoformat()} exit_code={proc.returncode}\n"
+        + output, encoding="utf-8",
+    )
+    REPORT.chmod(0o640)
     statuses = [
-        line.strip()[:180] for line in proc.stderr.splitlines()
+        line.strip()[:180] for line in output.splitlines()
         if line.startswith("test_") or line.startswith("Ran ") or line.strip() == "OK"
-        or line.startswith("FAILED (")
+        or line.startswith(("FAILED (", "ERROR:", "ImportError:", "ModuleNotFoundError:"))
     ]
     log.info("takctl-business-mcp-tests: exit=%s cases=%s", proc.returncode, statuses)
+    print("Business MCP regression: exit=%s; %s" % (proc.returncode, " | ".join(statuses[-8:])))
     if proc.returncode:
-        # Detailed traceback stays in installer log, not the public MCP response.
-        raise RuntimeError("TAKCTL Business MCP regression suite failed")
+        raise RuntimeError("Business MCP test failures: node DevOps installer_tail includes the bounded report")
 
 
 class _Action:
