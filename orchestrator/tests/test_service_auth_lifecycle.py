@@ -1,7 +1,7 @@
 """Verify scoped MCP authentication exposes the four node lifecycle routes."""
 import unittest
 
-from orchestrator_api.service_auth import LIFECYCLE, NODE_DEVOPS_PROBE
+from orchestrator_api.service_auth import LIFECYCLE, NODE_DEVOPS_PROBE, NODE_TAKS_PROBE
 
 
 class ServiceAuthLifecycleTests(unittest.TestCase):
@@ -23,6 +23,14 @@ class ServiceAuthLifecycleTests(unittest.TestCase):
             "/api/v2/nodes/taklabs/mcp/taks"))
         self.assertIsNone(NODE_DEVOPS_PROBE.fullmatch(
             "/api/v2/nodes/../mcp/devops"))
+
+    def test_business_bridge_route_is_scoped(self):
+        self.assertIsNotNone(NODE_TAKS_PROBE.fullmatch(
+            "/api/v2/nodes/taklabs.aws.tak-hv-sandbox.se/mcp/taks"))
+        self.assertIsNone(NODE_TAKS_PROBE.fullmatch(
+            "/api/v2/nodes/../mcp/taks"))
+        self.assertIsNone(NODE_TAKS_PROBE.fullmatch(
+            "/api/v2/nodes/taklabs/mcp/taks/extra"))
 
     def test_unrelated_mutations_not_allowed(self):
         for path in ("/api/v2/nodes/taklabs/delete",
