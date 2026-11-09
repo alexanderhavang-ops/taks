@@ -21,7 +21,8 @@ def call(method, path, data=None):
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(BASE + path, method=method, headers=headers,
                                          data=json.dumps(data).encode() if data is not None else None)
-        with urllib.request.urlopen(request, timeout=110 if path.endswith("/launch") else 25) as response:
+        timeout = 240 if path.endswith(("/launch", "/bundles/build", "/bundles/readiness")) else 25
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read(2_000_000))
     except (OSError, ValueError, urllib.error.URLError, TimeoutError) as exc:
         return {"ok": False, "error": type(exc).__name__}

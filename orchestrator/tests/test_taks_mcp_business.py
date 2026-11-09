@@ -184,3 +184,15 @@ class BusinessTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BusinessTimeoutTests(unittest.TestCase):
+    def test_bundle_and_launch_requests_allow_long_operations(self):
+        from unittest.mock import patch, MagicMock
+        from taks_mcp import business
+        for path, timeout in [("/api/v2/bundles/build", 240), ("/api/v2/bundles/readiness", 240), ("/api/v2/nodes/launch", 240), ("/api/v2/nodes", 25)]:
+            response = MagicMock()
+            response.__enter__.return_value.read.return_value = b'{"ok":true}'
+            with self.subTest(path=path), patch.object(business.TOKEN_FILE.__class__, "read_text", return_value="test-service-token"), patch.object(business.urllib.request, "urlopen", return_value=response) as request:
+                self.assertTrue(business.call("POST", path, {})["ok"])
+                self.assertEqual(request.call_args.kwargs["timeout"], timeout)
