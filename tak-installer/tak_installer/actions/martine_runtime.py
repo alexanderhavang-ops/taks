@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import hashlib
 import subprocess
 from pathlib import Path
 
@@ -160,7 +161,10 @@ print(f"OK prefetched {repo_id} -> {local_dir}")
     )
 
 
-def _ensure_venv() -> None:
+def _ensure_venv(pymumble_wheel: Path) -> None:
+    expected = "2fd030d982ef3a2f84d180fe5f5e544087b0a8f82200e2054057d567426bccbe"
+    if hashlib.sha256(pymumble_wheel.read_bytes()).hexdigest() != expected:
+        raise RuntimeError("Bundled PyMumble wheel checksum mismatch")
     venv_py = DST_MARTINE_VENV / "bin" / "python"
 
     if not venv_py.exists():
@@ -183,7 +187,7 @@ def _ensure_venv() -> None:
             "boto3",
             "psycopg2-binary",
             "fastembed",
-            "pymumble",
+            str(pymumble_wheel),
             "slixmpp",
             # faster-whisper 1.2.1 passes metadata_errors to av.open();
             # PyAV 19 removed that argument. Keep the decoder pair compatible.
@@ -248,7 +252,7 @@ def apply(ctx) -> None:
 
     _ensure_runtime_dirs()
     _fix_runtime_perms()
-    _ensure_venv()
+    _ensure_venv(src_martine_root / "vendor/pymumble/pymumble-1.6.1-py3-none-any.whl")
 
     log.info("martine-runtime: ready")
 
