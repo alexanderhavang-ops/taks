@@ -180,13 +180,42 @@ def _ensure_venv() -> None:
             "fastembed",
             "pymumble",
             "slixmpp",
-            "faster-whisper",
+            # faster-whisper 1.2.1 passes metadata_errors to av.open();
+            # PyAV 19 removed that argument. Keep the decoder pair compatible.
+            "faster-whisper==1.2.1",
+            "av==18.0.0",
             "ctranslate2",
         ],
         check=True,
     )
 
+    _verify_voice_decoder(venv_py)
     _ensure_prefetched_models(venv_py)
+
+
+def _verify_voice_decoder(venv_py: Path) -> None:
+    """Exercise the real decoder without downloading or loading a model."""
+    script = r'''
+import io
+import wave
+from faster_whisper.audio import decode_audio
+
+audio = io.BytesIO()
+with wave.open(audio, "wb") as wav:
+    wav.setnchannels(1)
+    wav.setsampwidth(2)
+    wav.setframerate(48000)
+    wav.writeframes(b"\x00\x00" * 4800)
+audio.seek(0)
+decoded = decode_audio(audio, sampling_rate=16000)
+if decoded.shape != (1600,):
+    raise RuntimeError(f"Unexpected voice decoder output: {decoded.shape}")
+print("OK voice decoder: 48 kHz PCM to 16 kHz Whisper audio")
+'''
+    subprocess.run(
+        ["sudo", "-u", "tak", str(venv_py), "-c", script],
+        check=True,
+    )
 
 
 def apply(ctx) -> None:
