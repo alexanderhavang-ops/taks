@@ -997,3 +997,32 @@ def nodes_heartbeat(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 # ----------------------------
 # Units: simple file-backed org tree (operator auth)
 # ----------------------------
+
+
+@router.get('/nodes/{node_id}/console')
+def node_boot_console(node_id: str, request: Request) -> Dict[str, Any]:
+    """Bounded EC2 boot diagnostics, available before the node MCP starts."""
+    require_operator(request)
+    import boto3
+    from botocore.exceptions import ClientError
+    record = get_node(node_id)
+    if not isinstance(record, dict) or not record:
+        raise HTTPException(status_code=404, detail='Node not found')
+    instance_id = str(record.get('instance_id') or record.get('aws_instance_id') or '')
+    if not re.fullmatch(r'i-[0-9a-f]{8,17}', instance_id):
+        raise HTTPException(status_code=409, detail='Node has no valid EC2 instance')
+    region = str(record.get('region') or load_orch_config().aws.region)
+    try:
+        response = boto3.client('ec2', region_name=region).get_console_output(InstanceId=instance_id, Latest=True)
+    except ClientError as error:
+        raise HTTPException(status_code=502, detail='EC2 console: ' + error.response['Error']['Code']) from error
+    encoded = str(response.get('Output') or '')
+    try:
+        output = base64.b64decode(encoded, validate=True).decode('utf-8', errors='replace')
+    except (ValueError, UnicodeError):
+        output = encoded
+    output = output[-131072:]
+    # Console logs may include installer commands; redact common credential forms.
+    output = re.sub(r'(?im)((?:password|passwd|secret|token|api[_-]?key)\s*[=:]\s*)[^\s,;]+', r'\1[redacted]', output)
+    output = re.sub(r'(?is)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----', '[private key redacted]', output)
+    return {'ok': True, 'node_id': node_id, 'instance_id': instance_id, 'timestamp': str(response.get('Timestamp') or ''), 'output': output}
