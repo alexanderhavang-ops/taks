@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Request
+from starlette.concurrency import run_in_threadpool
 
 from takctl.web.api.orchestrator import require_orchestrator_secret
 
@@ -55,7 +56,9 @@ async def node_mcp(domain: str, request: Request):
         name, args = params.get("name"), params.get("arguments", {})
         if not isinstance(name, str) or not isinstance(args, dict):
             raise HTTPException(status_code=400, detail="Invalid tool call")
-        result = _run_tool(domain, name, args)
+        # Tools may call this same single-worker ASGI server over loopback.
+        # Keep its event loop free to serve those requests.
+        result = await run_in_threadpool(_run_tool, domain, name, args)
     else:
         raise HTTPException(status_code=403, detail="Unsupported MCP method")
     return {"jsonrpc": "2.0", "id": message["id"], "result": result}

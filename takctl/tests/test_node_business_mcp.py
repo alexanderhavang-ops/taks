@@ -70,7 +70,7 @@ class NodeBusinessMCPTests(unittest.TestCase):
         with patch.object(taks, "_node_fqdn", return_value="taklabs.aws.tak-hv-sandbox.se"), patch.object(
             taks, "_request", return_value={
                 "email_status": {"ok": True, "delivery": "resend"},
-                "card_url": "https://example.com/private-card-token"})
+                "card_url": "https://example.com/private-card-token"}
         ) as http:
             result = text_of(taks.call("onboarding_send_invite", {
                 "username": "alex", "email": "alex@example.com",
@@ -98,6 +98,58 @@ class NodeBusinessMCPTests(unittest.TestCase):
         self.assertEqual(result["paths"]["/api/onboarding/users/{username}/create"], ["POST"])
         with self.assertRaises(ValueError):
             taks._surface(schema, "http://example.com")
+
+
+class NodeBusinessMCPLoopbackTests(unittest.TestCase):
+    """Exercise real loopback HTTP against a single-worker ASGI server."""
+
+    def test_health_and_openapi_can_reenter_server(self):
+        import socket
+        import threading
+        import time
+        import urllib.request
+        import uvicorn
+        from fastapi import FastAPI
+        from takctl.web.api import orchestrator_mcp
+
+        app = FastAPI()
+        app.include_router(orchestrator_mcp.router)
+
+        @app.get("/api/health")
+        async def health():
+            return {"ok": True}
+
+        # Use an isolated loopback listener; production port 8080 may be busy.
+        sock = socket.socket()
+        sock.bind(("127.0.0.1", 0))
+        base = "http://127.0.0.1:%s" % sock.getsockname()[1]
+        server = uvicorn.Server(uvicorn.Config(app, log_level="error"))
+        thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
+        with patch.object(orchestrator_mcp, "require_orchestrator_secret", return_value=None), patch.object(
+            taks, "_LOOPBACK", base
+        ):
+            thread.start()
+            try:
+                deadline = time.monotonic() + 5
+                while not server.started and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(server.started)
+                for tool in ("takctl_health", "api_surface"):
+                    request = urllib.request.Request(
+                        base + "/api/orchestrator/mcp/taks",
+                        data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                         "params": {"name": tool, "arguments": {}}}).encode(),
+                        headers={"Content-Type": "application/json"})
+                    with urllib.request.urlopen(request, timeout=3) as response:
+                        result = text_of(json.load(response)["result"])
+                    if tool == "takctl_health":
+                        self.assertTrue(result["ok"])
+                    else:
+                        self.assertIn("/api/health", result["paths"])
+            finally:
+                server.should_exit = True
+                thread.join(timeout=7)
+                sock.close()
 
 
 if __name__ == "__main__":

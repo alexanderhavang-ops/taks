@@ -11,6 +11,8 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
+_LOOPBACK = "http://127.0.0.1:8080"
+
 _EMPTY = {"type": "object", "properties": {}, "additionalProperties": False}
 _SURFACE = {"type": "object", "properties": {
     "path_prefix": {"type": "string"},
@@ -84,7 +86,7 @@ def _request(method, path, data=None, public_fqdn=None):
                         "X-Forwarded-Proto": "https"})
     raw = None if data is None else json.dumps(data, separators=(",", ":")).encode("utf-8")
     request = urllib.request.Request(
-        "http://127.0.0.1:8080" + path, data=raw, method=method, headers=headers)
+        _LOOPBACK + path, data=raw, method=method, headers=headers)
     opener = urllib.request.build_opener(_NoRedirect())
     try:
         with opener.open(request, timeout=35) as response:
@@ -122,7 +124,7 @@ def call(name, args):
             "takctl_runtime": Path("/opt/tak/tools/takctl").is_dir(),
             "node_config": Path("/etc/taks/unit.json").is_file()})}]}
     if name == "api_surface":
-        with urllib.request.urlopen("http://127.0.0.1:8080/openapi.json", timeout=5) as response:
+        with urllib.request.urlopen(_LOOPBACK + "/openapi.json", timeout=5) as response:
             result = _surface(json.load(response), args.get("path_prefix", ""),
                               args.get("include_details", False))
     elif name == "takctl_health":
