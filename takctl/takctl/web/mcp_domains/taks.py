@@ -61,8 +61,9 @@ def _surface(schema, prefix="", include_details=False):
 
 
 def _node_fqdn():
-    data = json.loads(Path("/etc/taks/unit.json").read_text(encoding="utf-8"))
-    fqdn = str(data.get("fqdn") or "").strip().lower()
+    # Bootstrap's unit.json has no fqdn. Runtime conf.d is authoritative.
+    from takctl.config import load_config
+    fqdn = str(load_config().get("fqdn", "") or "").strip().lower()
     if not _FQDN.fullmatch(fqdn) or ".." in fqdn or "." not in fqdn:
         raise ValueError("Node public FQDN unavailable")
     return fqdn
