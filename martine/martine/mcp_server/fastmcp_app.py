@@ -378,6 +378,40 @@ def martine_offline_self_test() -> dict:
     }
 
 
+@mcp.tool(name="martine_live_inference_test")
+def martine_live_inference_test(confirm_paid_api_calls: bool = False) -> dict:
+    """Run two real OpenAI inference tests on this node.
+
+    Requires explicit consent; makes paid API calls. Does not send GeoChat.
+    """
+    import os
+    import subprocess
+    if not confirm_paid_api_calls:
+        return {"ok": False, "error": "confirm_paid_api_calls must be true"}
+    tests = Path("/opt/tak/tools/martine/tests")
+    if not tests.is_dir():
+        return {"ok": False, "error": "Live test module not installed"}
+    env = dict(os.environ)
+    env["MARTINE_LIVE_TESTS"] = "1"
+    env["OPENAI_AGENTS_DISABLE_TRACING"] = "1"
+    cmd = [sys.executable, "-m", "unittest", "-v", "test_live_inference"]
+    try:
+        proc = subprocess.run(
+            cmd, cwd=str(tests), env=env, capture_output=True,
+            text=True, timeout=240, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "Live inference tests timed out after 240 seconds"}
+    # Report test case status only; do not return model outputs or secrets.
+    lines = [
+        line.strip()[:250] for line in proc.stderr.splitlines()
+        if line.strip().startswith("test_real_") or line.strip().startswith("Ran ")
+        or line.strip() in ("OK", "FAILED", "FAILED (failures=1)", "FAILED (errors=1)")
+    ]
+    return {"ok": proc.returncode == 0, "exit_code": proc.returncode,
+            "test_status": lines[-10:], "error": "See node-local test log" if proc.returncode else ""}
+
+
 def run_stdio() -> None:
     mcp.run(transport="stdio")
 
