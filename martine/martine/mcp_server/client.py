@@ -36,15 +36,18 @@ def _build_child_env() -> Dict[str, str]:
     return env
 
 
-SERVER_PARAMS = StdioServerParameters(
-    command=sys.executable,
-    args=["-m", "martine.main", "mcp-stdio"],
-    env=_build_child_env(),
-)
+def _server_params():
+    # Build per invocation so a previous request/test cannot freeze its environment.
+    return StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "martine.main", "mcp-stdio"],
+        env=_build_child_env(),
+    )
 
 
 async def _list_tools_async() -> List[Dict[str, Any]]:
-    async with stdio_client(SERVER_PARAMS) as (read_stream, write_stream):
+    params = _server_params()
+    async with stdio_client(params) as (read_stream, write_stream):
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             result = await session.list_tools()
@@ -61,7 +64,8 @@ async def _list_tools_async() -> List[Dict[str, Any]]:
 
 
 async def _call_tool_async(name: str, arguments: Dict[str, Any] | None = None) -> Dict[str, Any]:
-    async with stdio_client(SERVER_PARAMS) as (read_stream, write_stream):
+    params = _server_params()
+    async with stdio_client(params) as (read_stream, write_stream):
         async with ClientSession(
             read_stream, write_stream,
             read_timeout_seconds=timedelta(seconds=150) if name == "martine_offline_self_test" else timedelta(seconds=45),
@@ -95,7 +99,7 @@ async def _call_tool_async(name: str, arguments: Dict[str, Any] | None = None) -
                 "structured": structured,
                 "is_error": bool(getattr(result, "isError", False)),
                 "python_executable": sys.executable,
-                "child_pythonpath": SERVER_PARAMS.env.get("PYTHONPATH", ""),
+                "child_pythonpath": params.env.get("PYTHONPATH", ""),
             }
 
 
