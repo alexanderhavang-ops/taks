@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -447,7 +448,7 @@ def resolve_identity_bundle(username: str, req: Request) -> dict[str, Any]:
             stored_identity = dict(getattr(stored_ident, "identity", None) or {})
             stored_callsign = str(stored_identity.get("callsign") or "").strip()
             if stored_callsign:
-                setattr(ident, "callsign", stored_callsign)
+                ident = replace(ident, callsign=stored_callsign)
         except Exception:
             pass
 

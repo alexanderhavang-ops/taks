@@ -18,6 +18,7 @@ import Ice
 SLICE = "/etc/mumble/MumbleServer.ice"
 ICE_INCLUDE = "/usr/share/ice/slice"
 SECRET_FILE = Path("/etc/taks/mumble-ice-secret")
+VOICE_ONBOARDING_ROOT = Path("/opt/tak/tools/martine/state/voice_onboarding")
 STATE = Path("/opt/tak/tools/takctl/state/voice_pin_auth/users.json")
 LOG = Path("/var/log/taks-mumble-voice-pin-auth.log")
 TAKSERVER_MESSAGING_LOG = Path("/opt/tak/logs/takserver-messaging.log")
@@ -42,14 +43,34 @@ def log(msg: str) -> None:
         f.write(line + "\n")
 
 
+def _sync_voice_specs(state: dict[str, Any]) -> dict[str, Any]:
+    records = state.setdefault("records", {})
+    for path in sorted(VOICE_ONBOARDING_ROOT.glob("*/voice_spec.json")):
+        try:
+            target = json.loads(path.read_text()).get("target") or {}
+            callsign = str(target.get("callsign") or "").strip()
+            uid = str(target.get("uid") or "").strip()
+        except (OSError, ValueError, TypeError, AttributeError):
+            continue
+        if not callsign or not uid:
+            continue
+        record = records.setdefault(callsign.upper(), {})
+        record.update({"callsign": callsign, "uid": uid, "source_voice_spec": str(path)})
+        record.setdefault("enabled", True)
+        record.setdefault("allow_empty_vx_password", True)
+    return state
+
+
 def load_state() -> dict[str, Any]:
     try:
-        return json.loads(STATE.read_text())
-    except Exception:
-        return {"schema": "taks.voice.pin_users.v1", "records": {}}
+        state = json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        state = {"schema": "taks.voice.pin_users.v1", "records": {}}
+    return _sync_voice_specs(state)
 
 
 def save_state(state: dict[str, Any]) -> None:
+    STATE.parent.mkdir(parents=True, exist_ok=True)
     tmp = STATE.with_suffix(".tmp")
     state["updated_at"] = iso_now()
     tmp.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
@@ -153,7 +174,7 @@ def lookup_takserver_uid_for_callsign(callsign: str) -> str:
     sql = (
         "SELECT uid "
         "FROM public.client_endpoint "
-        "WHERE callsign = '" + q + "' "
+        "WHERE upper(callsign) = '" + q + "' "
         "  AND COALESCE(uid, '') <> '' "
         "ORDER BY "
         "  CASE WHEN COALESCE(username, '') <> '' THEN 0 ELSE 1 END, "
@@ -275,8 +296,6 @@ def load_service_passwords() -> set[str]:
                 if v:
                     passwords.add(v)
 
-    # Known current lab default, kept as fallback for this runtime prototype.
-    passwords.add("mumble-pass-46hvbat-pass")
     return {p for p in passwords if p}
 
 
