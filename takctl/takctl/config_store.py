@@ -288,13 +288,15 @@ def apply_runtime_updates(
 def runtime_public_state() -> dict[str, Any]:
     cfg = load_runtime_config_view()
     sec = load_runtime_secrets_view()
+    secret_keys = set(sec.values) | {k for k, m in cfg.meta.items() if m.get("secret")}
     return {
         "config_path": str(RUNTIME_CONF_DIR),
         "secrets_path": str(RUNTIME_SECRETS_DIR),
         "config_source_kind": cfg.source_kind,
         "secrets_source_kind": sec.source_kind,
-        "config": dict(cfg.values),
-        "secrets": dict(sec.values),
+        "config": {k: ("" if k in secret_keys else v) for k, v in cfg.values.items()},
+        "secrets": {k: "" for k in sec.values},
+        "secret_present": {k: bool(v) for k, v in sec.values.items()},
         "config_owners": dict(cfg.owners),
         "secret_owners": dict(sec.owners),
         "meta": dict(cfg.meta),

@@ -53,7 +53,7 @@
           name: name,
           value: obj[name],
           secret: !!(isSecret || m.secret === true),
-          is_set: isSecret ? String(obj[name] || "").trim() !== "" : true,
+          is_set: isSecret ? !!((d.secret_present || {})[name]) : true,
           owner: owner || "",
           component: owner || m.component || "",
           meta: m
