@@ -34,22 +34,9 @@
     function header() {
       root.replaceChildren();
       root.append(el("h2","Martine",{margin:"0 0 7px",fontSize:"24px"}),
-        el("p",identity ? (identity.admin?"Administrator · business operations":"Your onboarding and devices") : "Sign in with your TAK account to get help.",{color:"#aebed2",margin:"0 0 18px"}));
+        el("p","Ask about onboarding, connections, voice or server operations.",{color:"#aebed2",margin:"0 0 18px"}));
     }
-    function login() {
-      identity=null;header();const form=el("form");let node;
-      if(options.orchestrator){node=field("TAKS node hostname");node.input.placeholder="taklabs.aws.tak-hv-sandbox.se";node.input.autocomplete="off";form.append(node.wrapper);}
-      const user=field("Username"),pass=field("Password","password"),error=el("p","",{color:"#ffb8b8"});
-      const submit=button("Sign in",()=>form.requestSubmit());
-      form.append(user.wrapper,pass.wrapper,submit,error);root.append(form);
-      form.addEventListener("submit",async event=>{event.preventDefault();submit.disabled=true;error.textContent="";
-        try {
-          if(options.orchestrator) await request("/login",{node_id:node.input.value.trim(),username:user.input.value.trim(),password:pass.input.value});
-          else {const r=await fetch("/api/login",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:user.input.value.trim(),password:pass.input.value})});if(!r.ok)throw new Error("Invalid credentials");}
-          pass.input.value="";if(options.onLogin)options.onLogin();else await start();
-        } catch(e){pass.input.value="";error.textContent=e.message;} finally{submit.disabled=false;}
-      });
-    }
+    function login() { window.location.replace(options.loginUrl || '/login'); }
     async function conversation(info) {
       identity=info.user;nodeId=info.node_id || nodeId || ((info.nodes||[])[0]||{}).node_id || "";header();
       if(options.orchestrator && identity.admin){

@@ -320,6 +320,8 @@ def _render_full_card_section(
     profile_html = profile_block(lang=l, username=username, groups=groups, sel=sel, ident=ident)
     lifecycle_html = lifecycle_block(l, lifecycle)
     post_onboarding_html = post_onboarding_block(lang=l, base=base, token=token, bump=bump)
+    from takctl.onboarding.soldier_card.watch_audio import watch_audio_block
+    watch_audio_html = watch_audio_block(base=base, token=token, lang=l) if interactive else ""
     mobile_btn_extra = mobile_flow_btn_extra_class(lifecycle)
 
     truststore_password = None
@@ -942,6 +944,7 @@ pre { white-space: pre-wrap; word-break: break-word; }
 
     <div id="tab_start">
       {flow_tabs}
+      {watch_audio_html}
       <div id="flow_android" style="margin-top:12px;">{android_html}</div>
       <div id="flow_iphone" style="margin-top:12px; {'display:none;' if interactive else ''}">{iphone_html}</div>
       <div id="flow_browser" style="margin-top:12px; {'display:none;' if interactive else ''}">{browser_html}</div>

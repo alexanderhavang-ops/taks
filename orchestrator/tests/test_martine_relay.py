@@ -28,7 +28,7 @@ class MartineRelayTests(unittest.TestCase):
             self.assertNotIn('fixture',r.text)
 
     def test_public_page_and_widget_do_not_require_devops(self):
-        self.assertEqual(self.client.get('/martine').status_code,200)
+        self.assertEqual(self.client.get('/martine',follow_redirects=False).status_code,302)
         self.assertEqual(self.client.get('/martine-widget.js').status_code,200)
         with patch.object(martine,'_operator',return_value=False),patch.object(martine,'_decode',return_value=None):
             self.assertEqual(self.client.post('/api/v2/martine/ask',headers={'X-TAKS-Chat':'1'},json={'message':'help'}).status_code,401)

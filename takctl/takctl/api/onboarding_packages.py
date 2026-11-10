@@ -1302,3 +1302,71 @@ def token_maps_package_zip(req: Request, token: str):
         headers={"cache-control": "no-store, max-age=0", "pragma": "no-cache"},
     )
 
+
+
+# Acoustic setup contains only a short-lived, single-use voice-scoped ticket.
+@router.post("/onboarding/cards/{token}/watch-voice/ticket")
+def token_watch_voice_ticket(req: Request, token: str):
+    from takctl.onboarding import watch_voice
+    _, _, username, _ = _require_token(token)
+    base = external_base(req).rstrip("/")
+    parsed = urlparse(base)
+    if parsed.scheme != "https" or not parsed.hostname or parsed.port not in (None, 443):
+        raise HTTPException(400, "Watch setup requires a public HTTPS origin on port 443")
+    try:
+        ticket = watch_voice.issue(token, username)
+    except ValueError as error:
+        raise HTTPException(429, str(error)) from error
+    return JSONResponse({"url": f"{base}/api/onboarding/cards/watch-voice#{ticket}", "expiresIn": watch_voice.TICKET_TTL},
+                        headers={"cache-control": "no-store", "referrer-policy": "no-referrer"})
+
+
+@router.post("/onboarding/cards/watch-voice/redeem")
+async def watch_voice_redeem(req: Request):
+    from takctl.onboarding import watch_voice
+    # Bound the unauthenticated request before parsing it.
+    body = bytearray()
+    async for chunk in req.stream():
+        body.extend(chunk)
+        if len(body) > 512:
+            raise HTTPException(413, "Request too large")
+    try:
+        obj = json.loads(body)
+        if not isinstance(obj, dict) or set(obj) != {"ticket"} or not isinstance(obj["ticket"], str):
+            raise ValueError("Invalid setup request")
+        def profile(parent):
+            svc, user, username, _ = _require_token(parent)
+            sel = load_selection(username) or {}
+            base = external_base(req).rstrip("/")
+            vx = derive_vx_params(username=username, groups=list(getattr(user, "groups", []) or []), selection=sel, base=base)
+            # Prefer actual server channel IDs; do not send an invented ID when a channel is absent.
+            from takctl.onboarding.watch_voice_profile import live_channel_profile
+            return live_channel_profile(username, vx)
+        from starlette.concurrency import run_in_threadpool
+        data = await run_in_threadpool(watch_voice.redeem, obj["ticket"], profile)
+    except (ValueError, TypeError, KeyError) as error:
+        raise HTTPException(410, "Setup link is invalid, expired or already used") from error
+    return JSONResponse(data, headers={"cache-control": "no-store", "pragma": "no-cache", "referrer-policy": "no-referrer"})
+
+
+@router.post("/onboarding/cards/{token}/watch-voice/revoke")
+def token_watch_voice_revoke(token: str):
+    from takctl.onboarding import watch_voice
+    _, _, username, _ = _require_token(token)
+    count = watch_voice.revoke(username)
+    return JSONResponse({"revoked": count}, headers={"cache-control": "no-store"})
+
+@router.post('/onboarding/cards/{token}/watch-voice/qr.png')
+def watch_voice_qr(req:Request,token:str):
+    from fastapi.responses import Response
+    from takctl.onboarding import watch_voice
+    import subprocess
+    _,_,username,_=_require_token(token)
+    base=external_base(req).rstrip('/')
+    parsed=urlparse(base)
+    if parsed.scheme!='https' or not parsed.hostname or parsed.port not in (None,443):raise HTTPException(400,'Verified HTTPS required')
+    ticket=watch_voice.issue(token,username)
+    url=base+'/api/onboarding/cards/watch-voice#'+ticket
+    result=subprocess.run(['/usr/bin/qrencode','-t','PNG','-s','6','-o','-'],input=url.encode(),capture_output=True,timeout=5,check=False)
+    if result.returncode:raise HTTPException(503,'QR generation unavailable')
+    return Response(result.stdout,media_type='image/png',headers={'cache-control':'no-store','referrer-policy':'no-referrer'})

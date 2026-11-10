@@ -1,0 +1,120 @@
+#!/usr/bin/python3
+"""Fixed, bounded packet-metadata capture. No shell, pcap, payload output or arbitrary BPF."""
+import collections
+import fcntl
+import ipaddress
+import json
+import os
+import re
+import selectors
+import signal
+import subprocess
+import sys
+import time
+
+MAX_PACKETS = 4096
+
+def validate(host, ports, seconds, syn_only):
+    if host:
+        ip = ipaddress.ip_address(host)
+        if ip.is_unspecified or ip.is_multicast or ip.is_loopback:
+            raise ValueError('Use a client unicast IP')
+        host = str(ip)
+    if not isinstance(ports, list) or len(ports)>16 or any(type(p) is not int or not 1<=p<=65535 for p in ports):
+        raise ValueError('Use up to 16 numeric ports')
+    ports=sorted(set(ports))
+    if not host and not ports: raise ValueError('An IP or port list is required')
+    if type(seconds) is not int or not 1<=seconds<=60 or type(syn_only) is not bool: raise ValueError('Invalid capture limits')
+    return host,ports,seconds,syn_only
+
+def capture_filter(host,ports):
+    terms=['(tcp or udp)']
+    if host:terms.append('host '+host)
+    if ports:terms.append('('+' or '.join('port '+str(p) for p in ports)+')')
+    return ' and '.join(terms)
+
+class Summary:
+    def __init__(self,host,ports,syn_only):
+        self.host,self.ports,self.syn_only=host,set(ports),syn_only
+        self.flows={};self.packets=0;self.omitted=0
+    def feed(self,line):
+        # Parse only endpoints, flags and timestamps; discard all other tcpdump text.
+        m=re.match(r'^(\d+(?:\.\d+)?)\s+(?:[\w.:-]+\s+(?:In|Out|B|M|P|Unknown)\s+)?IP6? (\S+) > (\S+): (.*)$',line)
+        if not m:return
+        endpoints=[]
+        try:
+            for raw in (m[2],m[3]):
+                ip,port=raw.rsplit('.',1);endpoints.append((str(ipaddress.ip_address(ip)),int(port)))
+        except (ValueError,TypeError):return
+        src,dst=endpoints
+        flags=re.search(r'^Flags \[([^]]+)\]',m[4])
+        protocol='tcp' if flags else ('udp' if m[4].startswith('UDP') else '')
+        if not protocol:return
+        value=flags[1] if flags else ''
+        syn='S' in value
+        if self.syn_only and not syn:return
+        if self.host:
+            inbound=src[0]==self.host
+            if not inbound and dst[0]!=self.host:return
+        else:
+            if dst[1] in self.ports:inbound=True
+            elif src[1] in self.ports:inbound=False
+            else:return
+        client,server=(src,dst) if inbound else (dst,src)
+        if self.ports and server[1] not in self.ports:return
+        self.packets+=1
+        key=(protocol,*client,*server)
+        if key not in self.flows:
+            if len(self.flows)>=128:self.omitted+=1;return
+            self.flows[key]={'protocol':protocol,'client_ip':client[0],'client_port':client[1],
+                'server_ip':server[0],'server_port':server[1],'first_seen':float(m[1]),'last_seen':float(m[1]),
+                'client_syn':0,'server_syn_ack':0,'client_ack':0,'server_rst':0,'client_rst':0,'fin':0,'inbound':0,'outbound':0}
+        row=self.flows[key];row['last_seen']=float(m[1]);row['inbound' if inbound else 'outbound']+=1
+        if inbound and syn and '.' not in value:row['client_syn']+=1
+        if not inbound and syn and '.' in value:row['server_syn_ack']+=1
+        if inbound and '.' in value and not syn:row['client_ack']+=1
+        if 'R' in value:row['client_rst' if inbound else 'server_rst']+=1
+        if 'F' in value:row['fin']+=1
+    def result(self):
+        rows=list(self.flows.values())
+        return {'packets':self.packets,'flows':rows,'omitted_packets':self.omitted,
+                'client_ips':sorted({r['client_ip'] for r in rows}),
+                'note':'Packet metadata only. No observed SYN can also mean no attempt, upstream filtering, wrong address or capture timing; it does not establish a password failure.'}
+
+def capture(host,ports,seconds,syn_only):
+    host,ports,seconds,syn_only=validate(host,ports,seconds,syn_only)
+    with open('/run/lock/taks-network-capture.lock','w') as lock:
+        try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError:return {'ok':False,'error':'Another capture is active'}
+        args=['/usr/bin/tcpdump','-i','any','-nn','-l','-tt','-s','128','-c',str(MAX_PACKETS),capture_filter(host,ports)]
+        start=time.monotonic();summary=Summary(host,ports,syn_only)
+        proc=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,env={'PATH':'/usr/bin:/bin','LC_ALL':'C'})
+        selector=selectors.DefaultSelector();selector.register(proc.stdout,selectors.EVENT_READ);buffer=b''
+        try:
+            while time.monotonic()-start<seconds:
+                for key,_ in selector.select(timeout=.2):
+                    part=os.read(key.fileobj.fileno(),65536)
+                    if not part:selector.unregister(key.fileobj);continue
+                    buffer+=part
+                    while b'\n' in buffer:
+                        line,buffer=buffer.split(b'\n',1);summary.feed(line.decode('ascii',errors='replace')[:2048])
+                    if len(buffer)>8192:buffer=b''
+                if proc.poll() is not None and not selector.get_map():break
+        finally:
+            if proc.poll() is None:proc.send_signal(signal.SIGINT)
+            try:proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:proc.kill();proc.wait()
+            selector.close();proc.stdout.close()
+        if proc.returncode not in (0,-signal.SIGINT,130):return {'ok':False,'error':'Packet capture unavailable'}
+        return {'ok':True,'host_ip':host,'ports':ports,'seconds':round(time.monotonic()-start,2),
+                'syn_only':syn_only,'capture_limit':MAX_PACKETS,**summary.result()}
+
+if __name__=='__main__':
+    try:
+        if len(sys.argv)!=2 or len(sys.argv[1])>1024:raise ValueError('One bounded JSON request required')
+        body=json.loads(sys.argv[1])
+        if set(body)!={'host_ip','ports','seconds','syn_only'}:raise ValueError('Invalid fields')
+        result=capture(body['host_ip'],body['ports'],body['seconds'],body['syn_only'])
+        print(json.dumps(result))
+    except Exception:
+        print(json.dumps({'ok':False,'error':'Invalid request or capture unavailable'}));sys.exit(1)

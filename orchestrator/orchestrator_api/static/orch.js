@@ -1,4 +1,5 @@
 (function () {
+  let disposeChat=null;
   function missing(title, detail){
     return ''
       + '<div class="card">'
@@ -110,7 +111,7 @@
 
   function routeNow(){
     const h = (location.hash || '').trim();
-    if (!h) return '/units';
+    if (!h) return document.body.dataset.operator==='0'?'/martine':'/units';
     if (h.startsWith('#')) {
       const rest = h.slice(1);
       const q = rest.indexOf('?');
@@ -136,6 +137,11 @@
     const r = routeNow();
     const page = document.getElementById('page');
     if(!page) return;
+    if(disposeChat){disposeChat();disposeChat=null;}
+    if(document.body.dataset.operator==='0' && r!=='/martine'){location.hash='#/martine';return;}
+    if(r==='/martine'){
+      setActiveNav(r);disposeChat=window.MartineChat.mount(page,{base:'/api/v2/martine',orchestrator:true,loginUrl:'/login'});return;
+    }
 
     window.TAKS_PAGES = window.TAKS_PAGES || {};
     window.PAGES = window.PAGES || {};
@@ -181,7 +187,7 @@
   window.addEventListener('hashchange', render);
   window.addEventListener('taks:lang', render);
   window.addEventListener('load', function(){
-    if(!location.hash) location.hash = '#/units';
+    if(!location.hash) location.hash = document.body.dataset.operator==='0'?'#/martine':'#/units';
     render();
   });
 })();

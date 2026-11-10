@@ -53,3 +53,8 @@ def events(request:Request,run_id:str):
     # Historical unrestricted traces may contain credentials. Never publish them.
     actor(request)
     raise HTTPException(410,'Use scoped conversation history; raw traces are not published')
+
+@router.get('/onboarding')
+def own_onboarding(request:Request):
+    from takctl.services.business_diagnostics import onboarding
+    return invoke(onboarding,actor(request))

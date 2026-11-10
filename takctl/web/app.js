@@ -27,20 +27,20 @@ function App() {
 
   const user = identity && identity.data && identity.data.user;
   if (!identity || !identity.data) return h('p',null,'Loading TAKS…');
-  if (!user || !user.admin) return h('div',null,
-    h('header',{style:{padding:'12px 24px',display:'flex',justifyContent:'space-between'}},h('strong',null,'TAKS'),user && h('button',{className:'btn',onClick:async()=>{await fetch('/api/logout');location.reload();}},'Sign out')),
-    h(MartineView));
-  return h(Layout, { tab, setTab, health, brand },
-    tab === "onboarding" && h(OnboardingView),
-    tab === "ai" && h(AIHubView),
-    tab === "martine" && h(MartineView),
-    tab === "replay" && h(ReplayView),
-    tab === "documents" && h(DocumentsPage),
-    tab === "files" && h(FileBrowserPage),
-    tab === "package-check" && h(PackageCheckPage),
-    tab === "health" && h(HealthView),
-    tab === "logs" && h(LogsViewerView),
-    tab === "config" && h(ConfigView)
+  if (!user) { location.replace('/splash.html'); return null; }
+  const visibleTabs = user.admin ? null : ['onboarding','martine'];
+  const activeTab = visibleTabs && !visibleTabs.includes(tab) ? 'onboarding' : tab;
+  return h(Layout, { tab:activeTab, setTab, health, brand, visibleTabs },
+    activeTab === "onboarding" && h(user.admin ? OnboardingView : PersonalOnboardingView),
+    activeTab === "ai" && h(AIHubView),
+    activeTab === "martine" && h(MartineView),
+    activeTab === "replay" && h(ReplayView),
+    activeTab === "documents" && h(DocumentsPage),
+    activeTab === "files" && h(FileBrowserPage),
+    activeTab === "package-check" && h(PackageCheckPage),
+    activeTab === "health" && h(HealthView),
+    activeTab === "logs" && h(LogsViewerView),
+    activeTab === "config" && h(ConfigView)
   );
 }
 

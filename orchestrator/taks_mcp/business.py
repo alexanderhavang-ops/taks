@@ -244,6 +244,16 @@ def register_taks_tools(mcp, api_call=call):
         return api_call("POST", "/api/v2/nodes/" + node_id + "/marti/diagnostics", {})
 
     @mcp.tool()
+    def taks_node_network_capture_start(node_id: str, host_ip: str = '', ports: list[int] | None = None, seconds: int = 60, syn_only: bool = True) -> dict:
+        """Start an admin-only metadata capture, at most 60 seconds. Omit host_ip to discover clients by SYNs on ports; then repeat with a discovered IP and syn_only=false. Poll capture_status."""
+        return business_call(node_id,'network_capture_start',{'host_ip':host_ip,'ports':ports,'seconds':seconds,'syn_only':syn_only})
+
+    @mcp.tool()
+    def taks_node_network_capture_status(node_id: str, capture_id: str) -> dict:
+        """Read bounded packet counts, SYN/SYN-ACK/reset evidence and discovered client IPs."""
+        return business_call(node_id,'network_capture_status',{'capture_id':capture_id})
+
+    @mcp.tool()
     def taks_node_diagnostic_log(node_id: str, source: str, lines: int = 40) -> dict:
         """Read a bounded, credential-redacted product log through Business MCP."""
         if source not in ('voice_auth','openfire','takctl','installer','business_tests','nginx') or type(lines) is not int or not 1 <= lines <= 100:

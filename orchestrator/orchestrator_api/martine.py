@@ -92,21 +92,25 @@ def _csrf(request):
 @router.get('/api/v2/martine/me')
 def me(request:Request):
     if _operator(request):
-        nodes=[{'node_id':n['node_id'],'label':n.get('unit_path') or n['node_id']} for n in list_nodes() if n.get('fqdn')]
+        nodes=[{'node_id':n['node_id'],'label':n.get('unit_path') or n['node_id']} for n in list_nodes() if n.get('fqdn') and n.get('aws_state')=='running']
         return {'authenticated':True,'user':{'username':load_secrets_config().auth.operator_user,'admin':True},'nodes':nodes}
     data=_decode(request.cookies.get(COOKIE,'') or '')
     return {'authenticated':bool(data),'user':data.get('user') if data else None,'node_id':data.get('node_id') if data else ''}
 
 
-@router.post('/api/v2/martine/login')
-async def login(request:Request):
-    _csrf(request);body=await request.json()
-    node=str(body.get('node_id') or '')
-    result=_call(node,'chat_authenticate',{'username':body.get('username',''),'password':body.get('password','')})
+def account_login(node,username,password):
+    result=_call(node,'chat_authenticate',{'username':username,'password':password})
     if not result.get('ok') or not result.get('ticket'): raise HTTPException(401,'Invalid credentials')
     response=JSONResponse({'ok':True,'user':result['user'],'node_id':node})
     response.set_cookie(COOKIE,_encode({'node_id':node,'ticket':result['ticket'],'user':result['user'],'expires':time.time()+8*3600}),httponly=True,secure=True,samesite='lax',max_age=8*3600,path='/')
+    response.delete_cookie('taks_auth',path='/')
     return response
+
+
+@router.post('/api/v2/martine/login')
+async def login(request:Request):
+    _csrf(request);body=await request.json()
+    return account_login(str(body.get('node_id') or ''),body.get('username',''),body.get('password',''))
 
 
 @router.get('/api/v2/martine/history')
@@ -139,5 +143,7 @@ def widget():
 
 
 @router.get('/martine')
-def page():
-    return HTMLResponse('<!doctype html><html><meta name="viewport" content="width=device-width,initial-scale=1"><title>Martine · TAKS</title><body style="margin:0;background:#11151b;color:#edf2fa;font:15px system-ui"><div id="martine-chat" style="max-width:900px;margin:auto;padding:24px"></div><script src="/martine-widget.js"></script><script>MartineChat.mount(document.getElementById("martine-chat"),{base:"/api/v2/martine",orchestrator:true});</script></body></html>')
+def page(request:Request):
+    from fastapi.responses import RedirectResponse
+    from .ui import _session_authed
+    return RedirectResponse('/#/martine' if _session_authed(request) else '/login',status_code=302)

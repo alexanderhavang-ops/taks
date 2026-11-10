@@ -103,7 +103,7 @@ function LangAndSessionControls() {
   );
 }
 
-function Layout({ tab, setTab, health, brand, children }) {
+function Layout({ tab, setTab, health, brand, children, visibleTabs }) {
   const t = (window.t && typeof window.t === "function") ? window.t : (k => String(k || ""));
   const lang = String(window.currentLang || window.TAKS_RUNTIME_LANGUAGE || "sv").trim().toLowerCase();
   const serverHealthLabel = lang.startsWith("en") ? "Server Health" : "Serverhälsa";
@@ -130,24 +130,24 @@ function Layout({ tab, setTab, health, brand, children }) {
 
       h("div", { className: "tabs" },
 
-        h(TabButton, { id: "onboarding", tab, setTab, label: t("nav.onboarding") }),
+        (!visibleTabs || visibleTabs.includes("onboarding")) && h(TabButton, { id: "onboarding", tab, setTab, label: t("nav.onboarding") }),
 
-        h(TabButton, { id: "ai", tab, setTab, label: t("nav.ai") }),
+        (!visibleTabs || visibleTabs.includes("ai")) && h(TabButton, { id: "ai", tab, setTab, label: t("nav.ai") }),
 
-        h(TabButton, { id: "martine", tab, setTab, label: t("nav.martine") }),
+        (!visibleTabs || visibleTabs.includes("martine")) && h(TabButton, { id: "martine", tab, setTab, label: t("nav.martine") }),
 
-        h(TabButton, { id: "replay", tab, setTab, label: t("nav.simulate") }),
+        (!visibleTabs || visibleTabs.includes("replay")) && h(TabButton, { id: "replay", tab, setTab, label: t("nav.simulate") }),
 
-        h(TabButton, { id: "documents", tab, setTab, label: t("nav.documents") }),
+        (!visibleTabs || visibleTabs.includes("documents")) && h(TabButton, { id: "documents", tab, setTab, label: t("nav.documents") }),
 
-        h(TabButton, { id: "files", tab, setTab, label: "File Browser" }),
-        h(TabButton, { id: "package-check", tab, setTab, label: "Test ZIP URL" }),
+        (!visibleTabs || visibleTabs.includes("files")) && h(TabButton, { id: "files", tab, setTab, label: "File Browser" }),
+        (!visibleTabs || visibleTabs.includes("package-check")) && h(TabButton, { id: "package-check", tab, setTab, label: "Test ZIP URL" }),
 
-        h(TabButton, { id: "health", tab, setTab, label: serverHealthLabel }),
+        (!visibleTabs || visibleTabs.includes("health")) && h(TabButton, { id: "health", tab, setTab, label: serverHealthLabel }),
 
-        h(TabButton, { id: "logs", tab, setTab, label: "Logs" }),
+        (!visibleTabs || visibleTabs.includes("logs")) && h(TabButton, { id: "logs", tab, setTab, label: "Logs" }),
 
-        h(TabButton, { id: "config", tab, setTab, label: t("nav.settings") })
+        (!visibleTabs || visibleTabs.includes("config")) && h(TabButton, { id: "config", tab, setTab, label: t("nav.settings") })
       ),
 
       h("div", { className: "spacer" }),

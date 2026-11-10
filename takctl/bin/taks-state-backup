@@ -74,6 +74,8 @@ def write_bucket(name, output):
         raise ValueError('Unsupported backup bucket')
     ldif = ldap_dump() if name == 'users' else None
     def filtered(info):
+        if name == 'takctl_state' and info.name.startswith('opt/tak/takctl-state/onboarding/watch-voice/credentials.sqlite'):
+            return None
         if name == 'martine_state' and any(info.name.startswith('opt/tak/tools/martine/state/'+part+'/') for part in ('chat','sessions')) and '.sqlite3' in info.name:
             return None
         if any(info.name == p or info.name.startswith(p + '/') for p in EXCLUDES):
@@ -94,6 +96,15 @@ def write_bucket(name, output):
                             original.backup(backup)
                         target.chmod(0o600)
                         archive.add(target,arcname='opt/tak/tools/martine/state/'+relative)
+        if name == 'takctl_state':
+            source=Path('/opt/tak/takctl-state/onboarding/watch-voice/credentials.sqlite')
+            if source.is_file() and not source.is_symlink():
+                with tempfile.TemporaryDirectory(prefix='taks-watch-backup-') as tmp:
+                    target=Path(tmp)/'snapshot.sqlite'
+                    with sqlite3.connect(source.resolve().as_uri()+'?mode=ro',uri=True) as original,sqlite3.connect(target) as snapshot:
+                        original.backup(snapshot)
+                    target.chmod(0o600)
+                    archive.add(target,arcname=str(source).lstrip('/'))
         if ldif is not None:
             info = tarfile.TarInfo('state/ldap.ldif')
             info.size = len(ldif)

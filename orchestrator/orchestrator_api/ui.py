@@ -16,7 +16,7 @@ _TPL_DIR = Path(__file__).resolve().parent / "templates"
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 # Shared splash bundle installed by orchestrator-installer into runtime
-_SHARED_ROOT = Path("/opt/tak-orch/orchestrator/orchestrator_api/static/shared/takctl")
+_SHARED_ROOT = Path(__file__).resolve().parent / "static/shared/takctl"
 _SHARED_CSS = _SHARED_ROOT / "css"
 _SHARED_ASSETS = _SHARED_ROOT / "assets"
 
@@ -27,15 +27,22 @@ def _state_dir() -> Path:
 
 
 def _html(name: str) -> str:
-  html = (_TPL_DIR / name).read_text(encoding="utf-8")
-  snippet = '<a href="/martine" aria-label="Open Martine" style="position:fixed;bottom:20px;right:24px;z-index:9999;padding:12px 18px;border-radius:24px;background:#29466e;color:white;text-decoration:none;box-shadow:0 4px 18px #0007">Martine</a>'
-  return html.replace('</body>',snippet+'</body>')
+  return (_TPL_DIR / name).read_text(encoding="utf-8")
+
+
+
+def _session_authed(req: Request) -> bool:
+  secret = load_secrets_config().auth.session_secret
+  tok = req.cookies.get("taks_auth")
+  if secret and tok and verify_token(tok, secret): return True
+  from .martine import _decode, COOKIE
+  return bool(_decode(req.cookies.get(COOKIE,'') or ''))
 
 
 def _is_authed(req: Request) -> bool:
-  secret = load_secrets_config().auth.session_secret
-  tok = req.cookies.get("taks_auth")
-  return bool(secret and tok and verify_token(tok, secret))
+  secret=load_secrets_config().auth.session_secret
+  token=req.cookies.get('taks_auth') or ''
+  return bool(secret and token and verify_token(token,secret))
 
 
 def _safe_join(base: Path, rel: str) -> Path:
@@ -90,7 +97,7 @@ def splash_html():
   return _file_or_404(_safe_join(_SHARED_ROOT, "splash.html"))
 @router.get("/splash.js")
 def splash_js():
-  return _file_or_404(_safe_join(_SHARED_ROOT, "splash.js"))
+  return _file_or_404(_STATIC_DIR / "login/splash.js")
 
 
 @router.get("/splash.css")
@@ -100,7 +107,7 @@ def splash_css():
 
 @router.get("/splash.fragment.html")
 def splash_fragment():
-  return _file_or_404(_safe_join(_SHARED_ROOT, "splash.fragment.html"))
+  return _file_or_404(_STATIC_DIR / "login/splash.fragment.html")
 
 
 @router.get("/css/{path:path}")
@@ -219,66 +226,56 @@ def public_brand(unit: str | None = None):
 
 @router.get("/api/whoami")
 def whoami(req: Request):
-  # Role is intentionally "future wiring": we store it now to keep UI fresh.
-  role = req.cookies.get("taks_role") or ""
-  return JSONResponse({"authenticated": _is_authed(req), "role": role})
+  from .martine import me
+  return JSONResponse(me(req))
 
 
 @router.get("/login", response_class=HTMLResponse)
 def login_get(req: Request):
   # Prefer the shared takctl splash login UI (single entry-point)
-  if _is_authed(req):
+  if _session_authed(req):
     return RedirectResponse("/", status_code=302)
   return RedirectResponse("/splash.html", status_code=302)
-
-@router.post("/login")
-def login_post(password: str = Form(...), role: str = Form(default=""), username: str = Form(default="admin")):
-  """
-  Legacy form login (kept deterministic).
-  """
-  secrets = load_secrets_config()
-  want = secrets.auth.operator_password
-  secret = secrets.auth.session_secret
-  if password != want or not secret:
-    return HTMLResponse("login failed\n", status_code=401)
-
-  user = (username or "admin").strip() or "admin"
-  tok = make_token(user, secret)
-
-  resp = RedirectResponse("/", status_code=302)
-  resp.set_cookie("taks_auth", tok, httponly=True, samesite="lax")
-  # Role cookie is used later for RBAC decisions (server-side)
-  resp.set_cookie("taks_role", (role or "").strip(), httponly=True, samesite="lax")
-  return resp
-
 
 class LoginReq(BaseModel):
   username: str = "admin"
   password: str = ""
-  role: str = ""
 
 
-@router.post("/api/login")
-def api_login(req: LoginReq, request: Request):
-  """
-  Splash JS login endpoint:
-    POST /api/login { username, password, role }
-  Sets cookies and returns JSON {ok:true}.
-  """
-  secrets = load_secrets_config()
-  want = secrets.auth.operator_password.strip()
-  secret = secrets.auth.session_secret.strip()
-  if (req.password or "") != want or not secret:
-    return JSONResponse({"ok": False, "error": "login failed"}, status_code=401)
+def _unified_login(username,password):
+  import hmac
+  secrets=load_secrets_config()
+  if (secrets.auth.session_secret and hmac.compare_digest(username,secrets.auth.operator_user)
+      and hmac.compare_digest(password,secrets.auth.operator_password)):
+    response=JSONResponse({'ok':True,'user':username})
+    response.set_cookie('taks_auth',make_token(username,secrets.auth.session_secret),httponly=True,secure=True,samesite='lax')
+    response.delete_cookie('taks_martine',path='/')
+    return response
+  from .martine import account_login
+  from orchestrator_core.nodes_state import list_nodes
+  # Normal TAK accounts use the same login. Qualify the name only when multiple nodes exist.
+  account,sep,node=username.rpartition('@')
+  candidates=[n for n in list_nodes() if n.get('fqdn') and n.get('aws_state')=='running']
+  if not sep:
+    account=username
+    if len(candidates)!=1:return JSONResponse({'ok':False,'error':'Use username@node-hostname'},status_code=401)
+    node=candidates[0]['node_id']
+  elif not any(n.get('node_id')==node for n in candidates):
+    return JSONResponse({'ok':False,'error':'Login failed'},status_code=401)
+  return account_login(node,account,password)
 
-  user = (req.username or "admin").strip() or "admin"
-  role = (req.role or "").strip()
 
-  tok = make_token(user, secret)
-  resp = JSONResponse({"ok": True, "user": user, "role": role})
-  resp.set_cookie("taks_auth", tok, httponly=True, samesite="lax")
-  resp.set_cookie("taks_role", role, httponly=True, samesite="lax")
-  return resp
+@router.post('/login')
+def login_post(password: str = Form(...), username: str = Form(default='admin')):
+  result=_unified_login(username,password)
+  if result.status_code!=200:return result
+  result.status_code=302;result.headers['location']='/'
+  return result
+
+
+@router.post('/api/login')
+def api_login(req: LoginReq):
+  return _unified_login(req.username.strip(),req.password)
 
 
 @router.get("/logout")
@@ -286,6 +283,7 @@ def logout():
   resp = RedirectResponse("/login", status_code=302)
   resp.delete_cookie("taks_auth")
   resp.delete_cookie("taks_role")
+  resp.delete_cookie("taks_martine",path="/")
   return resp
 
 
@@ -295,14 +293,16 @@ def logout():
 
 @router.get("/", response_class=HTMLResponse)
 def ui_index(req: Request):
-  if not _is_authed(req):
+  if not _session_authed(req):
     return RedirectResponse("/login", status_code=302)
-  return HTMLResponse(_html("index.html"))
+  from .martine import _operator
+  html=_html('index.html').replace('<body>', '<body data-operator="'+('1' if _operator(req) else '0')+'">')
+  return HTMLResponse(html)
 
 
 @router.get("/static/{path:path}")
 def static_files(path: str, req: Request):
-  if not _is_authed(req):
+  if not _session_authed(req):
     return RedirectResponse("/login", status_code=302)
   return _file_or_404(_safe_join(_STATIC_DIR, path))
 

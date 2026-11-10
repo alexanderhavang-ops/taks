@@ -513,6 +513,7 @@
     var header = (card && card.header) || {};
     var marti = (card && card.marti) || {};
     var devices = Array.isArray(card.devices) ? card.devices : [];
+    var voiceSetupUrl = (((userData||{}).selection||{}).last_onboarding_email||{}).card_url || '';
     var voice = voiceData || {};
     var voiceUser = (voice && voice.user) || {};
     var voiceDevices = Array.isArray(voice.devices) ? voice.devices : [];
@@ -788,6 +789,7 @@
 
       h(Box, null,
         SectionTitle("Debug"),
+        voiceSetupUrl && h('a',{className:'btn',href:voiceSetupUrl+'#watch-voice',target:'_blank',rel:'noopener noreferrer'},'Voice QR / audio setup'),
         h(JsonToggle, { data: { userData: userData, cardData: cardData, voiceData: voiceData } })
       )
     );
@@ -795,3 +797,4 @@
 
   window.OnboardingUserDetailPage = OnboardingUserDetailPage;
 })();
+

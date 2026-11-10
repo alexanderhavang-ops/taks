@@ -30,7 +30,7 @@ def apply(ctx):
         [str(PYTHON), "-m", "unittest", "-v", "test_node_business_mcp",
          "test_marti_oauth", "test_ldap_admin_group", "test_live_marti_oauth", "test_admin_user_store_routing",
          "test_business_services", "test_live_business_services",
-         "test_martine_chat_access", "test_business_authorization"],
+         "test_martine_chat_access", "test_business_authorization", "test_business_network", "test_watch_voice"],
         cwd=str(tests),
         env={**os.environ, "PYTHONPATH": str(RUNTIME), "TAKS_MARTI_LIVE_TESTS": "1", "TAKS_SERVICE_LIVE_TESTS": "1"},
         capture_output=True, text=True, timeout=180, check=False,

@@ -482,6 +482,19 @@ def product_health() -> dict:
     return health(current_principal().as_dict())
 
 
+@mcp.tool()
+def network_capture_start(host_ip: str = '', ports: list[int] | None = None, seconds: int = 60, syn_only: bool = True) -> dict:
+    """Administrator: capture connection metadata for up to 60 seconds. Leave IP blank and select ports to discover client SYNs. Then capture that IP with syn_only=false. No payload or pcap is returned."""
+    from takctl.services.business_network import start
+    return start(current_principal().as_dict(),host_ip,ports,seconds,syn_only)
+
+@mcp.tool()
+def network_capture_status(capture_id: str) -> dict:
+    """Administrator: poll a started capture for SYNs, SYN-ACKs, resets and client IPs."""
+    from takctl.services.business_network import status
+    return status(current_principal().as_dict(),capture_id)
+
+
 def run_stdio() -> None:
     mcp.run(transport="stdio")
 

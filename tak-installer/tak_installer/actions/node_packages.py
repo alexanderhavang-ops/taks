@@ -9,6 +9,7 @@ from tak_installer.config_seed import BOOTSTRAP_CONFIG_DIRS
 log = get_logger(__name__)
 
 PACKAGES = [
+    "tcpdump",
     "poppler-utils",
     "python3-venv",
     "python3-venv",

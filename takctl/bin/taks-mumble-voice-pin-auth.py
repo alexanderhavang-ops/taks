@@ -307,6 +307,16 @@ def service_user_id_for(name: str) -> int:
 
 class VoicePinAuthenticator(MumbleServer.ServerAuthenticator):
     def authenticate(self, name, pw, certificates, certhash, certstrong, current=None):
+        if str(name or "").startswith("TW."):
+            try:
+                if "/opt/tak/tools/takctl" not in sys.path:sys.path.insert(0,"/opt/tak/tools/takctl")
+                from takctl.onboarding.watch_voice import authenticate as watch_authenticate
+                verified=watch_authenticate(str(name),str(pw or ""))
+                if verified:
+                    log("AUTH_ACCEPT_WATCH")
+                    return (verified[0],verified[1],[])
+            except Exception:log("AUTH_WATCH_UNAVAILABLE")
+            return (-1,"",[])
         callsign = parse_claimed_callsign(name)
         state = load_state()
         records = state.get("records") or {}
@@ -426,6 +436,11 @@ class VoicePinAuthenticator(MumbleServer.ServerAuthenticator):
         return (False, {})
 
     def nameToId(self, name, current=None):
+        if str(name or "").startswith("TW."):
+            try:
+                from takctl.onboarding.watch_voice import lookup
+                row=lookup(name=str(name));return row[0] if row else -2
+            except Exception:return -2
         callsign = parse_claimed_callsign(name)
         state = load_state()
         rec = (state.get("records") or {}).get(callsign) or {}
@@ -435,6 +450,11 @@ class VoicePinAuthenticator(MumbleServer.ServerAuthenticator):
         return -2
 
     def idToName(self, id, current=None):
+        try:
+            from takctl.onboarding.watch_voice import lookup
+            row=lookup(identity=id)
+            if row:return row[1]
+        except Exception:pass
         state = load_state()
         for callsign, rec in (state.get("records") or {}).items():
             uid = str(rec.get("uid") or "")

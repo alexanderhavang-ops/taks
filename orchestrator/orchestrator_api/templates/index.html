@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>taks-orchestrator</title>
   <link rel="stylesheet" href="/static/orch.css">
+  <style>body[data-operator="0"] .nav__item:not([data-route="/martine"]),body[data-operator="0"] .nav__meta,body[data-operator="0"] #nav_recent_units{display:none}</style>
 </head>
 
 <body>
@@ -27,6 +28,7 @@
       <a class="nav__item" id="nav_nodes_link" href="#/nodes" data-route="/nodes">Nodes</a>
       <a class="nav__item" id="nav_settings_link" href="#/settings" data-route="/settings">Global settings</a>
 
+      <a class="nav__item" href="#/martine" data-route="/martine">Martine</a>
       <div class="nav__sep"></div>
 
       <div class="nav__meta">
@@ -41,6 +43,7 @@
   </div>
 </main>
 
+<script src="/martine-widget.js"></script>
 <script src="/static/orch.js?v=20260408-snoozewake-1"></script>
 <script src="/static/orch_core.js?v=20260408-snoozewake-1"></script>
 

@@ -62,7 +62,7 @@ PUBLIC = frozenset({'ping', 'get_current_time', 'list_reference_docs', 'search_r
     'get_reference_section', 'route_between_points', 'route_alternatives_between_points', 'snap_point_to_network'})
 SELF = frozenset({'get_onboarding_diagnostics', 'get_my_connection_events'})
 DELIVERY = frozenset({'send_voice_onboarding', 'send_map_onboarding', 'send_plugin_onboarding'})
-ADMIN = frozenset({'get_taks_paths','get_taks_state_summary','get_my_position','get_my_mgrs','get_contact_status','get_last_seen','get_distance_to_callsign','get_nearest_friendly','get_enemy_contacts_near_me','business_read','read_diagnostic_log','diagnostic_file_stat','marti_read','request_business_change','product_health'})
+ADMIN = frozenset({'get_taks_paths','get_taks_state_summary','get_my_position','get_my_mgrs','get_contact_status','get_last_seen','get_distance_to_callsign','get_nearest_friendly','get_enemy_contacts_near_me','business_read','read_diagnostic_log','diagnostic_file_stat','marti_read','request_business_change','product_health','network_capture_start','network_capture_status'})
 NEVER = frozenset({'ensure_martine_state_dirs', 'martine_offline_self_test', 'martine_live_inference_test'})
 
 

@@ -150,19 +150,14 @@
   }
 
   function wireLogin() {
-    var u = $("__u"), r = $("__r"), p = $("__p"), go = $("__go");
+    var u = $("__u"), p = $("__p"), go = $("__go");
     if (!u || !p || !go) return;
 
-    try {
-      if (r) r.value = (localStorage.getItem("taks_role") || "");
-    } catch (_) {}
 
     function submit() {
       setErr("");
       go.disabled = true;
 
-      var role = r ? (r.value || "") : "";
-      try { localStorage.setItem("taks_role", role); } catch (_) {}
 
       fetch(LOGIN, {
         method: "POST",
@@ -170,8 +165,7 @@
         credentials: "include",
         body: JSON.stringify({
           username: u.value || "",
-          password: p.value || "",
-          role: role
+          password: p.value || ""
         })
       })
       .then(function (r2) {

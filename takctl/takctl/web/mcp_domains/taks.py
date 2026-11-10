@@ -48,6 +48,8 @@ TOOLS = [
      }, "required": ["username", "email"], "additionalProperties": False}},
 ]
 for name, properties, required in [
+    ('network_capture_start', {'host_ip':_STR,'ports':{'type':['array','null'],'items':{'type':'integer'}},'seconds':{'type':'integer'},'syn_only':{'type':'boolean'}}, []),
+    ('network_capture_status', {'capture_id':_STR}, ['capture_id']),
     ('chat_authenticate', {'username':_STR,'password':_STR}, ['username','password']),
     ('chat_submit', {'ticket':_STR,'operator_user':_STR,'message':_STR,'conversation_id':_STR}, ['message']),
     ('chat_status', {'ticket':_STR,'operator_user':_STR,'job_id':_STR}, ['job_id']),
@@ -146,6 +148,12 @@ def call(name, args):
     declared = next((t for t in TOOLS if t["name"] == name), None)
     if declared is None or set(args) - set(declared["inputSchema"]["properties"]):
         raise ValueError("Unknown tool or arguments")
+    if name.startswith('network_capture_'):
+        from takctl.services import business_network as network
+        from takctl.services.martine_chat import operator_actor
+        actor=operator_actor('business-mcp')
+        result=network.start(actor,**args) if name=='network_capture_start' else network.status(actor,args['capture_id'])
+        return {'content':[{'type':'text','text':json.dumps(result)}]}
     if name.startswith('chat_') or name in ('onboarding_diagnostics','diagnostic_log','diagnostic_file_stat','product_health'):
         from takctl.services import martine_chat as chat
         try:

@@ -604,6 +604,8 @@ def _cleanup_onboarding_state_for_user(svc, username: str) -> dict:
     }
 
     u = str(username or "").strip()
+    from takctl.onboarding.watch_voice import revoke as revoke_watch_voice
+    removed["watch_voice_credentials"] = revoke_watch_voice(u)
     store = getattr(svc, "store", None)
 
     identities_dir = getattr(store, "identities_dir", None)
