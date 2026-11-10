@@ -7,3 +7,5 @@ Start with `ports:[8446,8089]`, `host_ip:""`, `syn_only:true`, `seconds:60` to d
 A root-owned fixed helper invokes tcpdump with validated arguments, no shell and no arbitrary BPF. There is one capture at a time, a 4,096 packet limit and 128 returned flows. Results include only addresses, ports, flags, counts and times; raw packet payloads, pcap files, names and tcpdump output are not returned or persisted. Jobs are bound to the requesting administrator and expire from storage after 24 hours. Startup/capture errors contain no raw command output.
 
 A SYN without a SYN-ACK suggests a transport/listener/filtering problem; a reset is distinct from an accepted connection. No observed SYN alone cannot distinguish no client attempt, wrong address, upstream filtering, or capture timing. TCP success does not prove certificate enrollment, application authentication or audio delivery; correlate with Marti and native service diagnostics.
+
+Deployment status: the helper and tests are prepared. The installer action and sudo rule are withheld pending explicit approval of the fixed root helper privilege. Without that helper, start returns setup_required and executes no capture.

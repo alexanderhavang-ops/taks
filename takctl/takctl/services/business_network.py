@@ -45,6 +45,8 @@ def _work(identity,args):
 
 def start(actor,host_ip='',ports=None,seconds=60,syn_only=True):
     account=owner(actor);args=validate(host_ip,ports,seconds,syn_only);now=time.time()
+    if not Path('/usr/local/libexec/taks-network-capture').is_file():
+        return {'ok':False,'setup_required':True,'error':'Packet capture is not enabled on this node; the fixed privileged helper requires operator approval'}
     with database() as db:
         db.execute('BEGIN IMMEDIATE')
         if db.execute("SELECT 1 FROM captures WHERE status='running' AND created>?",(now-90,)).fetchone():raise ValueError('Another capture is active; retry after it completes')
