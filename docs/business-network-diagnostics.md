@@ -9,3 +9,10 @@ A root-owned fixed helper invokes tcpdump with validated arguments, no shell and
 A SYN without a SYN-ACK suggests a transport/listener/filtering problem; a reset is distinct from an accepted connection. No observed SYN alone cannot distinguish no client attempt, wrong address, upstream filtering, or capture timing. TCP success does not prove certificate enrollment, application authentication or audio delivery; correlate with Marti and native service diagnostics.
 
 Deployment status: the helper and tests are prepared. The installer action and sudo rule are withheld pending explicit approval of the fixed root helper privilege. Without that helper, start returns setup_required and executes no capture.
+
+## Explicit deployment blockers
+
+1. Initial NOPASSWD sudo-helper proposal: rejected by automatic approval review because a persistent root-execution grant had not been explicitly approved. Superseded; do not deploy that design.
+2. Revised capability-only proposal: rejected because installing/enabling a persistent systemd socket and DynamicUser service with CAP_NET_RAW had not been explicitly approved. This is the active blocker.
+
+The revised service uses no sudo rule, no root service account, CAP_NET_RAW only, no promiscuous mode, a root-owned Unix socket restricted to the TAKS process, fixed validated filters, 60-second/4,096-packet limits, a read-only system filesystem and no payload/pcap output. It remains uninstalled pending explicit approval. Live capture validation is also pending; parsed-packet and role-isolation tests pass.

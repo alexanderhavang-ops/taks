@@ -39,7 +39,7 @@ class NetworkDiagnosticsTests(unittest.TestCase):
         self.assertEqual(helper.capture_filter('81.2.3.4',[443,8446]),'(tcp or udp) and host 81.2.3.4 and (port 443 or port 8446)')
 
     def test_capture_jobs_are_admin_only_and_bound_to_requesting_identity(self):
-        with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,{'TAKS_NETWORK_DB':str(Path(tmp)/'jobs.sqlite')}),patch.object(service.POOL,'submit') as pool,patch('takctl.services.business_network.Path.is_file',return_value=True):
+        with tempfile.TemporaryDirectory() as tmp,patch.dict(os.environ,{'TAKS_NETWORK_DB':str(Path(tmp)/'jobs.sqlite')}),patch.object(service.POOL,'submit') as pool,patch('takctl.services.business_network.Path.is_socket',return_value=True):
             with self.assertRaises(PermissionError):service.start({**ADMIN,'admin':False},ports=[8446])
             data=service.start(ADMIN,ports=[8446]);pool.assert_called_once()
             with self.assertRaises(ValueError):service.start(ADMIN,ports=[8446])

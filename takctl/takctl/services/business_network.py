@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
-import subprocess
+import socket
 import time
 import uuid
 
@@ -37,16 +37,22 @@ def validate(host_ip,ports,seconds,syn_only):
 
 def _work(identity,args):
     try:
-        proc=subprocess.run(['sudo','-n','/usr/local/libexec/taks-network-capture',json.dumps(args,separators=(',',':'))],
-            capture_output=True,text=True,timeout=70,check=False)
-        data=json.loads(proc.stdout) if len(proc.stdout)<=131072 else {'ok':False,'error':'Capture response too large'}
+        with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
+            client.settimeout(70);client.connect('/run/taks-network-capture.sock')
+            client.sendall(json.dumps(args,separators=(',',':')).encode()+b'\n')
+            raw=b''
+            while len(raw)<=131072:
+                chunk=client.recv(min(16384,131073-len(raw)))
+                if not chunk:break
+                raw+=chunk
+        data=json.loads(raw) if len(raw)<=131072 else {'ok':False,'error':'Capture response too large'}
     except Exception:data={'ok':False,'error':'Capture unavailable'}
     with database() as db:db.execute("UPDATE captures SET status='done',result=? WHERE id=?",(json.dumps(data),identity))
 
 def start(actor,host_ip='',ports=None,seconds=60,syn_only=True):
     account=owner(actor);args=validate(host_ip,ports,seconds,syn_only);now=time.time()
-    if not Path('/usr/local/libexec/taks-network-capture').is_file():
-        return {'ok':False,'setup_required':True,'error':'Packet capture is not enabled on this node; the fixed privileged helper requires operator approval'}
+    if not Path('/run/taks-network-capture.sock').is_socket():
+        return {'ok':False,'setup_required':True,'error':'Packet capture service is not enabled on this node'}
     with database() as db:
         db.execute('BEGIN IMMEDIATE')
         if db.execute("SELECT 1 FROM captures WHERE status='running' AND created>?",(now-90,)).fetchone():raise ValueError('Another capture is active; retry after it completes')
