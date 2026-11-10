@@ -79,7 +79,8 @@
       qrObjectUrl=URL.createObjectURL(await response.blob());
       const image=document.getElementById('watch_voice_qr_image');image.src=qrObjectUrl;image.hidden=false;
       status.textContent='Setup QR valid for 3 minutes. A fresh QR replaces the displayed one.';
-      setTimeout(()=>{if(image.src===qrObjectUrl)image.hidden=true;},180000);
+      const displayedUrl=qrObjectUrl;
+      setTimeout(()=>{if(image.src===displayedUrl)image.hidden=true;},180000);
     }catch(_){status.textContent=play.dataset.failed;}finally{button.disabled=false;}
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden) halt(); });

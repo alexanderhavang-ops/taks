@@ -61,6 +61,7 @@ from takctl.services.backing_user_store import (
 from takctl.onboarding.policy import Policy
 from takctl.config import load_config
 from takctl.services.openfire_presence import openfire_for_username
+from takctl.onboarding.user_certs import ensure_user_cert, user_cert_pem_path
 from takctl.onboarding.card_ttl import required_card_link_ttl_sec as _required_card_link_ttl_sec
 
 router = APIRouter(tags=["onboarding"])
@@ -80,37 +81,11 @@ def _cert_creation_gate_enabled() -> bool:
     return True
 
 def _user_cert_pem_path(username: str) -> Path:
-    u = (username or "").strip()
-    return Path("/opt/tak/certs/files/04_USERS") / u / f"{u}.pem"
+    return user_cert_pem_path(username)
 
 
 def _ensure_user_cert(username: str) -> Path | None:
-    u = (username or "").strip()
-    if not u:
-        return None
-    if not _cert_creation_gate_enabled():
-        return None
-
-    cert_pem = _user_cert_pem_path(u)
-    if cert_pem.exists():
-        return cert_pem
-
-    import subprocess
-
-    helper = "/opt/tak/tools/takctl/bin/takctl-makecert"
-    p = subprocess.run(
-        ["sudo", "-n", helper, "client", u],
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
-    out = (p.stdout or "").strip()
-    if p.returncode != 0:
-        raise RuntimeError(out or f"failed to create cert for {u}")
-    if not cert_pem.exists():
-        raise RuntimeError(f"cert helper succeeded but PEM missing: {cert_pem}")
-    return cert_pem
-
+    return ensure_user_cert(username)
 
 def _create_card_token_compat(store, *, username: str, ttl_sec: int, reveal_password: bool):
     """
