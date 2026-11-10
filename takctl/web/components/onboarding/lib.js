@@ -4,6 +4,44 @@
   window.TaksOnboarding = window.TaksOnboarding || {};
   const lib = {};
 
+  // Use reported hardware/client metadata, never callsigns or account names.
+  lib.deviceKind = function (d) {
+    d = d || {};
+    const hardware = [d.tak_device, d.tak_os].filter(Boolean).join(" ");
+    const client = [d.tak_platform, d.client_platform, d.client_product].filter(Boolean).join(" ");
+    if (/weartak|wear\s?os|galaxy\s*watch|pixel\s*watch|smartwatch|\bwatch\b|\bSM-R\d/i.test(hardware + " " + client)) return "watch";
+    if (/wintak|webtak|martine|server|linux|windows/i.test(client)) return "computer";
+    if (/atak|itak/i.test(client) || /android|iphone|\bSM-[AFGS]\d/i.test(hardware)) return "phone";
+    return "unknown";
+  };
+
+  lib.deviceLabel = function (d) {
+    return { phone: "Telefon", watch: "Klocka", computer: "Dator / tjänst", unknown: "Enhet" }[lib.deviceKind(d)];
+  };
+
+  lib.DeviceIcon = function (props) {
+    const h = window.h || React.createElement;
+    const kind = lib.deviceKind(props.device);
+    const paths = {
+      phone: ["M9 2h14a3 3 0 0 1 3 3v38a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Z", "M12 7h8M14 40h4"],
+      watch: ["M11 13V3h10v10M11 35v10h10V35", "M8 13h16a3 3 0 0 1 3 3v16a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V16a3 3 0 0 1 3-3ZM28 21v6", "M16 18v7l5 3"],
+      computer: ["M2 8h28v24H2ZM16 32v8M8 40h16"],
+      unknown: ["M6 8h20v32H6ZM13 34h6"]
+    };
+    return h("svg", { viewBox: "0 0 32 48", width: props.size || 22, height: (props.size || 22) * 1.5, fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round", role: "img", "aria-label": lib.deviceLabel(props.device), style: { flexShrink: 0 } },
+      h("title", null, lib.deviceLabel(props.device)), paths[kind].map(function (p, i) { return h("path", { key: i, d: p }); }));
+  };
+
+  lib.DeviceStrip = function (props) {
+    const h = window.h || React.createElement;
+    const devices = Array.isArray(props.devices) ? props.devices : [];
+    return h("div", { style: { display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "5px" } }, devices.map(function (d, i) {
+      const online = String(d.state || "").toLowerCase() === "current";
+      const title = [lib.deviceLabel(d), d.tak_device || d.tak_platform, online ? "Online" : "Inaktiv", d.client_uid].filter(Boolean).join(" · ");
+      return h("span", { key: d.client_uid || i, title: title, style: { display: "inline-flex", alignItems: "center", gap: "5px", border: "1px solid rgba(255,255,255,.15)", borderRadius: "8px", padding: "4px 7px", color: online ? "#b8f5c8" : "#acb3be" } }, h(lib.DeviceIcon, { device: d, size: 14 }), lib.deviceLabel(d), h("span", { "aria-label": online ? "Online" : "Inaktiv" }, online ? "●" : "○"));
+    }));
+  };
+
   lib.colText = function (v) {
     if (v === null || v === undefined) return "—";
     const s = String(v);

@@ -344,49 +344,56 @@
             flexWrap: "wrap"
           }
         },
-          h(Pill, null, _colText([d.observed_callsign, d.tak_device].filter(Boolean).join(" / ") || d.client_uid || "device")),
+          h(lib.DeviceIcon, { device: d, size: 42 }),
+          h("div", null, h("strong", { style: { display: "block", fontSize: "18px", marginBottom: "5px" } }, lib.deviceLabel(d)), h("span", { className: "muted" }, _colText(d.tak_device || d.tak_platform))),
           h(StatusBadge, { tone: cotStateTone(stateText), text: stateText }),
           h(StatusBadge, { tone: _deviceVoiceTone(voiceDevice), text: _deviceVoiceText(voiceDevice) })
-        ),
-        h("div", { className: "muted", style: { fontSize: "12px" } },
-          "endpoint_id: ", _colText(d.endpoint_id)
         )
       ),
-      h(KV, { k: "client_uid" }, h("code", null, _colText(d.client_uid))),
-      h(KV, { k: "Observerad anropssignal" }, _colText(d.observed_callsign)),
-      h(KV, { k: "Enhet" }, _colText(d.tak_device || "—")),
-      h(KV, { k: "OS" }, _colText(d.tak_os || "—")),
-      h(KV, { k: "Platform" }, _colText(d.tak_platform || d.client_platform || "—")),
-      h(KV, { k: "Tidigare anropssignaler" }, _colText(Array.isArray(d.previous_observed_callsigns) && d.previous_observed_callsigns.length ? d.previous_observed_callsigns.join(", ") : "—")),
-      h(KV, { k: "Senaste CoT" }, _colText(_formatTimestampWithAge(d.last_cot_time))),
-      h(KV, { k: "Senaste event" }, _colText(_formatTimestampWithAge(d.last_event_time))),
-      h(KV, { k: "Ålder" }, _colText(d.age_human)),
-      h(KV, { k: "Enhet" }, _colText(d.tak_device || "—")),
-      h(KV, { k: "Klient" }, _colText(
-        (function () {
-          var p = String(d.client_platform || d.tak_platform || "").trim();
-          if (p) return p;
-          var v = String(d.client_version || "").trim();
-          if (!v) return "";
-          var m = v.match(/^([A-Za-z][A-Za-z0-9._-]*)/);
-          return m ? m[1] : "";
-        })() || "—"
-      )),
-      h(KV, { k: "Version" }, _colText(
-        d.tak_version || (function () {
-          var v = String(d.client_version || "").trim();
-          if (!v) return "—";
-          var m = v.match(/^[A-Za-z][A-Za-z0-9._-]*[\/ ](.+)$/);
-          return m ? m[1] : v;
-        })()
-      )),
-      h(KV, { k: "Certifikat" }, _colText(d.certs_n)),
-      h(KV, { k: "Revokerade cert" }, _colText(d.revoked_certs_n)),
-      h(KV, { k: "CoT sedd" }, h(StatusBadge, { tone: boolTone(!!d.cot_seen), text: _yn(!!d.cot_seen) })),
-      h(KV, { k: "Sedd nyligen" }, h(StatusBadge, { tone: boolTone(!!d.seen_recently), text: _yn(!!d.seen_recently) })),
-      h(KV, { k: "Talkanaler" }, _voiceChannelsText(voice.channel_names)),
-      h(KV, { k: "Talträffar" }, _colText(voice.matched_n || 0)),
-      h(KV, { k: "Bästa talmatch" }, _colText(voice.best_match_mode || "—")),
+      h("div", { style: { display: "flex", flexWrap: "wrap", gap: "18px", marginBottom: "12px", color: "#acb3be" } },
+        h("span", null, "Anropssignal: ", _colText(d.observed_callsign)),
+        h("span", null, "Senast sedd: ", _colText(_formatTimestampWithAge(d.last_cot_time))),
+        h("span", null, "Tal: ", _voiceChannelsText(voice.channel_names))
+      ),
+      h("details", null,
+        h("summary", { style: { cursor: "pointer", marginBottom: "10px" } }, "Tekniska detaljer och certifikat"),
+        h(KV, { k: "Endpoint" }, _colText(d.endpoint_id)),
+        h(KV, { k: "client_uid" }, h("code", null, _colText(d.client_uid))),
+        h(KV, { k: "Observerad anropssignal" }, _colText(d.observed_callsign)),
+        h(KV, { k: "Enhet" }, _colText(d.tak_device || "—")),
+        h(KV, { k: "OS" }, _colText(d.tak_os || "—")),
+        h(KV, { k: "Platform" }, _colText(d.tak_platform || d.client_platform || "—")),
+        h(KV, { k: "Tidigare anropssignaler" }, _colText(Array.isArray(d.previous_observed_callsigns) && d.previous_observed_callsigns.length ? d.previous_observed_callsigns.join(", ") : "—")),
+        h(KV, { k: "Senaste CoT" }, _colText(_formatTimestampWithAge(d.last_cot_time))),
+        h(KV, { k: "Senaste event" }, _colText(_formatTimestampWithAge(d.last_event_time))),
+        h(KV, { k: "Ålder" }, _colText(d.age_human)),
+        h(KV, { k: "Enhet" }, _colText(d.tak_device || "—")),
+        h(KV, { k: "Klient" }, _colText(
+          (function () {
+            var p = String(d.client_platform || d.tak_platform || "").trim();
+            if (p) return p;
+            var v = String(d.client_version || "").trim();
+            if (!v) return "";
+            var m = v.match(/^([A-Za-z][A-Za-z0-9._-]*)/);
+            return m ? m[1] : "";
+          })() || "—"
+        )),
+        h(KV, { k: "Version" }, _colText(
+          d.tak_version || (function () {
+            var v = String(d.client_version || "").trim();
+            if (!v) return "—";
+            var m = v.match(/^[A-Za-z][A-Za-z0-9._-]*[\/ ](.+)$/);
+            return m ? m[1] : v;
+          })()
+        )),
+        h(KV, { k: "Certifikat" }, _colText(d.certs_n)),
+        h(KV, { k: "Revokerade cert" }, _colText(d.revoked_certs_n)),
+        h(KV, { k: "CoT sedd" }, h(StatusBadge, { tone: boolTone(!!d.cot_seen), text: _yn(!!d.cot_seen) })),
+        h(KV, { k: "Sedd nyligen" }, h(StatusBadge, { tone: boolTone(!!d.seen_recently), text: _yn(!!d.seen_recently) })),
+        h(KV, { k: "Talkanaler" }, _voiceChannelsText(voice.channel_names)),
+        h(KV, { k: "Talträffar" }, _colText(voice.matched_n || 0)),
+        h(KV, { k: "Bästa talmatch" }, _colText(voice.best_match_mode || "—"))
+      ),
       matches.length ? h("div", {
         style: {
           marginTop: "10px",

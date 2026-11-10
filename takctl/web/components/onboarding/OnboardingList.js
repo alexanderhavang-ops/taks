@@ -800,7 +800,8 @@
         h("td", null, _pill(_cotText(u), _cotTone(u))),
         h("td", null,
           h("div", null,
-            h("div", null, _colText(_deviceCountText(u))),
+            h(lib.DeviceStrip, { devices: devices }),
+            h("div", { className: "muted" }, _colText(_deviceCountText(u))),
             gamla.length ? h("button", {
               type: "button",
               className: "btn",
