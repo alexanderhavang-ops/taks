@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-label="TAKS AI logo">
+  <defs>
+    <!-- Metallic-ish grayscale -->
+    <linearGradient id="gSteel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f2f2f2"/>
+      <stop offset="0.25" stop-color="#bdbdbd"/>
+      <stop offset="0.55" stop-color="#e6e6e6"/>
+      <stop offset="1" stop-color="#8f8f8f"/>
+    </linearGradient>
+
+    <linearGradient id="gInner" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1a1a1a"/>
+      <stop offset="1" stop-color="#2a2a2a"/>
+    </linearGradient>
+
+    <filter id="fSoftShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+
+    <style>
+      .strokeSteel { stroke: url(#gSteel); stroke-width: 18; stroke-linejoin: round; }
+      .strokeSteelThin { stroke: url(#gSteel); stroke-width: 10; stroke-linejoin: round; }
+      .strokeWhite { stroke: #ffffff; stroke-width: 10; stroke-linejoin: round; }
+      .fillInner { fill: url(#gInner); }
+      .fillSteel { fill: url(#gSteel); }
+      .fillBlack { fill: #0a0a0a; }
+      .txt { font-family: "Oswald","Impact","Arial Black",sans-serif; font-weight: 800; letter-spacing: 6px; }
+      .circuit { stroke: #eaeaea; stroke-width: 8; stroke-linecap: round; fill: none; opacity: 0.95; }
+      .cnode { fill: #eaeaea; }
+    </style>
+  </defs>
+
+  <!-- Transparent background by default. If you want a solid bg, add a rect. -->
+  <!-- <rect width="1024" height="1024" fill="#000"/> -->
+
+  <g filter="url(#fSoftShadow)">
+    <!-- Shield outer -->
+    <path class="strokeSteel fillBlack" d="
+      M512 92
+      C640 92 760 142 840 232
+      L840 560
+      C840 740 710 872 512 948
+      C314 872 184 740 184 560
+      L184 232
+      C264 142 384 92 512 92
+      Z"/>
+
+    <!-- Shield inner -->
+    <path class="strokeSteelThin fillInner" d="
+      M512 140
+      C620 140 718 182 784 256
+      L784 558
+      C784 708 674 818 512 882
+      C350 818 240 708 240 558
+      L240 256
+      C306 182 404 140 512 140
+      Z"/>
+
+    <!-- Subtle vertical seam -->
+    <path d="M512 152 L512 874" stroke="#000" stroke-opacity="0.35" stroke-width="6"/>
+
+    <!-- Circuit traces (restrained) -->
+    <g>
+      <!-- Left -->
+      <path class="circuit" d="M332 248 L332 212 L300 180"/>
+      <circle class="cnode" cx="300" cy="180" r="10"/>
+      <path class="circuit" d="M332 330 L292 330 L292 270"/>
+      <circle class="cnode" cx="292" cy="270" r="10"/>
+      <path class="circuit" d="M332 420 L282 420 L282 500"/>
+      <circle class="cnode" cx="282" cy="500" r="10"/>
+
+      <!-- Right -->
+      <path class="circuit" d="M692 248 L692 212 L724 180"/>
+      <circle class="cnode" cx="724" cy="180" r="10"/>
+      <path class="circuit" d="M692 330 L732 330 L732 270"/>
+      <circle class="cnode" cx="732" cy="270" r="10"/>
+      <path class="circuit" d="M692 420 L742 420 L742 500"/>
+      <circle class="cnode" cx="742" cy="500" r="10"/>
+    </g>
+
+    <!-- Eagle (simple, bold silhouette) -->
+    <path class="fillSteel" d="
+      M512 250
+      C560 250 594 274 616 306
+      C640 340 684 356 726 352
+      C692 382 640 392 590 382
+      C572 426 542 454 512 466
+      C482 454 452 426 434 382
+      C384 392 332 382 298 352
+      C340 356 384 340 408 306
+      C430 274 464 250 512 250
+      Z"/>
+    <!-- Eagle details -->
+    <path d="M512 270 C538 286 558 302 574 330 C546 334 528 326 512 312 C496 326 478 334 450 330 C466 302 486 286 512 270 Z"
+          fill="#101010" opacity="0.65"/>
+
+    <!-- Small NATO-ish star -->
+    <path class="fillSteel" d="M512 504 L544 566 L612 576 L562 626 L574 694 L512 660 L450 694 L462 626 L412 576 L480 566 Z" opacity="0.95"/>
+
+    <!-- Banner -->
+    <path class="strokeSteel fillBlack" d="
+      M206 592
+      C330 560 442 546 512 546
+      C582 546 694 560 818 592
+      L792 716
+      C676 692 580 682 512 682
+      C444 682 348 692 232 716
+      Z"/>
+
+    <!-- TAKS text -->
+    <text x="512" y="660" text-anchor="middle" class="txt" font-size="132" fill="url(#gSteel)" stroke="#0b0b0b" stroke-width="10" paint-order="stroke fill">
+      TAKS
+    </text>
+
+    <!-- AI text -->
+    <text x="512" y="820" text-anchor="middle" class="txt" font-size="84" fill="url(#gSteel)" opacity="0.95">
+      AI
+    </text>
+  </g>
+</svg>
+

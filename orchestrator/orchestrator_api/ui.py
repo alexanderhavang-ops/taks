@@ -16,7 +16,7 @@ _TPL_DIR = Path(__file__).resolve().parent / "templates"
 _STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 # Shared splash bundle installed by orchestrator-installer into runtime
-_SHARED_ROOT = Path(__file__).resolve().parent / "static/shared/takctl"
+_SHARED_ROOT = _STATIC_DIR / "login"
 _SHARED_CSS = _SHARED_ROOT / "css"
 _SHARED_ASSETS = _SHARED_ROOT / "assets"
 

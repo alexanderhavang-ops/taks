@@ -199,7 +199,6 @@
     go.addEventListener("click", submit);
     p.addEventListener("keydown", function (ev) { if (ev.key === "Enter") submit(); });
     u.addEventListener("keydown", function (ev) { if (ev.key === "Enter") submit(); });
-    if (r) r.addEventListener("keydown", function (ev) { if (ev.key === "Enter") submit(); });
 
     try { u.focus(); } catch (_) {}
   }
