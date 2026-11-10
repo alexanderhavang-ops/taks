@@ -19,6 +19,7 @@ MAX_PACKETS = 4096
 _CAPTURE_LOCK = threading.Lock()
 
 def validate(host, ports, seconds, syn_only):
+    if '%' in host:raise ValueError('Scoped IPs are not accepted')
     if host:
         ip = ipaddress.ip_address(host)
         if ip.is_unspecified or ip.is_multicast or ip.is_loopback:

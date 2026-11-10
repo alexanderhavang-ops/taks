@@ -34,7 +34,7 @@ class NetworkDiagnosticsTests(unittest.TestCase):
         self.assertEqual(summary.result()['packets'],2)
 
     def test_filters_and_duration_cannot_be_used_for_shell_or_bpf_injection(self):
-        for args in [('81.2.3.4 or net 0/0',[8446],60,True),('',[0],60,True),('',list(range(1,18)),60,True),('',[],60,True),('',[8446],61,True)]:
+        for args in [('fe80::1%eth0 or host 1.2.3.4',[8446],60,True),('81.2.3.4 or net 0/0',[8446],60,True),('',[0],60,True),('',list(range(1,18)),60,True),('',[],60,True),('',[8446],61,True)]:
             with self.subTest(args=args),self.assertRaises(ValueError):helper.validate(*args)
         self.assertEqual(helper.capture_filter('81.2.3.4',[443,8446]),'(tcp or udp) and host 81.2.3.4 and (port 443 or port 8446)')
 

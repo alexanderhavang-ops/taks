@@ -24,7 +24,7 @@ def owner(actor):
     return actor['unit']+'|'+actor['username']
 
 def validate(host_ip,ports,seconds,syn_only):
-    if not isinstance(host_ip,str):raise ValueError('Invalid IP')
+    if not isinstance(host_ip,str) or '%' in host_ip:raise ValueError('Invalid IP')
     if host_ip:
         ip=ipaddress.ip_address(host_ip)
         if ip.is_loopback or ip.is_multicast or ip.is_unspecified:raise ValueError('Use a client unicast IP')
