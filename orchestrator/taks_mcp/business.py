@@ -134,6 +134,79 @@ def register_taks_tools(mcp, api_call=call):
             message["params"] = {"name": operation, "arguments": arguments}
         return api_call("POST", "/api/v2/nodes/" + node_id + "/mcp/devops", message)
 
+    # User administration lives in the authenticated node Business MCP,
+    # never in the host DevOps diagnostics.
+    def business_call(node_id: str, tool: str, args: dict | None = None) -> dict:
+        if not NODE_ID.fullmatch(node_id):
+            return {"ok": False, "error": "Invalid node ID"}
+        rpc = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+               "params": {"name": tool, "arguments": args or {}}}
+        result = api_call("POST", "/api/v2/nodes/" + node_id + "/mcp/taks", rpc)
+        if not isinstance(result, dict) or result.get("ok") is False:
+            return result if isinstance(result, dict) else {"ok": False, "error": "Business MCP unavailable"}
+        try:
+            content = result["result"]["content"]
+            payload = json.loads(next(p["text"] for p in content if p.get("type") == "text"))
+            return payload if isinstance(payload, dict) else {"ok": False, "error": "Invalid Business MCP result"}
+        except (KeyError, ValueError, TypeError, StopIteration):
+            return {"ok": False, "error": "Invalid Business MCP response"}
+
+    @mcp.tool()
+    def taks_node_business_tools(node_id: str) -> dict:
+        """List the tools actually installed on a node's authenticated Business MCP."""
+        if not NODE_ID.fullmatch(node_id):
+            return {"ok": False, "error": "Invalid node ID"}
+        return api_call("POST", "/api/v2/nodes/" + node_id + "/mcp/taks",
+                        {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+    @mcp.tool()
+    def taks_node_takctl_health(node_id: str) -> dict:
+        """Check live TAKCTL health through the node Business MCP."""
+        return business_call(node_id, "takctl_health")
+
+    @mcp.tool()
+    def taks_node_takctl_api_surface(node_id: str, path_prefix: str = "") -> dict:
+        """Discover TAKCTL OpenAPI paths. Discovery does not authorize calls."""
+        if not isinstance(path_prefix, str) or len(path_prefix) > 256 or (
+            path_prefix and not path_prefix.startswith("/")
+        ):
+            return {"ok": False, "error": "Invalid path prefix"}
+        return business_call(node_id, "api_surface", {"path_prefix": path_prefix})
+
+    @mcp.tool()
+    def taks_node_create_user(node_id: str, username: str, email: str,
+                              callsign: str = "", group: str = "",
+                              confirm_create: bool = False) -> dict:
+        """Create a non-admin TAKCTL onboarding user on a node; explicit approval required."""
+        if not confirm_create:
+            return {"ok": False, "confirmation_required": True,
+                    "node_id": node_id, "username": username}
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", username or ""):
+            return {"ok": False, "error": "Invalid TAK username"}
+        if not isinstance(email, str) or len(email) > 254 or not re.fullmatch(
+            r"[^@\s]+@[^@\s]+\.[^@\s]+", email
+        ):
+            return {"ok": False, "error": "Invalid email"}
+        return business_call(node_id, "onboarding_user_create", {
+            "username": username, "email": email,
+            "callsign": callsign, "group": group, "confirm_create": True})
+
+    @mcp.tool()
+    def taks_node_send_invite(node_id: str, username: str, email: str,
+                              confirm_send: bool = False) -> dict:
+        """Email an existing TAK user's one-time soldier card through TAKCTL."""
+        if not confirm_send:
+            return {"ok": False, "confirmation_required": True,
+                    "node_id": node_id, "username": username}
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", username or ""):
+            return {"ok": False, "error": "Invalid TAK username"}
+        if not isinstance(email, str) or len(email) > 254 or not re.fullmatch(
+            r"[^@\s]+@[^@\s]+\.[^@\s]+", email
+        ):
+            return {"ok": False, "error": "Invalid email"}
+        return business_call(node_id, "onboarding_send_invite", {
+            "username": username, "email": email, "confirm_send": True})
+
     @mcp.tool()
     def taks_node_health(node_id: str) -> dict:
         """Return the TAKS product-health checks for a registered node."""
@@ -161,6 +234,20 @@ def register_taks_tools(mcp, api_call=call):
                     "POST", path,
                     {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
                      "params": {"name": "host_identity", "arguments": {}}})
+            # A non-mutating probe makes node Business MCP availability visible
+            # in the existing health tool even before new plugin methods sync.
+            business_listing = api_call(
+                "POST", "/api/v2/nodes/" + node_id + "/mcp/taks",
+                {"jsonrpc": "2.0", "id": 4, "method": "tools/list"})
+            result["business_mcp"] = {
+                "reachable": isinstance(business_listing, dict)
+                and isinstance(business_listing.get("result"), dict),
+                "tools": [
+                    entry.get("name") for entry in
+                    business_listing.get("result", {}).get("tools", [])
+                    if isinstance(entry, dict)
+                ] if isinstance(business_listing, dict) else [],
+            }
             # Shared TAK Server troubleshooting belongs in Business health too.
             # It is read-only and contains no host-admin or client-management action.
             readiness = api_call(

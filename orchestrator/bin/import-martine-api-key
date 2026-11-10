@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""Import the local Martine OpenAI API key into inherited TAKS bootstrap state.
+
+The key is read only on the orchestrator host; it is never passed through MCP
+or GitHub. Future node bundles inherit bootstrap/secrets.d/martine.conf.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+import stat
+import sys
+import tempfile
+
+ORCH_ROOT = Path(__file__).resolve().parents[1]
+if str(ORCH_ROOT) not in sys.path:
+    sys.path.insert(0, str(ORCH_ROOT))
+
+DEFAULT_SOURCE = Path("/home/ubuntu/martine-api-key")
+FIELD = "martine_openai_api_key"
+
+
+def _secret_bytes(source: Path) -> str:
+    info = source.lstat()
+    if not stat.S_ISREG(info.st_mode) or source.is_symlink():
+        raise ValueError("source must be a regular file (no symlinks)")
+    if info.st_uid != os.geteuid():
+        raise PermissionError("source file must be owned by the importing user")
+    # Remove group/world access even if the original source was mode 0664.
+    source.chmod(0o600)
+    raw = source.read_bytes().rstrip(b"\r\n")
+    if not 10 <= len(raw) <= 4096:
+        raise ValueError("unexpected API key length")
+    if not raw.startswith(b"sk-"):
+        raise ValueError("source does not look like an OpenAI API key")
+    if any(byte < 33 or byte > 126 for byte in raw):
+        raise ValueError("API key contains whitespace or non-ASCII bytes")
+    return raw.decode("ascii")
+
+
+def _destination() -> Path:
+    from orchestrator_core.unit_bootstrap import global_bootstrap_dir
+    return global_bootstrap_dir(secret=True) / "martine.conf"
+
+
+def _render(old: str, key: str) -> str:
+    lines = []
+    replaced = False
+    for line in old.splitlines():
+        label, sep, _ = line.partition("=")
+        if sep and label.strip() == FIELD:
+            if not replaced:
+                lines.append(f"{FIELD} = {key}")
+                replaced = True
+        else:
+            lines.append(line)
+    if not replaced:
+        lines.append(f"{FIELD} = {key}")
+    return "\n".join(lines) + "\n"
+
+
+def import_key(source: Path = DEFAULT_SOURCE) -> Path:
+    os.umask(0o077)
+    key = _secret_bytes(source)
+    dest = _destination()
+    # Only create the global layer; do not modify per-unit overrides.
+    for directory in (dest.parent.parent, dest.parent):
+        if directory.is_symlink():
+            raise ValueError("destination contains a symlink")
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        directory.chmod(0o700)
+    if dest.is_symlink():
+        raise ValueError("destination must not be a symlink")
+    if dest.exists() and not dest.is_file():
+        raise ValueError("destination must be a regular file")
+    old = dest.read_text(encoding="utf-8") if dest.exists() else ""
+    new_data = _render(old, key).encode("utf-8")
+    fd, tmp = tempfile.mkstemp(prefix=".martine-", dir=dest.parent)
+    try:
+        with os.fdopen(fd, "wb") as output:
+            output.write(new_data)
+            output.flush()
+            os.fsync(output.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, dest)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+    return dest
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
+    args = parser.parse_args()
+    try:
+        dest = import_key(args.source)
+    except (OSError, ValueError) as exc:
+        # Never include the key or destination contents in an error.
+        print(f"Martine key import failed: {type(exc).__name__}", file=sys.stderr)
+        return 1
+    print(f"Martine key installed in global inherited bootstrap secret: {dest}")
+    print("Value withheld. New bundles inherit it; existing nodes are unchanged.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

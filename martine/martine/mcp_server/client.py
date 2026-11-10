@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import sys
+from datetime import timedelta
 from typing import Any, Dict, List
 
 from mcp import ClientSession, StdioServerParameters
@@ -61,7 +62,10 @@ async def _list_tools_async() -> List[Dict[str, Any]]:
 
 async def _call_tool_async(name: str, arguments: Dict[str, Any] | None = None) -> Dict[str, Any]:
     async with stdio_client(SERVER_PARAMS) as (read_stream, write_stream):
-        async with ClientSession(read_stream, write_stream) as session:
+        async with ClientSession(
+            read_stream, write_stream,
+            read_timeout_seconds=timedelta(seconds=150) if name == "martine_offline_self_test" else timedelta(seconds=45),
+        ) as session:
             await session.initialize()
             result = await session.call_tool(name, arguments or {})
             content = getattr(result, "content", []) or []
@@ -82,7 +86,9 @@ async def _call_tool_async(name: str, arguments: Dict[str, Any] | None = None) -
                     structured = None
 
             return {
-                "ok": True,
+                "ok": not bool(getattr(result, "isError", False)) and not (
+                    isinstance(structured, dict) and structured.get("ok") is False
+                ),
                 "tool_name": name,
                 "arguments": arguments or {},
                 "raw_text_parts": texts,

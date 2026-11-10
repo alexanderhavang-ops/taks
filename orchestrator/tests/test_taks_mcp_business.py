@@ -137,5 +137,50 @@ class BusinessTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertFalse(self.calls)
 
+    def test_business_write_requires_explicit_confirmation(self):
+        result = self.registry.tools["taks_node_create_user"](
+            "taklabs.aws.example.com", "alex", "alex@example.com")
+        self.assertTrue(result["confirmation_required"])
+        self.assertEqual(self.calls, [])
+        result = self.registry.tools["taks_node_send_invite"](
+            "taklabs.aws.example.com", "alex", "alex@example.com")
+        self.assertTrue(result["confirmation_required"])
+        self.assertEqual(self.calls, [])
+
+    def test_business_create_and_invite_use_taks_not_devops_bridge(self):
+        responses = {"onboarding_user_create": {"ok": True, "username": "alex"},
+                     "onboarding_send_invite": {"ok": True, "delivery": "resend"}}
+        calls = []
+        def api(method, path, data=None):
+            calls.append((method, path, data))
+            action = data["params"]["name"]
+            return {"jsonrpc": "2.0", "id": 1, "result": {
+                "content": [{"type": "text", "text": __import__("json").dumps(responses[action])}]}}
+        reg = Registry()
+        register_taks_tools(reg, api)
+        node = "taklabs.aws.example.com"
+        create = reg.tools["taks_node_create_user"](
+            node, "alex", "alex@example.com", "Alex", "testers", True)
+        invite = reg.tools["taks_node_send_invite"](
+            node, "alex", "alex@example.com", True)
+        self.assertTrue(create["ok"])
+        self.assertTrue(invite["ok"])
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(path.endswith("/mcp/taks") for _, path, _ in calls))
+        self.assertEqual(calls[0][2]["params"]["arguments"]["group"], "testers")
+        self.assertNotIn("card_url", invite)
+        self.assertNotIn("password", create)
+
+    def test_business_proxy_rejects_bad_ids_and_emails(self):
+        action = self.registry.tools["taks_node_create_user"]
+        self.assertFalse(action("../shadow", "alex", "alex@example.com", confirm_create=True)["ok"])
+        self.assertFalse(action("taklabs.aws.example.com", "alex", "invalid", confirm_create=True)["ok"])
+        self.assertEqual(self.calls, [])
+
+    def test_business_tools_discovery(self):
+        result = self.registry.tools["taks_node_business_tools"]("taklabs.aws.example.com")
+        self.assertTrue(result["ok"])
+        self.assertTrue(self.calls[-1][1].endswith("/mcp/taks"))
+
 if __name__ == "__main__":
     unittest.main()

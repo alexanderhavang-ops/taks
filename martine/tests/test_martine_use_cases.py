@@ -1,0 +1,274 @@
+"""Martine use-case regressions. Run on an installed node, without API calls.
+
+This suite tests the actual TAK CoT codec, local MCP tool transport and PDF
+reference retrieval. It does not rely on a paid model response.
+"""
+from __future__ import annotations
+
+import asyncio
+from contextlib import ExitStack
+import json
+import os
+import subprocess
+import tempfile
+import unittest
+import xml.etree.ElementTree as ET
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+
+class CoTUseCases(unittest.TestCase):
+    def test_cot_stream_fragmented_and_concatenated(self):
+        from martine.chat.cot_tls_client import CoTEventFramer, recv_xml
+
+        first = b'<event uid="one"><detail><remarks>hej</remarks></detail></event>'
+        second = b'<event uid="two"><detail><remarks>ok</remarks></detail></event>'
+        chunks = [b"<?xml version='1.0'?>\n" + first[:10], first[10:] + second]
+        class FakeSocket:
+            def __init__(self):
+                self.reads = list(chunks)
+            def settimeout(self, value):
+                pass
+            def recv(self, n):
+                return self.reads.pop(0)
+        sock = FakeSocket()
+        framer = CoTEventFramer()
+        self.assertIsNone(recv_xml(sock, framer=framer))
+        self.assertEqual(ET.fromstring(recv_xml(sock, framer=framer)).attrib["uid"], "one")
+        # Second event already buffered; no third recv() should be needed.
+        self.assertEqual(ET.fromstring(recv_xml(sock, framer=framer)).attrib["uid"], "two")
+        self.assertEqual(sock.reads, [])
+
+    def test_cot_xml_buffer_limit(self):
+        from martine.chat.cot_tls_client import CoTEventFramer
+        framer = CoTEventFramer()
+        with self.assertRaises(ValueError):
+            framer.feed(b"x" * (framer.MAX_BUFFER + 1))
+
+    def test_send_direct_geochat_and_xml_escaping(self):
+        from martine.chat.cot_tls_client import build_atak_chat_xml
+        xml = build_atak_chat_xml(
+            chat_uid="ANDROID-MARTINE", callsign="Martine",
+            to_uid="ANDROID-ALEX", to_callsign="Alex",
+            message="Hello & welcome <Alex>",
+        )
+        root = ET.fromstring(xml)
+        self.assertEqual(root.attrib["type"], "b-t-f")
+        self.assertEqual(root.find("detail/remarks").text, "Hello & welcome <Alex>")
+        self.assertEqual(root.find("detail/remarks").attrib["to"], "ANDROID-ALEX")
+        self.assertEqual(root.find("detail/marti/dest").attrib["callsign"], "Alex")
+
+    def test_ingress_routing_and_reply_uses_sender_uid(self):
+        from martine.chat.cot_tls_client import (
+            build_atak_chat_xml, handle_one_message, parse_chat_xml,
+        )
+        request = build_atak_chat_xml(
+            chat_uid="ANDROID-ALEX", callsign="Alex",
+            to_uid="ANDROID-MARTINE", to_callsign="Martine",
+            message="Where is Bravo?",
+        )
+        parsed = parse_chat_xml(request)
+        self.assertEqual(parsed["from_uid"], "ANDROID-ALEX")
+        self.assertEqual(parsed["to_uid"], "ANDROID-MARTINE")
+        calls = []
+        fake = lambda q, **kw: calls.append((q, kw)) or {
+            "ok": True, "answer": "Bravo is 200m north.", "run_id": "test",
+        }
+        events = []
+        cfg = SimpleNamespace(callsign="Martine", chat_uid="ANDROID-MARTINE")
+        with patch("martine.agent.simple_agent.run_once", fake), patch(
+            "martine.chat.cot_tls_client.send_event",
+            side_effect=lambda sock, xml: events.append(xml),
+        ):
+            handle_one_message(object(), cfg, request)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1]["sender_uid"], "ANDROID-ALEX")
+        self.assertEqual(ET.fromstring(events[0]).find("detail/remarks").attrib["to"], "ANDROID-ALEX")
+
+    def test_unaddressed_message_does_not_invoke_agent(self):
+        from martine.chat.cot_tls_client import build_atak_chat_xml, handle_one_message
+        request = build_atak_chat_xml(
+            chat_uid="ANDROID-BOB", callsign="Bob",
+            to_uid="ANDROID-CHARLIE", to_callsign="Charlie",
+            message="Not for Martine",
+        )
+        cfg = SimpleNamespace(callsign="Martine", chat_uid="ANDROID-MARTINE")
+        with patch("martine.agent.simple_agent.run_once") as run:
+            handle_one_message(object(), cfg, request)
+        run.assert_not_called()
+
+
+class DocumentUseCases(unittest.TestCase):
+    def test_takctl_pdf_ingest_flows_into_martine_keyword_rag(self):
+        """Real queue/registry/structure/chunk/search with only PDF extraction faked."""
+        from takctl.services import docs_ingest, docs_paths
+        from martine.tools import docs_ref
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            fake_pdf = root / "sample.pdf"
+            fake_pdf.write_bytes(b"%PDF-1.4 synthetic extraction fixture")
+            extracted = (
+                "CHAPTER 1: FIELD REPORTS\\n"
+                + "Bravo patrol must check the field radio before a mission.\\n" * 50
+            )
+            mapping = {
+                "DOCS_ROOT": root / "docs",
+                "DOCS_REGISTRY_DIR": root / "docs" / "registry",
+                "DOCS_RAW_DIR": root / "docs" / "raw",
+                "DOCS_DERIVED_DIR": root / "docs" / "derived",
+                "DOCS_INDEX_DIR": root / "docs" / "index",
+            }
+            with ExitStack() as stack:
+                for key, value in mapping.items():
+                    stack.enter_context(patch.object(docs_paths, key, value))
+                stack.enter_context(patch.object(
+                    docs_ingest, "extract_pdf_text", return_value=(extracted, "fixture")
+                ))
+                stack.enter_context(patch.object(
+                    docs_ref, "REGISTRY_PATH", mapping["DOCS_REGISTRY_DIR"] / "docs.json"
+                ))
+                stack.enter_context(patch.object(
+                    docs_ref, "DERIVED_ROOT", mapping["DOCS_DERIVED_DIR"]
+                ))
+                queued = docs_ingest.queue_uploaded_pdf(
+                    temp_upload_path=fake_pdf, original_filename="field_manual.pdf",
+                    content_type="application/pdf", title="Field Manual",
+                )
+                self.assertTrue(queued["ok"], queued)
+                processed = docs_ingest.process_queued_pdf(queued["doc_id"])
+                self.assertTrue(processed["ok"], processed)
+                self.assertGreater(processed["chunk_count"], 0)
+                result = docs_ref.search_reference_docs(query="Bravo patrol")
+                self.assertGreater(result["count"], 0)
+                self.assertEqual(result["items"][0]["doc_id"], queued["doc_id"])
+                second = docs_ingest.queue_uploaded_pdf(
+                    temp_upload_path=fake_pdf, original_filename="field_manual.pdf",
+                    content_type="application/pdf", title="Field Manual",
+                )
+                self.assertTrue(second["dedup"])
+                self.assertEqual(second["doc_id"], queued["doc_id"])
+
+    def test_uploaded_pdf_chunks_and_context(self):
+        from martine.tools import docs_ref
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            registry = root / "registry" / "docs.json"
+            chunks = root / "derived" / "doc-tactics" / "chunks.jsonl"
+            registry.parent.mkdir(parents=True)
+            chunks.parent.mkdir(parents=True)
+            registry.write_text(json.dumps({"items": [
+                {"doc_id": "doc-tactics", "title": "Tactics Manual",
+                 "status": "ready", "active": True, "chunk_count": 2},
+                {"doc_id": "doc-hidden", "title": "Restricted Old Manual",
+                 "status": "ready", "active": False},
+            ]}), encoding="utf-8")
+            chunks.write_text("\n".join(json.dumps(row) for row in [
+                {"doc_id": "doc-tactics", "chunk_id": "c1",
+                 "title": "Tactics Manual", "text": "Bravo patrol reports from the north."},
+                {"doc_id": "doc-tactics", "chunk_id": "c2",
+                 "title": "Tactics Manual", "text": "Use the radio for safety checks."},
+            ]) + "\n", encoding="utf-8")
+            with patch.object(docs_ref, "REGISTRY_PATH", registry), patch.object(
+                docs_ref, "DERIVED_ROOT", root / "derived"
+            ):
+                docs = docs_ref.list_reference_docs()
+                self.assertEqual(docs["count"], 1)
+                hits = docs_ref.search_reference_docs(query="Bravo patrol")
+                self.assertEqual(hits["count"], 1)
+                self.assertEqual(hits["items"][0]["chunk_id"], "c1")
+                context = docs_ref.get_reference_doc_context(
+                    doc_id="doc-tactics", chunk_id="c1", window=1
+                )
+                self.assertTrue(context["ok"])
+                self.assertIn("Bravo", json.dumps(context))
+
+    def test_missing_document_is_reported_not_invented(self):
+        from martine.tools import docs_ref
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "registry").mkdir()
+            (root / "registry" / "docs.json").write_text('{"items":[]}')
+            with patch.object(docs_ref, "REGISTRY_PATH", root / "registry" / "docs.json"), patch.object(
+                docs_ref, "DERIVED_ROOT", root / "derived"
+            ):
+                result = docs_ref.get_reference_doc_context(doc_id="none", chunk_id="c1")
+                self.assertFalse(result["ok"])
+
+
+class TacticalUseCases(unittest.TestCase):
+    def test_distance_and_bearing_math_without_database(self):
+        from martine.tools.cot_sa import distance_m, bearing_deg
+        self.assertAlmostEqual(distance_m(0, 0, 0, 1) / 1000, 111.2, delta=1)
+        self.assertEqual(bearing_deg(0, 0, 0, 1), 90)
+
+    def test_invalid_route_profile_is_rejected_before_network(self):
+        from martine.tools.osrm_geo import _validate_profile, _validate_point
+        self.assertEqual(_validate_profile("foot"), "foot")
+        with self.assertRaises(ValueError):
+            _validate_profile("helicopter")
+        with self.assertRaises(ValueError):
+            _validate_point("origin", 100.0, 1.0)
+
+
+class OnboardingUseCases(unittest.TestCase):
+    def test_voice_requires_destination_without_sending(self):
+        from martine.tools.voice_onboarding import send_voice_onboarding
+        response = send_voice_onboarding(target_callsign="")
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["tool"], "send_voice_onboarding")
+
+    def test_plugin_requires_explicit_target_and_package(self):
+        from martine.tools.plugin_onboarding import send_plugin_onboarding
+        no_target = send_plugin_onboarding(target_callsign="", package_id="plugins-basic")
+        no_package = send_plugin_onboarding(target_callsign="Alex", package_id="")
+        self.assertFalse(no_target["ok"])
+        self.assertFalse(no_package["ok"])
+
+    def test_maps_require_explicit_target(self):
+        from martine.tools.map_onboarding import send_map_onboarding
+        result = send_map_onboarding(target_callsign="")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["tool"], "send_map_onboarding")
+
+
+class MCPUseCases(unittest.TestCase):
+    def test_takctl_web_venv_loads_agents_sdk_and_martine_mcp(self):
+        """The TAKCTL /ask and LLM3 callers use this venv, not Martine's."""
+        python = Path("/opt/tak/tools/takctl/.venv/bin/python")
+        if not python.is_file():
+            self.skipTest("TAKCTL node virtualenv not mounted in this environment")
+        from martine.mcp_server.client import _build_child_env
+        proc = subprocess.run(
+            [str(python), "-c",
+             "from agents import Agent, Runner; "
+             "from martine.mcp_server.fastmcp_app import mcp; "
+             "print('TAKCTL_MARTINE_IMPORT_OK')"],
+            env=_build_child_env(), cwd="/opt/tak/tools/martine",
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr[-3000:])
+        self.assertIn("TAKCTL_MARTINE_IMPORT_OK", proc.stdout)
+
+    def test_real_stdio_tool_discovery_and_clock(self):
+        """Calls the same child-process FastMCP server used by the new agent."""
+        from martine.mcp_server.client import _list_tools_async, _call_tool_async
+        tools = asyncio.run(_list_tools_async())
+        names = {t["name"] for t in tools}
+        required = {
+            "ping", "get_current_time", "get_contact_status",
+            "get_my_position", "get_nearest_friendly",
+            "route_between_points", "send_voice_onboarding",
+            "send_plugin_onboarding", "send_map_onboarding",
+            "list_reference_docs", "search_reference_docs",
+            "search_reference_docs_semantic", "get_reference_doc_context",
+            "list_reference_doc_sections", "get_reference_section",
+        }
+        self.assertFalse(required - names, f"Missing MCP tools: {required - names}")
+        response = asyncio.run(_call_tool_async("get_current_time"))
+        self.assertTrue(response["ok"])
+        self.assertFalse(response["is_error"])
+
+
+if __name__ == "__main__":
+    unittest.main()

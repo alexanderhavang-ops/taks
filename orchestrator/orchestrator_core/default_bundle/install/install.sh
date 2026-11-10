@@ -538,6 +538,22 @@ main() {
   fi
 
   run_step "devops-mtls" "$BUNDLE_ROOT/install/devops-mtls.sh"
+  # Run the Business MCP gate only after TAKCTL, Nginx and node DevOps
+  # mTLS are installed. If the tests fail, installer_tail can report why.
+  if [ -f "$BUNDLE_ROOT/taks-source/tak-installer/tak_installer/actions/takctl_business_mcp_tests.py" ]; then
+    log_state "takctl-business-mcp-tests" "Started"
+    if (
+      cd "$BUNDLE_ROOT/taks-source"
+      python3 ./tak-installer/tak-installer run takctl-business-mcp-tests
+    ); then
+      log_state "takctl-business-mcp-tests" "Succeeded"
+    else
+      log_state "takctl-business-mcp-tests" "Failed"
+      log "ERROR: Business MCP regression gate failed (node DevOps installer_tail contains test report)"
+      return 1
+    fi
+  fi
+
   run_step "taks-node-health" "$BUNDLE_ROOT/install/taks-node-health.sh"
 
   log "install complete"

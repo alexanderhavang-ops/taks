@@ -16,6 +16,7 @@ STATIC_ALLOWED = {
     ("POST", "/api/v2/bundles/readiness"),
     ("POST", "/api/v2/bundles/build"),
 }
+NODE_TAKS_PROBE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/mcp/taks$")
 NODE_DEVOPS_PROBE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/mcp/devops$")
 LIFECYCLE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/(?:pause|resume|shutdown|snooze|wake|terminate)$")
 
@@ -23,7 +24,7 @@ LIFECYCLE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/(?:paus
 def service_auth_ok(request):
     method = request.method.upper()
     path = request.url.path.rstrip("/")
-    if (method, path) not in STATIC_ALLOWED and not (method == "POST" and (LIFECYCLE.fullmatch(path) or NODE_DEVOPS_PROBE.fullmatch(path))):
+    if (method, path) not in STATIC_ALLOWED and not (method == "POST" and (LIFECYCLE.fullmatch(path) or NODE_DEVOPS_PROBE.fullmatch(path) or NODE_TAKS_PROBE.fullmatch(path))):
         return False
     # Only the orchestrator host's loopback client may use the service token.
     if not request.client or request.client.host not in ("127.0.0.1", "::1"):

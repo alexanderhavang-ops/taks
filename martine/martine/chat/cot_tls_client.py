@@ -836,7 +836,52 @@ def send_event(sock: ssl.SSLSocket, xml_text: str) -> None:
     sock.sendall(xml_text.encode("utf-8"))
 
 
-def recv_xml(sock: ssl.SSLSocket, timeout: float = 1.0) -> str | None:
+class CoTEventFramer:
+    """Buffer the raw CoT event stream across TLS recv boundaries.
+
+    A TLS read may return a fragment or several concatenated events.
+    This recognises the server's <event>...</event> framing while retaining
+    partial UTF-8 and enforcing a bounded receive buffer.
+    """
+
+    MAX_BUFFER = 2 * 1024 * 1024
+    END = b"</event>"
+
+    def __init__(self) -> None:
+        self.buffer = bytearray()
+
+    def feed(self, data: bytes) -> None:
+        self.buffer.extend(data)
+        if len(self.buffer) > self.MAX_BUFFER:
+            raise ValueError("CoT XML receive buffer exceeded 2 MiB")
+
+    def pop(self) -> str | None:
+        pos = self.buffer.find(b"<event")
+        if pos < 0:
+            # The tail may contain a split '<event' prefix.
+            if len(self.buffer) > 5:
+                del self.buffer[:-5]
+            return None
+        if pos:
+            del self.buffer[:pos]
+        end = self.buffer.find(self.END)
+        if end < 0:
+            return None
+        n = end + len(self.END)
+        event = bytes(self.buffer[:n])
+        del self.buffer[:n]
+        return event.decode("utf-8", errors="replace")
+
+
+def recv_xml(
+    sock: ssl.SSLSocket,
+    timeout: float = 1.0,
+    framer: CoTEventFramer | None = None,
+) -> str | None:
+    framer = framer if framer is not None else CoTEventFramer()
+    ready = framer.pop()
+    if ready is not None:
+        return ready
     sock.settimeout(timeout)
     try:
         data = sock.recv(1024 * 1024)
@@ -844,8 +889,8 @@ def recv_xml(sock: ssl.SSLSocket, timeout: float = 1.0) -> str | None:
         return None
     if not data:
         raise ConnectionError("socket closed by peer")
-    return data.decode("utf-8", errors="replace")
-
+    framer.feed(data)
+    return framer.pop()
 
 def maybe_process_recent_devices(sock: ssl.SSLSocket, cfg) -> None:
     now_dt = datetime.now(timezone.utc)
@@ -1080,6 +1125,7 @@ def session_loop() -> None:
 
             last_presence = time.time()
             last_bootstrap_poll = 0.0
+            framer = CoTEventFramer()
 
             while True:
                 now = time.time()
@@ -1092,7 +1138,7 @@ def session_loop() -> None:
                     maybe_process_recent_devices(sock, cfg)
                     last_bootstrap_poll = now
 
-                text = recv_xml(sock, timeout=1.0)
+                text = recv_xml(sock, timeout=1.0, framer=framer)
                 if text is None:
                     continue
                 handle_one_message(sock, cfg, text)
