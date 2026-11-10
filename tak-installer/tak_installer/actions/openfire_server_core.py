@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import secrets
 import string
 import subprocess
@@ -387,13 +388,36 @@ def _setup_complete() -> bool:
     return "<setup>true</setup>" in compact
 
 
-def _wait_for_setup_complete(timeout_s: int = 90) -> bool:
-    deadline = time.time() + max(1, timeout_s)
-    while time.time() < deadline:
-        if _setup_complete():
+def _database_schema_ready() -> bool:
+    text = ""
+    for path in (EMBEDDED_DB_SCRIPT, EMBEDDED_DB_SCRIPT.with_suffix(".log")):
+        try:
+            text += "\n" + path.read_text(encoding="utf-8", errors="replace")
+        except FileNotFoundError:
+            pass
+    return all(re.search(
+        r"CREATE\s+(?:(?:MEMORY|CACHED)\s+)?TABLE\s+(?:PUBLIC\.)?" + table + r"\s*\(",
+        text, re.I,
+    ) for table in ("OFPROPERTY", "OFMUCROOM", "OFMUCSERVICE", "OFUSER"))
+
+
+def _bootstrap_console_ready() -> bool:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:9090/login.jsp", timeout=2) as response:
+            return response.status == 200
+    except (OSError, ValueError):
+        return False
+
+
+def _wait_for_setup_complete(timeout_s: int = 120) -> bool:
+    # setup=true is written before embedded DB/schema initialization finishes.
+    # Do not stop that first boot until both the schema and admin listener exist.
+    deadline = time.monotonic() + max(1, timeout_s)
+    while time.monotonic() < deadline:
+        if _setup_complete() and _database_schema_ready() and _bootstrap_console_ready():
             return True
         time.sleep(2)
-    return _setup_complete()
+    return False
 
 
 def _wait_for_rest_api(timeout_s: int = 90, probe=None) -> None:
@@ -525,8 +549,8 @@ def strip_managed_props(text: str) -> str:
 script_text = db.read_text(encoding="utf-8", errors="replace")
 log_text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
 
-script_has_schema = re.search(r"CREATE\s+TABLE\s+(?:PUBLIC\.)?OFPROPERTY\b", script_text, re.I) is not None
-log_has_schema = re.search(r"CREATE\s+TABLE\s+(?:PUBLIC\.)?OFPROPERTY\b", log_text, re.I) is not None
+script_has_schema = re.search(r"CREATE\s+(?:(?:MEMORY|CACHED)\s+)?TABLE\s+(?:PUBLIC\.)?OFPROPERTY\b", script_text, re.I) is not None
+log_has_schema = re.search(r"CREATE\s+(?:(?:MEMORY|CACHED)\s+)?TABLE\s+(?:PUBLIC\.)?OFPROPERTY\b", log_text, re.I) is not None
 
 if script_has_schema:
     target = db
@@ -553,7 +577,7 @@ else:
     if prop_rows:
         insert_at = prop_rows[-1].end()
     if insert_at is None:
-        schema_rows = list(re.finditer(r"CREATE\s+TABLE\s+(?:PUBLIC\.)?OFPROPERTY\(.*?\)\s*$", s, flags=re.I | re.M))
+        schema_rows = list(re.finditer(r"CREATE\s+(?:(?:MEMORY|CACHED)\s+)?TABLE\s+(?:PUBLIC\.)?OFPROPERTY\(.*?\)\s*$", s, flags=re.I | re.M))
         insert_at = schema_rows[-1].end() if schema_rows else len(s)
     block = "".join(row + "\n" for row in rows)
     new_s = s[:insert_at] + "\n" + block + s[insert_at:]
@@ -713,8 +737,8 @@ if not db.exists():
 script_text = db.read_text(encoding="utf-8", errors="replace")
 log_text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
 
-script_has_schema = re.search(r"CREATE\s+TABLE\s+(?:PUBLIC\.)?OFMUCROOM\b", script_text, re.I) is not None
-log_has_schema = re.search(r"CREATE\s+TABLE\s+(?:PUBLIC\.)?OFMUCROOM\b", log_text, re.I) is not None
+script_has_schema = re.search(r"CREATE\s+(?:(?:MEMORY|CACHED)\s+)?TABLE\s+(?:PUBLIC\.)?OFMUCROOM\b", script_text, re.I) is not None
+log_has_schema = re.search(r"CREATE\s+(?:(?:MEMORY|CACHED)\s+)?TABLE\s+(?:PUBLIC\.)?OFMUCROOM\b", log_text, re.I) is not None
 
 if script_has_schema:
     target = db
@@ -1343,7 +1367,7 @@ class _Action:
                 _sync_xmpp_bookmark_jobs()
                 _run(["sudo", "systemctl", "start", SERVICE])
             else:
-                print("openfire_server.core: setup did not report complete; skipping embedded DB provider repair")
+                raise RuntimeError("Openfire initial setup, database schema and admin listener did not become ready")
 
         _wait_for_rest_api()
         final_version = _pkg_version()
