@@ -73,7 +73,23 @@ class StateRestoreTests(unittest.TestCase):
             self.assertLess(slapadd, start)
             pg = next(cmd for cmd in calls if 'pg_restore' in cmd)
             self.assertIn('--exit-on-error', pg)
+            role = next(cmd for cmd in calls if 'psql' in cmd)
+            self.assertLess(calls.index(role), calls.index(pg))
+            self.assertIn('"takctl_ro" NOLOGIN NOSUPERUSER', role[-1])
             self.assertEqual(json.loads((root / 'var/lib/taks-restore/databases.json').read_text())['backup_id'], 'test-backup')
+
+    def test_restored_reader_role_is_validated_and_uses_managed_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = root / 'opt/tak/tools/takctl/conf.d/db.conf'
+            config.parent.mkdir(parents=True)
+            config.write_text('db_user = custom_reader\n')
+            calls = []
+            restore.ensure_reader_role(root, lambda command, **kwargs: calls.append(command))
+            self.assertIn('"custom_reader" NOLOGIN', calls[0][-1])
+            config.write_text('db_user = bad; SQL\n')
+            with self.assertRaises(ValueError):
+                restore.ensure_reader_role(root, lambda *a, **k: self.fail('No SQL with invalid role'))
 
     def test_corrupt_archive_and_wrong_unit_fail_before_mutation(self):
         for change in ['checksum', 'unit']:

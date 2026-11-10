@@ -81,6 +81,23 @@ def overlay(source, destination):
             shutil.copy2(child, target)
 
 
+def ensure_reader_role(root, run):
+    # pg_dump includes ACLs but not cluster roles. The normal installer sets
+    # LOGIN and the managed password later; only create the ACL target here.
+    reader = 'takctl_ro'
+    config = root / 'opt/tak/tools/takctl/conf.d/db.conf'
+    if config.is_file():
+        for line in config.read_text().splitlines():
+            if '=' in line and line.split('=', 1)[0].strip() == 'db_user':
+                reader = line.split('=', 1)[1].strip().strip('\"\'')
+    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]{0,62}', reader):
+        raise ValueError('Invalid restored database reader role')
+    sql = ("DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '" + reader +
+           "') THEN CREATE ROLE \"" + reader +
+           "\" NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION; END IF; END $$;")
+    run(['runuser', '-u', 'postgres', '--', 'psql', '-v', 'ON_ERROR_STOP=1', '-d', 'postgres', '-c', sql], check=True)
+
+
 def validate_backup(artifact, unit=None):
     with tarfile.open(artifact, 'r:gz') as archive:
         names = archive.getnames()
@@ -167,6 +184,7 @@ def restore(bundle, phase, root=Path('/'), run=subprocess.run):
                     database_name = manifest.get('inventory', {}).get('database', 'cot')
                     if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', database_name):
                         raise ValueError('Invalid backup database name')
+                    ensure_reader_role(root, run)
                     run(['runuser', '-u', 'postgres', '--', 'pg_restore', '--clean', '--if-exists', '--exit-on-error', '-d', database_name, str(path)], check=True)
                 else:
                     unpacked = temp / 'paths'
