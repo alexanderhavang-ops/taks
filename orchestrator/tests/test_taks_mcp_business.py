@@ -42,6 +42,13 @@ class BusinessTests(unittest.TestCase):
             self.assertNotIn(name,self.registry.tools)
         self.assertEqual(self.calls,[])
 
+    def test_diagnostics_use_business_bridge_and_reject_arbitrary_paths(self):
+        self.assertFalse(self.registry.tools['taks_node_diagnostic_log']('49hvbat','/etc/shadow')['ok'])
+        self.assertFalse(self.registry.tools['taks_node_diagnostic_log']('49hvbat','installer',101)['ok'])
+        self.assertEqual(self.calls,[])
+        self.registry.tools['taks_node_diagnostic_log']('49hvbat','installer',20)
+        self.assertEqual(self.calls,[('POST','/api/v2/nodes/49hvbat/mcp/taks')])
+
     def test_health_works_when_devops_is_absent(self):
         def api(method,path,data=None):
             self.assertNotIn('/mcp/devops',path)

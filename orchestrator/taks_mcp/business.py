@@ -244,6 +244,27 @@ def register_taks_tools(mcp, api_call=call):
         return api_call("POST", "/api/v2/nodes/" + node_id + "/marti/diagnostics", {})
 
     @mcp.tool()
+    def taks_node_diagnostic_log(node_id: str, source: str, lines: int = 40) -> dict:
+        """Read a bounded, credential-redacted product log through Business MCP."""
+        if source not in ('voice_auth','openfire','takctl','installer','business_tests','nginx') or type(lines) is not int or not 1 <= lines <= 100:
+            return {'ok':False,'error':'Invalid log source or line limit'}
+        return business_call(node_id,'diagnostic_log',{'source':source,'lines':lines})
+
+    @mcp.tool()
+    def taks_node_diagnostic_file_stat(node_id: str, source: str) -> dict:
+        """Read fixed product-log metadata, without file contents or arbitrary paths."""
+        if source not in ('voice_auth','openfire','takctl','installer','business_tests','nginx'):
+            return {'ok':False,'error':'Invalid diagnostic file'}
+        return business_call(node_id,'diagnostic_file_stat',{'source':source})
+
+    @mcp.tool()
+    def taks_node_onboarding_diagnostics(node_id: str, username: str) -> dict:
+        """Read credential-free onboarding and device diagnostics as an operator."""
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,63}',username or ''):
+            return {'ok':False,'error':'Invalid username'}
+        return business_call(node_id,'onboarding_diagnostics',{'username':username})
+
+    @mcp.tool()
     def taks_node_health(node_id: str) -> dict:
         """Return the TAKS product-health checks for a registered node."""
         if not NODE_ID.fullmatch(node_id):
