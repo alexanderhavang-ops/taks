@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from fastembed import TextEmbedding
+if TYPE_CHECKING:
+    from fastembed import TextEmbedding
 
 DOCS_ROOT = Path("/opt/tak/tools/takctl/state/docs")
 DERIVED_ROOT = DOCS_ROOT / "derived"
@@ -16,6 +17,7 @@ _model: TextEmbedding | None = None
 def _embedder() -> TextEmbedding:
     global _model
     if _model is None:
+        from fastembed import TextEmbedding
         _model = TextEmbedding(model_name=_MODEL_NAME)
     return _model
 

@@ -2,6 +2,7 @@
 var h = (window.h || React.createElement); window.h = h;
 
 function App() {
+  const identity = useApi("api/whoami", {cacheMs:0,pollMs:30000});
   const [tabRaw, setTab] = React.useState("onboarding");
 
   const health = useApi("api/health", { cacheMs: 2000, pollMs: 10000 });
@@ -24,6 +25,11 @@ function App() {
   };
   const tab = ALLOWED_TABS[String(tabRaw || "")] ? tabRaw : "onboarding";
 
+  const user = identity && identity.data && identity.data.user;
+  if (!identity || !identity.data) return h('p',null,'Loading TAKS…');
+  if (!user || !user.admin) return h('div',null,
+    h('header',{style:{padding:'12px 24px',display:'flex',justifyContent:'space-between'}},h('strong',null,'TAKS'),user && h('button',{className:'btn',onClick:async()=>{await fetch('/api/logout');location.reload();}},'Sign out')),
+    h(MartineView));
   return h(Layout, { tab, setTab, health, brand },
     tab === "onboarding" && h(OnboardingView),
     tab === "ai" && h(AIHubView),

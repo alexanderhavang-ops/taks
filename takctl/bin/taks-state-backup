@@ -9,6 +9,8 @@ import re
 import subprocess
 import sys
 import tarfile
+import sqlite3
+import tempfile
 
 PATHS = {
     'certs': ['/opt/tak/certs'],
@@ -18,7 +20,7 @@ PATHS = {
     'users': ['/opt/tak/UserAuthenticationFile.xml', '/etc/taks/ldap.conf', '/etc/taks/ldap-secrets.conf', '/etc/ldap'],
     'documents': ['/opt/tak/Documents', '/opt/tak/documents', '/opt/tak/tools/takctl/state/docs', '/opt/tak/tools/takctl/data/library/documents'],
     'takctl_state': ['/opt/tak/tools/takctl/state', '/opt/tak/takctl-state'],
-    'martine_state': ['/opt/tak/tools/martine/runtime/identity', '/opt/tak/tools/martine/state/voice_onboarding', '/opt/tak/tools/martine/state/voice_transcribe'],
+    'martine_state': ['/opt/tak/tools/martine/runtime/identity', '/opt/tak/tools/martine/state/voice_onboarding', '/opt/tak/tools/martine/state/voice_transcribe', '/opt/tak/tools/martine/state/chat', '/opt/tak/tools/martine/state/sessions'],
     'replay_state': ['/opt/tak/replay'],
 }
 EXCLUDES = ('opt/tak/tools/takctl/state/orchestrator-node-backups', 'opt/tak/tools/takctl/state/llm2', 'opt/tak/tools/takctl/state/llm3')
@@ -72,6 +74,8 @@ def write_bucket(name, output):
         raise ValueError('Unsupported backup bucket')
     ldif = ldap_dump() if name == 'users' else None
     def filtered(info):
+        if name == 'martine_state' and any(info.name.startswith('opt/tak/tools/martine/state/'+part+'/') for part in ('chat','sessions')) and '.sqlite3' in info.name:
+            return None
         if any(info.name == p or info.name.startswith(p + '/') for p in EXCLUDES):
             return None
         return info
@@ -80,6 +84,16 @@ def write_bucket(name, output):
             path = Path(value)
             if path.exists():
                 archive.add(path, arcname=value.lstrip('/'), filter=filtered)
+        if name == 'martine_state':
+            for relative in ('chat/chat.sqlite3','sessions/conversations.sqlite3'):
+                source = Path('/opt/tak/tools/martine/state') / relative
+                if source.is_file() and not source.is_symlink():
+                    with tempfile.TemporaryDirectory(prefix='taks-sqlite-backup-') as tmp:
+                        target = Path(tmp) / 'snapshot.sqlite3'
+                        with sqlite3.connect('file:'+str(source)+'?mode=ro',uri=True) as original, sqlite3.connect(target) as backup:
+                            original.backup(backup)
+                        target.chmod(0o600)
+                        archive.add(target,arcname='opt/tak/tools/martine/state/'+relative)
         if ldif is not None:
             info = tarfile.TarInfo('state/ldap.ldif')
             info.size = len(ldif)

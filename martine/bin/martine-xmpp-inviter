@@ -629,9 +629,15 @@ class MartineInviter(slixmpp.ClientXMPP):
         try:
             from martine.agent.simple_agent import run_once
 
+            from takctl.services.business_access import account_actor
+            from takctl.services.business_diagnostics import enrich_actor
+            if bare.rsplit('@',1)[-1] != str(self.boundjid.domain).lower():
+                raise PermissionError('A local authenticated account is required')
+            principal = enrich_actor(account_actor(bare.split('@',1)[0],transport='xmpp'))
             result = await asyncio.to_thread(
                 run_once,
                 body,
+                principal=principal,
                 sender_uid=sender_uid,
                 sender_callsign=sender_callsign,
             )

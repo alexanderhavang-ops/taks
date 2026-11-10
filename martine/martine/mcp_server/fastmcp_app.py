@@ -36,7 +36,18 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 
-mcp = FastMCP("Martine", json_response=True)
+from martine.security import scoped_tool, current_principal
+
+
+class ScopedFastMCP(FastMCP):
+    def tool(self, *args, **kwargs):
+        register = super().tool(*args, **kwargs)
+        def decorate(function):
+            return register(scoped_tool(function, kwargs.get('name') or function.__name__))
+        return decorate
+
+
+mcp = ScopedFastMCP("Martine", json_response=True)
 
 
 @mcp.tool()
@@ -410,6 +421,65 @@ def martine_live_inference_test(confirm_paid_api_calls: bool = False) -> dict:
     ]
     return {"ok": proc.returncode == 0, "exit_code": proc.returncode,
             "test_status": lines[-10:], "error": "See node-local test log" if proc.returncode else ""}
+
+
+@mcp.tool()
+def get_onboarding_diagnostics(username: str = "") -> dict:
+    """Inspect this account's callsign, enrollment and attributed devices."""
+    from takctl.services.business_diagnostics import onboarding
+    return onboarding(current_principal().as_dict(), username)
+
+
+@mcp.tool()
+def get_my_connection_events(username: str = "") -> dict:
+    """Own attributed CoT connection events; no global raw logs."""
+    from takctl.services.business_diagnostics import own_events
+    return own_events(current_principal().as_dict(), username)
+
+
+@mcp.tool()
+def business_read(service: str, operation: str, arguments: dict | None = None) -> dict:
+    """Administrator: read native LDAP, Mumble or Openfire operational APIs."""
+    from takctl.services.business_services import call
+    return call(service, operation, arguments or {})
+
+
+@mcp.tool()
+def read_diagnostic_log(source: str, lines: int = 40) -> dict:
+    """Administrator: bounded redacted logs. Sources voice_auth/openfire/takctl/installer/business_tests/nginx."""
+    from takctl.services.business_diagnostics import log_tail
+    return log_tail(current_principal().as_dict(), source, lines)
+
+
+@mcp.tool()
+def diagnostic_file_stat(source: str) -> dict:
+    """Administrator: metadata for an allowlisted diagnostic log; no arbitrary paths."""
+    from takctl.services.business_diagnostics import file_metadata
+    return file_metadata(current_principal().as_dict(), source)
+
+
+@mcp.tool()
+def marti_read(resource: str) -> dict:
+    """Administrator: Marti inputs or subscriptions, using managed LDAP administrator OAuth."""
+    from takctl.services.marti_api import marti_json
+    paths = {'inputs':'/Marti/api/inputs','subscriptions':'/Marti/api/subscriptions/all'}
+    if resource not in paths:
+        raise ValueError('Unknown read-only Marti resource')
+    return {'ok':True, 'data':marti_json(paths[resource])}
+
+
+@mcp.tool()
+def request_business_change(service: str, operation: str, arguments: dict) -> dict:
+    """Administrator: propose a native business change. A human must approve the returned action ID in the UI."""
+    from takctl.services.martine_chat import propose_change
+    return propose_change(current_principal().as_dict(), service, operation, arguments)
+
+
+@mcp.tool()
+def product_health() -> dict:
+    """Administrator: TAK, enrollment, LDAP, Postgres, XMPP and voice listener status."""
+    from takctl.services.business_diagnostics import product_health as health
+    return health(current_principal().as_dict())
 
 
 def run_stdio() -> None:

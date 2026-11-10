@@ -75,14 +75,16 @@ def _runtime_model():
 
 def _chat_session(ctx: RunContext):
     """Only interactive chat gets persistent history; batch LLM3 runs stay isolated."""
-    if ctx.client != "martine_chat" or not ctx.sender_uid:
+    if ctx.client != "martine_chat" or not (ctx.sender_uid or ctx.extras.get("principal")):
         return None
     from agents import SQLiteSession
 
     root = Path(ctx.state_root) / "sessions"
     root.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(root, 0o700)
-    session_id = "cot-" + hashlib.sha256(ctx.sender_uid.encode("utf-8")).hexdigest()
+    actor = ctx.extras.get('principal') or {}
+    scope = '|'.join((str(actor.get('unit','')),str(actor.get('username') or ctx.sender_uid),str(bool(actor.get('admin'))),str(ctx.extras.get('conversation_id','main'))))
+    session_id = "account-" + hashlib.sha256(scope.encode("utf-8")).hexdigest()
     return SQLiteSession(session_id, str(root / "conversations.sqlite3"))
 
 
@@ -114,6 +116,7 @@ def _instructions(system_prompt: str, ctx: RunContext, final_format: str, refere
         "language": ctx.language,
         "sender_uid": ctx.sender_uid,
         "sender_callsign": ctx.sender_callsign,
+        "authenticated_account": ctx.extras.get("principal", {}),
     }
     suffix = (
         "\nUse Martine MCP reference-document tools for questions about uploaded manuals, "
@@ -137,6 +140,12 @@ def _instructions(system_prompt: str, ctx: RunContext, final_format: str, refere
     return system_prompt.strip() + "\n\nRUN_CONTEXT: " + json.dumps(context, ensure_ascii=False) + suffix
 
 
+def _allowed_tools(ctx):
+    from martine.security import Principal, PUBLIC, SELF, DELIVERY, ADMIN, allowed
+    actor = Principal(**(ctx.extras.get('principal') or ({'authenticated':True,'admin':True,'username':'batch-service'} if ctx.client != 'martine_chat' else {})))
+    return sorted(name for name in PUBLIC | SELF | DELIVERY | ADMIN if allowed(name, actor))
+
+
 async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final_format: str):
     from agents import Agent, ModelSettings, RunConfig, Runner
     from agents.mcp import MCPServerStdio, create_static_tool_filter
@@ -149,13 +158,13 @@ async def _run_agent(ctx: RunContext, system_prompt: str, user_input: str, final
     params = {
         "command": sys.executable,
         "args": ["-m", "martine.main", "mcp-stdio"],
-        "env": _build_child_env(),
+        "env": {**_build_child_env(), "MARTINE_AUTH_CONTEXT": json.dumps(ctx.extras.get('principal') or ({'authenticated':True,'admin':True,'username':'batch-service','transport':'service'} if ctx.client != 'martine_chat' else {}))},
     }
     try:
         async with MCPServerStdio(
             name="Martine tools",
             cache_tools_list=True,
-            tool_filter=create_static_tool_filter(blocked_tool_names=["martine_offline_self_test", "martine_live_inference_test"]),
+            tool_filter=create_static_tool_filter(allowed_tool_names=_allowed_tools(ctx)),
             params=params,
             client_session_timeout_seconds=45,
         ) as mcp:

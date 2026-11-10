@@ -372,7 +372,7 @@ def list_tools() -> List[Dict[str, Any]]:
     ]
 
 
-def call_tool(name: str, arguments: Dict[str, Any] | None = None) -> Dict[str, Any]:
+def _call_tool_legacy(name: str, arguments: Dict[str, Any] | None = None) -> Dict[str, Any]:
     args = arguments or {}
     cfg = load_config()
 
@@ -557,3 +557,8 @@ def call_tool(name: str, arguments: Dict[str, Any] | None = None) -> Dict[str, A
         )
 
     raise ValueError(f"unknown tool: {name}")
+
+
+def call_tool(name, arguments=None):
+    from martine.security import current_principal, authorize, sanitize
+    return sanitize(_call_tool_legacy(name,authorize(name,arguments or {},current_principal())))

@@ -1,19 +1,18 @@
-"""TAKS business MCP tools. No DevOps diagnostics or filesystem access."""
+"""TAKS business tools and scoped diagnostics, independent of DevOps MCP."""
 import json
 import re
 import urllib.error
 import urllib.request
-from pathlib import Path
 
 BASE = "http://127.0.0.1:8090"
-TOKEN_FILE = Path("/etc/devops-mcp/service-auth/orchestrator.token")
 NODE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 UNIT = re.compile(r"^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$")
 
 
 def call(method, path, data=None):
     try:
-        token = TOKEN_FILE.read_text(encoding="ascii").strip()
+        from orchestrator_api.service_auth import business_service_token
+        token = business_service_token()
         if not token:
             return {"ok": False, "error": "Service token unavailable"}
         headers = {"Authorization": "Bearer " + token, "Accept": "application/json"}
@@ -29,6 +28,16 @@ def call(method, path, data=None):
 
 
 def register_taks_tools(mcp, api_call=call):
+    original = mcp
+    class BusinessCatalog:
+        def tool(self, *args, **kwargs):
+            register = original.tool(*args, **kwargs)
+            def decorate(function):
+                if function.__name__ in {'taks_bundle_build','taks_bundle_readiness','taks_node_preview','taks_node_dry_run','taks_node_launch','taks_node_pause','taks_node_resume','taks_node_snooze','taks_node_wake','taks_node_shutdown','taks_node_devops_probe'}:
+                    return function
+                return register(function)
+            return decorate
+    mcp = BusinessCatalog()
     @mcp.tool()
     def taks_units_list() -> dict:
         """List TAKS organizational units."""
@@ -252,16 +261,8 @@ def register_taks_tools(mcp, api_call=call):
         # Include a narrow diagnostic while the client's tool catalog catches up.
         # Only probe an online running node; this never grants general tool execution.
         if node.get("aws_state") == "running" and node.get("status") == "online":
-            path = "/api/v2/nodes/" + node_id + "/mcp/devops"
-            listing = api_call("POST", path,
-                               {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-            result["devops_mcp"] = {"tools_list": listing}
-            result["marti_admin"] = taks_node_marti_diagnostics(node_id)
-            if isinstance(listing, dict) and isinstance(listing.get("result"), dict):
-                result["devops_mcp"]["host_identity"] = api_call(
-                    "POST", path,
-                    {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                     "params": {"name": "host_identity", "arguments": {}}})
+            path = '/api/v2/nodes/' + node_id + '/mcp/taks'
+            result['marti_admin'] = taks_node_marti_diagnostics(node_id)
             # A non-mutating probe makes node Business MCP availability visible
             # in the existing health tool even before new plugin methods sync.
             business_listing = api_call(
@@ -281,7 +282,7 @@ def register_taks_tools(mcp, api_call=call):
             readiness = api_call(
                 "POST", path,
                 {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
-                 "params": {"name": "takserver_readiness", "arguments": {}}})
+                 "params": {"name": "product_health", "arguments": {}}})
             if isinstance(readiness, dict) and isinstance(readiness.get("result"), dict):
                 result["takserver_readiness"] = readiness["result"]
         return result

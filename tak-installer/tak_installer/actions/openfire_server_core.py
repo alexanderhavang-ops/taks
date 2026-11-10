@@ -166,7 +166,7 @@ def _write_secret_cfg(values: dict[str, str]) -> None:
     tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     try:
-        _run(["sudo", "install", "-d", "-m", "0750", str(SECRET_DIR)])
+        _run(["sudo", "install", "-d", "-o", "root", "-g", "tak", "-m", "0750", str(SECRET_DIR)])
         _run([
             "sudo", "install",
             "-o", "root",
@@ -436,177 +436,79 @@ def _wait_for_rest_api(timeout_s: int = 90, probe=None) -> None:
 
 
 def _ensure_embedded_db_auth_provider_consistency(cfg: dict[str, str]) -> bool:
-    """Ensure OpenFire uses LDAP users/auth when TAKS backing_user_store=ldap.
-
-    Fresh OpenFire/HSQLDB often has schema in openfire.log while openfire.script
-    still contains only the DB prologue. In that state, managed rows must be
-    written to the transaction log, not the script, or OpenFire will fail during
-    replay with out-of-order INSERT statements.
-    """
-    if str(cfg.get("backing_user_store", "") or "").strip().lower() != "ldap":
-        print("openfire_server.core: backing_user_store is not ldap; leaving OpenFire providers unchanged")
+    """Update properties using HSQLDB itself while Openfire is stopped."""
+    if cfg.get('backing_user_store') != 'ldap':
         return False
-
-    code = r"""
-from __future__ import annotations
-
-from datetime import datetime, timezone
-from pathlib import Path
-from urllib.parse import urlparse
-import json
-import re
-import shutil
-
-db = Path("__DB_PATH__")
-log = db.with_name("openfire.log")
-cfg = __CFG_JSON__
-
-if not db.exists():
-    print(f"openfire_server.core: embedded DB script not present yet: {db}")
-    print("CHANGED=0")
-    raise SystemExit(0)
-
-def sql_quote(v: str) -> str:
-    return "'" + str(v).replace("'", "''") + "'"
-
-def sql_unquote(v: str) -> str:
-    return str(v).replace("''", "'")
-
-def prop_line(k: str, v: str, encrypted: int = 0) -> str:
-    return f"INSERT INTO OFPROPERTY VALUES({sql_quote(k)},{sql_quote(v)},{int(encrypted)},NULL)"
-
-def insert_before_log_footer(text: str, block: str) -> str:
-    footers = list(re.finditer(r"^\s*SET FILES LOG SIZE .*$", text, flags=re.M))
-    if footers:
-        pos = footers[-1].start()
-        return text[:pos].rstrip() + "\n" + block + text[pos:]
-    return text.rstrip() + "\n" + block
-
-uri = urlparse(str(cfg.get("ldap_uri") or "ldap://127.0.0.1:389"))
-scheme = (uri.scheme or "ldap").lower()
-host = uri.hostname or "127.0.0.1"
-port = str(uri.port or (636 if scheme == "ldaps" else 389))
-
-base_dn = str(cfg.get("ldap_base_dn") or "dc=taks,dc=local").strip()
-admin_dn = str(cfg.get("ldap_service_account_dn") or f"cn=taksvc,ou=services,{base_dn}").strip()
-admin_pw = str(cfg.get("ldap_service_account_password") or "").strip()
-
-props = {
-    "plugin.restapi.enabled": "true",
-    "plugin.restapi.httpAuth": "basic",
-    "plugin.restapi.allowedIPs": "127.0.0.1,::1",
-    "adminConsole.access.allow-wildcards-in-excludes": "true",
-    "admin.authorizedJIDs": str(cfg.get("takctl_admin_user") or "admin") + "@" + str(cfg.get("fqdn") or "localhost"),
-    "provider.auth.className": "org.jivesoftware.openfire.ldap.LdapAuthProvider",
-    "provider.user.className": "org.jivesoftware.openfire.ldap.LdapUserProvider",
-    "provider.group.className": "org.jivesoftware.openfire.ldap.LdapGroupProvider",
-    "ldap.host": host,
-    "ldap.port": port,
-    "ldap.baseDN": base_dn,
-    "ldap.adminDN": admin_dn,
-    "ldap.adminPassword": admin_pw,
-    "ldap.usernameField": "uid",
-    "ldap.nameField": "cn",
-    "ldap.emailField": "mail",
-    "ldap.searchFilter": "(uid={0})",
-    "ldap.groupNameField": "cn",
-    "ldap.groupMemberField": "member",
-    "ldap.groupDescriptionField": "description",
-    "ldap.groupSearchFilter": "(objectClass=groupOfNames)",
-    "ldap.posixMode": "false",
-    "ldap.connectionPoolEnabled": "true",
-}
-
-if scheme == "ldaps":
-    props.update({
-        "ldap.encryption": "ssl",
-        "ldap.sslEnabled": "true",
-        "ldap.startTlsEnabled": "false",
-        "ldap.startTLSEnabled": "false",
-    })
-else:
-    props.update({
-        "ldap.encryption": "none",
-        "ldap.sslEnabled": "false",
-        "ldap.startTlsEnabled": "false",
-        "ldap.startTLSEnabled": "false",
-    })
-
-managed_keys = set(props)
-
-def strip_managed_props(text: str) -> str:
-    out = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if re.fullmatch(r"',0,NULL\)", stripped):
-            continue
-        m = re.match(r"INSERT INTO OFPROPERTY VALUES\('((?:''|[^'])*)',", stripped)
-        if m and sql_unquote(m.group(1)) in managed_keys:
-            continue
-        out.append(line)
-    return "\n".join(out) + "\n"
-
-script_text = db.read_text(encoding="utf-8", errors="replace")
-log_text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
-
-script_has_schema = re.search(r"CREATE\s+(?:(?:MEMORY|CACHED)\s+)?TABLE\s+(?:PUBLIC\.)?OFPROPERTY\b", script_text, re.I) is not None
-log_has_schema = re.search(r"CREATE\s+(?:(?:MEMORY|CACHED)\s+)?TABLE\s+(?:PUBLIC\.)?OFPROPERTY\b", log_text, re.I) is not None
-
-if script_has_schema:
-    target = db
-    old = script_text
-    kind = "script"
-elif log_has_schema:
-    target = log
-    old = log_text
-    kind = "log"
-else:
-    print("openfire_server.core: OpenFire ofProperty schema not present yet; deferring LDAP DB repair")
-    print("CHANGED=0")
-    raise SystemExit(0)
-
-s = strip_managed_props(old)
-rows = [prop_line(k, v, 0) for k, v in props.items()]
-
-if kind == "log":
-    block = "/*C2*/SET SCHEMA PUBLIC\n" + "\n".join(rows) + "\nCOMMIT\n"
-    new_s = insert_before_log_footer(s, block)
-else:
-    insert_at = None
-    prop_rows = list(re.finditer(r"INSERT INTO OFPROPERTY VALUES\(.*?\)\n?", s))
-    if prop_rows:
-        insert_at = prop_rows[-1].end()
-    if insert_at is None:
-        schema_rows = list(re.finditer(r"CREATE\s+(?:(?:MEMORY|CACHED)\s+)?TABLE\s+(?:PUBLIC\.)?OFPROPERTY\(.*?\)\s*$", s, flags=re.I | re.M))
-        insert_at = schema_rows[-1].end() if schema_rows else len(s)
-    block = "".join(row + "\n" for row in rows)
-    new_s = s[:insert_at] + "\n" + block + s[insert_at:]
-
-if new_s == old:
-    print("openfire_server.core: OpenFire LDAP provider/properties already consistent")
-    print("CHANGED=0")
-    raise SystemExit(0)
-
-stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-backup = target.with_name(target.name + f".ldap.bak-{stamp}")
-shutil.copy2(target, backup)
-target.write_text(new_s, encoding="utf-8")
-
-print(f"openfire_server.core: ensured OpenFire LDAP provider/properties in {kind}; backup={backup}")
-print("CHANGED=1")
-""".replace("__DB_PATH__", str(EMBEDDED_DB_SCRIPT)).replace("__CFG_JSON__", json.dumps(cfg))
-
-    tmp = Path(f"/tmp/openfire-embedded-db-ldap.{os.getpid()}.py")
-    tmp.write_text(code, encoding="utf-8")
-    try:
-        r = _run(["sudo", "python3", str(tmp)])
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
-
-    return "CHANGED=1" in str(r.stdout or "")
+    if _systemctl_state('is-active') == 'active':
+        raise RuntimeError('Openfire must be stopped before updating its database')
+    from urllib.parse import urlparse
+    import struct
+    uri = urlparse(str(cfg.get("ldap_uri") or "ldap://127.0.0.1:389"))
+    scheme = (uri.scheme or "ldap").lower()
+    host = uri.hostname or "127.0.0.1"
+    port = str(uri.port or (636 if scheme == "ldaps" else 389))
+    
+    base_dn = str(cfg.get("ldap_base_dn") or "dc=taks,dc=local").strip()
+    admin_dn = str(cfg.get("ldap_service_account_dn") or f"cn=taksvc,ou=services,{base_dn}").strip()
+    admin_pw = str(cfg.get("ldap_service_account_password") or "").strip()
+    
+    props = {
+        "plugin.restapi.enabled": "true",
+        "plugin.restapi.httpAuth": "basic",
+        "plugin.restapi.allowedIPs": "127.0.0.1,::1",
+        "adminConsole.access.allow-wildcards-in-excludes": "true",
+        "admin.authorizedJIDs": str(cfg.get("takctl_admin_user") or "admin") + "@" + str(cfg.get("fqdn") or "localhost"),
+        "provider.auth.className": "org.jivesoftware.openfire.ldap.LdapAuthProvider",
+        "provider.user.className": "org.jivesoftware.openfire.ldap.LdapUserProvider",
+        "provider.group.className": "org.jivesoftware.openfire.ldap.LdapGroupProvider",
+        "ldap.host": host,
+        "ldap.port": port,
+        "ldap.baseDN": base_dn,
+        "ldap.adminDN": admin_dn,
+        "ldap.adminPassword": admin_pw,
+        "ldap.usernameField": "uid",
+        "ldap.nameField": "cn",
+        "ldap.emailField": "mail",
+        "ldap.searchFilter": "(uid={0})",
+        "ldap.groupNameField": "cn",
+        "ldap.groupMemberField": "member",
+        "ldap.groupDescriptionField": "description",
+        "ldap.groupSearchFilter": "(objectClass=groupOfNames)",
+        "ldap.posixMode": "false",
+        "ldap.connectionPoolEnabled": "true",
+    }
+    
+    if scheme == "ldaps":
+        props.update({
+            "ldap.encryption": "ssl",
+            "ldap.sslEnabled": "true",
+            "ldap.startTlsEnabled": "false",
+            "ldap.startTLSEnabled": "false",
+        })
+    else:
+        props.update({
+            "ldap.encryption": "none",
+            "ldap.sslEnabled": "false",
+            "ldap.startTlsEnabled": "false",
+            "ldap.startTLSEnabled": "false",
+        })
+    jars = sorted(Path('/usr/share/openfire/lib').glob('hsqldb-*.jar'))
+    if len(jars) != 1:
+        raise RuntimeError('Expected one installed Openfire HSQLDB driver')
+    data = struct.pack('>I', len(props))
+    for key, value in props.items():
+        for part in (key, value):
+            encoded = str(part).encode('utf-8')
+            data += struct.pack('>I', len(encoded)) + encoded
+    source = Path(__file__).with_name('OpenfireProperties.java')
+    result = subprocess.run(['java', '--class-path', str(jars[0]), str(source),
+                             str(EMBEDDED_DB_SCRIPT.with_suffix(''))],
+                            input=data, capture_output=True, timeout=60, check=False)
+    if result.returncode:
+        raise RuntimeError('Openfire property database update failed; refusing to start')
+    _run(['sudo', 'chown', '-R', 'openfire:openfire', str(EMBEDDED_DB_SCRIPT.parent)])
+    print('openfire_server.core: LDAP and REST properties committed through JDBC')
+    return True
 
 
 def _room_local_name(label: str) -> str:
@@ -683,178 +585,20 @@ def _desired_conference_rooms(cfg: dict[str, str]) -> list[dict[str, str]]:
 
 
 def _ensure_embedded_db_muc_rooms(cfg: dict[str, str]) -> bool:
-    """Seed OpenFire persistent MUC rooms from harmonized TAKS channels."""
-    rooms = _desired_conference_rooms(cfg)
-
-    code = r"""
-from __future__ import annotations
-
-from datetime import datetime, timezone
-from pathlib import Path
-import json
-import re
-import shutil
-import time
-import urllib.request
-
-db = Path("__DB_PATH__")
-log = db.with_name("openfire.log")
-rooms = __ROOMS_JSON__
-
-def sql_quote(v: str) -> str:
-    return "'" + str(v).replace("'", "''") + "'"
-
-def sql_unquote(v: str) -> str:
-    return str(v).replace("''", "'")
-
-def insert_before_log_footer(text: str, block: str) -> str:
-    footers = list(re.finditer(r"^\s*SET FILES LOG SIZE .*$", text, flags=re.M))
-    if footers:
-        pos = footers[-1].start()
-        return text[:pos].rstrip() + "\n" + block + text[pos:]
-    return text.rstrip() + "\n" + block
-
-def room_insert(service_id: int, room_id: int, room: dict[str, str], now_ms: str) -> str:
-    local = str(room.get("local") or "").strip()
-    natural = str(room.get("natural") or local).strip() or local
-    qlocal = sql_quote(local)
-    qnatural = sql_quote(natural)
-    desc = sql_quote("TAKS voice/chat channel " + natural)
-    return (
-        "INSERT INTO OFMUCROOM VALUES("
-        f"{service_id},{room_id},'{now_ms}','{now_ms}',"
-        f"{qlocal},{qnatural},{desc},"
-        "'0',NULL,"
-        "1,0,1,0,0,1,NULL,1,1,0,0,NULL,7,0,1,1,0,0,NULL,0,NULL"
-        ")"
-    )
-
-if not db.exists():
-    print(f"openfire_server.core: embedded DB script not present yet: {db}")
-    print("CHANGED=0")
-    raise SystemExit(0)
-
-script_text = db.read_text(encoding="utf-8", errors="replace")
-log_text = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
-
-script_has_schema = re.search(r"CREATE\s+(?:(?:MEMORY|CACHED)\s+)?TABLE\s+(?:PUBLIC\.)?OFMUCROOM\b", script_text, re.I) is not None
-log_has_schema = re.search(r"CREATE\s+(?:(?:MEMORY|CACHED)\s+)?TABLE\s+(?:PUBLIC\.)?OFMUCROOM\b", log_text, re.I) is not None
-
-if script_has_schema:
-    target = db
-    s = script_text
-    kind = "script"
-elif log_has_schema:
-    target = log
-    s = log_text
-    kind = "log"
-else:
-    print("openfire_server.core: OpenFire ofMucRoom schema not present yet; deferring room seed")
-    print("CHANGED=0")
-    raise SystemExit(0)
-
-svc = re.search(r"INSERT INTO OFMUCSERVICE VALUES\((\d+),'conference'(?:,|\))", s)
-if not svc:
-    svc_id_row = re.search(r"INSERT INTO OFID VALUES\(26,(\d+)\)", s)
-    service_id = int(svc_id_row.group(1)) if svc_id_row else 1
-    existing_service_ids = [int(m.group(1)) for m in re.finditer(r"INSERT INTO OFMUCSERVICE VALUES\((\d+),", s)]
-    if existing_service_ids:
-        service_id = max(service_id, max(existing_service_ids) + 1)
-    svc_line = f"INSERT INTO OFMUCSERVICE VALUES({service_id},'conference','Public Chatrooms',0)\n"
-    if svc_id_row:
-        s = re.sub(r"INSERT INTO OFID VALUES\(26,\d+\)", f"INSERT INTO OFID VALUES(26,{service_id + 1})", s, count=1)
-    else:
-        s = s.rstrip() + f"\nINSERT INTO OFID VALUES(26,{service_id + 1})\n"
-    service_rows = list(re.finditer(r"INSERT INTO OFMUCSERVICE VALUES\(.*?\)\n?", s))
-    if service_rows:
-        pos = service_rows[-1].end()
-        s = s[:pos] + svc_line + s[pos:]
-    else:
-        s = s.rstrip() + "\n" + svc_line
-else:
-    service_id = int(svc.group(1))
-
-desired = {str(room.get("local") or "").strip() for room in rooms if str(room.get("local") or "").strip()}
-
-existing: set[str] = set()
-max_room_id = 0
-for m in re.finditer(r"INSERT INTO OFMUCROOM VALUES\((\d+),(\d+),'[^']*','[^']*','((?:''|[^'])*)',", s):
-    sid = int(m.group(1))
-    rid = int(m.group(2))
-    if rid > max_room_id:
-        max_room_id = rid
-    if sid == service_id:
-        existing.add(sql_unquote(m.group(3)).lower())
-
-removed_unknown = False
-if "org-unknown-unit" in existing and "org-unknown-unit" not in desired:
-    kept = []
-    for line in s.splitlines():
-        if "INSERT INTO OFMUCROOM VALUES(" in line and "'org-unknown-unit'" in line:
-            removed_unknown = True
+    # Room schema/defaults belong to Openfire's authenticated REST API.
+    from takctl.services.business_services import call
+    changed = False
+    for room in _desired_conference_rooms(cfg):
+        result = call('openfire', 'room', {'room': room['local']})
+        if result.get('ok'):
             continue
-        kept.append(line)
-    s = "\n".join(kept) + "\n"
-    existing.discard("org-unknown-unit")
-
-missing = [room for room in rooms if str(room.get("local") or "").strip() not in existing]
-if not missing and not removed_unknown:
-    print(f"openfire_server.core: OpenFire MUC rooms already seeded ({len(rooms)} desired)")
-    print("CHANGED=0")
-    raise SystemExit(0)
-
-ofid = re.search(r"INSERT INTO OFID VALUES\(27,(\d+)\)", s)
-next_room_id = max_room_id + 1
-if ofid:
-    next_room_id = max(next_room_id, int(ofid.group(1)))
-next_room_id = max(next_room_id, 1)
-
-now_ms = str(int(time.time() * 1000))
-room_lines = []
-for room in missing:
-    room_lines.append(room_insert(service_id, next_room_id, room, now_ms))
-    next_room_id += 1
-
-if ofid:
-    s = re.sub(r"INSERT INTO OFID VALUES\(27,\d+\)", f"INSERT INTO OFID VALUES(27,{next_room_id})", s, count=1)
-else:
-    s = s.rstrip() + f"\nINSERT INTO OFID VALUES(27,{next_room_id})\n"
-
-service_rows = list(re.finditer(r"INSERT INTO OFMUCSERVICE VALUES\(.*?\)\n?", s))
-if not service_rows:
-    print("openfire_server.core: could not find OFMUCSERVICE insertion point; leaving rooms unchanged")
-    print("CHANGED=0")
-    raise SystemExit(0)
-
-insert_pos = service_rows[-1].end()
-insert_text = "".join(line + "\n" for line in room_lines)
-if kind == "log" and insert_text:
-    insert_text = insert_text + "COMMIT\n"
-new_s = s[:insert_pos] + insert_text + s[insert_pos:]
-
-if kind == "log":
-    new_s = insert_before_log_footer("", new_s) if not new_s.strip() else new_s
-
-stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-backup = target.with_name(target.name + f".mucrooms.bak-{stamp}")
-shutil.copy2(target, backup)
-target.write_text(new_s, encoding="utf-8")
-
-print(f"openfire_server.core: seeded {len(missing)} OpenFire MUC rooms in {kind}; removed_unknown={str(removed_unknown).lower()} backup={backup}")
-print("CHANGED=1")
-""".replace("__DB_PATH__", str(EMBEDDED_DB_SCRIPT)).replace("__ROOMS_JSON__", json.dumps(rooms))
-
-    tmp = Path(f"/tmp/openfire-muc-rooms.{os.getpid()}.py")
-    tmp.write_text(code, encoding="utf-8")
-    try:
-        r = _run(["sudo", "python3", str(tmp)])
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
-
-    return "CHANGED=1" in str(r.stdout or "")
+        if result.get('http_status') != 404:
+            raise RuntimeError('Openfire room lookup failed')
+        result = call('openfire', 'room_create', {'room': room['local']}, write=True, confirm_write=True)
+        if not result.get('ok'):
+            raise RuntimeError('Openfire room creation failed')
+        changed = True
+    return changed
 
 
 def _ensure_martine_openfire_db_acl() -> None:
@@ -1351,9 +1095,7 @@ class _Action:
             _ensure_openfire_tls_keystore(cfg)
             _ensure_runtime_xml_policy(cfg)
             _ensure_embedded_db_auth_provider_consistency(cfg)
-            _ensure_embedded_db_muc_rooms(cfg)
             _ensure_martine_openfire_db_acl()
-            _sync_xmpp_bookmark_jobs()
             _run(["sudo", "systemctl", "start", SERVICE])
         else:
             _run(["sudo", "systemctl", "restart", SERVICE])
@@ -1362,14 +1104,14 @@ class _Action:
                 _ensure_openfire_tls_keystore(cfg)
                 _ensure_runtime_xml_policy(cfg)
                 _ensure_embedded_db_auth_provider_consistency(cfg)
-                _ensure_embedded_db_muc_rooms(cfg)
                 _ensure_martine_openfire_db_acl()
-                _sync_xmpp_bookmark_jobs()
                 _run(["sudo", "systemctl", "start", SERVICE])
             else:
                 raise RuntimeError("Openfire initial setup, database schema and admin listener did not become ready")
 
         _wait_for_rest_api()
+        _ensure_embedded_db_muc_rooms(cfg)
+        _sync_xmpp_bookmark_jobs()
         final_version = _pkg_version()
         final_active = _systemctl_state("is-active")
         print(
@@ -1380,3 +1122,4 @@ class _Action:
 
 
 ACTION = _Action()
+

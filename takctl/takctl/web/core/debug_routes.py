@@ -32,7 +32,11 @@ def _wants_html(req: Request) -> bool:
 
 
 def _debug_allowed(req: Request) -> bool:
-    return get_session(req) is not None
+    from takctl.services.business_access import request_actor
+    try:
+        return bool(request_actor(req)['admin'])
+    except PermissionError:
+        return False
 
 
 def _taks_error_page(*, status: int, title: str, detail: str, rid: str, tb: str | None) -> HTMLResponse:

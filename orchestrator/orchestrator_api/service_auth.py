@@ -1,5 +1,6 @@
 """Scoped loopback service authentication for orchestrator MCP operations."""
 import hmac
+import hashlib
 import logging
 import os
 import re
@@ -22,6 +23,15 @@ MARTI_DIAGNOSTICS = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}
 LIFECYCLE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/(?:pause|resume|shutdown|snooze|wake|terminate)$")
 
 
+def business_service_token():
+    # Domain separated from browser-session signatures; no DevOps-owned file.
+    from orchestrator_core.config import load_secrets_config
+    secret = load_secrets_config().auth.session_secret
+    if not secret:
+        raise RuntimeError('Orchestrator session secret unavailable')
+    return hmac.new(secret.encode(), b'taks-business-mcp-v1', hashlib.sha256).hexdigest()
+
+
 def service_auth_ok(request):
     method = request.method.upper()
     path = request.url.path.rstrip("/")
@@ -36,6 +46,13 @@ def service_auth_ok(request):
     supplied = header[7:].strip()
     if not supplied or len(supplied) > 256:
         return False
+    try:
+        business_match = hmac.compare_digest(supplied, business_service_token())
+    except Exception:
+        business_match = False
+    if business_match:
+        return ((method, path) in {('GET','/api/v2/units'),('GET','/api/v2/nodes')}
+                or (method == 'POST' and (NODE_TAKS_PROBE.fullmatch(path) or MARTI_DIAGNOSTICS.fullmatch(path))))
     try:
         expected = TOKEN_FILE.read_text(encoding="ascii").strip()
     except (OSError, UnicodeError):

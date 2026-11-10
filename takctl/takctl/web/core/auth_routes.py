@@ -67,7 +67,12 @@ def mount_auth_routes(app: FastAPI) -> None:
         sess = get_session(req)
         if not sess:
             return JSONResponse({"authenticated": False})
-        return JSONResponse({"authenticated": True, "user": {"username": sess.get("u", "")}})
+        from takctl.services.business_access import account_actor
+        try:
+            actor=account_actor(str(sess.get('u') or ''))
+        except PermissionError:
+            return JSONResponse({'authenticated':False})
+        return JSONResponse({'authenticated':True,'user':{'username':actor['username'],'admin':actor['admin']}})
 
     @app.get("/api/logout")
     async def logout():

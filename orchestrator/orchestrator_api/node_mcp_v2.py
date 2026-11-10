@@ -69,7 +69,7 @@ async def node_mcp(node_id: str, domain: str, request: Request):
         }
         safe_business = {
             "runtime_status", "api_surface", "takctl_health", "marti_diagnostics", "service_read", "service_write",
-            "onboarding_user_create", "onboarding_send_invite",
+            "onboarding_user_create", "onboarding_send_invite", "product_health", "onboarding_diagnostics", "diagnostic_log", "diagnostic_file_stat",
         }
         allowed = safe_devops if domain == "devops" else safe_business
         if method == "tools/call" and (

@@ -32,3 +32,6 @@ app.include_router(settings_v2_router)
 # API v2 (authoritative)
 app.include_router(api_v2_router)
 app.include_router(node_mcp_v2_router)
+
+from .martine import router as martine_router
+app.include_router(martine_router)

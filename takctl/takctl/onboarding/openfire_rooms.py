@@ -217,160 +217,32 @@ def _current_openfire_rooms(text: str, domain: str) -> dict[str, dict[str, Any]]
     return out
 
 
-def seed_openfire_rooms(
-    *,
-    ctx: dict[str, Any] | None = None,
-    remove_unknown_unit: bool = True,
-    db_path: Path = OPENFIRE_DB,
-    log_path: Path = OPENFIRE_LOG,
-) -> dict[str, Any]:
+def seed_openfire_rooms(*, ctx: dict[str, Any] | None = None,
+                        remove_unknown_unit: bool = True,
+                        db_path: Path = OPENFIRE_DB, log_path: Path = OPENFIRE_LOG) -> dict[str, Any]:
+    """Seed rooms through Openfire; never edit an HSQL checkpoint or live log."""
+    from takctl.services.business_services import call
     cfg = load_config()
     ctx = ctx or _node_context(cfg)
-    pid = str(ctx.get("policy_id") or _cfg_get(cfg, "default_policy_id", default="fro"))
-
-    domain = _cfg_get(cfg, "xmpp_domain", "openfire_domain", "node_fqdn", "fqdn")
-    if not domain:
-        domain = "localhost"
-
+    pid = str(ctx.get('policy_id') or _cfg_get(cfg, 'default_policy_id', default='fro'))
+    domain = _cfg_get(cfg, 'xmpp_domain', 'openfire_domain', 'node_fqdn', 'fqdn')
     derived = derive_policy_room_labels(ctx)
-    raw_channels = list(derived.get("available") or derived.get("default") or [])
-
-    rooms: list[tuple[str, str]] = []
-    seen: set[str] = set()
-    for label in raw_channels:
-        local = _norm_room_name(label)
-        natural = str(label or "").strip()
-        if not local or local in seen:
+    labels = list(derived.get('available') or derived.get('default') or [])
+    rooms = sorted(set(_norm_room_name(label) for label in labels if _norm_room_name(label)))
+    created = []
+    for name in rooms:
+        result = call('openfire', 'room', {'room': name})
+        if result.get('ok'):
             continue
-        seen.add(local)
-        rooms.append((local, natural))
-
-    if not rooms:
-        return {
-            "ok": False,
-            "policy_id": pid,
-            "ctx": ctx,
-            "created_count": 0,
-            "created_rooms": [],
-            "error": "no policy channels derived",
-        }
-
-    text = db_path.read_text(encoding="utf-8", errors="replace")
-    cols = _extract_create_table_cols(text, "OFMUCROOM")
-
-    svc_id = 1
-    m = re.search(r"INSERT INTO OFMUCSERVICE VALUES\((\d+),'conference'", text, flags=re.I)
-    if m:
-        svc_id = int(m.group(1))
-
-    existing_names: set[str] = set()
-    existing_ids: list[int] = []
-    for line in text.splitlines():
-        if "INSERT INTO OFMUCROOM VALUES(" not in line:
-            continue
-        inner = line.split("VALUES(", 1)[1]
-        if inner.endswith(")"):
-            inner = inner[:-1]
-        vals = _split_sql_values(inner)
-        if len(vals) >= 5:
-            try:
-                existing_ids.append(int(vals[1]))
-            except Exception:
-                pass
-            existing_names.add(_unquote_sql(vals[4]).lower())
-
-    desired_names = {name for name, _ in rooms}
-
-    if remove_unknown_unit and "org-unknown-unit" in existing_names and "org-unknown-unit" not in desired_names:
-        kept_lines = [
-            line for line in text.splitlines()
-            if "INSERT INTO OFMUCROOM VALUES(" not in line
-            or "'org-unknown-unit'" not in line
-        ]
-        text = "\n".join(kept_lines) + "\n"
-        existing_names.discard("org-unknown-unit")
-
-    next_id = max(existing_ids or [0]) + 1
-    now = _hsql_date()
-    new_rows: list[str] = []
-
-    for name, natural in rooms:
-        if name in existing_names:
-            continue
-
-        values = {
-            "SERVICEID": svc_id,
-            "ROOMID": next_id,
-            "CREATIONDATE": now,
-            "MODIFICATIONDATE": now,
-            "NAME": name,
-            "NATURALNAME": natural,
-            "DESCRIPTION": f"TAKS policy {pid} channel {natural}",
-            "LOCKEDDATE": None,
-            "EMPTYDATE": None,
-            "CANCHANGESUBJECT": 1,
-            "MAXUSERS": 0,
-            "PUBLICROOM": 1,
-            "MODERATED": 0,
-            "MEMBERSONLY": 0,
-            "CANINVITE": 1,
-            "ROOMPASSWORD": None,
-            "CANDISCOVERJID": 1,
-            "LOGENABLED": 1,
-            "RETIREONDELETION": 0,
-            "PRESERVEHISTONDEL": 0,
-            "SUBJECT": None,
-            "ROLESTOBROADCAST": 7,
-            "USERESERVEDNICK": 0,
-            "CANCHANGENICK": 1,
-            "CANREGISTER": 1,
-            "ALLOWPM": 0,
-            "FMUCENABLED": 0,
-            "FMUCOUTBOUNDNODE": None,
-            "FMUCOUTBOUNDMODE": 0,
-            "FMUCINBOUNDNODES": None,
-        }
-        new_rows.append(_insert_row("OFMUCROOM", cols, values))
-        existing_names.add(name)
-        next_id += 1
-
-    if new_rows or remove_unknown_unit:
-        svc_matches = list(re.finditer(r"INSERT INTO OFMUCSERVICE VALUES\(.*?\)\n?", text))
-        insert_at = svc_matches[-1].end() if svc_matches else None
-        if insert_at is None:
-            ins_matches = list(re.finditer(r"INSERT INTO .*?\n", text))
-            insert_at = ins_matches[-1].end() if ins_matches else len(text)
-
-        if new_rows:
-            block = "".join(row + "\n" for row in new_rows)
-            text = text[:insert_at] + block + text[insert_at:]
-
-        db_path.write_text(text, encoding="utf-8")
-
-        if log_path.exists():
-            log_text = log_path.read_text(encoding="utf-8", errors="replace")
-            kept = [
-                line for line in log_text.splitlines()
-                if "INSERT INTO OFMUCROOM VALUES(" not in line
-                and "org-unknown-unit" not in line
-            ]
-            log_path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
-
-    final_rooms = _current_openfire_rooms(db_path.read_text(errors="replace"), domain)
-
-    return {
-        "ok": True,
-        "policy_id": pid,
-        "ctx": ctx,
-        "domain": domain,
-        "derived_available": raw_channels,
-        "created_count": len(new_rows),
-        "created_rooms": [
-            _unquote_sql(_split_sql_values(row.split("VALUES(", 1)[1][:-1])[4])
-            for row in new_rows
-        ],
-        "openfire_rooms": sorted(final_rooms),
-    }
+        if result.get('http_status') != 404:
+            raise RuntimeError('Openfire room lookup failed')
+        result = call('openfire', 'room_create', {'room': name}, write=True, confirm_write=True)
+        if not result.get('ok'):
+            raise RuntimeError('Openfire room creation failed')
+        created.append(name)
+    return {'ok': True, 'policy_id': pid, 'ctx': ctx, 'domain': domain,
+            'derived_available': labels, 'created_count': len(created),
+            'created_rooms': created, 'openfire_rooms': rooms}
 
 
 def _parse_ldif_records(text: str) -> list[dict[str, list[str]]]:
@@ -494,8 +366,8 @@ def backfill_invite_jobs(job_dir: Path = JOB_DIR) -> dict[str, Any]:
     if not domain:
         raise RuntimeError("could not determine XMPP domain")
 
-    text = OPENFIRE_DB.read_text(errors="replace")
-    rooms_by_local = _current_openfire_rooms(text, domain)
+    rooms_by_local = {name: {"name": name, "jid": f"{name}@conference.{domain}", "autojoin": True, "nick": None}
+                      for name in seeded.get("openfire_rooms", [])}
 
     labels = derive_policy_room_labels(ctx)
     default_labels = list(labels.get("default") or [])

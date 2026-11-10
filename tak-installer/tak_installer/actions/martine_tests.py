@@ -29,6 +29,7 @@ def apply(ctx) -> None:
         str(PYTHON), "-m", "unittest", "-v",
         "test_agents_migration",
         "test_agents_sdk_workflows",
+        "test_chat_scope",
         "test_martine_use_cases",
     ]
     proc = subprocess.run(

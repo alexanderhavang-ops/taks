@@ -35,6 +35,8 @@ from takctl.api.onboarding_cards import router as onboarding_cards_router
 
 def create_app() -> FastAPI:
     app = FastAPI(title="takctl-web")
+    from takctl.web.core.business_authorization import install_business_authorization
+    install_business_authorization(app)
 
     # subsystems (best-effort)
     load_subsystems(app)

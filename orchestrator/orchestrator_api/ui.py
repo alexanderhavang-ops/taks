@@ -27,7 +27,9 @@ def _state_dir() -> Path:
 
 
 def _html(name: str) -> str:
-  return (_TPL_DIR / name).read_text(encoding="utf-8")
+  html = (_TPL_DIR / name).read_text(encoding="utf-8")
+  snippet = '<a href="/martine" aria-label="Open Martine" style="position:fixed;bottom:20px;right:24px;z-index:9999;padding:12px 18px;border-radius:24px;background:#29466e;color:white;text-decoration:none;box-shadow:0 4px 18px #0007">Martine</a>'
+  return html.replace('</body>',snippet+'</body>')
 
 
 def _is_authed(req: Request) -> bool:

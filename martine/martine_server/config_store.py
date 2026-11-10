@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-RUNTIME_ROOT = Path("/opt/tak/tools/martine")
+RUNTIME_ROOT = Path(os.environ.get("MARTINE_RUNTIME_ROOT", "/opt/tak/tools/martine"))
 RUNTIME_CONF_DIR = RUNTIME_ROOT / "conf.d"
 RUNTIME_CONFMETA_DIR = RUNTIME_ROOT / "confmeta"
 

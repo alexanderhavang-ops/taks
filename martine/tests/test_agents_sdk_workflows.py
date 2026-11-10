@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -27,6 +28,19 @@ def make_ctx(root: Path, *, uid: str = "") -> RunContext:
 
 
 class RealAgentsSdkUseCases(unittest.TestCase):
+    def setUp(self):
+        self.runtime = tempfile.TemporaryDirectory()
+        self.addCleanup(self.runtime.cleanup)
+        values={}
+        for env,name in [('TAKS_RUNTIME_ROOT','takctl'),('MARTINE_RUNTIME_ROOT','martine')]:
+            root=Path(self.runtime.name)/name
+            (root/'conf.d').mkdir(parents=True)
+            (root/'conf.d/test.conf').write_text('fqdn = test.invalid\nmartine_state_dir = '+self.runtime.name+'/state\n')
+            values[env]=str(root)
+        values['MARTINE_CHAT_DB']=str(Path(self.runtime.name)/'chat.sqlite3')
+        patcher=patch.dict(os.environ,values)
+        patcher.start();self.addCleanup(patcher.stop)
+
     def _run(self, steps, *, final_format="plain text answer"):
         from agents.testing import ScriptedModel
         model = ScriptedModel(steps)
@@ -54,6 +68,33 @@ class RealAgentsSdkUseCases(unittest.TestCase):
         from agents.testing import assistant_message
         result = self._run([[assistant_message("Hej! Jag är Martine.")]])
         self.assertIn("Martine", result.answer_text)
+
+    def test_real_mcp_server_rejects_cross_user_and_raw_log_calls(self):
+        from agents.mcp import MCPServerStdio
+        from martine.mcp_server.client import _build_child_env
+        import sys
+        actor={'username':'alice','unit':'one','authenticated':True,'admin':False}
+        async def exercise():
+            env={**_build_child_env(),'MARTINE_AUTH_CONTEXT':json.dumps(actor)}
+            async with MCPServerStdio(name='scope-test',params={'command':sys.executable,'args':['-m','martine.main','mcp-stdio'],'env':env}) as server:
+                for name,args in [('get_onboarding_diagnostics',{'username':'bob'}),('read_diagnostic_log',{'source':'installer'})]:
+                    result=await server.call_tool(name,args)
+                    self.assertTrue(result.isError, name)
+        asyncio.run(exercise())
+
+    def test_real_mcp_mutation_only_creates_pending_human_approval(self):
+        from agents.mcp import MCPServerStdio
+        from martine.mcp_server.client import _build_child_env
+        import sys, sqlite3
+        actor={'username':'admin','unit':'one','authenticated':True,'admin':True}
+        async def exercise():
+            env={**_build_child_env(),'MARTINE_AUTH_CONTEXT':json.dumps(actor)}
+            async with MCPServerStdio(name='approval-test',params={'command':sys.executable,'args':['-m','martine.main','mcp-stdio'],'env':env}) as server:
+                result=await server.call_tool('request_business_change',{'service':'mumble','operation':'channel_create','arguments':{'name':'test','parent':0}})
+                self.assertFalse(result.isError)
+        asyncio.run(exercise())
+        with sqlite3.connect(os.environ['MARTINE_CHAT_DB']) as db:
+            self.assertEqual(db.execute('SELECT status FROM actions').fetchall(),[('pending',)])
 
     def test_time_mcp_tool_roundtrip(self):
         from agents.testing import assistant_message, function_call

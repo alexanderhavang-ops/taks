@@ -19,7 +19,7 @@ PREFIXES = {
     'users': ('opt/tak/UserAuthenticationFile.xml', 'etc/taks/ldap.conf', 'etc/taks/ldap-secrets.conf', 'etc/ldap', 'state/ldap.ldif'),
     'documents': ('opt/tak/Documents', 'opt/tak/documents', 'opt/tak/tools/takctl/state/docs', 'opt/tak/tools/takctl/data/library/documents'),
     'takctl_state': ('opt/tak/tools/takctl/state', 'opt/tak/takctl-state'),
-    'martine_state': ('opt/tak/tools/martine/runtime/identity', 'opt/tak/tools/martine/state/voice_onboarding', 'opt/tak/tools/martine/state/voice_transcribe'),
+    'martine_state': ('opt/tak/tools/martine/runtime/identity', 'opt/tak/tools/martine/state/voice_onboarding', 'opt/tak/tools/martine/state/voice_transcribe', 'opt/tak/tools/martine/state/chat', 'opt/tak/tools/martine/state/sessions'),
     'replay_state': ('opt/tak/replay',),
 }
 
@@ -223,3 +223,4 @@ if __name__ == '__main__':
     if os.geteuid() != 0 or len(sys.argv) != 3 or sys.argv[2] not in {'early', 'databases'}:
         raise SystemExit('Usage (root): restore-state.py BUNDLE_ROOT early|databases')
     restore(Path(sys.argv[1]), sys.argv[2])
+

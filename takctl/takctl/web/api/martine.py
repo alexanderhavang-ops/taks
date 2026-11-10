@@ -1,86 +1,55 @@
-from __future__ import annotations
-
-from typing import Any, Dict
-import sys
-from pathlib import Path
-import asyncio
-
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from takctl.services import martine_chat as chat
+from takctl.services.business_access import request_actor
 
-router = APIRouter(prefix="/api/martine", tags=["martine"])
+router = APIRouter(prefix='/api/martine',tags=['martine'])
 
-
-def _load_run_once():
-    """
-    Load Martine from runtime, not source.
-    """
-    candidates = [
-        Path("/opt/tak/tools/martine"),
-    ]
-
-    for p in candidates:
-        s = str(p)
-        if p.exists() and s not in sys.path:
-            sys.path.insert(0, s)
-
+def actor(request):
     try:
-        from martine.agent.simple_agent import run_once  # type: ignore
-        return run_once
-    except Exception as e:
-        raise RuntimeError(f"unable to import Martine runtime: {type(e).__name__}: {e}")
+        return request_actor(request)
+    except PermissionError:
+        raise HTTPException(401,'Authentication required')
 
-
-@router.get("/health")
-async def martine_health() -> Dict[str, Any]:
-    return {"ok": True, "name": "martine"}
-
-def _logs_root() -> Path:
-    return Path("/opt/tak/tools/martine/state/logs")
-
-
-@router.get("/runs/{run_id}/events")
-async def martine_run_events(run_id: str) -> Dict[str, Any]:
-    rid = str(run_id or "").strip()
-    if not rid:
-        raise HTTPException(status_code=400, detail="missing run_id")
-
-    p = _logs_root() / rid / "events.jsonl"
-    if not p.exists():
-        raise HTTPException(status_code=404, detail=f"events not found for run_id: {rid}")
-
-    events = []
-    for raw in p.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        try:
-            events.append(__import__("json").loads(line))
-        except Exception:
-            events.append({"type": "decode_error", "raw": line[:2000]})
-
-    return {"ok": True, "run_id": rid, "events": events, "path": str(p)}
-
-
-@router.post("/ask")
-async def martine_ask(req: Request) -> Dict[str, Any]:
+def invoke(function,*args):
     try:
-        body = await req.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="invalid json body")
+        return function(*args)
+    except PermissionError:
+        raise HTTPException(403,'Not available to this account')
+    except ValueError as exc:
+        raise HTTPException(400,str(exc))
 
-    question = ""
-    if isinstance(body, dict):
-        question = str(body.get("question") or "").strip()
+def csrf(request):
+    if request.headers.get('x-taks-chat') != '1':
+        raise HTTPException(403,'Chat request header required')
 
-    if not question:
-        raise HTTPException(status_code=400, detail="missing question")
+@router.get('/health')
+def health(): return {'ok':True,'name':'Martine'}
 
-    try:
-        run_once = _load_run_once()
-        result = await asyncio.to_thread(run_once, question)
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"martine ask failed: {type(e).__name__}: {e}")
+@router.get('/me')
+def me(request:Request):
+    a=actor(request)
+    return {'authenticated':True,'user':{'username':a['username'],'admin':a['admin']}}
+
+@router.get('/history')
+def history(request:Request,conversation_id:str='main'):
+    return invoke(chat.history,actor(request),conversation_id)
+
+@router.post('/ask')
+async def ask(request:Request):
+    csrf(request);a=actor(request);body=await request.json()
+    return invoke(chat.submit,a,body.get('message',body.get('question','')),body.get('conversation_id','main'))
+
+@router.get('/jobs/{job_id}')
+def job(request:Request,job_id:str):
+    return invoke(chat.job,actor(request),job_id)
+
+@router.post('/actions/{action_id}/confirm')
+def confirm(request:Request,action_id:str):
+    csrf(request)
+    return invoke(chat.confirm,actor(request),action_id)
+
+@router.get('/runs/{run_id}/events')
+def events(request:Request,run_id:str):
+    # Historical unrestricted traces may contain credentials. Never publish them.
+    actor(request)
+    raise HTTPException(410,'Use scoped conversation history; raw traces are not published')

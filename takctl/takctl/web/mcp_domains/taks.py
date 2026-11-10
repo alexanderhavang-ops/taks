@@ -47,6 +47,20 @@ TOOLS = [
          "username": _STR, "email": _STR, "confirm_send": {"type": "boolean"},
      }, "required": ["username", "email"], "additionalProperties": False}},
 ]
+for name, properties, required in [
+    ('chat_authenticate', {'username':_STR,'password':_STR}, ['username','password']),
+    ('chat_submit', {'ticket':_STR,'operator_user':_STR,'message':_STR,'conversation_id':_STR}, ['message']),
+    ('chat_status', {'ticket':_STR,'operator_user':_STR,'job_id':_STR}, ['job_id']),
+    ('chat_history', {'ticket':_STR,'operator_user':_STR,'conversation_id':_STR}, []),
+    ('chat_confirm', {'ticket':_STR,'operator_user':_STR,'action_id':_STR}, ['action_id']),
+    ('onboarding_diagnostics', {'username':_STR}, ['username']),
+    ('diagnostic_log', {'source':_STR,'lines':{'type':'integer'}}, ['source']),
+    ('diagnostic_file_stat', {'source':_STR}, ['source']),
+    ('product_health', {}, []),
+]:
+    TOOLS.append({'name':name,'description':'Scoped Martine chat or read-only business diagnostics',
+                  'inputSchema':{'type':'object','properties':properties,'required':required,'additionalProperties':False}})
+
 _METHODS = frozenset(("get", "post", "put", "patch", "delete"))
 
 
@@ -90,6 +104,10 @@ def _request(method, path, data=None, public_fqdn=None):
     if not path.startswith("/api/") or "//" in path or ".." in path or "?" in path:
         raise ValueError("Invalid internal TAKCTL path")
     headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    from takctl.web.api.orchestrator import _read_local_orchestrator_secret
+    internal_secret = _read_local_orchestrator_secret()
+    if internal_secret:
+        headers['Authorization'] = 'Bearer ' + internal_secret
     if public_fqdn:
         headers.update({"Host": public_fqdn, "X-Forwarded-Host": public_fqdn,
                         "X-Forwarded-Proto": "https"})
@@ -128,6 +146,28 @@ def call(name, args):
     declared = next((t for t in TOOLS if t["name"] == name), None)
     if declared is None or set(args) - set(declared["inputSchema"]["properties"]):
         raise ValueError("Unknown tool or arguments")
+    if name.startswith('chat_') or name in ('onboarding_diagnostics','diagnostic_log','diagnostic_file_stat','product_health'):
+        from takctl.services import martine_chat as chat
+        try:
+            if name == 'chat_authenticate':
+                result = chat.authenticate(args['username'],args['password'])
+            else:
+                actor = chat.operator_actor(args.get('operator_user') or 'business-mcp') if (not name.startswith('chat_') or args.get('operator_user')) else chat.ticket_actor(args.get('ticket',''))
+                if name == 'chat_submit': result=chat.submit(actor,args['message'],args.get('conversation_id','main'))
+                elif name == 'chat_status': result=chat.job(actor,args['job_id'])
+                elif name == 'chat_history': result=chat.history(actor,args.get('conversation_id','main'))
+                elif name == 'chat_confirm': result=chat.confirm(actor,args['action_id'])
+                else:
+                    from takctl.services import business_diagnostics as diagnostics
+                    actor=chat.operator_actor('business-mcp')
+                    if name == 'product_health': result=diagnostics.product_health(actor)
+                    elif name == 'onboarding_diagnostics': result=diagnostics.onboarding(actor,args['username'])
+                    elif name == 'diagnostic_log': result=diagnostics.log_tail(actor,args['source'],args.get('lines',40))
+                    else: result=diagnostics.file_metadata(actor,args['source'])
+                    _,sanitize=chat.runtime();result=sanitize(result)
+        except PermissionError:
+            result={'ok':False,'error':'Not available to this account','denied':True}
+        return {'content':[{'type':'text','text':json.dumps(result)}]}
     if name == "runtime_status":
         return {"content": [{"type": "text", "text": json.dumps({
             "takctl_runtime": Path("/opt/tak/tools/takctl").is_dir(),
