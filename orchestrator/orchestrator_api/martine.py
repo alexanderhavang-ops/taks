@@ -89,10 +89,19 @@ def _csrf(request):
     if request.headers.get('x-taks-chat')!='1': raise HTTPException(403,'Chat request header required')
 
 
+def available_nodes():
+    # The registry's launch state can remain pending. Use fresh product heartbeats,
+    # without depending on the optional DevOps gateway or an AWS inventory call.
+    now=time.time()
+    return [n for n in list_nodes() if n.get('fqdn') and n.get('status')=='online'
+            and 0<=now-float(n.get('last_seen_ts') or 0)<=600
+            and n.get('aws_state') not in ('terminated','shutting-down','stopped','stopping','missing')]
+
+
 @router.get('/api/v2/martine/me')
 def me(request:Request):
     if _operator(request):
-        nodes=[{'node_id':n['node_id'],'label':n.get('unit_path') or n['node_id']} for n in list_nodes() if n.get('fqdn') and n.get('aws_state')=='running']
+        nodes=[{'node_id':n['node_id'],'label':n.get('unit_path') or n['node_id']} for n in available_nodes()]
         return {'authenticated':True,'user':{'username':load_secrets_config().auth.operator_user,'admin':True},'nodes':nodes}
     data=_decode(request.cookies.get(COOKIE,'') or '')
     return {'authenticated':bool(data),'user':data.get('user') if data else None,'node_id':data.get('node_id') if data else ''}

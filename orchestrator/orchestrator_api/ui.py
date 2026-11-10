@@ -251,11 +251,10 @@ def _unified_login(username,password):
     response.set_cookie('taks_auth',make_token(username,secrets.auth.session_secret),httponly=True,secure=True,samesite='lax')
     response.delete_cookie('taks_martine',path='/')
     return response
-  from .martine import account_login
-  from orchestrator_core.nodes_state import list_nodes
+  from .martine import account_login, available_nodes
   # Normal TAK accounts use the same login. Qualify the name only when multiple nodes exist.
   account,sep,node=username.rpartition('@')
-  candidates=[n for n in list_nodes() if n.get('fqdn') and n.get('aws_state')=='running']
+  candidates=available_nodes()
   if not sep:
     account=username
     if len(candidates)!=1:return JSONResponse({'ok':False,'error':'Use username@node-hostname'},status_code=401)

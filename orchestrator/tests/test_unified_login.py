@@ -18,7 +18,7 @@ class UnifiedLoginTests(unittest.TestCase):
         self.assertNotIn('taks_role',response.headers.get('set-cookie',''))
         self.assertTrue(verify_token(self.client.cookies['taks_auth'],'fixture-secret'))
     def test_normal_user_uses_same_login_and_main_shell_without_operator_authority(self):
-        with patch('orchestrator_core.nodes_state.list_nodes',return_value=[{'node_id':'unit.example','fqdn':'unit.example','aws_state':'running'}]),patch.object(martine,'_call',return_value={'ok':True,'ticket':'signed-node-ticket','user':{'username':'alex','admin':False}}):
+        with patch.object(martine,'available_nodes',return_value=[{'node_id':'unit.example','fqdn':'unit.example','aws_state':'running'}]),patch.object(martine,'_call',return_value={'ok':True,'ticket':'signed-node-ticket','user':{'username':'alex','admin':False}}):
             response=self.client.post('/api/login',json={'username':'alex','password':'fixture','role':'admin'})
         self.assertEqual(response.status_code,200)
         self.assertFalse(verify_token(self.client.cookies['taks_martine'],'fixture-secret'))
@@ -27,3 +27,7 @@ class UnifiedLoginTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/v2/units/unit/logo',files={'file':('logo.png',b'png','image/png')}).status_code,401);
         self.assertIn('data-route="/martine"',response.text)
         self.assertEqual(self.client.get('/martine',follow_redirects=False).headers['location'],'/#/martine')
+
+    def test_fresh_pending_registry_node_is_available_but_stale_record_is_not(self):
+        with patch.object(martine,'list_nodes',return_value=[{'node_id':'fresh','fqdn':'fresh.example','status':'online','aws_state':'pending','last_seen_ts':990},{'node_id':'old','fqdn':'old.example','status':'online','aws_state':'running','last_seen_ts':1}]),patch.object(martine.time,'time',return_value=1000):
+            self.assertEqual([n['node_id'] for n in martine.available_nodes()],['fresh'])
