@@ -396,6 +396,21 @@ def _wait_for_setup_complete(timeout_s: int = 90) -> bool:
     return _setup_complete()
 
 
+def _wait_for_rest_api(timeout_s: int = 90, probe=None) -> None:
+    # systemd start and setup=true precede Jetty/plugin startup. Wait for an
+    # authenticated native API response before publishing service readiness.
+    if probe is None:
+        from takctl.services.business_services import call
+        probe = lambda: call('openfire', 'sessions', {})
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        if probe().get('ok'):
+            print('openfire_server.core: authenticated REST API ready')
+            return
+        time.sleep(2)
+    raise RuntimeError('Openfire authenticated REST API did not become ready')
+
+
 def _ensure_embedded_db_auth_provider_consistency(cfg: dict[str, str]) -> bool:
     """Ensure OpenFire uses LDAP users/auth when TAKS backing_user_store=ldap.
 
@@ -1330,6 +1345,7 @@ class _Action:
             else:
                 print("openfire_server.core: setup did not report complete; skipping embedded DB provider repair")
 
+        _wait_for_rest_api()
         final_version = _pkg_version()
         final_active = _systemctl_state("is-active")
         print(

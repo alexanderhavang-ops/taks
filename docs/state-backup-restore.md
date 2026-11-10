@@ -37,4 +37,6 @@ Create a format 2 backup with the fixed helper. Individual LDAP and PostgreSQL
 exports are consistent snapshots; this is not a distributed transaction across
 all services. The current implementation targets the same TAK/LDAP/PostgreSQL
 versions and the same unit identity. PostgreSQL roles are provisioned by the
-installer; the CoT dump preserves database object ownership and ACLs.
+installer; before restoring ACLs, the configured TAKCTL reader role is created
+without login privileges if missing. The normal installer then applies its
+managed login credential. The CoT dump preserves database ownership and ACLs.
