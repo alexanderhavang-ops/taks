@@ -67,7 +67,7 @@ async def node_mcp(node_id: str, domain: str, request: Request):
             "netstat_listeners", "lsof_tak_java",
         }
         safe_business = {
-            "simulation_read", "simulation_control", "list_reference_docs", "search_reference_docs",
+            "simulation_read", "simulation_control", "map_read", "list_reference_docs", "search_reference_docs",
             "search_reference_docs_semantic", "get_reference_doc_context", "list_reference_doc_sections",
             "get_reference_section",
         }

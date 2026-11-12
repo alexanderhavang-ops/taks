@@ -58,7 +58,7 @@ class ReleaseBoundaryTests(unittest.TestCase):
                 with patch.object(self.m,"Path",return_value=archive):
                     result=self.m.verify_built_bundle()
                 self.assertEqual(result["ok"],enabled)
-                if enabled:self.assertEqual(result["checked_files"],10)
+                if enabled:self.assertEqual(result["checked_files"],len(self.m.OVERLAYS)+2)
 
 
 if __name__ == "__main__": unittest.main()

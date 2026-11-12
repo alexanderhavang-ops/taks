@@ -8,8 +8,9 @@ services. Config, credentials and other code are preserved.
 from pathlib import Path
 import argparse
 import shutil
+import re
 
-NAMES = {"simulation_read", "simulation_control", "list_reference_docs", "search_reference_docs",
+NAMES = {"simulation_read", "simulation_control", "map_read", "list_reference_docs", "search_reference_docs",
          "search_reference_docs_semantic", "get_reference_doc_context", "list_reference_doc_sections",
          "get_reference_section"}
 
@@ -25,11 +26,13 @@ def prepare(business, bridge):
     original = 'if service not in ("ldap", "mumble", "openfire"):'
     if original in business:
         business = business.replace(original, 'if service not in ("ldap", "mumble", "openfire", "simulation", "reference_docs"):')
-    if "safe_business.update(" not in bridge:
-        marker = '        allowed = safe_devops if domain == "devops" else safe_business\n'
-        if bridge.count(marker) != 1:
-            raise ValueError("Unexpected deployed node bridge allowlist source")
-        hook = "        safe_business.update(" + repr(NAMES) + ")\n"
+    hook = "        safe_business.update(" + repr(NAMES) + ")\n"
+    if "safe_business.update(" in bridge:
+        bridge = re.sub(r"        safe_business\.update\([^\n]+\)\n", lambda m: hook, bridge)
+    else:
+        markers = ['        allowed = ' + name + ' if domain == "devops" else safe_business\n' for name in ("safe_devops", "safe_tools")]
+        marker = next((m for m in markers if bridge.count(m) == 1), None)
+        if marker is None: raise ValueError("Unexpected deployed node bridge allowlist source")
         bridge = bridge.replace(marker, hook + marker, 1)
     compile(business, "business.py", "exec")
     compile(bridge, "node_mcp_v2.py", "exec")

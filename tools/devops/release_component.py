@@ -18,6 +18,7 @@ SEED_PATH = Path("/opt/tak-orch/state/units/taklabs/files/misc/simulation-state.
 OVERLAYS = (
     "takctl/takctl/simulation/__init__.py", "takctl/takctl/simulation/model.py",
     "takctl/takctl/simulation/daemon.py", "takctl/takctl/web/mcp_domains/simulation_tools.py",
+    "takctl/takctl/web/mcp_domains/map_context.py",
     "tak-installer/tak_installer/actions/simulation_runtime.py",
     "tak-installer/plans/tak-node.d/zz-simulation-runtime",
     "takctl/conf.d/simulation.conf.template", "tools/deploy-simulation-mvp.py",

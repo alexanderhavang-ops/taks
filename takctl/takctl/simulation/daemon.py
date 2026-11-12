@@ -8,15 +8,17 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import random
+import resource
 import signal
 import ssl
 import time
 import xml.etree.ElementTree as ET
 
-from .model import World
+from .model import World, advance_path
 
 SOCKET = "/opt/tak/simulation/control.sock"
 MAX_REQUEST = 65536
@@ -64,7 +66,16 @@ def stamp(t):
     return t.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
-def event(entity, *, message=None):
+def course(entity):
+    movement = entity.get("move")
+    if not movement: return entity.get("course_deg", 0)
+    start = entity["position"]; target, _ = advance_path(copy.deepcopy(movement), 1)
+    a, b = math.radians(start["lat"]), math.radians(target["lat"])
+    delta = math.radians(target["lon"] - start["lon"])
+    return (math.degrees(math.atan2(math.sin(delta)*math.cos(b), math.cos(a)*math.sin(b)-math.sin(a)*math.cos(b)*math.cos(delta)))+360)%360
+
+
+def event(entity, *, message=None, paused=False):
     now = datetime.now(timezone.utc)
     uid, callsign = entity["uid"], entity["callsign"]
     health = entity.get("health_state", "fit")
@@ -95,9 +106,9 @@ def event(entity, *, message=None):
                 ET.SubElement(detail, "__group", name="Blue", role="HQ" if entity["role"] == "HQ" else "Team Member")
             ET.SubElement(detail, "takv", device="TAKS simulation", platform="TAKS-SIM", os="Linux", version="0.2")
         movement = entity.get("move")
-        speed = movement["distance_m"]/movement["duration_s"] if movement else entity.get("speed_mps", 0)
-        ET.SubElement(detail, "track", speed=str(speed), course="0")
-        ET.SubElement(detail, "remarks").text = f"SIMULATION ONLY | {entity['role']} | {entity['readiness']} | {health.upper()} | {entity.get('remarks','')}"
+        speed = 0 if paused else movement["distance_m"]/movement["duration_s"] if movement else entity.get("speed_mps", 0)
+        ET.SubElement(detail, "track", speed=str(speed), course=str(course(entity)))
+        ET.SubElement(detail, "remarks").text = f"SIMULATION ONLY | {entity['role']} | {entity['readiness']} | {health.upper()} | {entity.get('platform','person')} | group={entity.get('group_id','')} | vehicle={entity.get('vehicle_id','')} | {entity.get('remarks','')}"
     return ET.tostring(root, encoding="utf-8") + b"\n"
 
 
@@ -168,6 +179,13 @@ class Session:
                             delay = 1
                             self.info["received"] += 1
                             uid = element.get("uid", "")
+                            if element.get("type") == "b-t-f":
+                                chat, remarks = element.find("detail/__chat"), element.find("detail/remarks")
+                                if chat is not None and remarks is not None:
+                                    self.daemon.inbox[uid] = {"uid": uid, "received_at": stamp(datetime.now(timezone.utc)),
+                                        "sender": chat.get("senderCallsign", "")[:128], "room": chat.get("chatroom", "")[:128],
+                                        "message": (remarks.text or "")[:2000]}
+                                    while len(self.daemon.inbox) > 100: del self.daemon.inbox[next(iter(self.daemon.inbox))]
                             if uid in self.daemon.known_uids:
                                 p = element.find("point")
                                 self.daemon.observed[uid] = {
@@ -219,6 +237,7 @@ class Daemon:
         self.handshakes = asyncio.Semaphore(4)
         self.sessions = {}
         self.observed = {}
+        self.inbox = {}
         self.known_uids = set()
         self.last_tick = time.monotonic()
         self.started = time.monotonic()
@@ -246,6 +265,7 @@ class Daemon:
 
     async def tick(self):
         while True:
+            await self.run_due()
             async with self.lock:
                 self.wakeup.clear()
                 if self.advance():
@@ -254,7 +274,7 @@ class Daemon:
                 entities = copy.deepcopy(self.world.entities())
                 active = {u["id"] for u in self.world.state["units"].values() if u["active"]}
                 senders = {e["id"]:e["identity_slot"] for e in entities}
-                messages = [(e["identity_slot"],event(e)) for e in entities]
+                messages = [(e["identity_slot"],event(e, paused=self.world.state["paused"])) for e in entities]
                 messages += [(senders[m["sender_entity_id"]],event(m)) for m in self.world.state["markers"].values()
                              if m["active"] and m["unit_id"] in active and m["sender_entity_id"] in senders]
                 messages += [(senders[c["sender_entity_id"]],custom_event(c["xml"])) for c in self.world.state["cot_templates"].values()
@@ -265,12 +285,67 @@ class Daemon:
             except asyncio.TimeoutError:
                 pass
 
-    async def command(self, op, args):
+    async def run_due(self):
+        """Execute supplied actions once; mark ambiguous crash outcomes, never replay sends."""
+        for _ in range(64):
+            async with self.lock:
+                if self.advance(): await self.save()
+                if self.world.state["paused"]: return
+                due = [(key, row) for key, row in self.world.state["scheduled"].items()
+                       if row["status"] == "pending" and row["due_clock_s"] <= self.world.state["clock_s"]]
+                if not due: return
+                key, row = min(due, key=lambda pair: (pair[1]["due_clock_s"], pair[0]))
+                row["status"] = "attempt_pending"
+                await self.save()
+                arguments = {**copy.deepcopy(row["arguments"]), "request_id": row["request_id"],
+                             "expected_revision": self.world.state["revision"]}
+                operation = row["operation"]
+            try:
+                result = await self.command(operation, arguments, scheduled=True)
+            except Exception as exc:
+                result = {"ok": False, "error": str(exc)[:240]}
+            async with self.lock:
+                row = self.world.state["scheduled"][key]
+                if result.get("deferred"):
+                    row["status"] = "pending"
+                    await self.save()
+                    return
+                row["status"] = "completed" if result.get("ok") else "failed"
+                row["result"] = {k: v for k, v in result.items() if k != "cot_xml"}
+                self.world.event("scheduled_action_" + row["status"], unit_id=row["unit_id"], schedule_id=row["id"])
+                await self.save()
+
+    async def command(self, op, args, *, scheduled=False):
         async with self.lock:
             if self.advance():
                 await self.save()
             if not isinstance(args, dict):
                 raise ValueError("arguments must be an object")
+            if scheduled:
+                if self.world.state["paused"]: return {"deferred": True}
+                args = {**args, "expected_revision": self.world.state["revision"]}
+            if op == "export":
+                if args: raise ValueError("Export takes no arguments")
+                return {"ok": True, "state": copy.deepcopy(self.world.state), "contains_credentials": False}
+            if op == "capabilities":
+                if args: raise ValueError("Capabilities takes no arguments")
+                return {"ok": True, "version": "MVP2", "identity_capacity": self.world.capacity,
+                        "tick_seconds": self.config.get("tick_seconds", 10), "daemon_inference": False,
+                        "operations": ["create", "move", "stop", "deactivate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel"],
+                        "limits": {"batch_commands": 32, "path_destinations": 100, "scheduled_actions": 64, "markers": 64, "persistent_custom_cot": 16},
+                        "write_contract": "All writes require a unique request_id and matching expected_revision. Unit operations also require unit_id. batch children omit request/revision",
+                        "arguments": {"create": "position,count,callsign?,tak_unit_ref?,metadata?,members? (one profile per entity)",
+                            "entity_move": "entity_id,path:[{lat,lon}],duration_s", "entity_stop": "entity_id",
+                            "entity_patch": "entity_id,health_state?(fit/wounded/kia),remarks?,callsign?,role?,readiness?,group_id?,vehicle_id?,platform?,cot_type?,metadata? (replacement object <=2KiB)",
+                            "unit_patch": "tak_unit_ref?,metadata?", "batch": "commands:[{operation,arguments}] (state only)",
+                            "marker_put": "marker_id,callsign,position,cot_type?,remarks?", "marker_remove": "marker_id",
+                            "cot_send": "entity_id,xml,persist? (UID taks-custom:UNIT:NAME)", "cot_remove": "cot_uid",
+                            "chat": "message,entity_id?,target_uid?,target_callsign?", "pause/resume": "no unit_id; connections stay live",
+                            "schedule_put": "schedule_id,delay_s,operation,arguments (explicit unit-scoped action; no request/revision in child)",
+                            "schedule_cancel": "schedule_id"},
+                        "map_reads": "Separate map_read tool or service_read(service=simulation,operation=map_config/map_area/map_feature/map_route)",
+                        "metadata_semantics": "Descriptive only. Group/vehicle links do not automatically move other entities. TAKS remains ORBAT authority",
+                        "chat_delivery": "local TLS write; no ATAK acknowledgment", "scheduled_crash_policy": "attempt_pending is uncertain; never automatically retried"}
             if op == "status":
                 if set(args) - {"unit_id", "since_revision"}:
                     raise ValueError("Unknown status arguments")
@@ -285,10 +360,15 @@ class Daemon:
                     "units": copy.deepcopy([units[uid]] if uid else list(units.values())),
                     "sessions": [dict(s.info) for s in self.sessions.values()],
                     "observed_via_tak": dict(self.observed),
+                    "inbox": list(self.inbox.values()),
                     "events": [e for e in self.world.state["events"] if e["revision"] > since],
                     "markers": [copy.deepcopy(m) for m in self.world.state["markers"].values() if not uid or m["unit_id"]==uid],
                     "custom_cot": [copy.deepcopy(c) for c in self.world.state["cot_templates"].values() if not uid or c["unit_id"]==uid],
+                    "paused": self.world.state["paused"], "clock_s": self.world.state["clock_s"],
+                    "scheduled": [copy.deepcopy(s) for s in self.world.state["scheduled"].values() if not uid or s["unit_id"] == uid],
                     "identity_capacity": self.world.capacity,
+                    "runtime": {"rss_peak_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                                "async_tasks": len(asyncio.all_tasks()), "processes": 1},
                     "uptime_s": round(time.monotonic()-self.started), "tick_seconds": self.config.get("tick_seconds", 10),
                     "transport": "per-identity mTLS", "execution": "explicit actions; no inference"}
             result = self.world.apply(op, args)

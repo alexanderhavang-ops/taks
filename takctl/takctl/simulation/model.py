@@ -126,6 +126,25 @@ def validate_cot(value, unit_id):
     return result
 
 
+def attributes(entity, fields):
+    """Bounded descriptive state supplied by the operator, never inferred."""
+    for key in ("role", "readiness", "group_id", "vehicle_id", "platform"):
+        if key in fields:
+            value = fields[key]
+            if not isinstance(value, str) or len(value) > 80: raise ValueError("Invalid " + key)
+            entity[key] = value
+    if "metadata" in fields:
+        value = fields["metadata"]
+        if not isinstance(value, dict) or len(json.dumps(value, allow_nan=False).encode()) > 2048:
+            raise ValueError("metadata must be an object <=2KiB")
+        entity["metadata"] = copy.deepcopy(value)
+    if "callsign" in fields:
+        if not isinstance(fields["callsign"], str) or not re.fullmatch(r"SIM-[A-Z0-9-]{1,40}", fields["callsign"]):
+            raise ValueError("Invalid SIM callsign")
+        entity["callsign"] = fields["callsign"]
+    if "cot_type" in fields: entity["cot_type"] = cot_type(fields["cot_type"])
+
+
 class World:
     def __init__(self, state=None, capacity=8):
         self.capacity = capacity
@@ -135,6 +154,9 @@ class World:
             raise ValueError("Unsupported simulation state schema")
         self.state.setdefault("markers", {})
         self.state.setdefault("cot_templates", {})
+        self.state.setdefault("paused", False)
+        self.state.setdefault("clock_s", 0)
+        self.state.setdefault("scheduled", {})
 
     def event(self, kind, **fields):
         self.state["revision"] += 1
@@ -145,6 +167,9 @@ class World:
         return [e for u in self.state["units"].values() if u["active"] for e in u["entities"]]
 
     def advance(self, seconds):
+        if self.state["paused"]: return False
+        seconds = max(0, seconds)
+        self.state["clock_s"] += seconds
         changed = False
         for u in self.state["units"].values():
             if not u["active"]:
@@ -183,7 +208,7 @@ class World:
             if move["elapsed_s"] >= move["duration_s"]:
                 u["move"] = None
                 self.event("move_completed", unit_id=u["id"], action_id=move["id"])
-        return changed
+        return changed or bool(seconds and any(s["status"] == "pending" for s in self.state["scheduled"].values()))
 
     def apply(self, operation, args):
         """Validate and commit all state changes together; retries do not repeat actions."""
@@ -211,6 +236,11 @@ class World:
         return result
 
     def _apply(self, op, a):
+        if op in ("pause", "resume"):
+            if set(a) - {"request_id", "expected_revision"}: raise ValueError("Unknown clock arguments")
+            self.state["paused"] = op == "pause"
+            self.event("exercise_" + op)
+            return {"paused": self.state["paused"], "clock_s": self.state["clock_s"]}
         if op == "batch":
             if set(a) - {"request_id", "expected_revision", "commands"}:
                 raise ValueError("Unknown batch arguments")
@@ -221,19 +251,22 @@ class World:
             for command in commands:
                 if not isinstance(command, dict) or set(command) != {"operation", "arguments"}:
                     raise ValueError("Invalid batch command")
-                if command["operation"] in ("batch", "chat", "cot_send"):
+                if command["operation"] in ("batch", "chat", "cot_send", "pause", "resume", "schedule_put", "schedule_cancel"):
                     raise ValueError("Network sends and nested batches are not allowed inside a state batch")
                 if not isinstance(command["arguments"], dict) or {"request_id", "expected_revision"} & set(command["arguments"]):
                     raise ValueError("Batch children must not have request/revision fields")
                 results.append(self._apply(command["operation"], command["arguments"]))
             return {"results": results}
         common = {"request_id", "expected_revision", "unit_id"}
-        allowed = {"create": {"count", "position", "callsign", "tak_unit_ref"},
+        allowed = {"create": {"count", "position", "callsign", "tak_unit_ref", "members", "metadata"},
                    "move": {"path", "duration_s"}, "stop": set(), "deactivate": set(),
                    "chat": {"message", "entity_id", "target_uid", "target_callsign"},
                    "entity_move": {"entity_id", "path", "duration_s"},
                    "entity_stop": {"entity_id"},
-                   "entity_patch": {"entity_id", "health_state", "remarks", "cot_type"},
+                   "entity_patch": {"entity_id", "health_state", "remarks", "cot_type", "callsign", "role", "readiness", "group_id", "vehicle_id", "platform", "metadata"},
+                   "unit_patch": {"metadata", "tak_unit_ref"},
+                   "schedule_put": {"schedule_id", "delay_s", "operation", "arguments"},
+                   "schedule_cancel": {"schedule_id"}, "cot_remove": {"cot_uid"},
                    "marker_put": {"marker_id", "position", "callsign", "cot_type", "remarks"},
                    "marker_remove": {"marker_id"},
                    "cot_send": {"entity_id", "xml", "persist"}}
@@ -262,6 +295,8 @@ class World:
             if not isinstance(ref, str) or len(ref) > 128:
                 raise ValueError("Invalid tak_unit_ref")
             entities = []
+            members = a.get("members", [{} for _ in range(count)])
+            if not isinstance(members, list) or len(members) != count: raise ValueError("members must match count")
             for i in range(count):
                 north, east = (0, 0) if i == 0 else (-10 * ((i+1)//2), 8 * (1 if i % 2 else -1))
                 entities.append({"id": f"{uid}-{i+1:02d}", "uid": f"taks-sim:{uid}:{i+1:02d}",
@@ -269,13 +304,62 @@ class World:
                                  "identity_slot": free_slots[i], "north_m": north, "east_m": east,
                                  "position": offset(pos, north, east), "role": "HQ" if i == 0 else "member",
                                  "readiness": "ready"})
+                member = members[i]
+                if not isinstance(member, dict) or set(member) - {"callsign", "role", "readiness", "group_id", "vehicle_id", "platform", "metadata", "cot_type", "position"}:
+                    raise ValueError("Unknown member profile fields")
+                attributes(entities[-1], member)
+                if "position" in member:
+                    entities[-1]["position"] = point(member["position"])
+                    entities[-1]["north_m"], entities[-1]["east_m"] = relative_offset(pos, entities[-1]["position"])
+            if len({e["callsign"] for e in entities}) != count: raise ValueError("Duplicate member callsigns")
             self.state["units"][uid] = {"id": uid, "callsign": label, "active": True,
                 "tak_unit_ref": ref, "position": pos, "entities": entities, "move": None}
+            attributes(self.state["units"][uid], {"metadata": a.get("metadata", {})})
             self.event("unit_created", unit_id=uid, count=count)
             return {"unit_id": uid, "entities": [e["callsign"] for e in entities]}
         unit = self.state["units"].get(uid)
         if not unit or not unit["active"]:
             raise ValueError("Active unit not found")
+        if op == "unit_patch":
+            if "tak_unit_ref" in a:
+                if not isinstance(a["tak_unit_ref"], str) or len(a["tak_unit_ref"]) > 128: raise ValueError("Invalid TAKS ORBAT reference")
+                unit["tak_unit_ref"] = a["tak_unit_ref"]
+            attributes(unit, {k: a[k] for k in ("metadata",) if k in a})
+            self.event("unit_updated", unit_id=uid)
+            return {"unit_id": uid}
+        if op == "cot_remove":
+            key = a.get("cot_uid")
+            if key not in self.state["cot_templates"] or self.state["cot_templates"][key]["unit_id"] != uid:
+                raise ValueError("Unit custom CoT not found")
+            del self.state["cot_templates"][key]
+            self.event("cot_removed", unit_id=uid, cot_uid=key)
+            return {"cot_uid": key, "stale_after_s": 90}
+        if op in ("schedule_put", "schedule_cancel"):
+            sid = a.get("schedule_id", "")
+            if not isinstance(sid, str) or not ID.fullmatch(sid): raise ValueError("Invalid schedule_id")
+            key = uid + ":" + sid
+            if op == "schedule_cancel":
+                row = self.state["scheduled"].get(key)
+                if not row or row["status"] != "pending": raise ValueError("Only pending actions can be cancelled")
+                row["status"] = "cancelled"
+            else:
+                if key in self.state["scheduled"]: raise ValueError("Use a new schedule_id")
+                if len(self.state["scheduled"]) >= 64: raise ValueError("Timeline capacity is 64; archive exercise before adding more")
+                operation, arguments = a.get("operation"), a.get("arguments")
+                if operation not in {"entity_move", "entity_stop", "entity_patch", "move", "stop", "marker_put", "marker_remove", "cot_send", "cot_remove", "chat", "unit_patch", "batch"}:
+                    raise ValueError("Operation not allowed in explicit timeline")
+                if not isinstance(arguments, dict) or {"request_id", "expected_revision"} & set(arguments) or len(json.dumps(arguments, allow_nan=False).encode()) > 8192:
+                    raise ValueError("Invalid timeline arguments")
+                children = arguments.get("commands", []) if operation == "batch" else [{"arguments": arguments}]
+                if not isinstance(children, list) or any(not isinstance(c, dict) or not isinstance(c.get("arguments"), dict) or c["arguments"].get("unit_id") != uid for c in children):
+                    raise ValueError("Timeline actions must belong to their unit")
+                # Validate now, without committing or sending. Revalidate at execution.
+                World(self.state, self.capacity)._apply(operation, arguments)
+                self.state["scheduled"][key] = {"id": sid, "unit_id": uid, "status": "pending",
+                    "due_clock_s": self.state["clock_s"] + number(a.get("delay_s"), "delay_s", 10, 86400),
+                    "operation": operation, "arguments": copy.deepcopy(arguments), "request_id": "timed-"+uuid.uuid4().hex[:24]}
+            self.event("schedule_updated", unit_id=uid, schedule_id=sid)
+            return {"schedule_id": sid, "status": self.state["scheduled"][key]["status"]}
         if op in ("marker_put", "marker_remove"):
             mid = a.get("marker_id", "")
             if not isinstance(mid, str) or not ID.fullmatch(mid):
@@ -323,6 +407,8 @@ class World:
                     entity["readiness"] = "ready" if a["health_state"] == "fit" else a["health_state"]
                     if a["health_state"] != "fit": entity["move"] = None
                 if "cot_type" in a: entity["cot_type"] = cot_type(a["cot_type"])
+                attributes(entity, a)
+                if len({e["callsign"] for e in unit["entities"]}) != len(unit["entities"]): raise ValueError("Duplicate member callsign")
                 if "remarks" in a:
                     if not isinstance(a["remarks"], str) or len(a["remarks"]) > 1000:
                         raise ValueError("Invalid entity remarks")

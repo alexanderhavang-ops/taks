@@ -1,0 +1,11 @@
+{
+  "callsign": "SIM-GROUP",
+  "count": 4,
+  "metadata": {"exercise": "synthetic", "profile": "small mixed group"},
+  "members": [
+    {"callsign": "SIM-LEADER", "role": "HQ", "group_id": "group-1", "metadata": {"personality": "calm and concise", "experience": "experienced"}},
+    {"callsign": "SIM-MEMBER-01", "role": "member", "group_id": "group-1", "readiness": "ready"},
+    {"callsign": "SIM-MEMBER-02", "role": "member", "group_id": "group-1", "readiness": "ready"},
+    {"callsign": "SIM-VEHICLE-01", "role": "transport", "group_id": "group-1", "platform": "vehicle", "cot_type": "a-f-G-E-V", "metadata": {"seats": 6, "fuel_percent": 85, "condition": "serviceable"}}
+  ]
+}

@@ -10,7 +10,7 @@ import subprocess
 
 SOCKET = "/opt/tak/simulation/control.sock"
 DOC_ROOT = Path("/opt/tak/tools/takctl/state/docs")
-CONTROL_OPS = ("create", "move", "stop", "deactivate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "marker_put", "marker_remove", "cot_send")
+CONTROL_OPS = ("create", "move", "stop", "deactivate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel")
 DOC_TOOLS = {
     "list_reference_docs": ({"only_active": {"type": "boolean"}}, []),
     "search_reference_docs": ({"query": {"type": "string"}, "limit": {"type": "integer"}, "doc_id": {"type": "string"}}, ["query"]),
@@ -27,7 +27,9 @@ def tool(name, description, properties, required=()):
 
 
 TOOLS = [tool("simulation_read", "Read persistent exercise state, sessions and server-observed positions",
-              {"unit_id": {"type": "string"}, "since_revision": {"type": "integer"}}),
+              {"unit_id": {"type": "string"}, "since_revision": {"type": "integer"}, "view": {"type": "string", "enum": ["status", "capabilities", "export"]}}),
+         tool("map_read", "Read OSM geometry/tags, inspect a feature, or look up a mapped pedestrian route; never moves simulation entities",
+              {"operation": {"type": "string", "enum": ["config", "area", "feature", "route"]}, "arguments": {"type": "object"}}, ["operation"]),
          tool("simulation_control", "Control units or individuals, patch status, publish markers/custom CoT, send GeoChat, or submit atomic state batches; explicit confirmation required",
               {"operation": {"type": "string", "enum": list(CONTROL_OPS)},
                "arguments": {"type": "object"}, "confirm_write": {"type": "boolean"}}, ["operation", "arguments"])]
@@ -112,12 +114,18 @@ def reference(name, args):
 
 
 def call(name, args):
-    if name in DOC_TOOLS:
+    if name == "map_read":
+        from .map_context import read
+        if set(args) - {"operation", "arguments"}: raise ValueError("Unknown map tool arguments")
+        result = read(args.get("operation"), args.get("arguments", {}))
+    elif name in DOC_TOOLS:
         result = reference(name, args)
     elif name == "simulation_read":
-        if set(args) - {"unit_id", "since_revision"}:
+        if set(args) - {"unit_id", "since_revision", "view"}:
             raise ValueError("Unknown simulation read arguments")
-        result = simulation("status", args)
+        args = dict(args); view = args.pop("view", "status")
+        if view not in ("status", "capabilities", "export"): raise ValueError("Unknown simulation view")
+        result = simulation(view, args if view == "status" else {})
     elif name == "simulation_control":
         if set(args) - {"operation", "arguments", "confirm_write"}:
             raise ValueError("Unknown simulation control arguments")
@@ -158,9 +166,12 @@ def install(module):
                     raise ValueError("Reference documents are read-only")
                 return call(args.get("operation"), args.get("arguments", {})) if args.get("operation") in DOC_TOOLS else call("invalid", {})
             if name == "service_read":
-                if args.get("operation") != "status":
-                    raise ValueError("Simulation read operation must be status")
-                return call("simulation_read", args.get("arguments", {}))
+                operation = args.get("operation", "")
+                if operation.startswith("map_"):
+                    return call("map_read", {"operation": operation[4:], "arguments": args.get("arguments", {})})
+                if operation not in ("status", "capabilities", "export"):
+                    raise ValueError("Unknown simulation read operation")
+                return call("simulation_read", {**args.get("arguments", {}), "view": operation})
             return call("simulation_control", {k: v for k, v in args.items() if k != "service"})
         return base(name, args)
 

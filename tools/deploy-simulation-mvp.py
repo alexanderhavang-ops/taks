@@ -32,6 +32,7 @@ FILES = (
     "takctl/takctl/simulation/model.py",
     "takctl/takctl/simulation/daemon.py",
     "takctl/takctl/web/mcp_domains/simulation_tools.py",
+    "takctl/takctl/web/mcp_domains/map_context.py",
 )
 HOOK = '''\n# TAKS explicit simulation and reference retrieval extension.\nimport sys as _sim_sys\nfrom takctl.web.mcp_domains.simulation_tools import install as _install_simulation\n_install_simulation(_sim_sys.modules[__name__])\n'''
 UNIT = '''[Unit]

@@ -236,6 +236,13 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                     await asyncio.sleep(.02)
                 self.assertEqual(d.observed["taks-marker:demo:enemy-1"]["cot_type"],"a-h-G-U-C-I")
                 self.assertIn("taks-custom:demo:test",d.observed)
+                chat = await d.command("chat", args(3, "chat-inbox", message="[EXERCISE] Holding position"))
+                for _ in range(100):
+                    if d.inbox: break
+                    await asyncio.sleep(.02)
+                self.assertEqual(chat["delivery"], "written_to_tls")
+                self.assertEqual(len(d.inbox), 1)  # Fan-out through four sessions is deduplicated.
+                self.assertEqual(next(iter(d.inbox.values()))["message"], "[EXERCISE] Holding position")
                 if unix:
                     with patch.object(tools,"SOCKET",str(root/"control.sock")):
                         status=await asyncio.to_thread(tools.simulation,"status",{})
