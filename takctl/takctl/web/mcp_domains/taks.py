@@ -70,3 +70,9 @@ def call(name, args):
     else:
         raise ValueError("Unknown TAKS tool")
     return {"content": [{"type": "text", "text": json.dumps(data, sort_keys=True)}]}
+
+
+# Extend the product domain while retaining its existing authorization boundary.
+import sys as _sim_sys
+from takctl.web.mcp_domains.simulation_tools import install as _install_simulation
+_install_simulation(_sim_sys.modules[__name__])

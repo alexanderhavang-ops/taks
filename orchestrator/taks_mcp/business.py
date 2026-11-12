@@ -28,6 +28,8 @@ def call(method, path, data=None):
 
 
 def register_taks_tools(mcp, api_call=call):
+    from taks_mcp.simulation import register_simulation_tools
+    register_simulation_tools(mcp, api_call)
     @mcp.tool()
     def taks_units_list() -> dict:
         """List TAKS organizational units."""

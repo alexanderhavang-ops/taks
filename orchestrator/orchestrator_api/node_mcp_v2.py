@@ -66,10 +66,14 @@ async def node_mcp(node_id: str, domain: str, request: Request):
             "java_processes", "takserver_logs", "takserver_readiness",
             "netstat_listeners", "lsof_tak_java",
         }
-        if domain != "devops":
-            raise HTTPException(status_code=403, detail="Service MCP domain not allowed")
+        safe_business = {
+            "simulation_read", "simulation_control", "list_reference_docs", "search_reference_docs",
+            "search_reference_docs_semantic", "get_reference_doc_context", "list_reference_doc_sections",
+            "get_reference_section",
+        }
+        allowed = safe_tools if domain == "devops" else safe_business
         if method == "tools/call" and (
-            params.get("name") not in safe_tools or
+            params.get("name") not in allowed or
             not isinstance(params.get("arguments", {}), dict)
         ):
             raise HTTPException(status_code=403, detail="Service MCP tool not allowed")
