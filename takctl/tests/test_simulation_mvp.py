@@ -35,6 +35,7 @@ class WorldTests(unittest.TestCase):
         self.assertEqual(w.entities()[0]["position"],start[0]["position"])
         w.advance(50)
         for a,b in zip(start,w.entities()):self.assertAlmostEqual(b["position"]["lat"]-a["position"]["lat"],.0005,places=7)
+        self.assertGreater(float(ET.fromstring(event(w.entities()[0])).find("detail/track").get("speed")),1)
         self.assertNotIn("formation",w.state["units"]["demo"])
 
     def test_bad_batch_rolls_back_every_child(self):

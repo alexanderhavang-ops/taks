@@ -94,7 +94,9 @@ def event(entity, *, message=None):
             if entity.get("cot_type", "a-f-G").startswith("a-f-"):
                 ET.SubElement(detail, "__group", name="Blue", role="HQ" if entity["role"] == "HQ" else "Team Member")
             ET.SubElement(detail, "takv", device="TAKS simulation", platform="TAKS-SIM", os="Linux", version="0.2")
-        ET.SubElement(detail, "track", speed=str(entity.get("speed_mps", 0)), course="0")
+        movement = entity.get("move")
+        speed = movement["distance_m"]/movement["duration_s"] if movement else entity.get("speed_mps", 0)
+        ET.SubElement(detail, "track", speed=str(speed), course="0")
         ET.SubElement(detail, "remarks").text = f"SIMULATION ONLY | {entity['role']} | {entity['readiness']} | {health.upper()} | {entity.get('remarks','')}"
     return ET.tostring(root, encoding="utf-8") + b"\n"
 

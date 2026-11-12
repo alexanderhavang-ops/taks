@@ -14,6 +14,7 @@ from app.lifecycle_component import submit, register_lifecycle_tools
 
 UNIT = "taklabs"
 NODE = "taklabs.aws.tak-hv-sandbox.se"
+SEED_PATH = Path("/opt/tak-orch/state/units/taklabs/files/misc/simulation-state.json")
 OVERLAYS = (
     "takctl/takctl/simulation/__init__.py", "takctl/takctl/simulation/model.py",
     "takctl/takctl/simulation/daemon.py", "takctl/takctl/web/mcp_domains/simulation_tools.py",
@@ -96,7 +97,11 @@ def verify_built_bundle():
     archive = Path("/opt/tak-orch/state/bundles/rendered/taklabs.tar.gz")
     before = archive.stat()
     expected = ["taks-source/" + p for p in OVERLAYS]
-    expected += ["taks-source/simulation-source-commit", "install/taks-bootstrap/config.d/simulation.conf"]
+    commit_key,config_key = "taks-source/simulation-source-commit", "install/taks-bootstrap/config.d/simulation.conf"
+    seed_key = "misc/simulation-state.json"
+    expected += [commit_key,config_key]
+    seed_hash = hashlib.sha256(SEED_PATH.read_bytes()).hexdigest() if SEED_PATH.is_file() else None
+    if seed_hash: expected.append(seed_key)
     found = {}
     with tarfile.open(archive, "r|gz") as tar:
         for member in tar:
@@ -105,7 +110,10 @@ def verify_built_bundle():
                     if not member.isfile():
                         raise ValueError("MVP bundle member is not a file")
                     found[suffix] = True
-                    if suffix.endswith(("simulation-source-commit", "config.d/simulation.conf")):
+                    if suffix == seed_key:
+                        if member.size > 1048576: raise ValueError("Exercise seed too large")
+                        found[suffix] = hashlib.sha256(tar.extractfile(member).read()).hexdigest()
+                    elif suffix.endswith(("simulation-source-commit", "config.d/simulation.conf")):
                         if member.size > 1024: raise ValueError("Invalid MVP configuration size")
                         found[suffix] = tar.extractfile(member).read().decode().strip()
             if len(found) == len(expected): break
@@ -114,10 +122,12 @@ def verify_built_bundle():
         raise ValueError("Bundle changed during verification; wait and retry")
     missing = sorted(set(expected)-set(found))
     if missing: return {"ok":False,"missing":missing}
-    if "simulation_enabled = true" not in found[expected[-1]]:
+    if "simulation_enabled = true" not in found[config_key]:
         return {"ok":False,"error":"Simulation is not enabled in the bundle"}
+    if seed_hash and found[seed_key] != seed_hash:
+        return {"ok":False,"error":"Exercise seed does not match selected state"}
     return {"ok":True,"bundle":"taklabs.tar.gz","bytes":after.st_size,
-            "source_commit":found[expected[-2]],"simulation_enabled":True,"checked_files":len(found)}
+            "source_commit":found[commit_key],"simulation_enabled":True,"checked_files":len(found),"exercise_seed_verified":bool(seed_hash)}
 
 
 def dispatch_release(command):
