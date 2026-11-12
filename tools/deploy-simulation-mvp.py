@@ -22,6 +22,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import urllib.request
 
 BASE = Path("/opt/tak/tools/takctl")
@@ -193,12 +194,14 @@ def main():
             cfgfile = ROOT / "config.json"
             if cfgfile.exists():
                 shutil.copy2(cfgfile, backup / "config.json")
+            changed.append((cfgfile, backup / "config.json"))
             cfgfile.write_text(json.dumps(conf, indent=2))
             shutil.chown(cfgfile, user="root", group="tak")
             cfgfile.chmod(0o640)
             unitpath = Path("/etc/systemd/system/taks-simulation.service")
             if unitpath.exists():
                 shutil.copy2(unitpath, backup / "taks-simulation.service")
+            changed.append((unitpath, backup / "taks-simulation.service"))
             unitpath.write_text(UNIT)
             unitpath.chmod(0o644)
             python = str(BASE / ".venv/bin/python")
@@ -208,16 +211,28 @@ def main():
             run(["systemctl", "enable", "taks-simulation.service"])
             run(["systemctl", "restart", "taks-simulation.service"])
             run(["systemctl", "restart", "takctl-web.service"])
+            from takctl.web.mcp_domains.simulation_tools import simulation
+            ready = False
+            for _ in range(20):
+                result = simulation("status", {})
+                if result.get("ok"):
+                    ready = True
+                    break
+                time.sleep(.5)
+            if not ready:
+                raise RuntimeError("Simulation daemon failed its Unix control socket health check")
             (ROOT / "source-commit").write_text(args.commit + "\n")
             print(json.dumps({"ok": True, "commit": args.commit, "identities": len(identities),
                               "backup": str(backup), "group": group, "fqdn": fqdn}))
     except Exception:
+        subprocess.run(["systemctl", "stop", "taks-simulation.service"], capture_output=True)
         for dst, save in reversed(changed):
             if save.exists():
                 shutil.copy2(save, dst)
             else:
                 dst.unlink(missing_ok=True)
         run(["systemctl", "restart", "takctl-web.service"])
+        run(["systemctl", "daemon-reload"])
         if was_active:
             run(["systemctl", "restart", "taks-simulation.service"])
         raise

@@ -47,6 +47,10 @@ def dispatch_mvp(command):
             return remote(node_id, INSPECT)
         if op not in ("deploy", "poll") or len(parts) != 4:
             raise ValueError("Unsupported MVP operation")
+        if op == "deploy" and not SHA.fullmatch(parts[3]):
+            raise ValueError("Pinned lowercase commit SHA required")
+        if op == "poll" and not COMMAND.fullmatch(parts[3]):
+            raise ValueError("Invalid SSM command ID")
         node, _, region, _, instance = _node_context(node_id)
         _ec2_ip(region, instance, str(node["unit_path"]))
         if op == "poll":
@@ -61,8 +65,6 @@ def dispatch_mvp(command):
                     "stdout": data.get("StandardOutputContent", "")[:4000],
                     "stderr": data.get("StandardErrorContent", "")[:2000]}
         sha = parts[3]
-        if not SHA.fullmatch(sha):
-            raise ValueError("Pinned lowercase commit SHA required")
         # Fixed repository, script and arguments; no arbitrary command dispatch.
         script = ("import pathlib,urllib.request,subprocess; "
                   "u='https://raw.githubusercontent.com/alexanderhavang-ops/taks/" + sha + "/tools/deploy-simulation-mvp.py'; "

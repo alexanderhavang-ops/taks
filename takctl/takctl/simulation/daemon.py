@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import copy
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -318,7 +319,10 @@ def main():
     parser.add_argument("--config", default="/opt/tak/simulation/config.json")
     args = parser.parse_args()
     os.umask(0o077)
-    asyncio.run(Daemon(json.loads(Path(args.config).read_text())).run())
+    async def run():
+        asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=1, thread_name_prefix="sim-state"))
+        await Daemon(json.loads(Path(args.config).read_text())).run()
+    asyncio.run(run())
 
 
 if __name__ == "__main__":
