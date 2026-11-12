@@ -30,6 +30,7 @@ def apply(ctx) -> None:
         "test_agents_migration",
         "test_agents_sdk_workflows",
         "test_chat_scope",
+        "test_geochat_voice",
         "test_martine_use_cases",
     ]
     proc = subprocess.run(

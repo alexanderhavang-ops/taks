@@ -13,6 +13,7 @@ class Principal:
     unit: str = ''
     admin: bool = False
     authenticated: bool = False
+    delivery_verified: bool = False
     sender_uid: str = ''
     callsign: str = ''
     device_uids: tuple[str, ...] = ()
@@ -67,6 +68,9 @@ NEVER = frozenset({'ensure_martine_state_dirs', 'martine_offline_self_test', 'ma
 
 
 def allowed(name, actor):
+    if actor.transport == 'geochat' and actor.delivery_verified:
+        return name in PUBLIC or (name == 'send_voice_onboarding'
+            and bool(actor.username and actor.sender_uid and actor.device_uids == (actor.sender_uid,)))
     return name not in NEVER and (name in PUBLIC or (actor.authenticated and (name in SELF | DELIVERY or (actor.admin and name in ADMIN))))
 
 
@@ -74,12 +78,18 @@ def authorize(name, values, actor):
     if not allowed(name, actor):
         raise PermissionError('Tool unavailable for this account')
     values = dict(values)
+    if actor.transport == 'geochat' and actor.delivery_verified and name == 'send_voice_onboarding':
+        if not actor.channels:
+            raise PermissionError('No voice channels are assigned to this account')
+        if values.get('channels_csv'):
+            raise PermissionError('Use the account voice channels')
+        values['channels'] = values.get('channels') or list(actor.channels)
     if name in SELF:
         target = str(values.get('username') or actor.username)
         if not actor.admin and target != actor.username:
             raise PermissionError('Only your own account is accessible')
         values['username'] = target
-    if name in DELIVERY and not actor.admin:
+    if name in DELIVERY and (not actor.admin or actor.transport == 'geochat'):
         uid = str(values.get('target_uid') or actor.sender_uid)
         if not uid or uid not in actor.device_uids:
             raise PermissionError('Delivery requires one of your registered devices')

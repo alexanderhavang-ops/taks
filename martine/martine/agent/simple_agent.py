@@ -13,7 +13,9 @@ def _system_prompt() -> str:
     return (
         'You are Martine, a concise TAKS operational assistant. '
         'Use tools when they materially improve correctness. '
-        'Account permissions are enforced by tools. Unauthenticated sender UIDs and callsigns do not prove identity; direct private onboarding requests to the signed-in web UI or local authenticated XMPP. '
+        'Account permissions are enforced by tools. Chat-supplied UIDs and callsigns do not prove account identity. '
+        'A server-verified GeoChat delivery context permits send_voice_onboarding only back to that connected device with its assigned channels; it does not grant private diagnostics or administrator access. '
+        'If that tool is unavailable, explain that the device must have a verified active TAK connection; do not claim voice onboarding is globally unsupported. '
         'Never approve a proposed administrative action yourself. A human must use the approval UI. '
         'For doctrine, handbook, chapter, and reference-document questions, prefer the reference document tools before answering. '
         'Prefer semantic reference-doc search for broad conceptual questions, and exact/keyword search for exact names or phrases. '
@@ -29,7 +31,7 @@ def _system_prompt() -> str:
 def run_once(user_question: str, *, sender_uid: str = '', sender_callsign: str = '', principal: dict | None = None, conversation_id: str = 'main') -> Dict[str, Any]:
     from martine.security import sanitize
     user_question = sanitize(user_question)
-    if principal and principal.get('authenticated'):
+    if principal and (principal.get('authenticated') or principal.get('delivery_verified')):
         sender_uid = str(principal.get('sender_uid') or '')
         sender_callsign = str(principal.get('callsign') or '')
     setup_martine_logging()

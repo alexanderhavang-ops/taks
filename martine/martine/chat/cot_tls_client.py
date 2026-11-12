@@ -28,7 +28,6 @@ KEY_PEM = f"{IDENTITY_DIR}/client.key"
 CA_PEM = f"{IDENTITY_DIR}/ca.pem"
 CERT_METADATA = "/opt/tak/certs/cert-metadata.sh"
 MARTINE_SECRETS_CONF = "/opt/tak/tools/takctl/secrets.d/martine.conf"
-LEGACY_KEY_PASSWORD = "cert-pass-46-pass"
 
 def _strip_quotes(v: str) -> str:
     s = str(v or "").strip()
@@ -79,7 +78,6 @@ def _cert_password_candidates() -> list[str | None]:
     except Exception:
         pass
 
-    vals.append(LEGACY_KEY_PASSWORD)
 
     out: list[str | None] = []
     seen = set()
@@ -1047,10 +1045,21 @@ def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
         question[:500],
     )
 
+    # Payload UIDs/callsigns are untrusted. A live server-side subscription may
+    # authorize voice delivery to the same destination, not account privileges.
+    principal = None
+    try:
+        from takctl.services.geochat_delivery import voice_delivery_principal
+        principal = voice_delivery_principal(str(msg.get('from_uid') or '').strip())
+    except Exception as error:
+        log.info('geochat_voice_destination_unverified reason=%s', type(error).__name__)
+
     result = run_once(
         question,
         sender_uid=str(msg.get("from_uid") or "").strip(),
         sender_callsign=str(msg.get("from_callsign") or "").strip(),
+        principal=principal,
+        conversation_id='geochat:' + str(msg.get('from_uid') or '').strip(),
     )
     answer = str(result.get("answer") or "").strip()
 

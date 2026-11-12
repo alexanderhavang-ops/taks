@@ -243,6 +243,39 @@ def backfill_record_from_takserver(
     return rec
 
 
+def same_tak_account_device(expected_uid: str, candidate_uid: str) -> bool:
+    """A second phone must belong to the same unambiguous TAK account.
+
+    Keep the existing certificate-CN and TAK presence checks. A matching callsign
+    alone never authorizes an additional device.
+    """
+    if (not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}', expected_uid or '')
+            or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}', candidate_uid or '')
+            or expected_uid == candidate_uid):
+        return False
+    values = [value.replace("'", "''") for value in (expected_uid, candidate_uid)]
+    sql = ("SELECT DISTINCT uid, username FROM public.client_endpoint WHERE uid IN ('"
+           + values[0] + "','" + values[1]
+           + "') AND COALESCE(username, '') <> '' LIMIT 5;")
+    for prefix in (["sudo", "-n", "-u", "postgres"], ["runuser", "-u", "postgres", "--"], []):
+        try:
+            result = subprocess.run(prefix + ["psql", "-d", "cot", "-AtX", "-F", "\t",
+                "-v", "ON_ERROR_STOP=1", "-c", sql], text=True, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, timeout=2)
+        except Exception:
+            continue
+        if result.returncode:
+            continue
+        owners = {expected_uid: set(), candidate_uid: set()}
+        for line in (result.stdout or '').splitlines():
+            pair = line.split('\t')
+            if len(pair) == 2 and pair[0] in owners and pair[1].strip():
+                owners[pair[0]].add(pair[1].strip())
+        return (len(owners[expected_uid]) == len(owners[candidate_uid]) == 1
+                and owners[expected_uid] == owners[candidate_uid])
+    return False
+
+
 def user_id_for(callsign: str, uid: str, identity: str = "") -> int:
     # Murmur wants a non-negative stable int for externally-authenticated users.
     # VX may open multiple simultaneous Mumble sessions for the same TAK callsign/UID.
@@ -386,7 +419,10 @@ class VoicePinAuthenticator(MumbleServer.ServerAuthenticator):
                 return reject("missing_vx_cert_cn")
 
             if cert_cn != expected_uid:
-                return reject(f"uid_mismatch expected={expected_uid!r} got={cert_cn!r}")
+                if not same_tak_account_device(expected_uid, cert_cn):
+                    return reject(f"uid_mismatch expected={expected_uid!r} got={cert_cn!r}")
+                log(f"AUTH_SAME_ACCOUNT_DEVICE callsign={callsign!r} uid={cert_cn!r}")
+                expected_uid = cert_cn
 
             # VX does not reliably send user-entered passwords/PINs.
             # In passwordless UID-presence mode, accept empty pw after UID/callsign
