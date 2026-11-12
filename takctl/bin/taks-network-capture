@@ -1,20 +1,24 @@
 #!/usr/bin/python3
-"""Fixed, bounded packet-metadata capture. No shell, pcap, payload output or arbitrary BPF."""
+"""Non-root capability-limited packet-metadata broker. No shell, pcap or payload output."""
 import collections
-import fcntl
 import ipaddress
 import json
 import os
 import re
 import selectors
 import signal
+import socket
+import struct
+import pwd
+import threading
 import subprocess
-import sys
 import time
 
 MAX_PACKETS = 4096
+_CAPTURE_LOCK = threading.Lock()
 
 def validate(host, ports, seconds, syn_only):
+    if not isinstance(host,str) or '%' in host:raise ValueError('Invalid IP')
     if host:
         ip = ipaddress.ip_address(host)
         if ip.is_unspecified or ip.is_multicast or ip.is_loopback:
@@ -83,10 +87,8 @@ class Summary:
 
 def capture(host,ports,seconds,syn_only):
     host,ports,seconds,syn_only=validate(host,ports,seconds,syn_only)
-    with open('/run/lock/taks-network-capture.lock','w') as lock:
-        try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        except BlockingIOError:return {'ok':False,'error':'Another capture is active'}
-        args=['/usr/bin/tcpdump','-i','any','-nn','-l','-tt','-s','128','-c',str(MAX_PACKETS),capture_filter(host,ports)]
+    with _CAPTURE_LOCK:
+        args=['/usr/bin/tcpdump','-p','-i','any','-nn','-l','-tt','-s','128','-c',str(MAX_PACKETS),capture_filter(host,ports)]
         start=time.monotonic();summary=Summary(host,ports,syn_only)
         proc=subprocess.Popen(args,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,env={'PATH':'/usr/bin:/bin','LC_ALL':'C'})
         selector=selectors.DefaultSelector();selector.register(proc.stdout,selectors.EVENT_READ);buffer=b''
@@ -109,12 +111,31 @@ def capture(host,ports,seconds,syn_only):
         return {'ok':True,'host_ip':host,'ports':ports,'seconds':round(time.monotonic()-start,2),
                 'syn_only':syn_only,'capture_limit':MAX_PACKETS,**summary.result()}
 
+def serve():
+    # systemd owns the socket. The broker runs under DynamicUser with NET_RAW only.
+    if os.environ.get('LISTEN_PID')!=str(os.getpid()) or os.environ.get('LISTEN_FDS')!='1':
+        raise RuntimeError('Socket activation required')
+    allowed={0,pwd.getpwnam('tak').pw_uid}
+    server=socket.socket(fileno=3);server.settimeout(65)
+    while True:
+        try:client,_=server.accept()
+        except socket.timeout:return
+        with client:
+            try:
+                _,uid,_=struct.unpack('3i',client.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))
+                if uid not in allowed:continue
+                client.settimeout(3);raw=b''
+                while b'\n' not in raw and len(raw)<=1024:
+                    part=client.recv(1025-len(raw))
+                    if not part:break
+                    raw+=part
+                if len(raw)>1024 or not raw.endswith(b'\n'):raise ValueError('Invalid request')
+                body=json.loads(raw)
+                if set(body)!={'host_ip','ports','seconds','syn_only'}:raise ValueError('Invalid fields')
+                result=capture(body['host_ip'],body['ports'],body['seconds'],body['syn_only'])
+            except Exception:result={'ok':False,'error':'Invalid request or capture unavailable'}
+            try:client.sendall(json.dumps(result).encode())
+            except OSError:pass
+
 if __name__=='__main__':
-    try:
-        if len(sys.argv)!=2 or len(sys.argv[1])>1024:raise ValueError('One bounded JSON request required')
-        body=json.loads(sys.argv[1])
-        if set(body)!={'host_ip','ports','seconds','syn_only'}:raise ValueError('Invalid fields')
-        result=capture(body['host_ip'],body['ports'],body['seconds'],body['syn_only'])
-        print(json.dumps(result))
-    except Exception:
-        print(json.dumps({'ok':False,'error':'Invalid request or capture unavailable'}));sys.exit(1)
+    serve()
