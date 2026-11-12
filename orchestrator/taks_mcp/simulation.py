@@ -18,7 +18,9 @@ def register_simulation_tools(mcp, api_call):
     @mcp.tool()
     def taks_node_simulation_read(node_id: str, unit_id: str = "", since_revision: int = 0, view: str = "status") -> dict:
         """Read persistent exercise state, connection health and server-observed positions."""
-        return call(node_id, "simulation_read", {"unit_id": unit_id, "since_revision": since_revision, "view": view})
+        arguments = {"unit_id": unit_id, "since_revision": since_revision}
+        if view != "status": arguments["view"] = view
+        return call(node_id, "simulation_read", arguments)
 
     @mcp.tool()
     def taks_node_map_read(node_id: str, operation: str = "config", arguments: dict | None = None) -> dict:

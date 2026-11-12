@@ -137,5 +137,21 @@ class BusinessTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertFalse(self.calls)
 
+class SimulationProxyTests(unittest.TestCase):
+    def test_status_remains_compatible_with_mvp1_and_map_calls_are_separate(self):
+        from taks_mcp.simulation import register_simulation_tools
+        calls = []
+        def api(method, path, body):
+            calls.append(body["params"])
+            return {"result": {"content": [{"type": "text", "text": '{"ok":true}'}]}}
+        registry = Registry(); register_simulation_tools(registry, api)
+        registry.tools["taks_node_simulation_read"]("taklabs")
+        self.assertNotIn("view", calls[-1]["arguments"])
+        registry.tools["taks_node_simulation_read"]("taklabs", view="capabilities")
+        self.assertEqual(calls[-1]["arguments"]["view"], "capabilities")
+        registry.tools["taks_node_map_read"]("taklabs", "config")
+        self.assertEqual(calls[-1]["name"], "map_read")
+
+
 if __name__ == "__main__":
     unittest.main()
