@@ -63,6 +63,33 @@ against the active registry. Page/section metadata is preserved.
 
 ## Deployment and validation
 
+Use the cattle workflow for taklabs. The DevOps release extension is maintained
+in `alexanderhavang-ops/devops-mcp`, branch `codex/taks-simulation-release`.
+Its named MCP tools expose release staging/status; the existing command entry
+point also accepts the exact `taks-release` subcommands below when the host's
+tool catalog is cached. Arbitrary shell remains disabled.
+
+1. `taks-release stage SHA` stages reviewed MVP overlays over the currently
+   installed TAKS source, preserving existing source changes. It records the
+   overlay commit and enables simulation only in taklabs bootstrap config.
+2. `taks-release backup taklabs.aws.tak-hv-sandbox.se confirm` creates a complete
+   backup. Poll the operation ID. Credentials/archive contents stay on the server.
+3. `taks-release restore taklabs BACKUP_ID confirm` verifies and selects restore.
+4. `taks-release bundle taklabs confirm` builds the replacement bundle.
+5. `taks-release verify taklabs` verifies the actual archive contains all MVP
+   modules, the source commit marker, and explicit simulation enablement.
+6. After preview/dry-run, use `taks-release shutdown NODE EXPECTED_INSTANCE_ID
+   BACKUP_ID confirm`. The existing lifecycle guard requires a verified complete
+   backup and exact node/instance matching before termination.
+7. `taks-release launch taklabs confirm` launches a fresh t3.medium. Poll operation
+   status and node installation/health before using the exercise tools.
+
+Poll any asynchronous operation using `taks-release poll OPERATION_ID`.
+Node certificates, users and documents are restored through the normal backup
+pipeline. The `simulation-runtime` installer action runs from the bundle's source
+without downloading code on the node. It starts an empty exercise daemon; creating
+the test group is a separate explicit MCP action after health verification.
+
 `tools/deploy-simulation-mvp.py --commit SHA` installs only the explicit MVP
 modules, an additive node Business MCP hook, dedicated identities, and its
 systemd unit. Runtime state/config of other services is preserved; changed

@@ -92,6 +92,34 @@ def lifecycle():
     return c.tools
 
 
+def verify_built_bundle():
+    archive = Path("/opt/tak-orch/state/bundles/rendered/taklabs.tar.gz")
+    before = archive.stat()
+    expected = ["taks-source/" + p for p in OVERLAYS]
+    expected += ["taks-source/simulation-source-commit", "install/taks-bootstrap/config.d/simulation.conf"]
+    found = {}
+    with tarfile.open(archive, "r|gz") as tar:
+        for member in tar:
+            for suffix in expected:
+                if member.name == suffix or member.name.endswith("/"+suffix):
+                    if not member.isfile():
+                        raise ValueError("MVP bundle member is not a file")
+                    found[suffix] = True
+                    if suffix.endswith(("simulation-source-commit", "config.d/simulation.conf")):
+                        if member.size > 1024: raise ValueError("Invalid MVP configuration size")
+                        found[suffix] = tar.extractfile(member).read().decode().strip()
+            if len(found) == len(expected): break
+    after = archive.stat()
+    if before.st_mtime_ns != after.st_mtime_ns or before.st_size != after.st_size:
+        raise ValueError("Bundle changed during verification; wait and retry")
+    missing = sorted(set(expected)-set(found))
+    if missing: return {"ok":False,"missing":missing}
+    if "simulation_enabled = true" not in found[expected[-1]]:
+        return {"ok":False,"error":"Simulation is not enabled in the bundle"}
+    return {"ok":True,"bundle":"taklabs.tar.gz","bytes":after.st_size,
+            "source_commit":found[expected[-2]],"simulation_enabled":True,"checked_files":len(found)}
+
+
 def dispatch_release(command):
     p = command.split() if isinstance(command, str) and len(command) < 400 else []
     if len(p) < 2 or p[0] != "taks-release":
@@ -112,6 +140,8 @@ def dispatch_release(command):
             return tools["taks_backup_select_restore"](UNIT,p[3],True)
         if op == "bundle" and p[2:] == [UNIT,"confirm"]:
             return tools["taks_bundle_prepare_start"](UNIT,True,True)
+        if op == "verify" and p[2:] == [UNIT]:
+            return submit(("verify-mvp",UNIT),verify_built_bundle)
         if op == "shutdown" and len(p) == 6 and p[2] == NODE and p[5] == "confirm":
             return tools["taks_node_shutdown"](NODE,UNIT,p[3],p[4],True)
         if op == "launch" and p[2:] == [UNIT,"confirm"]:
