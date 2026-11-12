@@ -123,6 +123,7 @@ def install_identity(index, config, secret, group):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--source-root")
     parser.add_argument("--identities", type=int, default=8)
     args = parser.parse_args()
     if os.geteuid() != 0 or not re.fullmatch(r"[0-9a-f]{40}", args.commit) or not 1 <= args.identities <= 16:
@@ -137,29 +138,36 @@ def main():
     was_active = subprocess.run(["systemctl", "is-active", "--quiet", "taks-simulation.service"]).returncode == 0
     try:
         with tempfile.TemporaryDirectory() as temp:
-            archive = Path(temp) / "source.tar.gz"
-            url = "https://codeload.github.com/alexanderhavang-ops/taks/tar.gz/" + args.commit
-            with urllib.request.urlopen(url, timeout=30) as response:
-                data = response.read(40*1024*1024+1)
-            if len(data) > 40*1024*1024:
-                raise ValueError("Archive too large")
-            archive.write_bytes(data)
-            with tarfile.open(archive) as tar:
+            contents = {}
+            if args.source_root:
+                source = Path(args.source_root).resolve()
                 for path in FILES:
-                    member = tar.getmember("taks-" + args.commit + "/" + path)
-                    if not member.isfile() or member.size > 200000:
-                        raise ValueError("Invalid source member")
-                    content = tar.extractfile(member).read()
-                    compile(content, path, "exec")
-                    dst = BASE / Path(path).relative_to("takctl")
-                    dst.parent.mkdir(parents=True, exist_ok=True)
-                    save = backup / dst.relative_to(BASE)
-                    save.parent.mkdir(parents=True, exist_ok=True)
-                    if dst.exists():
-                        shutil.copy2(dst, save)
-                    changed.append((dst, save))
-                    dst.write_bytes(content)
-                    dst.chmod(0o644)
+                    contents[path] = (source / path).read_bytes()
+            else:
+                archive = Path(temp) / "source.tar.gz"
+                url = "https://codeload.github.com/alexanderhavang-ops/taks/tar.gz/" + args.commit
+                with urllib.request.urlopen(url, timeout=30) as response:
+                    data = response.read(40*1024*1024+1)
+                if len(data) > 40*1024*1024:
+                    raise ValueError("Archive too large")
+                archive.write_bytes(data)
+                with tarfile.open(archive) as tar:
+                    for path in FILES:
+                        member = tar.getmember("taks-" + args.commit + "/" + path)
+                        if not member.isfile() or member.size > 200000:
+                            raise ValueError("Invalid source member")
+                        contents[path] = tar.extractfile(member).read()
+            for path, content in contents.items():
+                compile(content, path, "exec")
+                dst = BASE / Path(path).relative_to("takctl")
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                save = backup / dst.relative_to(BASE)
+                save.parent.mkdir(parents=True, exist_ok=True)
+                if dst.exists():
+                    shutil.copy2(dst, save)
+                changed.append((dst, save))
+                dst.write_bytes(content)
+                dst.chmod(0o644)
             domain = BASE / "takctl/web/mcp_domains/taks.py"
             original = domain.read_text()
             if "_install_simulation(_sim_sys.modules[__name__])" not in original:
