@@ -21,6 +21,9 @@ NODE_TAKS_PROBE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/m
 NODE_DEVOPS_PROBE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/mcp/devops$")
 MARTI_DIAGNOSTICS = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/marti/diagnostics$")
 LIFECYCLE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/(?:pause|resume|shutdown|snooze|wake|terminate)$")
+NODE_BACKUP = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/backup$")
+BACKUP_READ = re.compile(r"^/api/v2/units/[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*/backups(?:/restore-selection)?$")
+BACKUP_WRITE = re.compile(r"^/api/v2/units/[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*/backups/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/(?:verify|select-restore)$")
 
 
 def business_service_token():
@@ -35,7 +38,12 @@ def business_service_token():
 def service_auth_ok(request):
     method = request.method.upper()
     path = request.url.path.rstrip("/")
-    if (method, path) not in STATIC_ALLOWED and not (method == "POST" and (LIFECYCLE.fullmatch(path) or NODE_DEVOPS_PROBE.fullmatch(path) or NODE_TAKS_PROBE.fullmatch(path) or MARTI_DIAGNOSTICS.fullmatch(path))):
+    if (method, path) not in STATIC_ALLOWED and not (
+        method == "GET" and BACKUP_READ.fullmatch(path)
+        or method == "POST" and (LIFECYCLE.fullmatch(path) or NODE_BACKUP.fullmatch(path)
+        or BACKUP_WRITE.fullmatch(path) or NODE_DEVOPS_PROBE.fullmatch(path)
+        or NODE_TAKS_PROBE.fullmatch(path) or MARTI_DIAGNOSTICS.fullmatch(path))
+    ):
         return False
     # Only the orchestrator host's loopback client may use the service token.
     if not request.client or request.client.host not in ("127.0.0.1", "::1"):

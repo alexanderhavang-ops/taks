@@ -14,9 +14,10 @@ import urllib.error
 import urllib.request
 import urllib.parse
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from orchestrator_core.config import load_orch_config, load_secrets_config
+from orchestrator_core.backup_verification import verify_unit_backup
 from orchestrator_core.core import NodeRequest, aws_dry_run, aws_launch, aws_list_nodes, aws_reconcile_node_dns, aws_snooze, aws_terminate, aws_wake, plan_node, resolve_ubuntu_ami
 from orchestrator_core.nodes_state import delete_node, get_node, list_nodes, touch_heartbeat, upsert_node
 from orchestrator_core.units_state import clear_unit_restore_backup_selection, create_unit, delete_unit_backup, ensure_unit_orchestrator_secret, get_unit_backup, get_unit_restore_backup_selection, list_unit_backups, list_units, save_unit_backup, set_unit_restore_backup_selection
@@ -410,6 +411,10 @@ def unit_backup_restore_selection(unit_path: str, request: Request) -> Dict[str,
 @router.post("/units/{unit_path:path}/backups/{backup_id}/select-restore")
 def unit_backup_select_restore(unit_path: str, backup_id: str, request: Request) -> Dict[str, Any]:
     require_operator(request)
+    try:
+        verify_unit_backup(unit_path, backup_id)
+    except (OSError, ValueError, KeyError, tarfile.TarError):
+        raise HTTPException(status_code=409, detail="Backup integrity verification failed")
     sel = set_unit_restore_backup_selection(unit_path, backup_id)
     return {
         "ok": True,
@@ -501,6 +506,15 @@ def node_create_backup(node_id: str, req: Dict[str, Any], request: Request) -> D
         "backup": saved,
         "manifest": manifest,
     }
+
+@router.post("/units/{unit_path:path}/backups/{backup_id}/verify")
+def unit_backup_verify(unit_path: str, backup_id: str, request: Request) -> Dict[str, Any]:
+    require_operator(request)
+    try:
+        return verify_unit_backup(unit_path, backup_id)
+    except (OSError, ValueError, KeyError, tarfile.TarError):
+        raise HTTPException(status_code=409, detail="Backup integrity verification failed")
+
 
 @router.get("/units/{unit_path:path}/backups/{backup_id}/manifest")
 def unit_backup_manifest(unit_path: str, backup_id: str, request: Request) -> Dict[str, Any]:
@@ -634,7 +648,7 @@ def _resolve_instance_for_node_record(rec: Dict[str, Any], node_id: str) -> Dict
 
 @router.post("/nodes/{node_id}/shutdown")
 @router.post("/nodes/{node_id}/terminate")
-def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
+def nodes_terminate(node_id: str, request: Request, req: Optional[Dict[str, Any]] = Body(default=None)) -> Dict[str, Any]:
     require_operator(request)
 
     rec = get_node(node_id)
@@ -643,6 +657,9 @@ def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
 
     resolved = _resolve_instance_for_node_record(rec, node_id)
     instance_id = str(resolved.get("instance_id") or "").strip()
+
+    if isinstance(req, dict) and 'expected_instance_id' in req and req['expected_instance_id'] != instance_id:
+        raise HTTPException(status_code=409, detail="Node instance identity changed")
 
     term = aws_terminate(instance_id, fqdn=str(rec.get("fqdn") or "").strip())
 
