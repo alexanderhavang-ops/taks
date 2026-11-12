@@ -22,6 +22,44 @@ SOCKET = "/opt/tak/simulation/control.sock"
 MAX_REQUEST = 65536
 
 
+class CotFrames:
+    """Bounded CoT XML stream framing; TAK may repeat XML declarations.
+
+    A TCP read is neither an event boundary nor necessarily a UTF-8 boundary.
+    Ignore inter-event declarations and parse only complete event documents.
+    """
+    def __init__(self):
+        self.buffer = bytearray()
+
+    def feed(self, data):
+        self.buffer.extend(data)
+        frames = []
+        while True:
+            start = self.buffer.find(b"<event")
+            if start < 0:
+                if len(self.buffer) > 1048576:
+                    raise ValueError("Inbound CoT framing exceeds memory bound")
+                break
+            if start:
+                del self.buffer[:start]
+            opening = self.buffer.find(b">")
+            end = self.buffer.find(b"</event>")
+            if opening >= 0 and self.buffer[opening-1:opening] == b"/":
+                stop = opening + 1
+            elif end >= 0:
+                stop = end + len(b"</event>")
+            else:
+                if len(self.buffer) > 1048576:
+                    raise ValueError("Inbound event exceeds memory bound")
+                break
+            if stop > 1048576:
+                raise ValueError("Inbound event exceeds memory bound")
+            frame = bytes(self.buffer[:stop])
+            del self.buffer[:stop]
+            frames.append(ET.fromstring(frame))
+        return frames
+
+
 def stamp(t):
     return t.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -104,24 +142,15 @@ class Session:
                     if pin and hashlib.sha256(cert).hexdigest() != pin:
                         raise ssl.SSLError("TAK server certificate pin mismatch")
                 self.info.update(connected=True, last_error=None)
-                delay = 1
                 self.daemon.wakeup.set()
-                parser = ET.XMLPullParser(events=("start", "end"))
-                parser.feed("<stream>")
-                root = None
-                outstanding = 0
+                parser = CotFrames()
                 while True:
                     data = await reader.read(16384)
                     if not data:
                         raise ConnectionError("TAK closed connection")
-                    outstanding += len(data)
-                    if outstanding > 1048576:
-                        raise ValueError("Inbound event exceeds memory bound")
-                    parser.feed(data)
-                    for kind, element in parser.read_events():
-                        if root is None and kind == "start":
-                            root = element
-                        if kind == "end" and element.tag == "event":
+                    for element in parser.feed(data):
+                        if element.tag == "event":
+                            delay = 1
                             self.info["received"] += 1
                             uid = element.get("uid", "")
                             if uid in self.daemon.known_uids:
@@ -130,16 +159,10 @@ class Session:
                                     "received_at": stamp(datetime.now(timezone.utc)),
                                     "lat": p.get("lat") if p is not None else None,
                                     "lon": p.get("lon") if p is not None else None}
-                            element.clear()
-                            outstanding = 0
-                    # XMLPullParser retains completed children under root. Clearing
-                    # root below keeps receive memory flat without losing partial events.
-                    if root is not None:
-                        root.clear()
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
-                self.info["last_error"] = type(exc).__name__
+                self.info["last_error"] = type(exc).__name__ + ": " + str(exc)[:120]
                 self.info["reconnects"] += 1
             finally:
                 self.info["connected"] = False

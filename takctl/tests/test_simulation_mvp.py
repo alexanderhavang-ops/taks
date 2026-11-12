@@ -11,7 +11,7 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 from takctl.simulation.model import World, distance
-from takctl.simulation.daemon import Daemon, event
+from takctl.simulation.daemon import Daemon, event, CotFrames
 from takctl.web.mcp_domains import simulation_tools as tools
 
 
@@ -26,6 +26,18 @@ def created():
 
 
 class WorldTests(unittest.TestCase):
+    def test_repeated_xml_declarations_and_fragmented_utf8(self):
+        data = ('<?xml version="1.0" encoding="UTF-8"?><event uid="1"><detail><remarks>Övning</remarks></detail></event>'
+                '<?xml version="1.0"?><event uid="2"/>').encode()
+        parser=CotFrames(); result=[]
+        for byte in data: result.extend(parser.feed(bytes([byte])))
+        self.assertEqual([e.get("uid") for e in result],["1","2"])
+        self.assertEqual(result[0].find("detail/remarks").text,"Övning")
+        self.assertEqual(parser.buffer,bytearray())
+
+    def test_receive_framing_is_bounded(self):
+        with self.assertRaises(ValueError):CotFrames().feed(b"x"*1048577)
+
     def test_movement_progresses_group_and_stops(self):
         w = created()
         start = copy.deepcopy(w.state["units"]["demo"])
@@ -139,7 +151,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                     while data := await reader.read(16384):
                         received.append(data)
                         for other in list(writers):
-                            other.write(data)
+                            other.write(b'<?xml version="1.0" encoding="UTF-8"?>'+data)
                             await other.drain()
                 finally:
                     writers.discard(writer)
