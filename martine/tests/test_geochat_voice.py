@@ -90,5 +90,5 @@ class GeoChatVoiceTests(unittest.TestCase):
 
     def test_certificate_passwords_have_no_builtin_fallback(self):
         from martine.chat import cot_tls_client
-        with patch.object(cot_tls_client, '_read_simple_kv', return_value={}):
+        with patch.object(cot_tls_client, '_read_simple_kv', return_value={}), patch.object(cot_tls_client.Path, 'read_text', side_effect=FileNotFoundError):
             self.assertEqual(cot_tls_client._cert_password_candidates(), [None])
