@@ -67,10 +67,12 @@ def stamp(t):
 def event(entity, *, message=None):
     now = datetime.now(timezone.utc)
     uid, callsign = entity["uid"], entity["callsign"]
+    health = entity.get("health_state", "fit")
+    display_callsign = callsign + (" [WIA]" if health == "wounded" else " [KIA]" if health == "kia" else "")
     if message:
         uid = f"GeoChat.{uid}.{message['target_uid']}.{message['message_id']}"
     root = ET.Element("event", version="2.0", uid=uid,
-        type="b-t-f" if message else "a-f-G-U-C-I", how="m-g",
+        type="b-t-f" if message else entity.get("cot_type", "a-f-G-U-C-I"), how="m-g",
         time=stamp(now), start=stamp(now), stale=stamp(now + timedelta(seconds=90 if not message else 300)))
     pos = entity["position"]
     ET.SubElement(root, "point", lat=f"{pos['lat']:.7f}", lon=f"{pos['lon']:.7f}", hae="0", ce="10", le="999999")
@@ -86,11 +88,22 @@ def event(entity, *, message=None):
         if message["target_callsign"] != "All Chat Rooms":
             ET.SubElement(ET.SubElement(detail, "marti"), "dest", callsign=message["target_callsign"])
     else:
-        ET.SubElement(detail, "contact", callsign=callsign, endpoint="*:-1:stcp")
-        ET.SubElement(detail, "__group", name="Blue", role="HQ" if entity["role"] == "HQ" else "Team Member")
-        ET.SubElement(detail, "takv", device="TAKS simulation", platform="TAKS-SIM", os="Linux", version="0.1")
+        contact = ET.SubElement(detail, "contact", callsign=display_callsign)
+        if "identity_slot" in entity:
+            contact.set("endpoint", "*:-1:stcp")
+            if entity.get("cot_type", "a-f-G").startswith("a-f-"):
+                ET.SubElement(detail, "__group", name="Blue", role="HQ" if entity["role"] == "HQ" else "Team Member")
+            ET.SubElement(detail, "takv", device="TAKS simulation", platform="TAKS-SIM", os="Linux", version="0.2")
         ET.SubElement(detail, "track", speed=str(entity.get("speed_mps", 0)), course="0")
-        ET.SubElement(detail, "remarks").text = f"SIMULATION ONLY | {entity['role']} | {entity['readiness']}"
+        ET.SubElement(detail, "remarks").text = f"SIMULATION ONLY | {entity['role']} | {entity['readiness']} | {health.upper()} | {entity.get('remarks','')}"
+    return ET.tostring(root, encoding="utf-8") + b"\n"
+
+
+def custom_event(xml):
+    root = ET.fromstring(xml)
+    now = datetime.now(timezone.utc)
+    root.set("time", stamp(now)); root.set("start", stamp(now))
+    root.set("stale", stamp(now + timedelta(seconds=90)))
     return ET.tostring(root, encoding="utf-8") + b"\n"
 
 
@@ -158,7 +171,9 @@ class Session:
                                 self.daemon.observed[uid] = {
                                     "received_at": stamp(datetime.now(timezone.utc)),
                                     "lat": p.get("lat") if p is not None else None,
-                                    "lon": p.get("lon") if p is not None else None}
+                                    "lon": p.get("lon") if p is not None else None,
+                                    "cot_type": element.get("type"),
+                                    "callsign": element.find("detail/contact").get("callsign") if element.find("detail/contact") is not None else None}
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -218,6 +233,9 @@ class Daemon:
     def reconcile(self):
         wanted = {e["identity_slot"] for e in self.world.entities()}
         self.known_uids = {e["uid"] for e in self.world.entities()}
+        active = {u["id"] for u in self.world.state["units"].values() if u["active"]}
+        self.known_uids.update(m["uid"] for m in self.world.state["markers"].values() if m["active"] and m["unit_id"] in active)
+        self.known_uids.update(uid for uid,c in self.world.state["cot_templates"].items() if c["unit_id"] in active)
         self.observed = {k: v for k, v in self.observed.items() if k in self.known_uids}
         for slot in wanted - self.sessions.keys():
             self.sessions[slot] = Session(self, slot)
@@ -232,8 +250,14 @@ class Daemon:
                     await self.save()
                 self.reconcile()
                 entities = copy.deepcopy(self.world.entities())
-            await asyncio.gather(*(self.sessions[e["identity_slot"]].send(event(e))
-                                   for e in entities if e["identity_slot"] in self.sessions))
+                active = {u["id"] for u in self.world.state["units"].values() if u["active"]}
+                senders = {e["id"]:e["identity_slot"] for e in entities}
+                messages = [(e["identity_slot"],event(e)) for e in entities]
+                messages += [(senders[m["sender_entity_id"]],event(m)) for m in self.world.state["markers"].values()
+                             if m["active"] and m["unit_id"] in active and m["sender_entity_id"] in senders]
+                messages += [(senders[c["sender_entity_id"]],custom_event(c["xml"])) for c in self.world.state["cot_templates"].values()
+                             if c["unit_id"] in active and c["sender_entity_id"] in senders]
+            await asyncio.gather(*(self.sessions[slot].send(payload) for slot,payload in messages if slot in self.sessions))
             try:
                 await asyncio.wait_for(self.wakeup.wait(), self.config.get("tick_seconds", 10))
             except asyncio.TimeoutError:
@@ -260,11 +284,13 @@ class Daemon:
                     "sessions": [dict(s.info) for s in self.sessions.values()],
                     "observed_via_tak": dict(self.observed),
                     "events": [e for e in self.world.state["events"] if e["revision"] > since],
+                    "markers": [copy.deepcopy(m) for m in self.world.state["markers"].values() if not uid or m["unit_id"]==uid],
+                    "custom_cot": [copy.deepcopy(c) for c in self.world.state["cot_templates"].values() if not uid or c["unit_id"]==uid],
                     "identity_capacity": self.world.capacity,
                     "uptime_s": round(time.monotonic()-self.started), "tick_seconds": self.config.get("tick_seconds", 10),
                     "transport": "per-identity mTLS", "execution": "explicit actions; no inference"}
             result = self.world.apply(op, args)
-            if op == "chat" and not result.get("duplicate"):
+            if op in ("chat", "cot_send") and not result.get("duplicate"):
                 # Persist the intent before touching the network. A retry never
                 # sends it again. A crash can leave delivery unknown, not duplicated.
                 result["delivery"] = "attempt_pending"
@@ -272,10 +298,11 @@ class Daemon:
             await self.save()
             self.reconcile()
             self.wakeup.set()
-            if op == "chat" and not result.get("duplicate"):
+            if op in ("chat", "cot_send") and not result.get("duplicate"):
                 entity = next(e for e in self.world.entities() if e["id"] == result["entity_id"])
                 session = self.sessions.get(entity["identity_slot"])
-                sent = session and await session.send(event(entity, message=result))
+                payload = event(entity, message=result) if op == "chat" else custom_event(result["cot_xml"])
+                sent = session and await session.send(payload)
                 result["delivery"] = "written_to_tls" if sent else "not_written_or_unknown"
                 self.world.state["requests"][args["request_id"]]["result"] = dict(result)
                 await self.save()

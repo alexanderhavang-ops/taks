@@ -11,6 +11,36 @@ the group through explicit geographic waypoints, stop movement, deactivate
 presence, and send a GeoChat message. It does not yet implement TAKS ORBAT
 import, XMPP, Mumble, tactical behaviors, or battalion-scale certification.
 
+## Generic control primitives
+
+The server does not reason about formations, enemies or engagements. ChatGPT
+computes explicit per-person paths and submits `entity_move` commands, optionally
+in an atomic `batch`, to start several movements together. Each individual has
+its own progress, position and cancellation. With no unit move in progress,
+the first entity remains the unit's geographic anchor; offsets are derived
+from actual positions rather than prescribing an autonomous formation.
+
+`entity_patch` changes health (`fit`, `wounded`, `kia`), remarks or CoT type.
+A wounded entity stops unassisted movement and its label gains `[WIA]` while
+retaining its stable UID. `marker_put` and `marker_remove` manage persistent
+map objects with explicit CoT types, using a participant's existing connection.
+These objects do not consume more simulated-person connections.
+
+`cot_send` accepts up to 16 KiB of event XML and an owning participant. It
+validates the point/type and requires a `taks-custom:UNIT_ID:` UID. DTDs and
+entities are forbidden, and visible callsigns must be SIM-prefixed. Timestamp,
+start and stale are refreshed by the publisher. `persist: true` republishes a
+map object every tick; GeoChat must not be persisted this way. Delivery means
+written to the TLS connection, not an observer-device acknowledgment.
+
+`batch` accepts 1..32 state commands and commits all or none. Network sends
+(`chat`, `cot_send`) remain separate to make retry/delivery semantics explicit.
+There is no formation-specific planner or inference service on the node.
+
+A unit-scoped `misc/simulation-state.json` can carry exercise state into a
+replacement cow. The installer uses it only if the new node has no exercise
+state already. This is runtime data and must not be committed as source.
+
 ## Controls
 
 Dedicated tools: `taks_node_simulation_read`, `taks_node_simulation_control`,

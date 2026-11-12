@@ -10,6 +10,7 @@ import subprocess
 
 SOCKET = "/opt/tak/simulation/control.sock"
 DOC_ROOT = Path("/opt/tak/tools/takctl/state/docs")
+CONTROL_OPS = ("create", "move", "stop", "deactivate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "marker_put", "marker_remove", "cot_send")
 DOC_TOOLS = {
     "list_reference_docs": ({"only_active": {"type": "boolean"}}, []),
     "search_reference_docs": ({"query": {"type": "string"}, "limit": {"type": "integer"}, "doc_id": {"type": "string"}}, ["query"]),
@@ -27,8 +28,8 @@ def tool(name, description, properties, required=()):
 
 TOOLS = [tool("simulation_read", "Read persistent exercise state, sessions and server-observed positions",
               {"unit_id": {"type": "string"}, "since_revision": {"type": "integer"}}),
-         tool("simulation_control", "Create, move, stop, deactivate or send GeoChat as a simulated unit; explicit confirmation required",
-              {"operation": {"type": "string", "enum": ["create", "move", "stop", "deactivate", "chat"]},
+         tool("simulation_control", "Control units or individuals, patch status, publish markers/custom CoT, send GeoChat, or submit atomic state batches; explicit confirmation required",
+              {"operation": {"type": "string", "enum": list(CONTROL_OPS)},
                "arguments": {"type": "object"}, "confirm_write": {"type": "boolean"}}, ["operation", "arguments"])]
 TOOLS += [tool(name, "Read Martine reference documents: " + name, props, required)
           for name, (props, required) in DOC_TOOLS.items()]
@@ -122,7 +123,7 @@ def call(name, args):
             raise ValueError("Unknown simulation control arguments")
         if args.get("confirm_write") is not True:
             result = {"ok": False, "confirmation_required": True}
-        elif args.get("operation") not in ("create", "move", "stop", "deactivate", "chat"):
+        elif args.get("operation") not in CONTROL_OPS:
             raise ValueError("Unknown simulation control operation")
         else:
             result = simulation(args["operation"], args.get("arguments", {}))

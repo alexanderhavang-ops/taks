@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
-from takctl.simulation.model import World, distance
+from takctl.simulation.model import World, distance, validate_cot
 from takctl.simulation.daemon import Daemon, event, CotFrames
 from takctl.web.mcp_domains import simulation_tools as tools
 
@@ -26,6 +26,46 @@ def created():
 
 
 class WorldTests(unittest.TestCase):
+    def test_atomic_individual_paths_form_columns_without_formation_state(self):
+        w=created(); start=copy.deepcopy(w.entities())
+        commands=[{"operation":"entity_move","arguments":{"unit_id":"demo","entity_id":e["id"],
+            "path":[{"lat":e["position"]["lat"]+.001,"lon":e["position"]["lon"]}],"duration_s":100}}
+            for e in start]
+        w.apply("batch",{"request_id":"individual","expected_revision":1,"commands":commands})
+        self.assertEqual(w.entities()[0]["position"],start[0]["position"])
+        w.advance(50)
+        for a,b in zip(start,w.entities()):self.assertAlmostEqual(b["position"]["lat"]-a["position"]["lat"],.0005,places=7)
+        self.assertNotIn("formation",w.state["units"]["demo"])
+
+    def test_bad_batch_rolls_back_every_child(self):
+        w=created(); original=copy.deepcopy(w.state)
+        commands=[{"operation":"entity_patch","arguments":{"unit_id":"demo","entity_id":"demo-01","health_state":"wounded"}},
+                  {"operation":"entity_patch","arguments":{"unit_id":"demo","entity_id":"missing","health_state":"wounded"}}]
+        with self.assertRaises(ValueError):w.apply("batch",{"request_id":"badbatch","expected_revision":1,"commands":commands})
+        self.assertEqual(original,w.state)
+
+    def test_individual_wound_stops_movement_and_is_visible(self):
+        w=created(); e=w.entities()[2]
+        w.apply("entity_move",args(1,"individual",entity_id=e["id"],path=[{"lat":55.713,"lon":13.21}],duration_s=100))
+        w.advance(20)
+        w.apply("entity_patch",args(2,"wound",entity_id=e["id"],health_state="wounded",remarks="Training casualty"))
+        current=copy.deepcopy(w.entities()[2]["position"]);w.advance(100)
+        self.assertEqual(w.entities()[2]["position"],current)
+        xml=ET.fromstring(event(w.entities()[2]))
+        self.assertIn("[WIA]",xml.find("detail/contact").get("callsign"))
+        self.assertIn("WOUNDED",xml.find("detail/remarks").text)
+
+    def test_hostile_marker_symbol_and_custom_cot_namespace(self):
+        w=created()
+        w.apply("marker_put",args(1,"hostile",marker_id="enemy-1",callsign="SIM-ENEMY-01",cot_type="a-h-G-U-C-I",position={"lat":55.712,"lon":13.21}))
+        marker=next(iter(w.state["markers"].values()))
+        xml=ET.fromstring(event(marker))
+        self.assertEqual(xml.get("type"),"a-h-G-U-C-I")
+        self.assertIsNone(xml.find("detail/__group"))
+        raw='<event uid="taks-custom:demo:test" type="a-h-G"><point lat="55.71" lon="13.21"/></event>'
+        self.assertIn("SIMULATION ONLY",validate_cot(raw,"demo"))
+        for bad in (raw.replace("taks-custom:demo:test","REAL-USER"),raw.replace("55.71","nan"),'<!DOCTYPE x>'+raw):
+            with self.assertRaises(ValueError):validate_cot(bad,"demo")
     def test_repeated_xml_declarations_and_fragmented_utf8(self):
         data = ('<?xml version="1.0" encoding="UTF-8"?><event uid="1"><detail><remarks>Övning</remarks></detail></event>'
                 '<?xml version="1.0"?><event uid="2"/>').encode()
@@ -184,6 +224,17 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(writers),4)
                 self.assertTrue(all(s.info["connected"] for s in d.sessions.values()))
                 self.assertIn(b"SIM-DEMO-HQ",b"".join(received))
+                marker=await d.command("marker_put",args(1,"marker",marker_id="enemy-1",callsign="SIM-ENEMY-01",
+                    cot_type="a-h-G-U-C-I",position={"lat":55.712,"lon":13.21}))
+                self.assertTrue(marker["ok"])
+                raw='<event uid="taks-custom:demo:test" type="a-h-G"><point lat="55.71" lon="13.21"/></event>'
+                sent=await d.command("cot_send",args(2,"raw",entity_id="demo-01",xml=raw,persist=True))
+                self.assertEqual(sent["delivery"],"written_to_tls")
+                for _ in range(100):
+                    if len(d.observed)==6:break
+                    await asyncio.sleep(.02)
+                self.assertEqual(d.observed["taks-marker:demo:enemy-1"]["cot_type"],"a-h-G-U-C-I")
+                self.assertIn("taks-custom:demo:test",d.observed)
                 if unix:
                     with patch.object(tools,"SOCKET",str(root/"control.sock")):
                         status=await asyncio.to_thread(tools.simulation,"status",{})
@@ -193,7 +244,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                     status=json.loads(await r.readline())
                     w.close(); await w.wait_closed()
                 self.assertEqual(status["identity_capacity"],4)
-                self.assertEqual(len(status["observed_via_tak"]),4)
+                self.assertEqual(len(status["observed_via_tak"]),6)
                 restored=World(json.loads((root/"state.json").read_text()),capacity=4)
                 self.assertEqual(len(restored.entities()),4)
             finally:

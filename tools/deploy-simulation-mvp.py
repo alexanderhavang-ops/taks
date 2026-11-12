@@ -206,6 +206,19 @@ def main():
             cfgfile.write_text(json.dumps(conf, indent=2))
             shutil.chown(cfgfile, user="root", group="tak")
             cfgfile.chmod(0o640)
+            # Optional exercise seed is runtime data, never source-code state.
+            # Carry the selected exercise through cattle replacement without
+            # resetting its UIDs or authoritative coordinates.
+            seed = Path(args.source_root).parent / "misc/simulation-state.json" if args.source_root else None
+            if seed and seed.is_file() and not (ROOT / "state.json").exists():
+                from takctl.simulation.model import World
+                from takctl.simulation.daemon import atomic_json
+                state = World(json.loads(seed.read_text()), capacity=len(identities)).state
+                slots = [e["identity_slot"] for u in state["units"].values() if u["active"] for e in u["entities"]]
+                if len(slots) != len(set(slots)) or any(type(s) is not int or not 0 <= s < len(identities) for s in slots):
+                    raise ValueError("Invalid exercise seed identity slots")
+                atomic_json(ROOT / "state.json", state)
+                shutil.chown(ROOT / "state.json", user="tak", group="tak")
             unitpath = Path("/etc/systemd/system/taks-simulation.service")
             if unitpath.exists():
                 shutil.copy2(unitpath, backup / "taks-simulation.service")
