@@ -13,7 +13,7 @@ class ActorBackupTests(unittest.TestCase):
                 if value=='/opt/tak/simulation':return live
                 if value=='/opt/tak/tools/takctl/state/simulation-perception':return archive
                 return Path(value)
-            with patch.object(orchestrator_backup,'Path',side_effect=path):orchestrator_backup._takctl_state_paths()
+            with patch.object(orchestrator_backup,'Path',side_effect=path):orchestrator_backup.snapshot_perception_stores()
             with sqlite3.connect(archive/'perception-test.sqlite') as restored:
                 self.assertEqual(restored.execute('SELECT body FROM facts').fetchone()[0],'current report')
             db.close()

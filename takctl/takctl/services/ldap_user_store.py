@@ -142,6 +142,7 @@ class LdapConfig:
     group_object_class: str = "groupOfNames"
     group_name_extractor_regex: str = r"^cn=([^,]+),.*$"
     manage_local: bool = True
+    admin_group: str = "TAKS_ADMIN"
 
     @property
     def people_base_dn(self) -> str:
@@ -213,6 +214,7 @@ def load_ldap_config() -> LdapConfig:
         group_object_class=c("ldap_group_object_class", "groupOfNames") or "groupOfNames",
         group_name_extractor_regex=c("ldap_group_name_extractor_regex", r"^cn=([^,]+),.*$") or r"^cn=([^,]+),.*$",
         manage_local=manage_local,
+        admin_group=c("ldap_admin_group", "TAKS_ADMIN") or "TAKS_ADMIN",
     )
 
 
@@ -479,6 +481,8 @@ objectClass: {self.config.group_object_class}
             raise LdapUserStoreError("username required")
 
         desired_groups = _normalize_groups(groups, in_groups, out_groups)
+        if admin is True and self.config.admin_group not in desired_groups:
+            desired_groups.append(self.config.admin_group)
         user_dn = self.config.user_dn(u)
         existed = self.get_user(u) is not None
 
@@ -561,6 +565,8 @@ description: TAK client certificate path: {certificate_path}
         elif not append:
             current = self.groups_for_user(u)
             for g in current:
+                if g == self.config.admin_group and admin is None:
+                    continue
                 if g not in desired_groups:
                     self._remove_user_from_group(u, g)
 

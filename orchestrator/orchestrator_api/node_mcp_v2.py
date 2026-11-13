@@ -56,22 +56,24 @@ async def node_mcp(node_id: str, domain: str, request: Request):
     params = message.get("params", {})
     if not isinstance(params, dict):
         raise HTTPException(status_code=400, detail="Invalid MCP parameters")
-    # Service-token callers may only invoke the explicitly enumerated
-    # read-only diagnostics below. This is NOT a general remote shell proxy.
+    # This bridge is callable via an authenticated loopback service token.
+    # Delegate only reviewed node tools; discovery does not grant execution.
+    # The node also validates each business tool and its confirmation flag.
     if service_auth_ok(request):
-        safe_tools = {
+        safe_devops = {
             "host_identity", "host_resources", "listening_ports",
+            "process_sample", "memory_read", "vmstat_sample",
             "service_list", "service_status", "service_logs",
             "nginx_check", "cert_status", "file_stat", "installer_tail",
             "java_processes", "takserver_logs", "takserver_readiness",
             "netstat_listeners", "lsof_tak_java",
         }
         safe_business = {
-            "simulation_read", "simulation_control", "map_read", "list_reference_docs", "search_reference_docs",
-            "search_reference_docs_semantic", "get_reference_doc_context", "list_reference_doc_sections",
-            "get_reference_section",
+            "runtime_status", "api_surface", "takctl_health", "marti_diagnostics", "service_read", "service_write",
+            "onboarding_user_create", "onboarding_send_invite", "product_health", "onboarding_diagnostics", "diagnostic_log", "diagnostic_file_stat", "network_capture_start", "network_capture_status",
         }
-        allowed = safe_tools if domain == "devops" else safe_business
+        safe_business.update({'get_reference_section', 'search_reference_docs', 'list_reference_doc_sections', 'get_reference_doc_context', 'search_reference_docs_semantic', 'simulation_read', 'list_reference_docs', 'simulation_control', 'map_read'})
+        allowed = safe_devops if domain == "devops" else safe_business
         if method == "tools/call" and (
             params.get("name") not in allowed or
             not isinstance(params.get("arguments", {}), dict)
@@ -146,3 +148,11 @@ async def node_mcp(node_id: str, domain: str, request: Request):
     if not isinstance(result, dict) or result.get("jsonrpc") != "2.0" or result.get("id") != message["id"]:
         raise HTTPException(status_code=502, detail="Invalid node JSON-RPC response")
     return result
+
+
+@router.post("/nodes/{node_id}/marti/diagnostics")
+def marti_diagnostics(node_id: str, request: Request):
+    """Read registered node Marti status with its installer TAK administrator."""
+    require_operator(request)
+    from orchestrator_core.marti_admin import diagnose
+    return diagnose(node_id)
