@@ -23,12 +23,15 @@ The geometry reader runs in the node's Business MCP web runtime, outside the
 simulation daemon; there is no map query per movement tick. The orchestrator
 forwards bounded responses rather than importing an entire regional map.
 
-OSM data comes from configured Overpass endpoints. Queries cover 100–1500m
+OSM data first comes from bounded raw OSM API 0.6 reads, with configured
+Overpass endpoints as fallback. Core API area reads use bounding boxes;
+the source metadata identifies the query shape and provider. Queries cover 100–1500m
 and responses are capped at 4MiB; four query results can be cached for ten
 minutes. Area results paginate, and response budgets never silently truncate
 individual feature geometry. Relations without assembled geometry are
 explicitly incomplete. Every result identifies attribution, fetch time and
-OSM database time where supplied. No map download/import is required.
+OSM database time where supplied. Small raw OSM extracts are fetched on demand;
+no regional map import is required.
 
 The walking lookup uses shared OSM node IDs and distance-weighted graph
 search. It applies basic `foot`/`access` tags and `oneway:foot`; it does not

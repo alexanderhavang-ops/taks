@@ -123,7 +123,19 @@ async def node_mcp(node_id: str, domain: str, request: Request):
             if response.headers.get_content_type() != "application/json":
                 raise HTTPException(status_code=502, detail="Unexpected node MCP response type")
             raw = response.read(MAX_RESPONSE + 1)
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+    except urllib.error.HTTPError as exc:
+        if exc.code == 400:
+            # Preserve bounded tool validation errors through the JSON-RPC
+            # bridge; callers otherwise see only an unhelpful HTTPError.
+            try:
+                detail = json.loads(exc.read(2048)).get("detail")
+            except (ValueError, TypeError, AttributeError):
+                detail = None
+            error = detail[:240] if isinstance(detail, str) else "Node tool rejected the request"
+            return {"jsonrpc": "2.0", "id": message["id"], "result": {"isError": True,
+                "content": [{"type": "text", "text": json.dumps({"ok": False, "error": error})}]}}
+        raise HTTPException(status_code=502, detail="Node MCP unavailable") from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
         raise HTTPException(status_code=502, detail="Node MCP unavailable") from exc
     if len(raw) > MAX_RESPONSE:
         raise HTTPException(status_code=502, detail="Node MCP response too large")

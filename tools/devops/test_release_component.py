@@ -45,6 +45,14 @@ class ReleaseBoundaryTests(unittest.TestCase):
         self.m.dispatch_release("taks-release shutdown taklabs.aws.tak-hv-sandbox.se i-12345678 backup-1 confirm")
         self.assertEqual(self.calls,[("taks_node_shutdown",("taklabs.aws.tak-hv-sandbox.se","taklabs","i-12345678","backup-1",True))])
 
+    def test_web_logs_is_fixed_read_only_node_service(self):
+        self.assertFalse(self.m.dispatch_release("taks-release web-logs other")["ok"])
+        self.m.call.assert_not_called()
+        self.m.dispatch_release("taks-release web-logs taklabs")
+        args = self.m.call.call_args.args
+        self.assertEqual(args[1], "/api/v2/nodes/taklabs.aws.tak-hv-sandbox.se/mcp/devops")
+        self.assertEqual(args[2]["params"], {"name":"service_logs","arguments":{"service":"takctl-web.service","lines":80}})
+
     def test_actual_bundle_members_and_activation_are_required(self):
         with tempfile.TemporaryDirectory() as tmp:
             archive=Path(tmp)/"bundle.tar.gz"

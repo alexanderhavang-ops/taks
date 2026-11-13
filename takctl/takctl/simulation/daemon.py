@@ -279,15 +279,22 @@ class Daemon:
                              if m["active"] and m["unit_id"] in active and m["sender_entity_id"] in senders]
                 messages += [(senders[c["sender_entity_id"]],custom_event(c["xml"])) for c in self.world.state["cot_templates"].values()
                              if c["unit_id"] in active and c["sender_entity_id"] in senders]
-            await asyncio.gather(*(self.sessions[slot].send(payload) for slot,payload in messages if slot in self.sessions))
+                due_now = not self.world.state["paused"] and any(s["status"] == "pending" and s["due_clock_s"] <= self.world.state["clock_s"] for s in self.world.state["scheduled"].values())
+            # One write per identity per tick, including its owned map objects.
+            # Do not create many tasks queued behind the same TLS writer lock.
+            grouped = {}
+            for slot, payload in messages: grouped.setdefault(slot, []).append(payload)
+            await asyncio.gather(*(self.sessions[slot].send(b"".join(payloads)) for slot,payloads in grouped.items() if slot in self.sessions))
             try:
-                await asyncio.wait_for(self.wakeup.wait(), self.config.get("tick_seconds", 10))
+                await asyncio.wait_for(self.wakeup.wait(), .1 if due_now else self.config.get("tick_seconds", 10))
             except asyncio.TimeoutError:
                 pass
 
     async def run_due(self):
         """Execute supplied actions once; mark ambiguous crash outcomes, never replay sends."""
-        for _ in range(64):
+        # Bound delayed network work so presence publication cannot be starved
+        # by a large batch of simultaneously due chat/CoT actions.
+        for _ in range(4):
             async with self.lock:
                 if self.advance(): await self.save()
                 if self.world.state["paused"]: return

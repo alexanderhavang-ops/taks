@@ -11,6 +11,7 @@ import time
 import urllib.request
 import urllib.parse
 import urllib.error
+import xml.etree.ElementTree as ET
 
 from takctl.config import load_config
 from takctl.simulation.model import distance, number, point
@@ -25,40 +26,75 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl): return None
 
 
-def fetch(query):
+def osm_xml(raw):
+    if b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper(): raise ValueError("Unexpected XML declarations")
+    root = ET.fromstring(raw)
+    if root.tag != "osm": raise ValueError("Unexpected OSM XML response")
+    elements, positions = [], {}
+    for node in root.findall("node"):
+        uid = int(node.get("id"))
+        pos = point({"lat": float(node.get("lat")), "lon": float(node.get("lon"))})
+        positions[uid] = pos
+        elements.append({"type": "node", "id": uid, **pos,
+                         "tags": {t.get("k"): t.get("v") for t in node.findall("tag")}})
+    for way in root.findall("way"):
+        nodes = [int(n.get("ref")) for n in way.findall("nd")]
+        elements.append({"type": "way", "id": int(way.get("id")), "nodes": nodes,
+                         "geometry": [positions[n] for n in nodes] if all(n in positions for n in nodes) else [],
+                         "tags": {t.get("k"): t.get("v") for t in way.findall("tag")}})
+    for relation in root.findall("relation"):
+        elements.append({"type": "relation", "id": int(relation.get("id")),
+                         "tags": {t.get("k"): t.get("v") for t in relation.findall("tag")}})
+    return {"elements": elements}
+
+
+def bbox_url(center, radius):
+    dy = math.degrees(radius/6371008.8)
+    dx = dy/math.cos(math.radians(center["lat"]))
+    bounds = [center["lon"]-dx, center["lat"]-dy, center["lon"]+dx, center["lat"]+dy]
+    if bounds[0] < -180 or bounds[2] > 180 or bounds[1] < -90 or bounds[3] > 90:
+        raise ValueError("Split map reads near the date line or poles")
+    return "https://api.openstreetmap.org/api/0.6/map?"+urllib.parse.urlencode({"bbox": ",".join(f"{v:.7f}" for v in bounds)})
+
+
+def fetch(query, api_url=None):
     cfg = load_config()
     urls = [cfg.get("overpass_url", "https://overpass-api.de/api/interpreter"),
             cfg.get("overpass_fallback_url", "https://lz4.overpass-api.de/api/interpreter")]
-    key = (tuple(urls), query)
+    key = (tuple(urls), query, api_url)
     with LOCK:
         cached = CACHE.get(key)
         if cached and time.monotonic() - cached[0] < 600:
             CACHE.move_to_end(key)
             return copy.deepcopy(cached[1]), True
-    for url in dict.fromkeys(u for u in urls if u):
+    targets = ([(api_url, None, "OpenStreetMap API 0.6")] if api_url else [])
+    targets += [(u, urllib.parse.urlencode({"data": query}).encode(), "OpenStreetMap / Overpass") for u in dict.fromkeys(u for u in urls if u)]
+    deadline, failures = time.monotonic()+12, []
+    for url, payload, provider in targets:
+        if time.monotonic() >= deadline: break
         try:
-            request = urllib.request.Request(url, data=urllib.parse.urlencode({"data": query}).encode(),
-                headers={"User-Agent": "TAKS-MapContext/2.0"}, method="POST")
-            with urllib.request.build_opener(NoRedirect()).open(request, timeout=6) as response:
+            request = urllib.request.Request(url, data=payload,
+                headers={"User-Agent": "TAKS-MapContext/2.0"}, method="POST" if payload else "GET")
+            with urllib.request.build_opener(NoRedirect()).open(request, timeout=min(6 if payload is None else 3, max(.1, deadline-time.monotonic()))) as response:
                 raw = bytearray()
-                deadline = time.monotonic()+8
                 while block := response.read(65536):
                     raw.extend(block)
                     if len(raw) > LIMIT: raise ValueError("OSM response exceeds 4 MiB; use a smaller radius")
                     if time.monotonic() > deadline: raise ValueError("OSM read deadline exceeded")
-                result = json.loads(raw)
+                result = osm_xml(raw) if payload is None else json.loads(raw)
                 if result.get("remark"): raise ValueError("OSM query incomplete; use a smaller radius or retry")
                 elements = result.get("elements")
-                if not isinstance(elements, list) or len(elements) > 5000: raise ValueError("OSM element limit exceeded")
+                if not isinstance(elements, list) or len(elements) > 20000: raise ValueError("OSM element limit exceeded")
                 result = {"elements": elements, "fetched_at": datetime.now(timezone.utc).isoformat(),
-                          "osm_timestamp": result.get("osm3s", {}).get("timestamp_osm_base"), "endpoint": url}
+                          "osm_timestamp": result.get("osm3s", {}).get("timestamp_osm_base"), "endpoint": url,
+                          "provider": provider, "query_shape": "bounding_box" if payload is None and "/map?" in url else "element" if payload is None else "around"}
                 with LOCK:
                     CACHE[key] = (time.monotonic(), result)
                     while len(CACHE) > 4: CACHE.popitem(last=False)
                 return copy.deepcopy(result), False
-        except (urllib.error.URLError, TimeoutError, OSError, ValueError):
-            continue
-    raise ValueError("OSM unavailable or incomplete; no geometry was invented. Retry or reduce radius")
+        except (urllib.error.URLError, TimeoutError, OSError, ValueError, ET.ParseError) as exc:
+            failures.append(provider+": "+type(exc).__name__+(" "+str(exc.code) if isinstance(exc, urllib.error.HTTPError) else ""))
+    raise ValueError("OSM unavailable/incomplete; no geometry invented. "+"; ".join(failures))
 
 
 def area_query(center, radius, kinds):
@@ -80,9 +116,9 @@ def feature(el):
 
 
 def provenance(data, cached):
-    return {"provider": "OpenStreetMap / Overpass", "attribution": "© OpenStreetMap contributors; ODbL",
+    return {"provider": data.get("provider", "OpenStreetMap / Overpass"), "attribution": "© OpenStreetMap contributors; ODbL",
             "fetched_at": data["fetched_at"], "osm_timestamp": data["osm_timestamp"],
-            "endpoint": data["endpoint"], "cached": cached,
+            "endpoint": data["endpoint"], "cached": cached, "query_shape": data.get("query_shape", "around"),
             "limitations": "Mapped features only; completeness, terrain height, current obstacles and building interiors are unknown"}
 
 
@@ -140,21 +176,25 @@ def read(operation, args):
     if operation not in allowed or set(args) - allowed[operation]: raise ValueError("Unknown map operation/arguments")
     if operation == "config":
         return {"ok": True, "operations": list(allowed), "kinds": sorted(KINDS), "radius_limit_m": 1500,
-                "routing": "bounded OSM pedestrian graph", "cache_ttl_s": 600, "simulation_daemon_dependency": False}
+                "routing": "bounded OSM pedestrian graph", "sources": ["OSM API 0.6", "configured Overpass fallback"],
+                "cache_ttl_s": 600, "simulation_daemon_dependency": False}
     if operation == "feature":
         fid = args.get("feature_id", "")
         match = re.fullmatch(r"(node|way|relation)/([0-9]{1,15})", fid)
         if not match: raise ValueError("feature_id must be node/ID, way/ID or relation/ID")
-        data, cached = fetch(f"[out:json][timeout:4];{match[1]}({match[2]});out body geom;")
-        items = [feature(e) for e in data["elements"]]
+        api_url = "https://api.openstreetmap.org/api/0.6/"+fid+("/full" if match[1] != "node" else "")
+        data, cached = fetch(f"[out:json][timeout:4];{match[1]}({match[2]});out body geom;", api_url)
+        items = [feature(e) for e in data["elements"] if f'{e["type"]}/{e["id"]}' == fid]
         if len(json.dumps(items)) > 400000: raise ValueError("Feature geometry too large")
         return {"ok": True, "features": items, "source": provenance(data, cached)}
     if operation == "route":
         start, end = point(args.get("start")), point(args.get("end"))
         direct = distance(start, end)
         if not 1 <= direct <= 2000: raise ValueError("Walking route endpoints must be 1m..2km apart")
+        if abs(start["lon"]-end["lon"]) > 180: raise ValueError("Split walking routes near the date line")
         center = {"lat": (start["lat"]+end["lat"])/2, "lon": (start["lon"]+end["lon"])/2}
-        data, cached = fetch(area_query(center, min(1500, int(direct/2+400)), {"highway"}))
+        radius = min(1500, int(direct/2+200))
+        data, cached = fetch(area_query(center, radius, {"highway"}), bbox_url(center, radius))
         route = walk_route(data["elements"], start, end)
         speed = number(args.get("speed_mps", 1.2), "speed_mps", .1, 3)
         route["duration_s"] = round(route["distance_m"]/speed, 2)
@@ -166,8 +206,8 @@ def read(operation, args):
     if type(limit) is not int or not 1 <= limit <= 100 or type(offset) is not int or not 0 <= offset <= 5000: raise ValueError("Invalid pagination")
     query = args.get("query", "")
     if not isinstance(query, str) or len(query) > 100: raise ValueError("Invalid feature search")
-    data, cached = fetch(area_query(center, int(radius), kinds))
-    items = [feature(e) for e in data["elements"]]
+    data, cached = fetch(area_query(center, int(radius), kinds), bbox_url(center, radius))
+    items = [feature(e) for e in data["elements"] if any(k in e.get("tags", {}) for k in kinds)]
     counts = Counter(k for item in items for k in kinds if k in item["tags"])
     items = [f for f in items if query.casefold() in (f["name"]+" "+json.dumps(f["tags"], ensure_ascii=False)).casefold()]
     selected, size = [], 0

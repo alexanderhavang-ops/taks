@@ -64,6 +64,40 @@ def way(uid, nodes, coords, **tags):
 
 
 class MapTests(unittest.TestCase):
+    def test_raw_osm_preserves_topology_and_never_joins_missing_nodes(self):
+        raw = b'<osm version="0.6"><node id="1" lat="55.71" lon="13.21"/><node id="2" lat="55.711" lon="13.21"/><way id="3"><nd ref="1"/><nd ref="2"/><tag k="highway" v="footway"/></way><way id="4"><nd ref="1"/><nd ref="99"/><tag k="highway" v="footway"/></way></osm>'
+        elements = maps.osm_xml(raw)["elements"]
+        self.assertEqual(elements[2]["nodes"], [1, 2])
+        self.assertEqual(elements[3]["geometry"], [])
+        route = maps.walk_route(elements, {"lat":55.71,"lon":13.21}, {"lat":55.711,"lon":13.21})
+        self.assertEqual(route["way_ids"], [3])
+        with self.assertRaises(ValueError): maps.osm_xml(b'<!DOCTYPE osm><osm/>')
+
+    def test_bbox_api_is_fixed_and_feature_read_excludes_supporting_nodes(self):
+        url = maps.bbox_url({"lat":55.71,"lon":13.21},100)
+        self.assertTrue(url.startswith("https://api.openstreetmap.org/api/0.6/map?bbox="))
+        data = {"elements":[{"id":1,"type":"node","lat":55.71,"lon":13.21},way(3,[1,2],[(0,0),(.001,0)])],"fetched_at":"now","osm_timestamp":None,"endpoint":"api","provider":"OpenStreetMap API 0.6"}
+        with patch.object(maps,"fetch",return_value=(data,False)):
+            result=maps.read("feature",{"feature_id":"way/3"})
+        self.assertEqual([f["id"] for f in result["features"]],["way/3"])
+        self.assertEqual(result["source"]["provider"],"OpenStreetMap API 0.6")
+
+    def test_core_api_fetch_precedes_overpass_and_caches_complete_data(self):
+        from types import SimpleNamespace
+        import io
+        class Response(io.BytesIO): pass
+        calls=[]
+        def opened(request,timeout):
+            calls.append(request)
+            return Response(b'<osm version="0.6"><node id="1" lat="55.71" lon="13.21"/></osm>')
+        with patch.object(maps,"load_config",return_value={}), patch.object(maps.urllib.request,"build_opener",return_value=SimpleNamespace(open=opened)):
+            maps.CACHE.clear()
+            first,cached=maps.fetch("test", "https://api.openstreetmap.org/api/0.6/node/1")
+            second,cached2=maps.fetch("test", "https://api.openstreetmap.org/api/0.6/node/1")
+        self.assertFalse(cached);self.assertTrue(cached2)
+        self.assertEqual(len(calls),1);self.assertEqual(calls[0].method,"GET")
+        self.assertEqual(first["elements"],second["elements"])
+
     def test_walking_route_uses_node_topology_and_avoids_private_shortcut(self):
         elements = [way(1, [1, 2, 3], [(0, 0), (.001, 0), (.001, .001)]),
                     way(2, [1, 3], [(0, 0), (.001, .001)], access="private")]

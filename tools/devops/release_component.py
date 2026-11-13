@@ -2,12 +2,16 @@
 from pathlib import Path
 import hashlib
 import json
+import math
 import re
 import shutil
 import sys
 import tarfile
 import tempfile
 import urllib.request
+import urllib.parse
+import urllib.error
+import xml.etree.ElementTree as ET
 
 from app.orchestrator_component import call, launch_checked
 from app.lifecycle_component import submit, register_lifecycle_tools
@@ -23,6 +27,43 @@ OVERLAYS = (
     "tak-installer/plans/tak-node.d/zz-simulation-runtime",
     "takctl/conf.d/simulation.conf.template", "tools/deploy-simulation-mvp.py",
 )
+
+
+def map_upstream_probe():
+    """Tiny fixed public queries from the orchestrator; no credentials or user URLs."""
+    query = urllib.parse.urlencode({"data": "[out:json][timeout:3];node(1);out;"}).encode()
+    targets = [("overpass-main-post", "https://overpass-api.de/api/interpreter", query),
+               ("overpass-coffee-post", "https://overpass.private.coffee/api/interpreter", query),
+               ("overpass-coffee-get", "https://overpass.private.coffee/api/interpreter?"+query.decode(), None),
+               ("osm-api-get", "https://api.openstreetmap.org/api/0.6/node/1", None)]
+    rows = []
+    for name, url, data in targets:
+        req = urllib.request.Request(url, data=data, headers={"User-Agent": "TAKS-MapContext/2.0"})
+        try:
+            with urllib.request.urlopen(req, timeout=6) as response:
+                raw = response.read(4096)
+                rows.append({"name": name, "status": response.status, "sample_bytes": len(raw)})
+        except urllib.error.HTTPError as exc:
+            rows.append({"name": name, "status": exc.code})
+        except (OSError, ValueError) as exc:
+            rows.append({"name": name, "error": type(exc).__name__, "detail": str(exc)[:180]})
+    return {"ok": True, "probe_host": "orchestrator", "results": rows}
+
+
+def map_bbox_probe():
+    result = call("POST", "/api/v2/nodes/"+NODE+"/mcp/taks", {"jsonrpc":"2.0","id":1,
+        "method":"tools/call","params":{"name":"simulation_read","arguments":{}}})
+    status = json.loads(result["result"]["content"][0]["text"])
+    center = status["units"][0]["position"]
+    dy = math.degrees(500/6371008.8); dx = dy/math.cos(math.radians(center["lat"]))
+    bbox = ",".join(str(v) for v in (center["lon"]-dx,center["lat"]-dy,center["lon"]+dx,center["lat"]+dy))
+    request = urllib.request.Request("https://api.openstreetmap.org/api/0.6/map?"+urllib.parse.urlencode({"bbox":bbox}),headers={"User-Agent":"TAKS-MapContext/2.0"})
+    with urllib.request.urlopen(request,timeout=10) as response:
+        data = response.read(4*1024*1024+1)
+        if len(data)>4*1024*1024: return {"ok":False,"error":"Area exceeds 4 MiB"}
+        root = ET.fromstring(data)
+        return {"ok":True,"probe_host":"orchestrator","http_status":response.status,"bytes":len(data),
+                "nodes":len(root.findall("node")),"ways":len(root.findall("way"))}
 
 
 def stage_release(commit):
@@ -153,6 +194,14 @@ def dispatch_release(command):
             return tools["taks_bundle_prepare_start"](UNIT,True,True)
         if op == "verify" and p[2:] == [UNIT]:
             return submit(("verify-mvp",UNIT),verify_built_bundle)
+        if op == "web-logs" and p[2:] == [UNIT]:
+            return call("POST", "/api/v2/nodes/"+NODE+"/mcp/devops", {
+                "jsonrpc":"2.0", "id":1, "method":"tools/call", "params": {
+                    "name":"service_logs", "arguments":{"service":"takctl-web.service","lines":80}}})
+        if op == "map-probe" and p[2:] == [UNIT]:
+            return submit(("map-probe",UNIT),map_upstream_probe)
+        if op == "map-bbox" and p[2:] == [UNIT]:
+            return submit(("map-bbox",UNIT),map_bbox_probe)
         if op == "shutdown" and len(p) == 6 and p[2] == NODE and p[5] == "confirm":
             return tools["taks_node_shutdown"](NODE,UNIT,p[3],p[4],True)
         if op == "launch" and p[2:] == [UNIT,"confirm"]:
