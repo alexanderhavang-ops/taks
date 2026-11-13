@@ -136,7 +136,7 @@ def simulation_memory_budget(capacity, host_memory_mib):
     return budget
 
 
-def install_identity(index, config, secret, group, writer=None, profile=None, actor=None):
+def install_identity(index, config, secret, group, writer=None, profile=None, actor=None, domain=None):
     name = f"sim-mvp-{index+1:02d}"
     dst = ROOT / "identity" / name
     dst.mkdir(parents=True, exist_ok=True)
@@ -177,7 +177,7 @@ def install_identity(index, config, secret, group, writer=None, profile=None, ac
     from takctl.onboarding.channels import build_selection_channels
     channels=build_selection_channels(profile)
     selection={"ctx":profile,"channels":channels['selected']}
-    bookmarks=derive_user_bookmarks(username=name,selection=selection,identity={"callsign":(actor or {}).get('callsign',name)},domain=config.get('node_fqdn') or config.get('fqdn') or group)
+    bookmarks=derive_user_bookmarks(username=name,selection=selection,identity={"callsign":(actor or {}).get('callsign',name)},domain=domain or config.get('node_fqdn') or config.get('fqdn') or group)
     if not actor: raise ValueError('Communications require a selected exercise actor for each identity')
     voice_cert,voice_key=dst/'voice.pem',dst/'voice.key'
     # Match TAKS VX semantics: the voice certificate CN is the live CoT UID.
@@ -266,7 +266,6 @@ def main():
                 fqdn = config.get("node_fqdn", "") or config.get("fqdn", "")
             if not fqdn:
                 raise RuntimeError("Node FQDN unavailable")
-            config={**config,"node_fqdn":fqdn}
             progress = ROOT / "provisioning.json"
             def report(stage, count):
                 temp_progress=progress.with_suffix(".tmp")
@@ -288,7 +287,7 @@ def main():
             from takctl.services.backing_user_store import build_backing_user_store
             writer = build_backing_user_store()
             for i in range(args.identities):
-                identity = install_identity(i, config, secret, group,writer,profiles.get(i),actors.get(i))
+                identity = install_identity(i, config, secret, group,writer,profiles.get(i),actors.get(i),fqdn)
                 pem = Path(identity["cert_file"]).read_text()
                 leaf = re.search(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",pem,re.S)
                 if leaf is None: raise ValueError("Client certificate missing")
