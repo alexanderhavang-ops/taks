@@ -10,7 +10,7 @@ import subprocess
 
 SOCKET = "/opt/tak/simulation/control.sock"
 DOC_ROOT = Path("/opt/tak/tools/takctl/state/docs")
-CONTROL_OPS = ("create", "move", "stop", "deactivate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel")
+CONTROL_OPS = ("create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel")
 DOC_TOOLS = {
     "list_reference_docs": ({"only_active": {"type": "boolean"}}, []),
     "search_reference_docs": ({"query": {"type": "string"}, "limit": {"type": "integer"}, "doc_id": {"type": "string"}}, ["query"]),
@@ -27,7 +27,7 @@ def tool(name, description, properties, required=()):
 
 
 TOOLS = [tool("simulation_read", "Read persistent exercise state, sessions and server-observed positions",
-              {"unit_id": {"type": "string"}, "since_revision": {"type": "integer"}, "view": {"type": "string", "enum": ["status", "capabilities", "export"]}}),
+              {"unit_id": {"type": "string"}, "since_revision": {"type": "integer"}, "entity_offset": {"type":"integer"}, "entity_limit": {"type":"integer"}, "view": {"type": "string", "enum": ["status", "capabilities", "export", "orbat", "provisioning"]}}),
          tool("map_read", "Read OSM geometry/tags, inspect a feature, or look up a mapped pedestrian route; never moves simulation entities",
               {"operation": {"type": "string", "enum": ["config", "area", "feature", "route"]}, "arguments": {"type": "object"}}, ["operation"]),
          tool("simulation_control", "Control units or individuals, patch status, publish markers/custom CoT, send GeoChat, or submit atomic state batches; explicit confirmation required",
@@ -121,11 +121,18 @@ def call(name, args):
     elif name in DOC_TOOLS:
         result = reference(name, args)
     elif name == "simulation_read":
-        if set(args) - {"unit_id", "since_revision", "view"}:
+        if set(args) - {"unit_id", "since_revision", "view", "entity_offset", "entity_limit"}:
             raise ValueError("Unknown simulation read arguments")
         args = dict(args); view = args.pop("view", "status")
-        if view not in ("status", "capabilities", "export"): raise ValueError("Unknown simulation view")
-        result = simulation(view, args if view == "status" else {})
+        if view not in ("status", "capabilities", "export", "orbat", "provisioning"): raise ValueError("Unknown simulation view")
+        if view == "provisioning":
+            path=Path("/opt/tak/simulation/provisioning.json")
+            if not path.is_file(): result={"ok":True,"stage":"not_started"}
+            else:
+                raw=path.read_bytes()
+                if len(raw)>8192: raise ValueError("Invalid provisioning status size")
+                result=json.loads(raw)
+        else: result = simulation(view, args if view == "status" else {})
     elif name == "simulation_control":
         if set(args) - {"operation", "arguments", "confirm_write"}:
             raise ValueError("Unknown simulation control arguments")
@@ -169,7 +176,7 @@ def install(module):
                 operation = args.get("operation", "")
                 if operation.startswith("map_"):
                     return call("map_read", {"operation": operation[4:], "arguments": args.get("arguments", {})})
-                if operation not in ("status", "capabilities", "export"):
+                if operation not in ("status", "capabilities", "export", "orbat", "provisioning"):
                     raise ValueError("Unknown simulation read operation")
                 return call("simulation_read", {**args.get("arguments", {}), "view": operation})
             return call("simulation_control", {k: v for k, v in args.items() if k != "service"})

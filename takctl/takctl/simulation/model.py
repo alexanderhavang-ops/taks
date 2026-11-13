@@ -157,6 +157,7 @@ class World:
         self.state.setdefault("paused", False)
         self.state.setdefault("clock_s", 0)
         self.state.setdefault("scheduled", {})
+        self.state.setdefault("orbat", {})
 
     def event(self, kind, **fields):
         self.state["revision"] += 1
@@ -260,14 +261,14 @@ class World:
         common = {"request_id", "expected_revision", "unit_id"}
         allowed = {"create": {"count", "position", "callsign", "tak_unit_ref", "members", "metadata"},
                    "move": {"path", "duration_s"}, "stop": set(), "deactivate": set(),
-                   "chat": {"message", "entity_id", "target_uid", "target_callsign"},
+                   "chat": {"message", "entity_id", "target_uid", "target_callsign"}, "activate": set(),
                    "entity_move": {"entity_id", "path", "duration_s"},
                    "entity_stop": {"entity_id"},
                    "entity_patch": {"entity_id", "health_state", "remarks", "cot_type", "callsign", "role", "readiness", "group_id", "vehicle_id", "platform", "metadata"},
                    "unit_patch": {"metadata", "tak_unit_ref"},
                    "schedule_put": {"schedule_id", "delay_s", "operation", "arguments"},
                    "schedule_cancel": {"schedule_id"}, "cot_remove": {"cot_uid"},
-                   "marker_put": {"marker_id", "position", "callsign", "cot_type", "remarks"},
+                   "marker_put": {"marker_id", "position", "callsign", "cot_type", "remarks", "role", "metadata"},
                    "marker_remove": {"marker_id"},
                    "cot_send": {"entity_id", "xml", "persist"}}
         if op not in allowed or set(a) - common - allowed[op]:
@@ -318,6 +319,15 @@ class World:
             self.event("unit_created", unit_id=uid, count=count)
             return {"unit_id": uid, "entities": [e["callsign"] for e in entities]}
         unit = self.state["units"].get(uid)
+        if op == "activate":
+            if not unit or unit["active"]: raise ValueError("Inactive unit required")
+            slots = [e["identity_slot"] for e in unit["entities"]]
+            used = {e["identity_slot"] for e in self.entities()}
+            if len(set(slots)) != len(slots) or any(type(s) is not int or s < 0 or s >= self.capacity or s in used for s in slots):
+                raise ValueError("Unit identity slots are unavailable")
+            unit["active"] = True
+            self.event("unit_activated", unit_id=uid)
+            return {"unit_id":uid,"active":True,"entity_count":len(slots)}
         if not unit or not unit["active"]:
             raise ValueError("Active unit not found")
         if op == "unit_patch":
@@ -370,7 +380,7 @@ class World:
                     raise ValueError("Marker not found")
                 self.state["markers"][key]["active"] = False
             else:
-                if key not in self.state["markers"] and len(self.state["markers"]) >= 64:
+                if key not in self.state["markers"] and len(self.state["markers"]) >= 128:
                     raise ValueError("Marker capacity exceeded")
                 label, remarks = a.get("callsign", ""), a.get("remarks", "")
                 if not isinstance(label, str) or not re.fullmatch(r"SIM-[A-Z0-9-]{1,40}", label):
@@ -381,6 +391,7 @@ class World:
                     "unit_id": uid, "active": True, "callsign": label, "position": point(a.get("position")),
                     "cot_type": cot_type(a.get("cot_type", "a-u-G")), "remarks": remarks,
                     "role": "exercise marker", "readiness": "simulated", "sender_entity_id": unit["entities"][0]["id"]}
+                attributes(self.state["markers"][key], {k:a[k] for k in ("metadata","role") if k in a})
             self.event("marker_updated", unit_id=uid, marker_id=mid)
             return {"marker_id": mid, "uid": "taks-marker:" + key}
         if op in ("entity_move", "entity_stop", "entity_patch", "cot_send"):

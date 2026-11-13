@@ -31,6 +31,7 @@ FILES = (
     "takctl/takctl/simulation/__init__.py",
     "takctl/takctl/simulation/model.py",
     "takctl/takctl/simulation/daemon.py",
+    "takctl/takctl/simulation/orbat.py",
     "takctl/takctl/web/mcp_domains/simulation_tools.py",
     "takctl/takctl/web/mcp_domains/map_context.py",
 )
@@ -81,7 +82,7 @@ def kv(path):
     return out
 
 
-def install_identity(index, config, secret, group):
+def install_identity(index, config, secret, group, writer=None):
     name = f"sim-mvp-{index+1:02d}"
     dst = ROOT / "identity" / name
     dst.mkdir(parents=True, exist_ok=True)
@@ -108,8 +109,9 @@ def install_identity(index, config, secret, group):
     env["TAKS_SIM_KEY_PASS"] = env["PASS"]
     run(["openssl", "pkey", "-in", str(pem.with_suffix(".key")),
          "-passin", "env:TAKS_SIM_KEY_PASS", "-out", str(dst / "client.key")], env=env)
-    from takctl.services.backing_user_store import build_backing_user_store
-    writer = build_backing_user_store()
+    if writer is None:
+        from takctl.services.backing_user_store import build_backing_user_store
+        writer = build_backing_user_store()
     # Dedicated non-admin accounts only. Never change real personnel.
     writer.ensure_user(name, password=secrets.token_urlsafe(24), admin=False,
                        groups=[group], certificate_path=str(pem))
@@ -127,8 +129,8 @@ def main():
     parser.add_argument("--source-root")
     parser.add_argument("--identities", type=int, default=8)
     args = parser.parse_args()
-    if os.geteuid() != 0 or not re.fullmatch(r"[0-9a-f]{40}", args.commit) or not 1 <= args.identities <= 16:
-        raise ValueError("Root, pinned commit and 1..16 identities required for MVP installer")
+    if os.geteuid() != 0 or not re.fullmatch(r"[0-9a-f]{40}", args.commit) or not 1 <= args.identities <= 1024:
+        raise ValueError("Root, pinned commit and 1..1024 identities required")
     sys.path[:0] = [str(BASE), "/opt/tak/tools/martine"]
     ROOT.mkdir(exist_ok=True)
     shutil.chown(ROOT, user="tak", group="tak")
@@ -187,7 +189,29 @@ def main():
                 fqdn = config.get("node_fqdn", "") or config.get("fqdn", "")
             if not fqdn:
                 raise RuntimeError("Node FQDN unavailable")
-            identities = [install_identity(i, config, secret, group) for i in range(args.identities)]
+            progress = ROOT / "provisioning.json"
+            def report(stage, count):
+                temp_progress=progress.with_suffix(".tmp")
+                temp_progress.write_text(json.dumps({"ok":True,"stage":stage,"completed_identities":count,
+                    "identity_capacity":args.identities,"source_commit":args.commit}))
+                shutil.chown(temp_progress,user="root",group="tak"); temp_progress.chmod(0o640)
+                os.replace(temp_progress,progress)
+            report("issuing_identities",0)
+            identities = []
+            fingerprints = set()
+            from takctl.services.backing_user_store import build_backing_user_store
+            writer = build_backing_user_store()
+            for i in range(args.identities):
+                identity = install_identity(i, config, secret, group,writer)
+                pem = Path(identity["cert_file"]).read_text()
+                leaf = re.search(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",pem,re.S)
+                if leaf is None: raise ValueError("Client certificate missing")
+                fingerprint = hashlib.sha256(ssl.PEM_cert_to_DER_cert(leaf.group())).hexdigest()
+                if fingerprint in fingerprints: raise ValueError("Duplicate client certificate in pool")
+                fingerprints.add(fingerprint); identity["cert_sha256"] = fingerprint
+                identities.append(identity)
+                if (i+1)%16==0 or i+1==args.identities: report("issuing_identities",i+1)
+            report("installing_runtime",len(identities))
             ca = Path("/opt/tak/certs/files/00_CA/ca.pem")
             shutil.copy2(ca, ROOT / "ca.pem")
             context = ssl.create_default_context(cafile=str(ca))
@@ -211,20 +235,27 @@ def main():
             # Carry the selected exercise through cattle replacement without
             # resetting its UIDs or authoritative coordinates.
             seed = Path(args.source_root).parent / "misc/simulation-state.json" if args.source_root else None
-            if seed and seed.is_file() and not (ROOT / "state.json").exists():
+            if seed and seed.is_file():
                 from takctl.simulation.model import World
                 from takctl.simulation.daemon import atomic_json
                 state = World(json.loads(seed.read_text()), capacity=len(identities)).state
-                slots = [e["identity_slot"] for u in state["units"].values() if u["active"] for e in u["entities"]]
+                slots = [e["identity_slot"] for u in state["units"].values() if u["active"] or state.get("orbat",{}).get("profile") for e in u["entities"]]
                 if len(slots) != len(set(slots)) or any(type(s) is not int or not 0 <= s < len(identities) for s in slots):
                     raise ValueError("Invalid exercise seed identity slots")
-                atomic_json(ROOT / "state.json", state)
-                shutil.chown(ROOT / "state.json", user="tak", group="tak")
+                statefile=ROOT / "state.json"
+                previous=json.loads(statefile.read_text()) if statefile.exists() else {}
+                selected=state.get("orbat",{}).get("instance_id")
+                if not statefile.exists() or (selected and selected!=previous.get("orbat",{}).get("instance_id")):
+                    saved=backup / "state.json"
+                    if statefile.exists():shutil.copy2(statefile,saved)
+                    changed.append((statefile,saved))
+                    atomic_json(statefile, state)
+                    shutil.chown(statefile, user="tak", group="tak")
             unitpath = Path("/etc/systemd/system/taks-simulation.service")
             if unitpath.exists():
                 shutil.copy2(unitpath, backup / "taks-simulation.service")
             changed.append((unitpath, backup / "taks-simulation.service"))
-            unitpath.write_text(UNIT)
+            unitpath.write_text(UNIT.replace("MemoryMax=256M","MemoryMax=512M") if args.identities>64 else UNIT)
             unitpath.chmod(0o644)
             python = str(BASE / ".venv/bin/python")
             env = dict(os.environ, PYTHONPATH=str(BASE) + ":/opt/tak/tools/martine")
@@ -244,9 +275,13 @@ def main():
             if not ready:
                 raise RuntimeError("Simulation daemon failed its Unix control socket health check")
             (ROOT / "source-commit").write_text(args.commit + "\n")
+            report("ready",len(identities))
             print(json.dumps({"ok": True, "commit": args.commit, "identities": len(identities),
                               "backup": str(backup), "group": group, "fqdn": fqdn}))
     except Exception:
+        if "report" in locals():
+            try:report("failed",len(locals().get("identities",[])))
+            except Exception:pass
         subprocess.run(["systemctl", "stop", "taks-simulation.service"], capture_output=True)
         for dst, save in reversed(changed):
             if save.exists():

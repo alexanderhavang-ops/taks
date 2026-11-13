@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import types
 import io
+import json
 import tarfile
 import tempfile
 import unittest
@@ -52,6 +53,34 @@ class ReleaseBoundaryTests(unittest.TestCase):
         args = self.m.call.call_args.args
         self.assertEqual(args[1], "/api/v2/nodes/taklabs.aws.tak-hv-sandbox.se/mcp/devops")
         self.assertEqual(args[2]["params"], {"name":"service_logs","arguments":{"service":"takctl-web.service","lines":80}})
+
+    def test_identity_configuration_only_changes_next_boot_fragment(self):
+        for command in ("taks-release identities other 520 confirm","taks-release identities taklabs 0 confirm", "taks-release identities taklabs 1025 confirm"):
+            self.assertFalse(self.m.dispatch_release(command)["ok"])
+        with tempfile.TemporaryDirectory() as tmp:
+            fragment=Path(tmp)/"simulation.conf"
+            with patch.object(self.m,"Path",return_value=fragment):
+                result=self.m.dispatch_release("taks-release identities taklabs 520 confirm")
+            self.assertTrue(result["ok"])
+            self.assertFalse(result["running_node_changed"])
+            self.assertIn("simulation_identity_capacity = 520",fragment.read_text())
+
+    def test_bundle_rejects_seed_beyond_its_certificate_capacity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive=Path(tmp)/"bundle.tar.gz";seed=Path(tmp)/"seed.json"
+            raw=json.dumps({"units":{"unit":{"entities":[{"identity_slot":519}]}}}).encode();seed.write_bytes(raw)
+            for capacity in (8,520):
+                with tarfile.open(archive,"w:gz") as tar:
+                    members={"taklabs/taks-source/"+p:b"source" for p in self.m.OVERLAYS}
+                    members["taklabs/taks-source/simulation-source-commit"]=b"a"*40
+                    members["taklabs/install/taks-bootstrap/config.d/simulation.conf"]=f"simulation_enabled = true\nsimulation_identity_capacity = {capacity}".encode()
+                    members["taklabs/misc/simulation-state.json"]=raw
+                    for name,data in members.items():
+                        info=tarfile.TarInfo(name);info.size=len(data);tar.addfile(info,io.BytesIO(data))
+                with patch.object(self.m,"Path",return_value=archive),patch.object(self.m,"SEED_PATH",seed):
+                    result=self.m.verify_built_bundle()
+                self.assertEqual(result["ok"],capacity==520)
+                if capacity==520:self.assertEqual(result["seed_personnel"],1)
 
     def test_actual_bundle_members_and_activation_are_required(self):
         with tempfile.TemporaryDirectory() as tmp:

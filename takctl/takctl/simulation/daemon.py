@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import copy
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -30,8 +31,10 @@ class CotFrames:
     A TCP read is neither an event boundary nor necessarily a UTF-8 boundary.
     Ignore inter-event declarations and parse only complete event documents.
     """
-    def __init__(self):
+    def __init__(self, accept=None):
         self.buffer = bytearray()
+        self.accept = accept
+        self.frames_seen = 0
 
     def feed(self, data):
         self.buffer.extend(data)
@@ -58,7 +61,9 @@ class CotFrames:
                 raise ValueError("Inbound event exceeds memory bound")
             frame = bytes(self.buffer[:stop])
             del self.buffer[:stop]
-            frames.append(ET.fromstring(frame))
+            self.frames_seen += 1
+            if self.accept is None or self.accept(frame):
+                frames.append(ET.fromstring(frame))
         return frames
 
 
@@ -105,6 +110,8 @@ def event(entity, *, message=None, paused=False):
             if entity.get("cot_type", "a-f-G").startswith("a-f-"):
                 ET.SubElement(detail, "__group", name="Blue", role="HQ" if entity["role"] == "HQ" else "Team Member")
             ET.SubElement(detail, "takv", device="TAKS simulation", platform="TAKS-SIM", os="Linux", version="0.2")
+        elif entity.get("role") == "HQ" and entity.get("cot_type", "").startswith("a-f-"):
+            ET.SubElement(detail, "__group", name="Blue", role="HQ")
         movement = entity.get("move")
         speed = 0 if paused else movement["distance_m"]/movement["duration_s"] if movement else entity.get("speed_mps", 0)
         ET.SubElement(detail, "track", speed=str(speed), course=str(course(entity)))
@@ -169,21 +176,24 @@ class Session:
                         raise ssl.SSLError("TAK server certificate pin mismatch")
                 self.info.update(connected=True, last_error=None)
                 self.daemon.wakeup.set()
-                parser = CotFrames()
+                parser = CotFrames(self.daemon.accept_frame)
                 while True:
                     data = await reader.read(16384)
                     if not data:
                         raise ConnectionError("TAK closed connection")
-                    for element in parser.feed(data):
+                    before = parser.frames_seen
+                    elements = parser.feed(data)
+                    self.info["received"] += parser.frames_seen-before
+                    for element in elements:
                         if element.tag == "event":
                             delay = 1
-                            self.info["received"] += 1
                             uid = element.get("uid", "")
                             if element.get("type") == "b-t-f":
                                 chat, remarks = element.find("detail/__chat"), element.find("detail/remarks")
                                 if chat is not None and remarks is not None:
                                     self.daemon.inbox[uid] = {"uid": uid, "received_at": stamp(datetime.now(timezone.utc)),
                                         "sender": chat.get("senderCallsign", "")[:128], "room": chat.get("chatroom", "")[:128],
+                                        "target_uid": chat.get("id", "")[:160], "received_by_slot": self.slot,
                                         "message": (remarks.text or "")[:2000]}
                                     while len(self.daemon.inbox) > 100: del self.daemon.inbox[next(iter(self.daemon.inbox))]
                             if uid in self.daemon.known_uids:
@@ -241,6 +251,21 @@ class Daemon:
         self.known_uids = set()
         self.last_tick = time.monotonic()
         self.started = time.monotonic()
+        self.last_publish = 0
+        self.frame_hashes, self.frame_order = set(), deque()
+        self.frame_counts = {"unique": 0, "duplicates": 0}
+
+    def accept_frame(self, frame):
+        # TAK fan-out sends the same frame to many simulated identities. Drain
+        # every socket, but decode identical XML only once across the process.
+        key = hashlib.blake2b(frame, digest_size=16).digest()
+        if key in self.frame_hashes:
+            self.frame_counts["duplicates"] += 1
+            return False
+        self.frame_hashes.add(key); self.frame_order.append(key)
+        while len(self.frame_order) > 4096: self.frame_hashes.remove(self.frame_order.popleft())
+        self.frame_counts["unique"] += 1
+        return True
 
     async def save(self):
         await asyncio.to_thread(atomic_json, self.state_path, copy.deepcopy(self.world.state))
@@ -265,6 +290,9 @@ class Daemon:
 
     async def tick(self):
         while True:
+            interval = min(1, self.config.get("tick_seconds", 10))
+            delay = interval-(time.monotonic()-self.last_publish)
+            if delay > 0: await asyncio.sleep(delay)
             await self.run_due()
             async with self.lock:
                 self.wakeup.clear()
@@ -285,6 +313,7 @@ class Daemon:
             grouped = {}
             for slot, payload in messages: grouped.setdefault(slot, []).append(payload)
             await asyncio.gather(*(self.sessions[slot].send(b"".join(payloads)) for slot,payloads in grouped.items() if slot in self.sessions))
+            self.last_publish = time.monotonic()
             try:
                 await asyncio.wait_for(self.wakeup.wait(), .1 if due_now else self.config.get("tick_seconds", 10))
             except asyncio.TimeoutError:
@@ -334,12 +363,16 @@ class Daemon:
             if op == "export":
                 if args: raise ValueError("Export takes no arguments")
                 return {"ok": True, "state": copy.deepcopy(self.world.state), "contains_credentials": False}
+            if op == "orbat":
+                if args: raise ValueError("ORBAT read takes no arguments")
+                return {"ok": True, "orbat": copy.deepcopy(self.world.state.get("orbat", {}))}
             if op == "capabilities":
                 if args: raise ValueError("Capabilities takes no arguments")
                 return {"ok": True, "version": "MVP2", "identity_capacity": self.world.capacity,
                         "tick_seconds": self.config.get("tick_seconds", 10), "daemon_inference": False,
-                        "operations": ["create", "move", "stop", "deactivate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel"],
-                        "limits": {"batch_commands": 32, "path_destinations": 100, "scheduled_actions": 64, "markers": 64, "persistent_custom_cot": 16},
+                        "operations": ["create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel"],
+                        "limits": {"batch_commands": 32, "path_destinations": 100, "scheduled_actions": 64, "markers": 128, "persistent_custom_cot": 16},
+                        "read_pagination": "status accepts entity_offset (default 0) and entity_limit (default 64, max 128); units contain selected entities plus entity_count. view=orbat reads hierarchy and local/global aliases",
                         "write_contract": "All writes require a unique request_id and matching expected_revision. Unit operations also require unit_id. batch children omit request/revision",
                         "arguments": {"create": "position,count,callsign?,tak_unit_ref?,metadata?,members? (one profile per entity)",
                             "entity_move": "entity_id,path:[{lat,lon}],duration_s", "entity_stop": "entity_id",
@@ -354,7 +387,7 @@ class Daemon:
                         "metadata_semantics": "Descriptive only. Group/vehicle links do not automatically move other entities. TAKS remains ORBAT authority",
                         "chat_delivery": "local TLS write; no ATAK acknowledgment", "scheduled_crash_policy": "attempt_pending is uncertain; never automatically retried"}
             if op == "status":
-                if set(args) - {"unit_id", "since_revision"}:
+                if set(args) - {"unit_id", "since_revision", "entity_offset", "entity_limit"}:
                     raise ValueError("Unknown status arguments")
                 units = self.world.state["units"]
                 uid = args.get("unit_id")
@@ -363,8 +396,21 @@ class Daemon:
                 since = args.get("since_revision", 0)
                 if type(since) is not int or since < 0:
                     raise ValueError("Invalid since_revision")
+                offset, limit = args.get("entity_offset", 0), args.get("entity_limit", 64)
+                if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 128:
+                    raise ValueError("Invalid entity pagination")
+                selected_units = [units[uid]] if uid else list(units.values())
+                all_entities = [e for u in selected_units for e in u["entities"]]
+                page = {e["uid"] for e in all_entities[offset:offset+limit]}
+                rows = [{**{k:copy.deepcopy(v) for k,v in u.items() if k != "entities"},
+                         "entity_count":len(u["entities"]), "entities":[copy.deepcopy(e) for e in u["entities"] if e["uid"] in page]} for u in selected_units]
                 return {"ok": True, "revision": self.world.state["revision"],
-                    "units": copy.deepcopy([units[uid]] if uid else list(units.values())),
+                    "units": rows,
+                    "pagination": {"entity_offset":offset,"entity_limit":limit,"entity_total":len(all_entities),
+                                   "next_entity_offset":offset+limit if offset+limit < len(all_entities) else None},
+                    "summary": {"stored_entities":sum(len(u["entities"]) for u in units.values()),
+                                "active_entities":len(self.world.entities()),"active_units":sum(bool(u["active"]) for u in units.values()),
+                                "connected_sessions":sum(bool(s.info["connected"]) for s in self.sessions.values())},
                     "sessions": [dict(s.info) for s in self.sessions.values()],
                     "observed_via_tak": dict(self.observed),
                     "inbox": list(self.inbox.values()),
@@ -375,7 +421,7 @@ class Daemon:
                     "scheduled": [copy.deepcopy(s) for s in self.world.state["scheduled"].values() if not uid or s["unit_id"] == uid],
                     "identity_capacity": self.world.capacity,
                     "runtime": {"rss_peak_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
-                                "async_tasks": len(asyncio.all_tasks()), "processes": 1},
+                                "async_tasks": len(asyncio.all_tasks()), "processes": 1, "receive_frames":dict(self.frame_counts)},
                     "uptime_s": round(time.monotonic()-self.started), "tick_seconds": self.config.get("tick_seconds", 10),
                     "transport": "per-identity mTLS", "execution": "explicit actions; no inference"}
             result = self.world.apply(op, args)

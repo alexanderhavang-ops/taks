@@ -27,7 +27,8 @@ class SimulationRuntime:
         source = Path(ctx.repo_root)
         commit = (source / "simulation-source-commit").read_text().strip()
         subprocess.run([sys.executable, str(source / "tools/deploy-simulation-mvp.py"),
-                        "--commit", commit, "--source-root", str(source)], check=True)
+                        "--commit", commit, "--source-root", str(source),
+                        "--identities", values.get("simulation_identity_capacity","8")], check=True)
         return 0
 
 

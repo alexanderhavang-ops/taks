@@ -6,6 +6,8 @@ import math
 import re
 import shutil
 import sys
+import subprocess
+import os
 import tarfile
 import tempfile
 import urllib.request
@@ -22,6 +24,7 @@ SEED_PATH = Path("/opt/tak-orch/state/units/taklabs/files/misc/simulation-state.
 OVERLAYS = (
     "takctl/takctl/simulation/__init__.py", "takctl/takctl/simulation/model.py",
     "takctl/takctl/simulation/daemon.py", "takctl/takctl/web/mcp_domains/simulation_tools.py",
+    "takctl/takctl/simulation/orbat.py",
     "takctl/takctl/web/mcp_domains/map_context.py",
     "tak-installer/tak_installer/actions/simulation_runtime.py",
     "tak-installer/plans/tak-node.d/zz-simulation-runtime",
@@ -64,6 +67,28 @@ def map_bbox_probe():
         root = ET.fromstring(data)
         return {"ok":True,"probe_host":"orchestrator","http_status":response.status,"bytes":len(data),
                 "nodes":len(root.findall("node")),"ways":len(root.findall("way"))}
+
+
+def prepare_staging_roster(commit):
+    if not re.fullmatch(r"[a-f0-9]{40}",commit): raise ValueError("Pinned source commit required")
+    source=Path("/opt/tak-orch/orchestrator/simulation-releases")/commit
+    if (source/"simulation-source-commit").read_text().strip()!=commit: raise ValueError("Source marker mismatch")
+    anchor=SEED_PATH.with_name("simulation-anchors.json")
+    if not anchor.is_file() or anchor.stat().st_size>16384: raise ValueError("Bounded exercise anchors required")
+    if SEED_PATH.is_symlink(): raise ValueError("Seed symlinks are not supported")
+    if SEED_PATH.is_file():
+        previous=SEED_PATH.with_name("simulation-state.previous-"+hashlib.sha256(SEED_PATH.read_bytes()).hexdigest()[:16]+".json")
+        if not previous.exists():shutil.copy2(SEED_PATH,previous)
+    script=('import sys,json,hashlib; from pathlib import Path; from takctl.simulation.orbat import build_hv_staging; '
+        'from takctl.simulation.daemon import atomic_json; '
+        'state=build_hv_staging(json.loads(Path(sys.argv[1]).read_text())); '
+        'target=Path(sys.argv[2]); atomic_json(target,state); target.chmod(0o640); '
+        'print(json.dumps({"ok":True,"profile":state["orbat"]["profile"],"personnel":state["orbat"]["personnel"],'
+        '"units":len(state["units"]),"markers":len(state["markers"]),"bytes":target.stat().st_size,'
+        '"sha256":hashlib.sha256(target.read_bytes()).hexdigest(),"active":False}))')
+    result=subprocess.run([sys.executable,"-c",script,str(anchor),str(SEED_PATH)],
+        env=dict(os.environ,PYTHONPATH=str(source/"takctl")),capture_output=True,text=True,timeout=60,check=True)
+    return json.loads(result.stdout)
 
 
 def stage_release(commit):
@@ -115,7 +140,11 @@ def stage_release(commit):
     bootstrap = Path("/opt/tak-orch/state/units/taklabs/bootstrap/config.d")
     if not bootstrap.is_dir():
         raise ValueError("taklabs bootstrap configuration not found")
-    (bootstrap / "simulation.conf").write_text("simulation_enabled = true\n")
+    fragment=bootstrap / "simulation.conf"
+    existing=dict(line.split("=",1) for line in fragment.read_text().splitlines() if "=" in line) if fragment.exists() else {}
+    capacity=int(next((v.strip() for k,v in existing.items() if k.strip()=="simulation_identity_capacity"),"8"))
+    if not 1<=capacity<=1024: raise ValueError("Invalid identity capacity")
+    fragment.write_text("simulation_enabled = true\nsimulation_identity_capacity = "+str(capacity)+"\n")
     config = Path("/opt/tak-orch/orchestrator/conf.d/simulation-release.conf")
     config.write_text("bundles_source_repo_root = " + str(stage) + "\n")
     return {"ok": True, "commit": commit, "source_root": str(stage),
@@ -144,7 +173,7 @@ def verify_built_bundle():
     expected += [commit_key,config_key]
     seed_hash = hashlib.sha256(SEED_PATH.read_bytes()).hexdigest() if SEED_PATH.is_file() else None
     if seed_hash: expected.append(seed_key)
-    found = {}
+    found = {};seed_slots=[]
     with tarfile.open(archive, "r|gz") as tar:
         for member in tar:
             for suffix in expected:
@@ -154,7 +183,10 @@ def verify_built_bundle():
                     found[suffix] = True
                     if suffix == seed_key:
                         if member.size > 1048576: raise ValueError("Exercise seed too large")
-                        found[suffix] = hashlib.sha256(tar.extractfile(member).read()).hexdigest()
+                        raw=tar.extractfile(member).read()
+                        found[suffix] = hashlib.sha256(raw).hexdigest()
+                        state=json.loads(raw)
+                        seed_slots=[e["identity_slot"] for u in state["units"].values() for e in u["entities"]]
                     elif suffix.endswith(("simulation-source-commit", "config.d/simulation.conf")):
                         if member.size > 1024: raise ValueError("Invalid MVP configuration size")
                         found[suffix] = tar.extractfile(member).read().decode().strip()
@@ -168,8 +200,13 @@ def verify_built_bundle():
         return {"ok":False,"error":"Simulation is not enabled in the bundle"}
     if seed_hash and found[seed_key] != seed_hash:
         return {"ok":False,"error":"Exercise seed does not match selected state"}
+    values=dict(line.split("=",1) for line in found[config_key].splitlines() if "=" in line)
+    capacity=int(next((v.strip() for k,v in values.items() if k.strip()=="simulation_identity_capacity"),"8"))
+    if not 1<=capacity<=1024 or (seed_slots and max(seed_slots)>=capacity):
+        return {"ok":False,"error":"Bundle identity capacity cannot serve its exercise seed"}
     return {"ok":True,"bundle":"taklabs.tar.gz","bytes":after.st_size,
-            "source_commit":found[commit_key],"simulation_enabled":True,"checked_files":len(found),"exercise_seed_verified":bool(seed_hash)}
+            "source_commit":found[commit_key],"simulation_enabled":True,"checked_files":len(found),"exercise_seed_verified":bool(seed_hash),
+            "identity_capacity":capacity,"seed_personnel":len(seed_slots)}
 
 
 def dispatch_release(command):
@@ -202,6 +239,12 @@ def dispatch_release(command):
             return submit(("map-probe",UNIT),map_upstream_probe)
         if op == "map-bbox" and p[2:] == [UNIT]:
             return submit(("map-bbox",UNIT),map_bbox_probe)
+        if op == "identities" and len(p)==5 and p[2]==UNIT and p[4]=="confirm" and p[3].isdigit() and 1<=int(p[3])<=1024:
+            fragment=Path("/opt/tak-orch/state/units/taklabs/bootstrap/config.d/simulation.conf")
+            fragment.write_text("simulation_enabled = true\nsimulation_identity_capacity = "+p[3]+"\n")
+            return {"ok":True,"unit":UNIT,"next_boot_identity_capacity":int(p[3]),"running_node_changed":False}
+        if op == "prepare-roster" and len(p)==5 and p[2]==UNIT and p[4]=="confirm" and re.fullmatch(r"[a-f0-9]{40}",p[3]):
+            return submit(("prepare-roster",UNIT),lambda:prepare_staging_roster(p[3]))
         if op == "shutdown" and len(p) == 6 and p[2] == NODE and p[5] == "confirm":
             return tools["taks_node_shutdown"](NODE,UNIT,p[3],p[4],True)
         if op == "launch" and p[2:] == [UNIT,"confirm"]:
