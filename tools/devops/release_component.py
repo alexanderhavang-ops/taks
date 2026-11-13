@@ -343,6 +343,11 @@ def compare_exercise_resources():
     return {"ok":True,"nodes":results}
 
 
+def exercise_instance_type(capacity):
+    if type(capacity) is not int or not 1<=capacity<=1024: raise ValueError("Invalid identity capacity")
+    return "t3.medium" if capacity<=256 else "t3.large" if capacity<=640 else "t3.xlarge"
+
+
 def dispatch_release(command):
     p = command.split() if isinstance(command, str) and len(command) < 400 else []
     if len(p) < 2 or p[0] != "taks-release":
@@ -415,7 +420,7 @@ def dispatch_release(command):
             settings=dict(line.split("=",1) for line in fragment.read_text().splitlines() if "=" in line)
             capacity=int(next((v.strip() for k,v in settings.items() if k.strip()=="simulation_identity_capacity"),"8"))
             if not 1<=capacity<=1024: raise ValueError("Invalid identity capacity")
-            return tools["taks_node_launch_start"](UNIT,NODE,"t3.large" if capacity>=500 else "t3.medium",True)
+            return tools["taks_node_launch_start"](UNIT,NODE,exercise_instance_type(capacity),True)
         return {"ok": False, "error": "Unsupported operation, identity, or missing confirmation"}
     except Exception as exc:
         return {"ok": False, "error": type(exc).__name__ + ": " + str(exc)[:240]}

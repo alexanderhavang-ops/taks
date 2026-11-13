@@ -11,6 +11,11 @@ from unittest.mock import Mock, patch
 
 
 class ReleaseBoundaryTests(unittest.TestCase):
+    def test_instance_tiers_match_simulation_memory_budgets(self):
+        for capacity,shape in ((8,"t3.medium"),(256,"t3.medium"),(257,"t3.large"),(520,"t3.large"),(640,"t3.large"),(641,"t3.xlarge"),(1024,"t3.xlarge")):
+            self.assertEqual(self.m.exercise_instance_type(capacity),shape)
+        for capacity in (0,1025,True):
+            with self.assertRaises(ValueError):self.m.exercise_instance_type(capacity)
     def setUp(self):
         self.calls = []
         def register(catalog):
