@@ -234,6 +234,71 @@ def verify_built_bundle():
             "identity_capacity":capacity,"seed_personnel":len(seed_slots)}
 
 
+def qos_delivery(apply=False):
+    # Fixed exercise node and fixed admin endpoints; no URL or credential inputs.
+    import ssl
+    inventory = call("GET", "/api/v2/nodes")
+    matches = [n for n in inventory.get("items", []) if n.get("node_id")==NODE]
+    if len(matches)!=1 or matches[0].get("unit_path")!=UNIT or matches[0].get("fqdn")!=NODE:
+        raise ValueError("Exercise node registry mismatch")
+    def values(kind):
+        result = {}
+        for root in (Path("/opt/tak-orch/state/bootstrap"), Path("/opt/tak-orch/state/units/taklabs/bootstrap")):
+            for path in sorted((root/kind).rglob("*.conf")):
+                if path.is_symlink(): raise ValueError("Bootstrap symlink rejected")
+                for raw in path.read_text().splitlines():
+                    line = raw.strip()
+                    if not line or line.startswith("#") or "=" not in line: continue
+                    key,value = line.split("=",1)
+                    result[key.strip()] = value.strip()
+        return result
+    cfg, secret = values("config.d"), values("secrets.d")
+    username = str(cfg.get("takctl_admin_user") or "admin").strip()
+    password = str(secret.get("takctl_admin_password") or "").strip()
+    if not password: raise ValueError("Installer admin unavailable")
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl): return None
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
+        NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
+    login = urllib.request.Request("https://"+NODE+":8446/oauth/token", method="POST",
+        data=urllib.parse.urlencode({"grant_type":"password","username":username,"password":password}).encode(),
+        headers={"Content-Type":"application/x-www-form-urlencoded"})
+    with opener.open(login,timeout=10) as response:
+        raw = response.read(65537)
+        if len(raw)>65536: raise ValueError("OAuth response too large")
+        auth = json.loads(raw)
+    token = str(auth.get("access_token") or "")
+    if not token or str(auth.get("token_type","Bearer")).lower()!="bearer":
+        raise ValueError("Invalid OAuth response")
+    def request(method, path, body=None):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request("https://"+NODE+":8446/Marti/api/qos/"+path,
+            data=data,method=method,headers={"Accept":"application/json","Content-Type":"application/json","Authorization":"Bearer "+token})
+        with opener.open(req,timeout=10) as response:
+            raw = response.read(65537)
+            if len(raw)>65536: raise ValueError("QoS response too large")
+            return json.loads(raw) if raw else {"http_status":response.status}
+    conf = request("GET","conf")
+    conf = conf.get("data", conf)
+    before = request("GET","ratelimit/delivery/active")
+    if not apply: return {"ok":True,"configuration":conf,"active_delivery":before}
+    limiter = conf.get("deliveryRateLimiter", {})
+    rules = limiter.get("rateLimitRule")
+    if not limiter.get("enabled") or not isinstance(rules,list):
+        raise ValueError("Expected enabled delivery limiter")
+    updated = [dict(rule) for rule in rules]
+    selected = [rule for rule in updated if rule.get("clientThresholdCount")==500]
+    if len(selected)!=1: raise ValueError("Expected one 500-client delivery rule")
+    selected[0]["reportingRateLimitSeconds"] = 10
+    saved = Path("/opt/tak-orch/state/units/taklabs/simulation-qos.previous.json")
+    if not saved.exists():
+        saved.write_text(json.dumps(conf));saved.chmod(0o600)
+    request("PUT","delivery/set",updated)
+    return {"ok":True,"previous_active_delivery":before,
+        "active_delivery":request("GET","ratelimit/delivery/active"),
+        "configuration":request("GET","conf")}
+
+
 def dispatch_release(command):
     p = command.split() if isinstance(command, str) and len(command) < 400 else []
     if len(p) < 2 or p[0] != "taks-release":
@@ -241,6 +306,10 @@ def dispatch_release(command):
     try:
         op = p[1]
         tools = lifecycle()
+        if op == "qos" and p[2:] == [UNIT]:
+            return qos_delivery(False)
+        if op == "qos-ten-seconds" and p[2:] == [UNIT,"confirm"]:
+            return qos_delivery(True)
         if op == "stage" and len(p) == 3 and re.fullmatch(r"[a-f0-9]{40}",p[2]):
             return submit(("stage",p[2]),lambda:stage_release(p[2]))
         if op == "poll" and len(p) == 3 and re.fullmatch(r"[a-f0-9]{32}",p[2]):
@@ -260,6 +329,14 @@ def dispatch_release(command):
             return call("POST", "/api/v2/nodes/"+NODE+"/mcp/devops", {
                 "jsonrpc":"2.0", "id":1, "method":"tools/call", "params": {
                     "name":"service_logs", "arguments":{"service":"takctl-web.service","lines":80}}})
+        if op in ("tak-diagnostics", "tak-logs") and p[2:] == [UNIT]:
+            name = "takserver_readiness" if op == "tak-diagnostics" else "takserver_logs"
+            return call("POST", "/api/v2/nodes/"+NODE+"/mcp/devops", {
+                "jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":name,"arguments":{}}})
+        if op == "tak-log" and len(p)==4 and p[2]==UNIT and p[3] in ("messaging","api","config"):
+            name = {"messaging":"takserver-messaging.log","api":"takserver-api.log","config":"takserver-config.log"}[p[3]]
+            return call("POST", "/api/v2/nodes/"+NODE+"/mcp/devops", {
+                "jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"takserver_logs","arguments":{"file":name,"lines":80}}})
         if op == "resources" and p[2:] == [UNIT]:
             return call("POST", "/api/v2/nodes/"+NODE+"/mcp/devops", {
                 "jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"host_resources","arguments":{}}})
