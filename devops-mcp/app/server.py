@@ -13,6 +13,7 @@ from app.deploy_component import register_deploy_tool
 from app.route53_component import register_route53_tools
 from app.cert_ops_component import register_cert_ops_tools
 from app.lifecycle_component import register_lifecycle_tools
+from app.node_diagnostics_component import register_node_diagnostics_tools
 
 mcp = FastMCP("TAKS DevOps", host=os.environ.get("MCP_BIND_HOST", "127.0.0.1"), port=int(os.environ.get("MCP_PORT", "8765")),
               stateless_http=True, json_response=True)
@@ -32,13 +33,14 @@ def _text(path, size=8192):
 @mcp.tool()
 def gateway_status() -> dict:
     """Gateway version and read-only permissions."""
-    return {"name": "taks-devops-mcp", "version": "0.2.0",
+    return {"name": "taks-devops-mcp", "version": "0.2.1",
             "phase": "deployer", "deployment_enabled": True,
             "capabilities": ["gateway_status", "system_status",
                              "orchestrator_status", "orchestrator_logs", "deploy_orchestrator",
                              "route53_node_dns_status", "route53_node_dns_repair",
                              "state_backup", "backup_verification", "restore_selection",
-                             "bundle_preparation", "node_shutdown", "async_operation_status"]}
+                             "bundle_preparation", "node_shutdown", "async_operation_status",
+                             "node_readonly_diagnostics"]}
 
 @mcp.tool()
 def system_status() -> dict:
@@ -115,6 +117,7 @@ register_deploy_tool(mcp)
 register_route53_tools(mcp)
 register_cert_ops_tools(mcp)
 register_lifecycle_tools(mcp)
+register_node_diagnostics_tools(mcp)
 
 if __name__ == "__main__":
     mcp.run(transport="streamable-http")
