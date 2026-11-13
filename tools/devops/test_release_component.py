@@ -73,6 +73,20 @@ class ReleaseBoundaryTests(unittest.TestCase):
         self.assertEqual(args[1],"/api/v2/nodes/taklabs.aws.tak-hv-sandbox.se/mcp/devops")
         self.assertEqual(args[2]["params"],{"name":"host_resources","arguments":{}})
 
+    def test_checkpoint_preserves_selected_instance_and_avoids_tool_upload_limits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            seed=Path(tmp)/"state.json";seed.write_text(json.dumps({"orbat":{"instance_id":"selected"}}))
+            state={"schema":1,"revision":42,"orbat":{"instance_id":"wrong"},"units":{"a":{"active":True,"entities":[{}]}}}
+            def response():return {"result":{"content":[{"text":json.dumps({"ok":True,"state":state})}]}}
+            with patch.object(self.m,"SEED_PATH",seed):
+                self.m.call.return_value=response()
+                with self.assertRaisesRegex(ValueError,"selected roster"):self.m.checkpoint_exercise()
+                self.assertEqual(json.loads(seed.read_text())["orbat"]["instance_id"],"selected")
+                state["orbat"]["instance_id"]="selected";self.m.call.return_value=response()
+                result=self.m.checkpoint_exercise()
+                self.assertEqual(result["active_personnel"],1)
+                self.assertEqual(json.loads(seed.read_text())["revision"],42)
+
     def test_bundle_rejects_seed_beyond_its_certificate_capacity(self):
         with tempfile.TemporaryDirectory() as tmp:
             archive=Path(tmp)/"bundle.tar.gz";seed=Path(tmp)/"seed.json"

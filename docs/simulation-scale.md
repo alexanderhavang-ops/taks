@@ -84,6 +84,10 @@ The fixed DevOps operations remain scoped to taklabs:
 7. Replace the exact old instance, wait for AWS absence, launch the fresh cow,
    then monitor `simulation/provisioning` and normal installer events.
 8. Inspect the roster and activate cohorts through the Orchestration MCP.
+9. `taks-release checkpoint taklabs confirm` saves the current exercise directly
+   through the authenticated bridge, without uploading a large state through
+   the filesystem tool. It rejects a live instance that differs from the selected
+   roster and atomically saves the result for the next cattle replacement.
 
 A new roster has a new instance ID. The installer applies a selected new
 instance even if an older exercise state was restored, while retaining a

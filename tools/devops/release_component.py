@@ -91,6 +91,31 @@ def prepare_staging_roster(commit):
     return json.loads(result.stdout)
 
 
+def checkpoint_exercise():
+    selected=json.loads(SEED_PATH.read_text())
+    response=call("POST", "/api/v2/nodes/"+NODE+"/mcp/taks", {"jsonrpc":"2.0","id":1,"method":"tools/call",
+        "params":{"name":"simulation_read","arguments":{"view":"export"}}})
+    result=json.loads(response["result"]["content"][0]["text"])
+    if not result.get("ok"): return result
+    state=result["state"]
+    if state.get("schema")!=1 or not isinstance(state.get("units"),dict): raise ValueError("Invalid exercise export")
+    expected=selected.get("orbat",{}).get("instance_id")
+    if expected and state.get("orbat",{}).get("instance_id")!=expected:
+        raise ValueError("Live exercise does not match the selected roster instance")
+    raw=json.dumps(state,ensure_ascii=False,separators=(",",":"),allow_nan=False).encode()
+    if len(raw)>1048576: raise ValueError("Exercise exceeds the seed size limit")
+    temp=SEED_PATH.with_suffix(".checkpoint.tmp")
+    with temp.open("wb") as stream:
+        stream.write(raw);stream.flush();os.fsync(stream.fileno())
+    temp.chmod(0o640);os.replace(temp,SEED_PATH)
+    fd=os.open(SEED_PATH.parent,os.O_DIRECTORY)
+    try:os.fsync(fd)
+    finally:os.close(fd)
+    return {"ok":True,"revision":state["revision"],"bytes":len(raw),"sha256":hashlib.sha256(raw).hexdigest(),
+            "personnel":sum(len(u["entities"]) for u in state["units"].values()),
+            "active_personnel":sum(len(u["entities"]) for u in state["units"].values() if u["active"])}
+
+
 def stage_release(commit):
     if not re.fullmatch(r"[a-f0-9]{40}", commit or ""):
         return {"ok": False, "error": "Full pinned TAKS commit required"}
@@ -238,6 +263,8 @@ def dispatch_release(command):
         if op == "resources" and p[2:] == [UNIT]:
             return call("POST", "/api/v2/nodes/"+NODE+"/mcp/devops", {
                 "jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"host_resources","arguments":{}}})
+        if op == "checkpoint" and p[2:] == [UNIT,"confirm"]:
+            return submit(("checkpoint",UNIT),checkpoint_exercise)
         if op == "map-probe" and p[2:] == [UNIT]:
             return submit(("map-probe",UNIT),map_upstream_probe)
         if op == "map-bbox" and p[2:] == [UNIT]:
