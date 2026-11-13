@@ -25,6 +25,25 @@ def register_simulation_tools(mcp, api_call):
         return call(node_id, "simulation_read", arguments)
 
     @mcp.tool()
+    def taks_node_simulation_actor_read(node_id: str, entity_id: str, after_seq: int = 0, limit: int = 50) -> dict:
+        """Read only an actor's own state, explicitly recorded knowledge and addressed GeoChat inbox."""
+        return call(node_id,"simulation_read",{"view":"actor","entity_id":entity_id,"after_seq":after_seq,"limit":limit})
+
+    @mcp.tool()
+    def taks_node_simulation_events_read(node_id: str, after_seq: int = 0, limit: int = 50, entity_id: str = "") -> dict:
+        """Durable GeoChat cursor. Supply entity_id for recipient scope; omit for god view. No automatic actions."""
+        arguments={"view":"events","after_seq":after_seq,"limit":limit}
+        if entity_id: arguments["entity_id"]=entity_id
+        return call(node_id,"simulation_read",arguments)
+
+    @mcp.tool()
+    def taks_node_simulation_knowledge_write(node_id: str, entity_id: str, request_id: str, expected_actor_revision: int, knowledge: dict, confirm_write: bool = False) -> dict:
+        """Replace one actor's knowledge using its independent revision. Does not change world truth or execute an order."""
+        if confirm_write is not True:return {"ok":False,"confirmation_required":True}
+        return call(node_id,"simulation_control",{"operation":"knowledge_put","confirm_write":True,
+            "arguments":{"entity_id":entity_id,"request_id":request_id,"expected_actor_revision":expected_actor_revision,"knowledge":knowledge}})
+
+    @mcp.tool()
     def taks_node_map_read(node_id: str, operation: str = "config", arguments: dict | None = None) -> dict:
         """Inspect OpenStreetMap features/geometry or a mapped walking route. Operations: config, area(center/radius_m/kinds/limit/offset/query), feature(feature_id), route(start/end/speed_mps). Read-only; routing never moves entities."""
         return call(node_id, "map_read", {"operation": operation, "arguments": arguments or {}})

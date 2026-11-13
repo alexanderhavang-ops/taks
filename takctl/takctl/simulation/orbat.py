@@ -9,6 +9,31 @@ from .model import World, offset, point
 from takctl.onboarding.identity_grammar import derive_grammar
 
 
+def build_group_staging(anchor):
+    """A small, inactive, fictional eight-person TAKS/FAL exercise roster."""
+    position=point(anchor["position"])
+    names=[("Erik","Lind"),("Sara","Holm"),("Johan","Berg"),("Lina","Ek"),("Oskar","Dahl"),("Maja","Lund"),("Nils","Strand"),("Anna","Vik")]
+    members=[]
+    for n,(first,last) in enumerate(names,1):
+        identity=derive_grammar("hemvarnet",{"battalion_fal":"VQ","company":"R","platoon":"A","group":"E","n":n,"callsign_policy":"FALFAL"})
+        members.append({"callsign":"SIM-"+identity["callsign"],"position":offset(position,((n-1)//4)*2,((n-1)%4)*2),
+            "role":"group_leader" if n==1 else "deputy" if n==2 else "member","readiness":"ready","group_id":"earq",
+            "metadata":{"simulation":True,"fictional_person":True,"first_name":first,"last_name":last,"full_name":first+" "+last,
+                "local_callsign":identity["callsign_variants"]["FAL"],"global_callsign":identity["callsign"],"team":"Green",
+                "language":"en","tak_groups":["sim-earq"],"skill_level":"trained","leadership_style":"deliberate" if n==1 else "concise",
+                "chat_rooms":["sim-earq"],"designation":"group leader" if n==1 else "deputy group leader" if n==2 else "soldier"}})
+    w=World(capacity=8)
+    w.apply("create",{"unit_id":"sim-group-earq","callsign":"SIM-EARQ","count":8,"position":position,"members":members,
+        "request_id":"group-create","expected_revision":0,"metadata":{"exercise":"neutral staging","level":"group","anchor":anchor["label"]}})
+    w.apply("marker_put",{"unit_id":"sim-group-earq","marker_id":"earq-hq","callsign":"SIM-EARQ-HQ","position":position,
+        "role":"HQ","metadata":{"level":"group","anchor":anchor["label"]},"request_id":"group-hq","expected_revision":w.state["revision"]})
+    w.apply("deactivate",{"unit_id":"sim-group-earq","request_id":"group-inactive","expected_revision":w.state["revision"]})
+    w.state["orbat"]={"profile":"group-8-neutral-staging-v1","instance_id":str(uuid.uuid4()),"personnel":8,
+        "mode":"inactive until explicitly started","naming_source":"TAKS identity grammar / FALFAL","anchor":anchor["label"]}
+    w.state["requests"]={}
+    return w.state
+
+
 def build_hv_staging(anchors, *, active=False):
     """Three user-selected companies, A–E platoons, E–H groups, 520 identities."""
     required = {"VQ", "RQ", "SQ", "TQ"}

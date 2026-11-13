@@ -219,6 +219,18 @@ def _documents_paths() -> list[Path]:
 
 def _takctl_state_paths() -> list[Path]:
     # Keep takctl-owned operational state, but exclude bulky/rebuildable docs and transient LLM/cache data.
+    # Snapshot actor SQLite stores using SQLite's backup API, never tar a live WAL.
+    import sqlite3
+    import os
+    root=Path('/opt/tak/simulation')
+    archive=Path('/opt/tak/tools/takctl/state/simulation-perception')
+    for source in root.glob('perception-*.sqlite'):
+        if source.is_symlink() or not source.is_file(): continue
+        archive.mkdir(parents=True,exist_ok=True)
+        target=archive/source.name;temporary=target.with_suffix('.tmp')
+        with sqlite3.connect('file:'+str(source)+'?mode=ro',uri=True) as reader, sqlite3.connect(temporary) as writer:
+            reader.backup(writer,pages=128)
+        os.chmod(temporary,0o600);os.replace(temporary,target)
     return [Path("/opt/tak/tools/takctl/state")]
 
 

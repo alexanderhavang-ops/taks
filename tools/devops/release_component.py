@@ -24,8 +24,12 @@ SEED_PATH = Path("/opt/tak-orch/state/units/taklabs/files/misc/simulation-state.
 OVERLAYS = (
     "takctl/takctl/simulation/__init__.py", "takctl/takctl/simulation/model.py",
     "takctl/takctl/simulation/daemon.py", "takctl/takctl/web/mcp_domains/simulation_tools.py",
-    "takctl/takctl/simulation/orbat.py",
+    "takctl/takctl/simulation/orbat.py", "takctl/takctl/simulation/perception.py",
     "takctl/takctl/web/mcp_domains/map_context.py",
+    "takctl/takctl/web/mcp_domains/devops.py",
+    "takctl/takctl/web/mcp_domains/host_monitor.py",
+    "takctl/takctl/services/ldap_user_store.py",
+    "takctl/takctl/services/orchestrator_backup.py",
     "tak-installer/tak_installer/actions/simulation_runtime.py",
     "tak-installer/plans/tak-node.d/zz-simulation-runtime",
     "takctl/conf.d/simulation.conf.template", "tools/deploy-simulation-mvp.py",
@@ -69,7 +73,7 @@ def map_bbox_probe():
                 "nodes":len(root.findall("node")),"ways":len(root.findall("way"))}
 
 
-def prepare_staging_roster(commit):
+def prepare_staging_roster(commit, small=False):
     if not re.fullmatch(r"[a-f0-9]{40}",commit): raise ValueError("Pinned source commit required")
     source=Path("/opt/tak-orch/orchestrator/simulation-releases")/commit
     if (source/"simulation-source-commit").read_text().strip()!=commit: raise ValueError("Source marker mismatch")
@@ -79,9 +83,10 @@ def prepare_staging_roster(commit):
     if SEED_PATH.is_file():
         previous=SEED_PATH.with_name("simulation-state.previous-"+hashlib.sha256(SEED_PATH.read_bytes()).hexdigest()[:16]+".json")
         if not previous.exists():shutil.copy2(SEED_PATH,previous)
-    script=('import sys,json,hashlib; from pathlib import Path; from takctl.simulation.orbat import build_hv_staging; '
+    script=('import sys,json,hashlib; from pathlib import Path; from takctl.simulation.orbat import build_hv_staging,build_group_staging; '
         'from takctl.simulation.daemon import atomic_json; '
-        'state=build_hv_staging(json.loads(Path(sys.argv[1]).read_text())); '
+        + ('state=build_group_staging(json.loads(Path(sys.argv[1]).read_text())["VQ"]); ' if small else 'state=build_hv_staging(json.loads(Path(sys.argv[1]).read_text())); ')
+        +
         'target=Path(sys.argv[2]); atomic_json(target,state); target.chmod(0o640); '
         'print(json.dumps({"ok":True,"profile":state["orbat"]["profile"],"personnel":state["orbat"]["personnel"],'
         '"units":len(state["units"]),"markers":len(state["markers"]),"bytes":target.stat().st_size,'
@@ -299,6 +304,45 @@ def qos_delivery(apply=False):
         "configuration":request("GET","conf")}
 
 
+def compare_exercise_resources():
+    """Read-only snapshots and recent EC2 CPU metrics for the two lab nodes."""
+    from datetime import datetime, timedelta, timezone
+    inventory = call("GET", "/api/v2/nodes")
+    results = []
+    for node_id in (NODE, "takdiag.aws.tak-hv-sandbox.se"):
+        matches = [n for n in inventory.get("items", []) if n.get("node_id") == node_id]
+        if len(matches) != 1:
+            results.append({"node":node_id,"error":"Node not uniquely registered"}); continue
+        node = matches[0]
+        row = {"node":node_id,"instance_type":node.get("meta",{}).get("instance_type")}
+        for key, operation in (("host","host_resources"),("tak","takserver_readiness")):
+            response = call("POST", "/api/v2/nodes/"+node_id+"/mcp/devops", {
+                "jsonrpc":"2.0","id":1,"method":"tools/call",
+                "params":{"name":operation,"arguments":{}}})
+            try: row[key] = json.loads(response["result"]["content"][0]["text"])
+            except (KeyError,IndexError,ValueError): row[key] = {"error":"Node diagnostics unavailable"}
+        identity = node.get("aws_instance_id", "")
+        if re.fullmatch(r"i-[0-9a-f]{8,17}", identity):
+            end = datetime.now(timezone.utc)
+            args = ["aws","cloudwatch","get-metric-statistics","--region","eu-north-1",
+                "--namespace","AWS/EC2","--metric-name","CPUUtilization",
+                "--dimensions","Name=InstanceId,Value="+identity,
+                "--start-time",(end-timedelta(minutes=30)).isoformat(),"--end-time",end.isoformat(),
+                "--period","300","--statistics","Average","Maximum","--output","json"]
+            try:
+                result = subprocess.run(args,capture_output=True,text=True,timeout=15)
+                if result.returncode:
+                    row["ec2_cpu"] = {"error":"CloudWatch read failed","access_denied":"AccessDenied" in result.stderr}
+                else:
+                    metrics = json.loads(result.stdout)
+                    row["ec2_cpu"] = {"period_seconds":300,"unit":metrics.get("Datapoints",[{}])[0].get("Unit"),
+                        "datapoints":sorted(metrics.get("Datapoints",[]),key=lambda p:p["Timestamp"])[-3:]}
+            except (OSError,ValueError,subprocess.TimeoutExpired):
+                row["ec2_cpu"] = {"error":"CloudWatch read unavailable"}
+        results.append(row)
+    return {"ok":True,"nodes":results}
+
+
 def dispatch_release(command):
     p = command.split() if isinstance(command, str) and len(command) < 400 else []
     if len(p) < 2 or p[0] != "taks-release":
@@ -306,6 +350,16 @@ def dispatch_release(command):
     try:
         op = p[1]
         tools = lifecycle()
+        if op == "monitor" and len(p)==4 and p[2] in ("orchestrator",UNIT,"takdiag") and p[3] in ("top","memory","vmstat"):
+            from app import host_monitor
+            operation={"top":"process_sample","memory":"memory_read","vmstat":"vmstat_sample"}[p[3]]
+            if p[2]=="orchestrator":
+                return host_monitor.sample_snapshot() if p[3]=="top" else host_monitor.memory_snapshot() if p[3]=="memory" else host_monitor.vmstat_samples()
+            node=NODE if p[2]==UNIT else "takdiag.aws.tak-hv-sandbox.se"
+            return call("POST","/api/v2/nodes/"+node+"/mcp/devops",{
+                "jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":operation,"arguments":{}}})
+        if op == "compare-resources" and p[2:] == [UNIT]:
+            return submit(("compare-resources",UNIT),compare_exercise_resources)
         if op == "qos" and p[2:] == [UNIT]:
             return qos_delivery(False)
         if op == "qos-ten-seconds" and p[2:] == [UNIT,"confirm"]:
@@ -352,6 +406,8 @@ def dispatch_release(command):
             return {"ok":True,"unit":UNIT,"next_boot_identity_capacity":int(p[3]),"running_node_changed":False}
         if op == "prepare-roster" and len(p)==5 and p[2]==UNIT and p[4]=="confirm" and re.fullmatch(r"[a-f0-9]{40}",p[3]):
             return submit(("prepare-roster",UNIT),lambda:prepare_staging_roster(p[3]))
+        if op == "prepare-group" and len(p)==5 and p[2]==UNIT and p[4]=="confirm" and re.fullmatch(r"[a-f0-9]{40}",p[3]):
+            return submit(("prepare-group",UNIT),lambda:prepare_staging_roster(p[3],True))
         if op == "shutdown" and len(p) == 6 and p[2] == NODE and p[5] == "confirm":
             return tools["taks_node_shutdown"](NODE,UNIT,p[3],p[4],True)
         if op == "launch" and p[2:] == [UNIT,"confirm"]:

@@ -398,6 +398,10 @@ def _copy_repo_snapshot(dst_root: Path) -> Dict[str, Any]:
     if not target.parent.is_dir():
         raise RuntimeError("TAKCTL node DevOps package missing from source snapshot")
     _copy_file(node_devops, target)
+    monitor = default_bundle_dir() / "node-devops" / "host_monitor.py"
+    if not monitor.is_file():
+        raise RuntimeError("Node host monitor source missing from deployed orchestrator")
+    _copy_file(monitor, target.with_name("host_monitor.py"))
     result["node_devops_overlay"] = str(node_devops)
     result.update(
         {

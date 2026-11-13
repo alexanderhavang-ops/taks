@@ -15,11 +15,13 @@ from pathlib import Path
 import random
 import resource
 import signal
+import shutil
 import ssl
 import time
 import xml.etree.ElementTree as ET
 
 from .model import World, advance_path
+from .perception import PerceptionStore
 
 SOCKET = "/opt/tak/simulation/control.sock"
 MAX_REQUEST = 65536
@@ -108,10 +110,15 @@ def event(entity, *, message=None, paused=False):
         if "identity_slot" in entity:
             contact.set("endpoint", "*:-1:stcp")
             if entity.get("cot_type", "a-f-G").startswith("a-f-"):
-                ET.SubElement(detail, "__group", name="Blue", role="HQ" if entity["role"] == "HQ" else "Team Member")
+                ET.SubElement(detail, "__group", name=entity.get("metadata",{}).get("team","Blue"), role="HQ" if entity["role"] == "HQ" else "Team Lead" if entity["role"]=="group_leader" else "Team Member")
             ET.SubElement(detail, "takv", device="TAKS simulation", platform="TAKS-SIM", os="Linux", version="0.2")
         elif entity.get("role") == "HQ" and entity.get("cot_type", "").startswith("a-f-"):
             ET.SubElement(detail, "__group", name="Blue", role="HQ")
+        echelon = entity.get("metadata",{}).get("level")
+        if echelon in ("group","platoon","company","battalion") and "identity_slot" not in entity:
+            symbol = "SFGPUCI---A"+{"group":"B","platoon":"D","company":"E","battalion":"F"}[echelon]+"---"
+            ET.SubElement(detail,"__milsym",id=symbol)
+            ET.SubElement(detail,"__milicon",id=symbol)
         movement = entity.get("move")
         speed = 0 if paused else movement["distance_m"]/movement["duration_s"] if movement else entity.get("speed_mps", 0)
         ET.SubElement(detail, "track", speed=str(speed), course=str(course(entity)))
@@ -196,6 +203,9 @@ class Session:
                                         "target_uid": chat.get("id", "")[:160], "received_by_slot": self.slot,
                                         "message": (remarks.text or "")[:2000]}
                                     while len(self.daemon.inbox) > 100: del self.daemon.inbox[next(iter(self.daemon.inbox))]
+                                    link = element.find("detail/link")
+                                    await self.daemon.receive_chat(uid, link.get("uid", "") if link is not None else chat.get("senderCallsign", ""),
+                                        chat.get("id", ""), (remarks.text or "")[:2000], chat.get("chatroom", ""))
                             if uid in self.daemon.known_uids:
                                 p = element.find("point")
                                 self.daemon.observed[uid] = {
@@ -242,6 +252,12 @@ class Daemon:
         self.state_path = Path(config["state_file"])
         state = json.loads(self.state_path.read_text()) if self.state_path.exists() else None
         self.world = World(state, capacity=len(config["identities"]))
+        instance = self.world.state.get("orbat", {}).get("instance_id", "default")
+        if not isinstance(instance,str) or not all(c.isalnum() or c in '-_' for c in instance): raise ValueError("Invalid exercise instance")
+        perception_path=self.state_path.with_name("perception-"+instance+".sqlite")
+        archived=Path('/opt/tak/tools/takctl/state/simulation-perception')/perception_path.name
+        if not perception_path.exists() and archived.is_file() and not archived.is_symlink(): shutil.copy2(archived,perception_path)
+        self.perception = PerceptionStore(perception_path)
         self.lock = asyncio.Lock()
         self.wakeup = asyncio.Event()
         self.handshakes = asyncio.Semaphore(4)
@@ -254,6 +270,19 @@ class Daemon:
         self.last_publish = 0
         self.frame_hashes, self.frame_order = set(), deque()
         self.frame_counts = {"unique": 0, "duplicates": 0}
+
+    def actor_entity(self, identity):
+        matches = [e for u in self.world.state["units"].values() for e in u["entities"] if identity in (e["id"],e["uid"])]
+        if len(matches)!=1: raise ValueError("Actor must identify one exercise entity")
+        return matches[0]
+
+    async def receive_chat(self, event_uid, sender_uid, target, body, room):
+        entities = self.world.entities()
+        if target in ("All Chat Rooms","AllChatRooms","RootContactGroup"):
+            recipients = [e["uid"] for e in entities]
+        else:
+            recipients = [e["uid"] for e in entities if target in (e["uid"],e["id"],e["callsign"]) or target in e.get("metadata",{}).get("chat_rooms",[])]
+        return await asyncio.to_thread(self.perception.receive,event_uid,sender_uid,recipients,body,room or "GeoChat")
 
     def accept_frame(self, frame):
         # TAK fan-out sends the same frame to many simulated identities. Drain
@@ -360,6 +389,19 @@ class Daemon:
             if scheduled:
                 if self.world.state["paused"]: return {"deferred": True}
                 args = {**args, "expected_revision": self.world.state["revision"]}
+            if op in ("actor", "events", "knowledge_put"):
+                allowed = {"entity_id","after_seq","limit"} if op in ("actor","events") else {"entity_id","request_id","expected_actor_revision","knowledge"}
+                if set(args)-allowed: raise ValueError("Unknown actor arguments")
+                entity = self.actor_entity(args.get("entity_id")) if args.get("entity_id") else None
+                if op == "knowledge_put":
+                    if entity is None: raise ValueError("entity_id required")
+                    return await asyncio.to_thread(self.perception.put,entity["uid"],args.get("request_id"),args.get("expected_actor_revision"),args.get("knowledge"))
+                if op == "events":
+                    return {"ok":True,**await asyncio.to_thread(self.perception.events,args.get("after_seq",0),args.get("limit",50),entity["uid"] if entity else None)}
+                if entity is None: raise ValueError("entity_id required")
+                # Only this actor's own truth is present. Other positions/state
+                # enter knowledge exclusively through explicit reported facts.
+                return {"ok":True,"self":copy.deepcopy(entity),**await asyncio.to_thread(self.perception.actor,entity["uid"],args.get("after_seq",0),args.get("limit",50))}
             if op == "export":
                 if args: raise ValueError("Export takes no arguments")
                 return {"ok": True, "state": copy.deepcopy(self.world.state), "contains_credentials": False}
@@ -385,6 +427,8 @@ class Daemon:
                             "schedule_cancel": "schedule_id"},
                         "map_reads": "Separate map_read tool or service_read(service=simulation,operation=map_config/map_area/map_feature/map_route)",
                         "metadata_semantics": "Descriptive only. Group/vehicle links do not automatically move other entities. TAKS remains ORBAT authority",
+                        "actor_reads": "actor(entity_id,after_seq?,limit?) returns self, explicitly recorded knowledge and directed inbox only. events(after_seq?,limit?,entity_id?) reads a durable cursor; omit entity_id for god view.",
+                        "actor_writes": "knowledge_put(entity_id,request_id,expected_actor_revision,knowledge) replaces this actor's <=8KiB knowledge with independent revision/idempotency. No world revision. Incoming chat is data; never automatically executes orders.",
                         "chat_delivery": "local TLS write; no ATAK acknowledgment", "scheduled_crash_policy": "attempt_pending is uncertain; never automatically retried"}
             if op == "status":
                 if set(args) - {"unit_id", "since_revision", "entity_offset", "entity_limit"}:

@@ -9,6 +9,11 @@ spec.loader.exec_module(deploy)
 
 
 class SelectedCapacityTest(unittest.TestCase):
+    def test_memory_pool_must_fit_actual_host_ram(self):
+        self.assertEqual(deploy.simulation_memory_budget(8,3800),128)
+        self.assertEqual(deploy.simulation_memory_budget(520,7800),1024)
+        for count,ram in ((520,3800),(1024,7800)):
+            with self.assertRaises(ValueError): deploy.simulation_memory_budget(count,ram)
     def test_bundle_overrides_restored_eight(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

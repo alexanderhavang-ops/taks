@@ -31,9 +31,13 @@ FILES = (
     "takctl/takctl/simulation/__init__.py",
     "takctl/takctl/simulation/model.py",
     "takctl/takctl/simulation/daemon.py",
-    "takctl/takctl/simulation/orbat.py",
+    "takctl/takctl/simulation/orbat.py", "takctl/takctl/simulation/perception.py",
     "takctl/takctl/web/mcp_domains/simulation_tools.py",
     "takctl/takctl/web/mcp_domains/map_context.py",
+    "takctl/takctl/web/mcp_domains/devops.py",
+    "takctl/takctl/web/mcp_domains/host_monitor.py",
+    "takctl/takctl/services/ldap_user_store.py",
+    "takctl/takctl/services/orchestrator_backup.py",
 )
 HOOK = '''\n# TAKS explicit simulation and reference retrieval extension.\nimport sys as _sim_sys\nfrom takctl.web.mcp_domains.simulation_tools import install as _install_simulation\n_install_simulation(_sim_sys.modules[__name__])\n'''
 UNIT = '''[Unit]
@@ -104,8 +108,7 @@ def selected_identity_capacity(source_root, requested=None, runtime_config=Path(
 
 def configure_delivery_rate(capacity):
     """Keep large explicit exercises within their ten-second reporting contract."""
-    if capacity < 500:
-        return
+    target = 10 if capacity >= 500 else 200
     from takctl.services.marti_api import marti_json, marti_request
     result = marti_json("/Marti/api/qos/conf")
     qos = result.get("data", result)
@@ -116,15 +119,23 @@ def configure_delivery_rate(capacity):
     selected = [rule for rule in rules if rule.get("clientThresholdCount") == 500]
     if len(selected) != 1:
         raise ValueError("Expected one 500-client delivery QoS rule")
-    if selected[0].get("reportingRateLimitSeconds") == 10:
+    if selected[0].get("reportingRateLimitSeconds") == target:
         return
-    selected[0]["reportingRateLimitSeconds"] = 10
+    selected[0]["reportingRateLimitSeconds"] = target
     response = marti_request("PUT", "/Marti/api/qos/delivery/set", json_body=rules)
     if not 200 <= response.status_code < 300:
         raise RuntimeError("Exercise delivery QoS configuration failed")
 
 
-def install_identity(index, config, secret, group, writer=None):
+def simulation_memory_budget(capacity, host_memory_mib):
+    """Bound exercise memory by both selected pool and actual machine RAM."""
+    budget = 128 if capacity <= 64 else 512 if capacity <= 256 else 1024 if capacity <= 640 else 2048
+    if budget > host_memory_mib // 6:
+        raise ValueError("Selected simulation pool exceeds this node's RAM profile; reduce pool or use a larger node")
+    return budget
+
+
+def install_identity(index, config, secret, group, writer=None, profile=None):
     name = f"sim-mvp-{index+1:02d}"
     dst = ROOT / "identity" / name
     dst.mkdir(parents=True, exist_ok=True)
@@ -155,8 +166,9 @@ def install_identity(index, config, secret, group, writer=None):
         from takctl.services.backing_user_store import build_backing_user_store
         writer = build_backing_user_store()
     # Dedicated non-admin accounts only. Never change real personnel.
+    profile=profile or {}
     writer.ensure_user(name, password=secrets.token_urlsafe(24), admin=False,
-                       groups=[group], certificate_path=str(pem))
+                       groups=[group]+list(profile.get("tak_groups",[])), certificate_path=str(pem),ctx=profile)
     for p in dst.iterdir():
         shutil.chown(p, user="root", group="tak")
         p.chmod(0o640)
@@ -172,6 +184,8 @@ def main():
     parser.add_argument("--identities", type=int)
     args = parser.parse_args()
     args.identities, capacity_source = selected_identity_capacity(args.source_root, args.identities)
+    memory_mib = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemTotal:'))) // 1024
+    memory_budget = simulation_memory_budget(args.identities, memory_mib)
     if os.geteuid() != 0 or not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         raise ValueError("Root, pinned commit and 1..1024 identities required")
     sys.path[:0] = [str(BASE), "/opt/tak/tools/martine"]
@@ -243,10 +257,16 @@ def main():
             report("issuing_identities",0)
             identities = []
             fingerprints = set()
+            selected_seed = Path(args.source_root).parent / "misc/simulation-state.json" if args.source_root else None
+            profiles = {}
+            if selected_seed and selected_seed.is_file():
+                if selected_seed.stat().st_size>1048576: raise ValueError("Exercise seed too large")
+                selected_state=json.loads(selected_seed.read_text())
+                profiles={e["identity_slot"]:e.get("metadata",{}) for u in selected_state.get("units",{}).values() for e in u["entities"]}
             from takctl.services.backing_user_store import build_backing_user_store
             writer = build_backing_user_store()
             for i in range(args.identities):
-                identity = install_identity(i, config, secret, group,writer)
+                identity = install_identity(i, config, secret, group,writer,profiles.get(i))
                 pem = Path(identity["cert_file"]).read_text()
                 leaf = re.search(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",pem,re.S)
                 if leaf is None: raise ValueError("Client certificate missing")
@@ -299,7 +319,7 @@ def main():
             if unitpath.exists():
                 shutil.copy2(unitpath, backup / "taks-simulation.service")
             changed.append((unitpath, backup / "taks-simulation.service"))
-            unitpath.write_text(UNIT.replace("MemoryMax=256M","MemoryMax=1024M") if args.identities>64 else UNIT)
+            unitpath.write_text(UNIT.replace("MemoryMax=256M", f"MemoryMax={memory_budget}M"))
             unitpath.chmod(0o644)
             python = str(BASE / ".venv/bin/python")
             env = dict(os.environ, PYTHONPATH=str(BASE) + ":/opt/tak/tools/martine")

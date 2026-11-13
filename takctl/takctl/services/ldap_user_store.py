@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import base64
 import re
 import subprocess
 import tempfile
@@ -486,6 +487,18 @@ objectClass: {self.config.group_object_class}
             mail = str((ctx or {}).get("email") or "").strip()
         except Exception:
             mail = ""
+        profile = {}
+        for key,attribute in (("first_name","givenName"),("last_name","sn")):
+            value = str((ctx or {}).get(key) or "").strip()
+            if value:
+                if len(value)>80 or any(ord(c)<32 for c in value): raise LdapUserStoreError("Invalid person name")
+                profile[attribute]=value
+        if profile:
+            display=" ".join(profile.get(k,"") for k in ("givenName","sn")).strip()
+            profile["displayName"]=display
+            if self.config.user_rdn_attr.lower()!="cn": profile["cn"]=display
+        def profile_line(attribute,value):
+            return attribute+":: "+base64.b64encode(value.encode()).decode()
 
         if not existed:
             if password is None:
@@ -502,6 +515,9 @@ objectClass: {self.config.group_object_class}
             ]
             if mail:
                 attrs.append(f"mail: {mail}")
+            if profile:
+                attrs=[line for line in attrs if not any(line.startswith(k+":") for k in profile)]
+                attrs.extend(profile_line(k,v) for k,v in profile.items())
             if admin is True:
                 attrs.append("employeeType: tak-admin")
             if certificate_path:
@@ -509,6 +525,8 @@ objectClass: {self.config.group_object_class}
             self._ldapadd("\n".join(attrs) + "\n\n")
         else:
             changes: list[str] = []
+            for attribute,value in profile.items():
+                changes.append(f"dn: {user_dn}\nchangetype: modify\nreplace: {attribute}\n"+profile_line(attribute,value)+"\n\n")
             if mail:
                 changes.append(f"""dn: {user_dn}
 changetype: modify

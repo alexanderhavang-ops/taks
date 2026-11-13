@@ -36,6 +36,9 @@ def entry(name, description, props=None, required=None):
 STR = {"type": "string"}
 INT = {"type": "integer", "minimum": 1, "maximum": MAX_LINES}
 TOOLS = [
+    entry("process_sample", "Bounded top/ps sample: current CPU, RSS, swap and host CPU, without arguments or environment", {"seconds":{"type":"number"},"limit":{"type":"integer"},"sort_by":STR}),
+    entry("memory_read", "Free-style kernel memory, cache, slab and swap counters"),
+    entry("vmstat_sample", "Bounded interval CPU, run queue, paging and pressure samples", {"seconds":{"type":"number"},"samples":{"type":"integer"}}),
     entry("host_identity", "Hostname and operating system"),
     entry("host_resources", "Memory, load average and root filesystem usage"),
     entry("listening_ports", "Inspect expected TCP ports via kernel socket tables"),
@@ -289,6 +292,11 @@ def _takserver_readiness():
             "tak_log_files": list(sorted(_tak_log_files()))[:30]}
 
 def _invoke(name, args):
+    if name in ("process_sample", "memory_read", "vmstat_sample"):
+        from . import host_monitor
+        if name == "memory_read": return host_monitor.memory_snapshot()
+        if name == "vmstat_sample": return host_monitor.vmstat_samples(args.get("seconds",1),args.get("samples",3))
+        return host_monitor.sample_snapshot(args.get("seconds",1),args.get("limit",20),args.get("sort_by","cpu"))
     if name == "host_identity":
         return _identity()
     if name == "host_resources":
