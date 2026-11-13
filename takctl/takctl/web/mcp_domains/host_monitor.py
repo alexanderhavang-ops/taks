@@ -1,6 +1,7 @@
 """Bounded ps/free/vmstat equivalents using kernel counters; no command lines."""
 from datetime import datetime, timezone
 import os
+import re
 from pathlib import Path
 import time
 
@@ -52,6 +53,11 @@ def _processes():
                         row[key.lower()+'_kib'] = int(val.split()[0])
             except OSError: pass
             rows[pid] = row
+            if row['name']=='java':
+                try:
+                    arguments=(p/'cmdline').read_bytes().decode(errors='replace').split('\0')
+                    row['jvm_heap_flags']=[a for a in arguments if re.fullmatch(r'-Xm[sx][0-9]+[kKmMgG]?|-XX:(?:Max|Initial)RAMPercentage=[0-9.]+',a)]
+                except OSError: row['jvm_heap_flags']=None
         except (OSError,ValueError,IndexError): continue
     return rows
 
