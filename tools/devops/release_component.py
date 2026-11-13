@@ -355,7 +355,11 @@ def dispatch_release(command):
         if op == "shutdown" and len(p) == 6 and p[2] == NODE and p[5] == "confirm":
             return tools["taks_node_shutdown"](NODE,UNIT,p[3],p[4],True)
         if op == "launch" and p[2:] == [UNIT,"confirm"]:
-            return tools["taks_node_launch_start"](UNIT,NODE,"t3.medium",True)
+            fragment=Path("/opt/tak-orch/state/units/taklabs/bootstrap/config.d/simulation.conf")
+            settings=dict(line.split("=",1) for line in fragment.read_text().splitlines() if "=" in line)
+            capacity=int(next((v.strip() for k,v in settings.items() if k.strip()=="simulation_identity_capacity"),"8"))
+            if not 1<=capacity<=1024: raise ValueError("Invalid identity capacity")
+            return tools["taks_node_launch_start"](UNIT,NODE,"t3.large" if capacity>=500 else "t3.medium",True)
         return {"ok": False, "error": "Unsupported operation, identity, or missing confirmation"}
     except Exception as exc:
         return {"ok": False, "error": type(exc).__name__ + ": " + str(exc)[:240]}
