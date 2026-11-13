@@ -275,7 +275,7 @@ def main():
             if unitpath.exists():
                 shutil.copy2(unitpath, backup / "taks-simulation.service")
             changed.append((unitpath, backup / "taks-simulation.service"))
-            unitpath.write_text(UNIT.replace("MemoryMax=256M","MemoryMax=512M") if args.identities>64 else UNIT)
+            unitpath.write_text(UNIT.replace("MemoryMax=256M","MemoryMax=1024M") if args.identities>64 else UNIT)
             unitpath.chmod(0o644)
             python = str(BASE / ".venv/bin/python")
             env = dict(os.environ, PYTHONPATH=str(BASE) + ":/opt/tak/tools/martine")
