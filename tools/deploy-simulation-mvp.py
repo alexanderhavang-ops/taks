@@ -101,6 +101,29 @@ def selected_identity_capacity(source_root, requested=None, runtime_config=Path(
     return capacity, origin
 
 
+
+def configure_delivery_rate(capacity):
+    """Keep large explicit exercises within their ten-second reporting contract."""
+    if capacity < 500:
+        return
+    from takctl.services.marti_api import marti_json, marti_request
+    result = marti_json("/Marti/api/qos/conf")
+    qos = result.get("data", result)
+    limiter = qos.get("deliveryRateLimiter", {})
+    if not limiter.get("enabled"):
+        return
+    rules = [dict(rule) for rule in limiter.get("rateLimitRule", [])]
+    selected = [rule for rule in rules if rule.get("clientThresholdCount") == 500]
+    if len(selected) != 1:
+        raise ValueError("Expected one 500-client delivery QoS rule")
+    if selected[0].get("reportingRateLimitSeconds") == 10:
+        return
+    selected[0]["reportingRateLimitSeconds"] = 10
+    response = marti_request("PUT", "/Marti/api/qos/delivery/set", json_body=rules)
+    if not 200 <= response.status_code < 300:
+        raise RuntimeError("Exercise delivery QoS configuration failed")
+
+
 def install_identity(index, config, secret, group, writer=None):
     name = f"sim-mvp-{index+1:02d}"
     dst = ROOT / "identity" / name
@@ -201,6 +224,7 @@ def main():
                 domain.write_text(original + HOOK)
             from takctl.config import load_config, load_secrets
             config, secret = load_config(), load_secrets()
+            configure_delivery_rate(args.identities)
             node = kv(Path("/etc/taks-bootstrap.d/config.d/node.conf"))
             fqdn = node.get("node_fqdn") or node.get("fqdn")
             group = node.get("unit_path") or node.get("node_name") or (fqdn or "taklabs").split(".")[0]
