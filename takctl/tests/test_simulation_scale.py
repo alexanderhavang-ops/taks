@@ -24,6 +24,7 @@ class RosterTests(unittest.TestCase):
         state=self.state; people=[e for u in state["units"].values() for e in u["entities"]]
         self.assertEqual(len(people),520)
         for field in ("callsign","uid","identity_slot"):self.assertEqual(len({e[field] for e in people}),520)
+        self.assertEqual(len({e["metadata"]["full_name"] for e in people}),520)
         self.assertEqual({e["identity_slot"] for e in people},set(range(520)))
         self.assertEqual(len(state["units"]),70)
         self.assertEqual(len(state["markers"]),85)

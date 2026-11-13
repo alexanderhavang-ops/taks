@@ -113,7 +113,7 @@ def event(entity, *, message=None, paused=False):
                 ET.SubElement(detail, "__group", name=entity.get("metadata",{}).get("team","Blue"), role="HQ" if entity["role"] == "HQ" else "Team Lead" if entity["role"]=="group_leader" else "Team Member")
             ET.SubElement(detail, "takv", device="TAKS simulation", platform="TAKS-SIM", os="Linux", version="0.2")
         elif entity.get("role") == "HQ" and entity.get("cot_type", "").startswith("a-f-"):
-            ET.SubElement(detail, "__group", name="Blue", role="HQ")
+            ET.SubElement(detail, "__group", name=entity.get("metadata",{}).get("team","Blue"), role="HQ")
         echelon = entity.get("metadata",{}).get("level")
         if echelon in ("group","platoon","company","battalion") and "identity_slot" not in entity:
             symbol = "SFGPUCI---A"+{"group":"B","platoon":"D","company":"E","battalion":"F"}[echelon]+"---"
@@ -122,7 +122,9 @@ def event(entity, *, message=None, paused=False):
         movement = entity.get("move")
         speed = 0 if paused else movement["distance_m"]/movement["duration_s"] if movement else entity.get("speed_mps", 0)
         ET.SubElement(detail, "track", speed=str(speed), course=str(course(entity)))
-        ET.SubElement(detail, "remarks").text = f"SIMULATION ONLY | {entity['role']} | {entity['readiness']} | {health.upper()} | {entity.get('platform','person')} | group={entity.get('group_id','')} | vehicle={entity.get('vehicle_id','')} | {entity.get('remarks','')}"
+        identity = entity.get("metadata",{})
+        display = " | "+identity["full_name"]+" | "+identity.get("designation",entity['role']) if identity.get("full_name") else ""
+        ET.SubElement(detail, "remarks").text = f"SIMULATION ONLY | {entity['role']} | {entity['readiness']} | {health.upper()} | {entity.get('platform','person')} | group={entity.get('group_id','')} | vehicle={entity.get('vehicle_id','')} | {entity.get('remarks','')}"+display
     return ET.tostring(root, encoding="utf-8") + b"\n"
 
 

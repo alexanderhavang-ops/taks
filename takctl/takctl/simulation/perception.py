@@ -42,7 +42,12 @@ class PerceptionStore:
                 rows=self.db.execute('SELECT m.seq,m.event_uid,m.sender_uid,m.body,m.channel,m.received_at FROM messages m JOIN deliveries d ON m.seq=d.seq WHERE d.recipient_uid=? AND m.seq>? ORDER BY m.seq LIMIT ?',(actor_uid,after_seq,limit)).fetchall()
             else:rows=self.db.execute('SELECT seq,event_uid,sender_uid,body,channel,received_at FROM messages WHERE seq>? ORDER BY seq LIMIT ?',(after_seq,limit)).fetchall()
             oldest=self.db.execute('SELECT MIN(seq) FROM messages').fetchone()[0]
-        return {'events':[dict(zip(('seq','event_uid','sender_uid','body','channel','received_at'),r)) for r in rows],
+            events=[]
+            for row in rows:
+                item=dict(zip(('seq','event_uid','sender_uid','body','channel','received_at'),row))
+                item['recipient_uids']=[actor_uid] if actor_uid else [r[0] for r in self.db.execute('SELECT recipient_uid FROM deliveries WHERE seq=? ORDER BY recipient_uid',(row[0],))]
+                events.append(item)
+        return {'events':events,
             'next_seq':rows[-1][0] if rows else after_seq,'cursor_gap':bool(oldest and after_seq and after_seq<oldest-1)}
 
     def actor(self,uid,after_seq=0,limit=50):

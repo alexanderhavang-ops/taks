@@ -7,6 +7,7 @@ class IsolationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path=Path(d)/'actors.sqlite';s=PerceptionStore(path)
             s.receive('message-1','human',['commander'],'Prepare the exercise')
+            self.assertEqual(s.events()['events'][0]['recipient_uids'],['commander'])
             self.assertEqual(len(s.actor('commander')['events']),1)
             self.assertEqual(s.actor('other')['events'],[])
             self.assertTrue(s.receive('message-1','human',['commander'],'Prepare the exercise')['duplicate'])

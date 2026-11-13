@@ -26,7 +26,7 @@ def build_group_staging(anchor):
     w.apply("create",{"unit_id":"sim-group-earq","callsign":"SIM-EARQ","count":8,"position":position,"members":members,
         "request_id":"group-create","expected_revision":0,"metadata":{"exercise":"neutral staging","level":"group","anchor":anchor["label"]}})
     w.apply("marker_put",{"unit_id":"sim-group-earq","marker_id":"earq-hq","callsign":"SIM-EARQ-HQ","position":position,
-        "role":"HQ","metadata":{"level":"group","anchor":anchor["label"]},"request_id":"group-hq","expected_revision":w.state["revision"]})
+        "role":"HQ","metadata":{"level":"group","anchor":anchor["label"],"team":"Green"},"request_id":"group-hq","expected_revision":w.state["revision"]})
     w.apply("deactivate",{"unit_id":"sim-group-earq","request_id":"group-inactive","expected_revision":w.state["revision"]})
     w.state["orbat"]={"profile":"group-8-neutral-staging-v1","instance_id":str(uuid.uuid4()),"personnel":8,
         "mode":"inactive until explicitly started","naming_source":"TAKS identity grammar / FALFAL","anchor":anchor["label"]}
@@ -45,8 +45,10 @@ def build_hv_staging(anchors, *, active=False):
         if not isinstance(item.get("label"), str) or len(item["label"]) > 160: raise ValueError("Invalid anchor label")
     w = World(capacity=520)
     nodes, actors, local_aliases = [], [], {}
+    person_serial = 0
 
     def node(uid, parent, label, level, owner, position, **metadata):
+        metadata.setdefault("team",{"RQ":"Blue","SQ":"Green","TQ":"Orange"}.get(w.state["units"][owner]["metadata"].get("company"),"Cyan"))
         record = {"id":uid,"parent_id":parent,"label":label,"level":level,"owner_unit_id":owner,**metadata}
         nodes.append(record)
         role = "HQ" if level in ("battalion", "company", "platoon") else "exercise marker"
@@ -68,6 +70,19 @@ def build_hv_staging(anchors, *, active=False):
             local_aliases.setdefault(md["local_callsign"], []).append(e["uid"])
 
     def member(callsign, local, position, role="member", **metadata):
+        nonlocal person_serial
+        # Names are fictional and descriptive; the unique TAKS identity stays authoritative.
+        firsts="Erik Sara Johan Lina Oskar Maja Nils Anna Emil Elin Axel Klara Hugo Ida Karl Sofia Viktor Emma Gustav Alma".split()
+        lasts="Lind Holm Berg Ek Dahl Lund Strand Vik Boman Sund Nyberg Norberg Hedin Frisk Lindahl Sjoberg Ekman Holt Lindgren Nystrom Bergman Sundberg Falk Sand Holmberg Lundin".split()
+        first,last=firsts[person_serial%len(firsts)],lasts[(person_serial//len(firsts))%len(lasts)]
+        person_serial += 1
+        metadata.setdefault("first_name",first);metadata.setdefault("last_name",last)
+        metadata.setdefault("full_name",first+" "+last);metadata.setdefault("fictional_person",True)
+        metadata.setdefault("designation",metadata.get("duty",role).replace('_',' '))
+        metadata.setdefault("team",{"RQ":"Blue","SQ":"Green","TQ":"Orange"}.get(metadata.get("company"),"Cyan"))
+        metadata.setdefault("tak_groups",["sim-"+metadata.get("company","vq").lower()])
+        if metadata.get("group"):
+            metadata["tak_groups"].append("sim-"+(metadata["group"]+metadata.get("company","")).lower())
         return {"callsign":"SIM-"+callsign,"position":position,"role":role,"platform":"person",
                 "readiness":"ready","metadata":{"simulation":True,"language":"en","local_callsign":local,
                     "global_callsign":callsign,"callsign_policy":"FALFAL",**metadata}}
