@@ -58,3 +58,50 @@ class MumbleSocketTest(unittest.IsolatedAsyncioTestCase):
             if link:link.cancel();await asyncio.gather(link.task,return_exceptions=True)
             listener.close();await listener.wait_closed()
             await asyncio.gather(*handlers,return_exceptions=True)
+
+
+class XmppCallbackTest(unittest.IsolatedAsyncioTestCase):
+    async def test_joined_rooms_and_incoming_messages_remain_recipient_scoped(self):
+        import sys
+        import xml.etree.ElementTree as ET
+        from takctl.simulation.transports import Xmpp
+        class Client:
+            def __init__(self,jid,password):
+                self.handlers={};self.disconnected=asyncio.get_running_loop().create_future()
+                self.joined=[];self.sent=[];self.plugin={'xep_0045':self}
+            def register_plugin(self,*args):pass
+            def add_event_handler(self,name,handler):self.handlers[name]=handler
+            def send_presence(self):pass
+            async def join_muc_wait(self,room,nick,**kwargs):self.joined.append((room,nick,kwargs))
+            async def connect(self,**kwargs):await self.handlers['session_start'](None)
+            def disconnect(self,**kwargs):
+                if not self.disconnected.done():self.disconnected.set_result(None)
+            def send_message(self,**kwargs):self.sent.append(kwargs)
+        class Msg(dict):pass
+        class Jid:
+            bare='group@conference.example.test'
+            def __str__(self):return self.bare+'/SIM-TWO'
+        with tempfile.TemporaryDirectory() as folder:
+            password=Path(folder)/'password';password.write_text('fixture-only')
+            identity={'username':'sim-one','password_file':str(password),'cert_file':'unused','key_file':'unused','xmpp_rooms':['group@conference.example.test']}
+            receive=Mock(return_value={'seq':1})
+            daemon=SimpleNamespace(config={'identities':[identity],'xmpp':{'domain':'example.test'}},handshakes=asyncio.Semaphore(4),perception=SimpleNamespace(receive=receive))
+            link=None
+            try:
+                with patch.dict(sys.modules,{'slixmpp':SimpleNamespace(ClientXMPP=Client)}),patch('takctl.simulation.transports.ssl.create_default_context',return_value=Mock()):
+                    link=Xmpp(daemon,{'id':'one','uid':'sim:one','callsign':'SIM-ONE','identity_slot':0})
+                    for _ in range(100):
+                        if link.info.get('rooms'):break
+                        await asyncio.sleep(.001)
+                    self.assertEqual(link.info['rooms'],identity['xmpp_rooms'])
+                    self.assertEqual(link.client.joined[0][2]['maxstanzas'],0)
+                    msg=Msg(type='groupchat',body='Exercise message',id='stanza-one');msg['from']=Jid();msg.xml=ET.Element('message')
+                    await link.client.handlers['message'](msg)
+                    self.assertEqual(receive.call_args.args[2],['sim:one'])
+                    ET.SubElement(msg.xml,'{urn:xmpp:delay}delay')
+                    await link.client.handlers['message'](msg)
+                    self.assertEqual(receive.call_count,1)
+                    self.assertTrue(await link.send_chat(identity['xmpp_rooms'][0],'Exercise reply'))
+                    self.assertEqual(link.client.sent[0]['mtype'],'groupchat')
+            finally:
+                if link:link.cancel();await asyncio.gather(link.task,return_exceptions=True)
