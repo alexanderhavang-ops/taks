@@ -14,7 +14,9 @@ class SimulationRuntime:
     def apply(self, ctx):
         # The unit bootstrap is authoritative even when older runtime config
         # has been restored from the previous cow.
-        conf = Path("/etc/taks-bootstrap.d/config.d/simulation.conf")
+        source = Path(ctx.repo_root)
+        bundled = source.parent / "install/taks-bootstrap/config.d/simulation.conf"
+        conf = bundled if bundled.is_file() else Path("/etc/taks-bootstrap.d/config.d/simulation.conf")
         values = {}
         if conf.exists():
             for line in conf.read_text().splitlines():
@@ -24,7 +26,6 @@ class SimulationRuntime:
         if values.get("simulation_enabled", "false").lower() != "true":
             print("simulation-runtime: disabled for this unit")
             return 0
-        source = Path(ctx.repo_root)
         commit = (source / "simulation-source-commit").read_text().strip()
         subprocess.run([sys.executable, str(source / "tools/deploy-simulation-mvp.py"),
                         "--commit", commit, "--source-root", str(source),

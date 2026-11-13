@@ -82,6 +82,25 @@ def kv(path):
     return out
 
 
+def selected_identity_capacity(source_root, requested=None, runtime_config=Path("/etc/taks-bootstrap.d/config.d/simulation.conf")):
+    # Restore can replace /etc bootstrap fragments with an older cow's values.
+    # Select the same immutable bundle that supplied the code and exercise seed.
+    bundled = Path(source_root).resolve().parent / "install/taks-bootstrap/config.d/simulation.conf" if source_root else None
+    if bundled and bundled.is_file():
+        value = kv(bundled).get("simulation_identity_capacity")
+        if value is not None:
+            capacity = int(value)
+            origin = "bundle"
+        else:
+            raise ValueError("Selected simulation bundle lacks identity capacity")
+    else:
+        capacity = requested if requested is not None else int(kv(runtime_config).get("simulation_identity_capacity", "8"))
+        origin = "argument" if requested is not None else "runtime/default"
+    if type(capacity) is not int or not 1 <= capacity <= 1024:
+        raise ValueError("Simulation identity capacity must be 1..1024")
+    return capacity, origin
+
+
 def install_identity(index, config, secret, group, writer=None):
     name = f"sim-mvp-{index+1:02d}"
     dst = ROOT / "identity" / name
@@ -127,9 +146,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--commit", required=True)
     parser.add_argument("--source-root")
-    parser.add_argument("--identities", type=int, default=8)
+    parser.add_argument("--identities", type=int)
     args = parser.parse_args()
-    if os.geteuid() != 0 or not re.fullmatch(r"[0-9a-f]{40}", args.commit) or not 1 <= args.identities <= 1024:
+    args.identities, capacity_source = selected_identity_capacity(args.source_root, args.identities)
+    if os.geteuid() != 0 or not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         raise ValueError("Root, pinned commit and 1..1024 identities required")
     sys.path[:0] = [str(BASE), "/opt/tak/tools/martine"]
     ROOT.mkdir(exist_ok=True)
@@ -193,7 +213,7 @@ def main():
             def report(stage, count):
                 temp_progress=progress.with_suffix(".tmp")
                 temp_progress.write_text(json.dumps({"ok":True,"stage":stage,"completed_identities":count,
-                    "identity_capacity":args.identities,"source_commit":args.commit}))
+                    "identity_capacity":args.identities,"capacity_source":capacity_source,"source_commit":args.commit}))
                 shutil.chown(temp_progress,user="root",group="tak"); temp_progress.chmod(0o640)
                 os.replace(temp_progress,progress)
             report("issuing_identities",0)
