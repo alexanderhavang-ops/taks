@@ -7,7 +7,7 @@ provisioning happens during the node build; it does not create resident
 per-person Python processes.
 
 `simulation_identity_capacity` in the unit's simulation bootstrap fragment
-sets the next node's pool, from 1 to 1024. Pools above 64 use a 512MiB daemon
+sets the next node's pool, from 1 to 1024. Pools above 64 use a 1024MiB daemon
 memory ceiling. That ceiling is a guard, not a statement of actual memory use.
 The existing four-identity exercise used roughly 27MiB. Measure the target
 server after phased activation before making a production capacity claim.
