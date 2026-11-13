@@ -23,6 +23,7 @@ NODE = "taklabs.aws.tak-hv-sandbox.se"
 SEED_PATH = Path("/opt/tak-orch/state/units/taklabs/files/misc/simulation-state.json")
 OVERLAYS = (
     "takctl/takctl/simulation/__init__.py", "takctl/takctl/simulation/model.py",
+    "takctl/takctl/simulation/background.py", "takctl/takctl/simulation/transports.py",
     "takctl/takctl/simulation/daemon.py", "takctl/takctl/web/mcp_domains/simulation_tools.py",
     "takctl/takctl/simulation/orbat.py", "takctl/takctl/simulation/perception.py",
     "takctl/takctl/web/mcp_domains/map_context.py",

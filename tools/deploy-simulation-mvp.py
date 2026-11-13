@@ -31,6 +31,7 @@ FILES = (
     "takctl/takctl/simulation/__init__.py",
     "takctl/takctl/simulation/model.py",
     "takctl/takctl/simulation/daemon.py",
+    "takctl/takctl/simulation/background.py", "takctl/takctl/simulation/transports.py",
     "takctl/takctl/simulation/orbat.py", "takctl/takctl/simulation/perception.py",
     "takctl/takctl/web/mcp_domains/simulation_tools.py",
     "takctl/takctl/web/mcp_domains/map_context.py",
@@ -41,7 +42,7 @@ FILES = (
 )
 HOOK = '''\n# TAKS explicit simulation and reference retrieval extension.\nimport sys as _sim_sys\nfrom takctl.web.mcp_domains.simulation_tools import install as _install_simulation\n_install_simulation(_sim_sys.modules[__name__])\n'''
 UNIT = '''[Unit]
-Description=TAKS explicit simulation daemon (one asynchronous process)
+Description=TAKS SimKeeper (one asynchronous process)
 After=network-online.target takserver.service
 Wants=network-online.target
 
@@ -135,7 +136,7 @@ def simulation_memory_budget(capacity, host_memory_mib):
     return budget
 
 
-def install_identity(index, config, secret, group, writer=None, profile=None):
+def install_identity(index, config, secret, group, writer=None, profile=None, actor=None):
     name = f"sim-mvp-{index+1:02d}"
     dst = ROOT / "identity" / name
     dst.mkdir(parents=True, exist_ok=True)
@@ -166,15 +167,33 @@ def install_identity(index, config, secret, group, writer=None, profile=None):
         from takctl.services.backing_user_store import build_backing_user_store
         writer = build_backing_user_store()
     # Dedicated non-admin accounts only. Never change real personnel.
-    profile=profile or {}
-    writer.ensure_user(name, password=secrets.token_urlsafe(24), admin=False,
+    profile={"unit":group, **(profile or {})}
+    password_file=dst/'xmpp.password'
+    password=password_file.read_text().strip() if password_file.is_file() else secrets.token_urlsafe(32)
+    password_file.write_text(password+'\n')
+    writer.ensure_user(name, password=password, admin=False,
                        groups=[group]+list(profile.get("tak_groups",[])), certificate_path=str(pem),ctx=profile)
+    from takctl.onboarding.xmpp_bookmarks import derive_user_bookmarks
+    from takctl.onboarding.channels import build_selection_channels
+    channels=build_selection_channels(profile)
+    selection={"ctx":profile,"channels":channels['selected']}
+    bookmarks=derive_user_bookmarks(username=name,selection=selection,identity={"callsign":(actor or {}).get('callsign',name)},domain=config.get('node_fqdn') or config.get('fqdn') or group)
+    if not actor: raise ValueError('Communications require a selected exercise actor for each identity')
+    voice_cert,voice_key=dst/'voice.pem',dst/'voice.key'
+    # Match TAKS VX semantics: the voice certificate CN is the live CoT UID.
+    voice_uid=dst/'voice.uid'
+    if not voice_cert.exists() or not voice_key.exists() or not voice_uid.exists() or voice_uid.read_text()!=actor['uid']:
+        run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','3650',
+             '-subj','/CN='+actor['uid'],'-keyout',str(voice_key),'-out',str(voice_cert)])
+        voice_uid.write_text(actor['uid'])
     for p in dst.iterdir():
         shutil.chown(p, user="root", group="tak")
         p.chmod(0o640)
     shutil.chown(dst, user="root", group="tak")
     dst.chmod(0o750)
-    return {"username": name, "cert_file": str(dst / "client.pem"), "key_file": str(dst / "client.key")}
+    return {"username": name, "cert_file": str(dst / "client.pem"), "key_file": str(dst / "client.key"),
+            "password_file":str(password_file),"xmpp_rooms":[r['jid'] for r in bookmarks['conferences']],
+            "voice_cert_file":str(voice_cert),"voice_key_file":str(voice_key),"voice_channels":channels['selected']}
 
 
 def main():
@@ -247,6 +266,7 @@ def main():
                 fqdn = config.get("node_fqdn", "") or config.get("fqdn", "")
             if not fqdn:
                 raise RuntimeError("Node FQDN unavailable")
+            config={**config,"node_fqdn":fqdn}
             progress = ROOT / "provisioning.json"
             def report(stage, count):
                 temp_progress=progress.with_suffix(".tmp")
@@ -259,14 +279,16 @@ def main():
             fingerprints = set()
             selected_seed = Path(args.source_root).parent / "misc/simulation-state.json" if args.source_root else None
             profiles = {}
+            actors = {}
             if selected_seed and selected_seed.is_file():
                 if selected_seed.stat().st_size>1048576: raise ValueError("Exercise seed too large")
                 selected_state=json.loads(selected_seed.read_text())
-                profiles={e["identity_slot"]:e.get("metadata",{}) for u in selected_state.get("units",{}).values() for e in u["entities"]}
+                actors={e["identity_slot"]:e for u in selected_state.get("units",{}).values() for e in u["entities"]}
+                profiles={slot:e.get("metadata",{}) for slot,e in actors.items()}
             from takctl.services.backing_user_store import build_backing_user_store
             writer = build_backing_user_store()
             for i in range(args.identities):
-                identity = install_identity(i, config, secret, group,writer,profiles.get(i))
+                identity = install_identity(i, config, secret, group,writer,profiles.get(i),actors.get(i))
                 pem = Path(identity["cert_file"]).read_text()
                 leaf = re.search(r"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----",pem,re.S)
                 if leaf is None: raise ValueError("Client certificate missing")
@@ -287,7 +309,12 @@ def main():
             conf = {"host": "127.0.0.1", "port": 8089, "server_name": fqdn,
                     "server_sha256": pin, "ca_file": str(ROOT / "ca.pem"),
                     "socket": str(ROOT / "control.sock"), "state_file": str(ROOT / "state.json"),
-                    "tick_seconds": 10, "identities": identities, "source_commit": args.commit}
+                    "tick_seconds": 10, "identities": identities, "source_commit": args.commit,
+                    "xmpp":{"enabled":True,"host":"127.0.0.1","port":5223,"domain":fqdn,"ca_file":str(ROOT/'ca.pem')},
+                    "mumble":{"enabled":True,"host":"127.0.0.1","port":64738,"server_name":fqdn},
+                    "audio_root":str(ROOT/'audio')}
+            (ROOT/"audio").mkdir(exist_ok=True)
+            shutil.chown(ROOT/"audio",user="root",group="tak");(ROOT/"audio").chmod(0o750)
             cfgfile = ROOT / "config.json"
             if cfgfile.exists():
                 shutil.copy2(cfgfile, backup / "config.json")

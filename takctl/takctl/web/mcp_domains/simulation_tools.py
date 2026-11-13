@@ -10,7 +10,7 @@ import subprocess
 
 SOCKET = "/opt/tak/simulation/control.sock"
 DOC_ROOT = Path("/opt/tak/tools/takctl/state/docs")
-CONTROL_OPS = ("create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel", "knowledge_put")
+CONTROL_OPS = ("create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel", "knowledge_put", "background_put", "background_pause", "background_resume", "background_remove", "xmpp_chat", "mumble_channel", "mumble_ptt")
 DOC_TOOLS = {
     "list_reference_docs": ({"only_active": {"type": "boolean"}}, []),
     "search_reference_docs": ({"query": {"type": "string"}, "limit": {"type": "integer"}, "doc_id": {"type": "string"}}, ["query"]),

@@ -264,6 +264,7 @@ class Daemon:
         self.wakeup = asyncio.Event()
         self.handshakes = asyncio.Semaphore(4)
         self.sessions = {}
+        self.links = {}
         self.observed = {}
         self.inbox = {}
         self.known_uids = set()
@@ -308,6 +309,15 @@ class Daemon:
         return changed
 
     def reconcile(self):
+        from .transports import Xmpp, Mumble
+        wanted_links={}
+        for e in self.world.entities():
+            for kind,cls in (('xmpp',Xmpp),('mumble',Mumble)):
+                if self.config.get(kind,{}).get('enabled'):
+                    key=(e['id'],kind);wanted_links[key]=e
+                    if key not in self.links:self.links[key]=cls(self,e)
+                    self.links[key].entity=e
+        for key in list(self.links.keys()-wanted_links.keys()):self.links.pop(key).cancel()
         wanted = {e["identity_slot"] for e in self.world.entities()}
         self.known_uids = {e["uid"] for e in self.world.entities()}
         active = {u["id"] for u in self.world.state["units"].values() if u["active"]}
@@ -412,9 +422,9 @@ class Daemon:
                 return {"ok": True, "orbat": copy.deepcopy(self.world.state.get("orbat", {}))}
             if op == "capabilities":
                 if args: raise ValueError("Capabilities takes no arguments")
-                return {"ok": True, "version": "MVP2", "identity_capacity": self.world.capacity,
+                return {"ok": True, "version": "MVP3", "name":"TAKS SimKeeper", "identity_capacity": self.world.capacity,
                         "tick_seconds": self.config.get("tick_seconds", 10), "daemon_inference": False,
-                        "operations": ["create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel"],
+                        "operations": ["create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel", "background_put", "background_pause", "background_resume", "background_remove", "xmpp_chat", "mumble_channel", "mumble_ptt"],
                         "limits": {"batch_commands": 32, "path_destinations": 100, "scheduled_actions": 64, "markers": 128, "persistent_custom_cot": 16},
                         "read_pagination": "status accepts entity_offset (default 0) and entity_limit (default 64, max 128); units contain selected entities plus entity_count. view=orbat reads hierarchy and local/global aliases",
                         "write_contract": "All writes require a unique request_id and matching expected_revision. Unit operations also require unit_id. batch children omit request/revision",
@@ -424,6 +434,10 @@ class Daemon:
                             "unit_patch": "tak_unit_ref?,metadata?", "batch": "commands:[{operation,arguments}] (state only)",
                             "marker_put": "marker_id,callsign,position,cot_type?,remarks?", "marker_remove": "marker_id",
                             "cot_send": "entity_id,xml,persist? (UID taks-custom:UNIT:NAME)", "cot_remove": "cot_uid",
+                            "background_put":"entity_id,waypoints:[{position:{lat,lon},travel_s,wait_s}],repeat?,delay_s?; <=64 waypoints, repeated routes must close; install while inactive allowed",
+                            "background_pause/resume/remove":"entity_id; explicit movement/stop/injury suspends background; replace route after foreground relocation",
+                            "xmpp_chat":"entity_id,target (provisioned account JID or joined room JID),message",
+                            "mumble_channel":"entity_id,channel (provisioned channel name)", "mumble_ptt":"entity_id,clip_id (prepared mono PCM16/48kHz WAV, <=10s); queued on shared event loop",
                             "chat": "message,entity_id?,target_uid?,target_callsign?", "pause/resume": "no unit_id; connections stay live",
                             "schedule_put": "schedule_id,delay_s,operation,arguments (explicit unit-scoped action; no request/revision in child)",
                             "schedule_cancel": "schedule_id"},
@@ -458,6 +472,8 @@ class Daemon:
                                 "active_entities":len(self.world.entities()),"active_units":sum(bool(u["active"]) for u in units.values()),
                                 "connected_sessions":sum(bool(s.info["connected"]) for s in self.sessions.values())},
                     "sessions": [dict(s.info) for s in self.sessions.values()],
+                    "communications":[dict(s.info) for s in self.links.values()],
+                    "communication_config":{"xmpp_enabled":bool(self.config.get('xmpp',{}).get('enabled')), "mumble_enabled":bool(self.config.get('mumble',{}).get('enabled'))},
                     "observed_via_tak": dict(self.observed),
                     "inbox": list(self.inbox.values()),
                     "events": [e for e in self.world.state["events"] if e["revision"] > since],
@@ -470,8 +486,29 @@ class Daemon:
                                 "async_tasks": len(asyncio.all_tasks()), "processes": 1, "receive_frames":dict(self.frame_counts)},
                     "uptime_s": round(time.monotonic()-self.started), "tick_seconds": self.config.get("tick_seconds", 10),
                     "transport": "per-identity mTLS", "execution": "explicit actions; no inference"}
+            frames=None
+            if op in ('xmpp_chat','mumble_channel','mumble_ptt') and not (isinstance(args.get('request_id'),str) and args['request_id'] in self.world.state['requests']):
+                entity=self.actor_entity(args.get('entity_id'));identity=self.config['identities'][entity['identity_slot']]
+                kind='xmpp' if op=='xmpp_chat' else 'mumble'
+                if not self.config.get(kind,{}).get('enabled'):raise ValueError(kind+' disabled')
+                if op=='xmpp_chat':
+                    targets=set(identity.get('xmpp_rooms',[])) | {i['username']+'@'+self.config['xmpp']['domain'] for i in self.config['identities']}
+                    if args.get('target') not in targets:raise ValueError('Target must be a provisioned actor or selected room')
+                elif op=='mumble_channel':
+                    if args.get('channel') not in identity.get('voice_channels',[]):raise ValueError('Channel not selected for this actor')
+                else:
+                    import re
+                    from .transports import opus_clip
+                    clip=args.get('clip_id','')
+                    if not isinstance(clip,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',clip):raise ValueError('Invalid clip_id')
+                    path=Path(self.config.get('audio_root','/opt/tak/simulation/audio'))/(clip+'.wav')
+                    if path.is_symlink() or not path.is_file():raise ValueError('Prepared audio clip not found')
+                    link=self.links.get((entity['id'],'mumble'))
+                    if not link or not link.info['connected']:raise ValueError('Mumble actor not connected')
+                    if link.ptt_task and not link.ptt_task.done():raise ValueError('Actor already transmitting')
+                    frames=await asyncio.to_thread(opus_clip,path)
             result = self.world.apply(op, args)
-            if op in ("chat", "cot_send") and not result.get("duplicate"):
+            if op in ("chat", "cot_send", "xmpp_chat", "mumble_channel", "mumble_ptt") and not result.get("duplicate"):
                 # Persist the intent before touching the network. A retry never
                 # sends it again. A crash can leave delivery unknown, not duplicated.
                 result["delivery"] = "attempt_pending"
@@ -479,6 +516,16 @@ class Daemon:
             await self.save()
             self.reconcile()
             self.wakeup.set()
+            if op in ('xmpp_chat','mumble_channel','mumble_ptt') and not result.get('duplicate'):
+                kind='xmpp' if op=='xmpp_chat' else 'mumble'
+                link=self.links.get((result['entity_id'],kind));sent=False
+                if link:
+                    if op=='xmpp_chat':sent=await link.send_chat(result['target'],result['message'])
+                    elif op=='mumble_channel':sent=await link.channel(result['channel'])
+                    else:link.ptt_task=asyncio.create_task(link.ptt(frames));sent=True
+                result['delivery']=('queued' if op=='mumble_ptt' else 'submitted') if sent else 'not_written_or_unknown'
+                self.world.state['requests'][args['request_id']]['result']=dict(result)
+                await self.save()
             if op in ("chat", "cot_send") and not result.get("duplicate"):
                 entity = next(e for e in self.world.entities() if e["id"] == result["entity_id"])
                 session = self.sessions.get(entity["identity_slot"])
@@ -536,6 +583,9 @@ class Daemon:
             waiter.cancel()
             ticker.cancel()
             await asyncio.gather(ticker, return_exceptions=True)
+            for link in self.links.values():link.cancel()
+            await asyncio.gather(*(s.task for s in self.links.values()),return_exceptions=True)
+            await asyncio.gather(*(s.ptt_task for s in self.links.values() if s.ptt_task),return_exceptions=True)
             for session in self.sessions.values():
                 session.task.cancel()
             await asyncio.gather(*(s.task for s in self.sessions.values()), return_exceptions=True)

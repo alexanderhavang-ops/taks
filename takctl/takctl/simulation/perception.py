@@ -26,7 +26,10 @@ class PerceptionStore:
         if len(recipients)>1024 or any(not isinstance(r,str) or len(r)>256 for r in recipients):raise ValueError('Invalid recipients')
         with self.lock,self.db:
             row=self.db.execute('SELECT seq FROM messages WHERE event_uid=?',(event_uid,)).fetchone()
-            if row:return {'seq':row[0],'duplicate':True}
+            if row:
+                # XMPP/Mumble callbacks arrive once per actual recipient socket.
+                self.db.executemany('INSERT OR IGNORE INTO deliveries VALUES(?,?)',((row[0],r) for r in recipients))
+                return {'seq':row[0],'duplicate':True}
             cursor=self.db.execute('INSERT INTO messages(event_uid,sender_uid,body,channel,received_at) VALUES(?,?,?,?,?)',(event_uid,sender_uid,body,channel,time.time()))
             seq=cursor.lastrowid
             self.db.executemany('INSERT INTO deliveries VALUES(?,?)',((seq,r) for r in recipients))

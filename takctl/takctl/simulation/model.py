@@ -171,12 +171,14 @@ class World:
         if self.state["paused"]: return False
         seconds = max(0, seconds)
         self.state["clock_s"] += seconds
+        from .background import advance as ambient_advance
         changed = False
         for u in self.state["units"].values():
             if not u["active"]:
                 continue
             individual = False
             for e in u["entities"]:
+                if ambient_advance(e, seconds): individual = changed = True
                 move = e.get("move")
                 if move:
                     e["position"], finished = advance_path(move, seconds)
@@ -252,7 +254,7 @@ class World:
             for command in commands:
                 if not isinstance(command, dict) or set(command) != {"operation", "arguments"}:
                     raise ValueError("Invalid batch command")
-                if command["operation"] in ("batch", "chat", "cot_send", "pause", "resume", "schedule_put", "schedule_cancel"):
+                if command["operation"] in ("batch", "chat", "cot_send", "xmpp_chat", "mumble_channel", "mumble_ptt", "pause", "resume", "schedule_put", "schedule_cancel"):
                     raise ValueError("Network sends and nested batches are not allowed inside a state batch")
                 if not isinstance(command["arguments"], dict) or {"request_id", "expected_revision"} & set(command["arguments"]):
                     raise ValueError("Batch children must not have request/revision fields")
@@ -264,6 +266,10 @@ class World:
                    "chat": {"message", "entity_id", "target_uid", "target_callsign"}, "activate": set(),
                    "entity_move": {"entity_id", "path", "duration_s"},
                    "entity_stop": {"entity_id"},
+                   "background_put": {"entity_id", "waypoints", "repeat", "delay_s"},
+                   "background_pause": {"entity_id"}, "background_resume": {"entity_id"}, "background_remove": {"entity_id"},
+                   "xmpp_chat": {"entity_id", "target", "message"},
+                   "mumble_channel": {"entity_id", "channel"}, "mumble_ptt": {"entity_id", "clip_id"},
                    "entity_patch": {"entity_id", "health_state", "remarks", "cot_type", "callsign", "role", "readiness", "group_id", "vehicle_id", "platform", "metadata"},
                    "unit_patch": {"metadata", "tak_unit_ref"},
                    "schedule_put": {"schedule_id", "delay_s", "operation", "arguments"},
@@ -328,8 +334,39 @@ class World:
             unit["active"] = True
             self.event("unit_activated", unit_id=uid)
             return {"unit_id":uid,"active":True,"entity_count":len(slots)}
+        if op.startswith("background_"):
+            from .background import policy, suspend
+            if not unit: raise ValueError("Unit not found")
+            entity = next((e for e in unit['entities'] if e['id']==a.get('entity_id')),None)
+            if entity is None: raise ValueError('Entity not found')
+            if op == 'background_put':
+                if unit.get('move') or entity.get('move'): raise ValueError('Stop foreground movement first')
+                entity['background'] = policy(entity['position'],a)
+            elif op == 'background_remove': entity.pop('background',None)
+            elif op == 'background_pause': suspend(entity)
+            else:
+                p=entity.get('background')
+                if not p or p['phase']=='completed': raise ValueError('Install a new route after completion')
+                if unit.get('move') or entity.get('move') or entity.get('health_state','fit')!='fit': raise ValueError('Actor must be fit and free of foreground movement')
+                # Resuming at a different position would teleport. Install a new route instead.
+                from .background import advance as ambient_advance
+                probe=copy.deepcopy(entity);probe['background']['enabled']=True;ambient_advance(probe,0)
+                if distance(probe['position'],entity['position'])>.1: raise ValueError('Actor moved; replace background route from current position')
+                p['enabled']=True
+            self.event('background_updated',unit_id=uid,entity_id=entity['id'])
+            return {'entity_id':entity['id'],'background':copy.deepcopy(entity.get('background'))}
         if not unit or not unit["active"]:
             raise ValueError("Active unit not found")
+        if op in ('xmpp_chat','mumble_channel','mumble_ptt'):
+            entity=next((e for e in unit['entities'] if e['id']==a.get('entity_id')),None)
+            if entity is None: raise ValueError('Entity not found')
+            field='message' if op=='xmpp_chat' else 'channel' if op=='mumble_channel' else 'clip_id'
+            value=a.get(field)
+            if not isinstance(value,str) or not value.strip() or len(value)>(1000 if field=='message' else 160): raise ValueError('Invalid '+field)
+            if op=='xmpp_chat' and (not isinstance(a.get('target'),str) or not 1<=len(a['target'])<=256): raise ValueError('XMPP target required')
+            if op=='mumble_channel': entity['voice_channel']=value
+            self.event(op+'_requested',unit_id=uid,entity_id=entity['id'])
+            return {'entity_id':entity['id'],'delivery':'pending',**{k:a[k] for k in ('message','target','channel','clip_id') if k in a}}
         if op == "unit_patch":
             if "tak_unit_ref" in a:
                 if not isinstance(a["tak_unit_ref"], str) or len(a["tak_unit_ref"]) > 128: raise ValueError("Invalid TAKS ORBAT reference")
@@ -398,6 +435,9 @@ class World:
             entity = next((e for e in unit["entities"] if e["id"] == a.get("entity_id")), None)
             if entity is None:
                 raise ValueError("Entity not found")
+            if op in ("entity_move", "entity_stop") or (op=="entity_patch" and a.get("health_state","fit")!="fit"):
+                from .background import suspend
+                suspend(entity)
             if op == "entity_move":
                 if unit.get("move"):
                     raise ValueError("Stop the unit move before individual movement")
@@ -442,6 +482,8 @@ class World:
         if op == "move":
             if any(e.get("move") for e in unit["entities"]):
                 raise ValueError("Stop individual movement before a unit move")
+            from .background import suspend
+            for e in unit["entities"]: suspend(e)
             path = a.get("path")
             if not isinstance(path, list) or not 1 <= len(path) <= 100:
                 raise ValueError("path must contain 1..100 destination waypoints")
@@ -461,7 +503,10 @@ class World:
             return {"unit_id": uid, "action_id": action, "distance_m": round(length, 1), "duration_s": duration}
         if op in ("stop", "deactivate"):
             unit["move"] = None
-            for e in unit["entities"]: e["move"] = None
+            from .background import suspend
+            for e in unit["entities"]:
+                e["move"] = None
+                suspend(e)
             if op == "deactivate":
                 unit["active"] = False
             self.event("movement_stopped" if op == "stop" else "unit_deactivated", unit_id=uid)
