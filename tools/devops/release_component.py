@@ -235,6 +235,9 @@ def dispatch_release(command):
             return call("POST", "/api/v2/nodes/"+NODE+"/mcp/devops", {
                 "jsonrpc":"2.0", "id":1, "method":"tools/call", "params": {
                     "name":"service_logs", "arguments":{"service":"takctl-web.service","lines":80}}})
+        if op == "resources" and p[2:] == [UNIT]:
+            return call("POST", "/api/v2/nodes/"+NODE+"/mcp/devops", {
+                "jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"host_resources","arguments":{}}})
         if op == "map-probe" and p[2:] == [UNIT]:
             return submit(("map-probe",UNIT),map_upstream_probe)
         if op == "map-bbox" and p[2:] == [UNIT]:

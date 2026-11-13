@@ -65,6 +65,14 @@ class ReleaseBoundaryTests(unittest.TestCase):
             self.assertFalse(result["running_node_changed"])
             self.assertIn("simulation_identity_capacity = 520",fragment.read_text())
 
+    def test_node_resources_is_fixed_and_read_only(self):
+        self.assertFalse(self.m.dispatch_release("taks-release resources other")["ok"])
+        self.m.call.assert_not_called()
+        self.m.dispatch_release("taks-release resources taklabs")
+        args=self.m.call.call_args.args
+        self.assertEqual(args[1],"/api/v2/nodes/taklabs.aws.tak-hv-sandbox.se/mcp/devops")
+        self.assertEqual(args[2]["params"],{"name":"host_resources","arguments":{}})
+
     def test_bundle_rejects_seed_beyond_its_certificate_capacity(self):
         with tempfile.TemporaryDirectory() as tmp:
             archive=Path(tmp)/"bundle.tar.gz";seed=Path(tmp)/"seed.json"
