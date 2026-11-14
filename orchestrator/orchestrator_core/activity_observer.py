@@ -12,7 +12,7 @@ import ssl
 import tarfile
 import time
 import xml.etree.ElementTree as ET
-from .activity import store,instance_id
+from .activity import store,instance_id,assessment
 
 
 class Frames:
@@ -140,8 +140,14 @@ def external_activity(record):
     return evidence
 
 
+_OBSERVERS={}
+_LOOP=None
+
+
 async def observe(record):
     node=record['node_id'];instance=instance_id(record);writer=None;failure=None
+    state={'instance':instance,'wake':asyncio.Event(),'sampled':asyncio.Event(),'generation':0,'sampling':False}
+    _OBSERVERS[node]=state
     ledger=store();ledger.connection(node,instance,False,'Preparing observer identity')
     try:
         context,pin,host,username,password=await asyncio.to_thread(prepare,record)
@@ -151,20 +157,18 @@ async def observe(record):
         sock=writer.get_extra_info('socket');sock.setsockopt(socket.SOL_SOCKET,socket.SO_KEEPALIVE,1)
         if hasattr(socket,'TCP_KEEPIDLE'):sock.setsockopt(socket.IPPROTO_TCP,socket.TCP_KEEPIDLE,30)
         ledger.connection(node,instance,True)
-        frames=Frames();count=0;baseline=None;previous_count=0;bots=set();next_sample=0;external_last=0
+        frames=Frames();count=0;baseline=None;previous_count=0;bots=set();next_sample=0
         pending=asyncio.create_task(reader.read(16384))
         try:
             while True:
+                if state['wake'].is_set():state['wake'].clear();next_sample=0
                 now=time.monotonic()
                 if now>=next_sample:
+                    state['sampling']=True
                     sample,bots=await asyncio.to_thread(metrics,host,username,password)
                     try:
                         external=await asyncio.to_thread(external_activity,record)
-                        ledger.component('node_external:'+node,external['epoch'])
-                        last=float(external.get('last_human_event') or 0)
-                        if last>external_last:
-                            ledger.observed(node,instance,'activity','Direct XMPP/voice/agent interaction')
-                            external_last=last
+                        ledger.external(node,instance,external)
                     except Exception:ledger.invalidate_component('node_external:'+node)
 
                     # Catch data already received while the HTTPS request was in flight.
@@ -173,7 +177,8 @@ async def observe(record):
                         if not data:raise ConnectionError('TAK stream closed')
                         for element in frames.feed(data):
                             if classify(element,bots)=='control':continue
-                            count+=1;ledger.observed(node,instance,classify(element,bots),element.get('type','')+':'+element.get('uid','')[:100])
+                            count+=1
+                            if baseline is not None:ledger.observed(node,instance,classify(element,bots),element.get('type','')+':'+element.get('uid','')[:100])
                         pending=asyncio.create_task(reader.read(16384))
                     if baseline is not None:
                         same=sample[0]==baseline[0] and sample[1].keys()==baseline[1].keys()
@@ -181,8 +186,12 @@ async def observe(record):
                         matched=same and all(d>=0 for d in deltas) and sum(deltas)==count-previous_count
                         ledger.verified(node,instance,matched,'Input delta '+str(sum(deltas))+' versus observed '+str(count-previous_count))
                     baseline=sample;previous_count=count;next_sample=time.monotonic()+30
-                done,_=await asyncio.wait((pending,),timeout=max(.01,next_sample-time.monotonic()))
-                if done:
+                    state['sampling']=False;state['generation']+=1;state['sampled'].set()
+                wake=asyncio.create_task(state['wake'].wait())
+                try:done,_=await asyncio.wait((pending,wake),timeout=max(.01,next_sample-time.monotonic()))
+                finally:
+                    wake.cancel();await asyncio.gather(wake,return_exceptions=True)
+                if pending in done:
                     data=pending.result()
                     if not data:raise ConnectionError('TAK stream closed')
                     for element in frames.feed(data):
@@ -197,6 +206,7 @@ async def observe(record):
         ledger.connection(node,instance,False,failure)
         await asyncio.sleep(15)
     finally:
+        if _OBSERVERS.get(node) is state:_OBSERVERS.pop(node,None)
         if failure is None:ledger.connection(node,instance,False,'Observer disconnected or restarting')
         if writer:
             writer.close()
@@ -205,6 +215,8 @@ async def observe(record):
 
 
 async def run():
+    global _LOOP
+    _LOOP=asyncio.get_running_loop()
     from .nodes_state import list_nodes
     import uuid
     epoch=uuid.uuid4().hex
@@ -213,7 +225,7 @@ async def run():
         while True:
             store().component('bridge',epoch)
             records=await asyncio.to_thread(list_nodes)
-            wanted={r['node_id']:r for r in records if r.get('node_id') and instance_id(r) and r.get('aws_state')=='running'}
+            wanted={r['node_id']:r for r in records if r.get('node_id') and instance_id(r) and r.get('aws_state')=='running' and r.get('install',{}).get('summary',{}).get('state') in ('succeeded','failed')}
             for node,(instance,task) in list(tasks.items()):
                 if node not in wanted or instance_id(wanted[node])!=instance or task.done():
                     task.cancel();await asyncio.gather(task,return_exceptions=True);del tasks[node]
@@ -223,3 +235,27 @@ async def run():
     finally:
         for _,task in tasks.values():task.cancel()
         await asyncio.gather(*(task for _,task in tasks.values()),return_exceptions=True)
+
+
+async def refresh(node,instance):
+    state=_OBSERVERS.get(node)
+    if not state or state['instance']!=instance:return False
+    goal=state['generation']+(2 if state['sampling'] else 1)
+    state['wake'].set()
+    async def wait():
+        while state['generation']<goal:
+            state['sampled'].clear()
+            await state['sampled'].wait()
+        return True
+    return await asyncio.wait_for(wait(),18)
+
+
+def fresh_assessment(record):
+    if _LOOP is None or not _LOOP.is_running():return {**assessment(record),'eligible_for_idle_shutdown':False,'refresh_completed':False,'reason':'Live activity collector unavailable'}
+    future=asyncio.run_coroutine_threadsafe(refresh(record['node_id'],instance_id(record)),_LOOP)
+    try:completed=future.result(timeout=20)
+    except Exception:
+        future.cancel();completed=False
+    result=assessment(record)
+    if not completed:return {**result,'eligible_for_idle_shutdown':False,'refresh_completed':False,'reason':'Fresh counter and direct-input verification unavailable'}
+    return {**result,'refresh_completed':True}

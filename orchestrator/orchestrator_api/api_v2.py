@@ -661,9 +661,10 @@ def nodes_terminate(node_id: str, request: Request, req: Optional[Dict[str, Any]
     if isinstance(req, dict) and 'expected_instance_id' in req and req['expected_instance_id'] != instance_id:
         raise HTTPException(status_code=409, detail="Node instance identity changed")
 
+    if isinstance(req,dict) and 'require_idle_evidence' in req and type(req['require_idle_evidence']) is not bool:raise HTTPException(status_code=400,detail='Idle evidence flag must be boolean')
     if isinstance(req,dict) and req.get('require_idle_evidence') is True:
-        from orchestrator_core.activity import assessment
-        evidence=assessment({**rec,'instance_id':instance_id,'aws_instance_id':instance_id})
+        from orchestrator_core.activity_observer import fresh_assessment
+        evidence=fresh_assessment({**rec,'instance_id':instance_id,'aws_instance_id':instance_id})
         if not evidence.get('eligible_for_idle_shutdown'):raise HTTPException(status_code=409,detail='Fresh complete idle evidence required')
     term = aws_terminate(instance_id, fqdn=str(rec.get("fqdn") or "").strip())
 

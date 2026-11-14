@@ -34,7 +34,11 @@ rollout starts the updated receiver processes; copying source into an old runnin
 worker is insufficient. Native activity databases are separated by boot ID so
 restoring an older WAL snapshot cannot manufacture coverage for a new node.
 
-The assessment uses the earliest verified end across its sources. Missing, stale,
+The assessment uses the earliest verified end across its sources. A final guarded
+shutdown forces a new counter/direct-input sample and cannot reuse an older
+sample that was already in flight when the request arrived. Initial native
+watermarks and the initial CoT cache are baselines, not invented new user events;
+coverage still starts at collection, never before it. Missing, stale,
 or incomplete source coverage blocks automatic shutdown. Observed idle is useful
 for acceptance testing, but does not bypass the complete four-hour history rule.
 

@@ -2,6 +2,7 @@
 import json
 from pathlib import Path
 import sqlite3
+import re
 import threading
 import time
 
@@ -9,7 +10,7 @@ IDLE_SECONDS=4*3600
 FRESH_SECONDS=90
 MONITOR_TOOLS={'runtime_status','api_surface','takctl_health','marti_diagnostics','product_health',
  'network_capture_start','onboarding_diagnostics','diagnostic_log','diagnostic_file_stat','network_capture_status',
- 'host_identity','host_resources','listening_ports','service_list','service_status','service_logs',
+ 'taks_bundle_prepare_start','host_identity','host_resources','listening_ports','service_list','service_status','service_logs',
  'nginx_check','cert_status','file_stat','installer_tail','java_processes','takserver_logs',
  'takserver_readiness','netstat_listeners','lsof_tak_java','process_sample','memory_read','vmstat_sample'}
 
@@ -37,6 +38,11 @@ class ActivityStore:
         CREATE TABLE IF NOT EXISTS channels(name TEXT PRIMARY KEY,epoch TEXT NOT NULL,since REAL NOT NULL,last REAL NOT NULL);
         CREATE TABLE IF NOT EXISTS audit(seq INTEGER PRIMARY KEY,at REAL,node TEXT,instance TEXT,kind TEXT,label TEXT);
         ''');self.db.commit()
+        columns={r[1] for r in self.db.execute('PRAGMA table_info(nodes)')}
+        for name,kind in (('last_direct','REAL'),('last_external','REAL'),('external_epoch','TEXT')):
+            if name not in columns:self.db.execute('ALTER TABLE nodes ADD COLUMN '+name+' '+kind)
+        self.db.commit()
+
         # Correct the initial collector's server-handshake misclassification.
         # Restart coverage for affected instances; never backdate idle proof.
         with self.lock,self.db:
@@ -44,6 +50,13 @@ class ActivityStore:
             self.db.execute("DELETE FROM audit WHERE kind='activity' AND label LIKE 't-x-takp-v:%'")
             for node,instance,count in affected:
                 self.db.execute("UPDATE nodes SET last_cot=(SELECT MAX(at) FROM audit WHERE node=? AND instance=? AND kind='activity'),observed_frames=MAX(0,observed_frames-?),cot_since=NULL,last_verified=NULL WHERE node=? AND instance=?",(node,instance,count,node,instance))
+
+        # Bundle preparation is an orchestrator-only build, not node usage.
+        with self.lock,self.db:
+            affected=self.db.execute("SELECT DISTINCT node,instance FROM audit WHERE kind='tool' AND label='devops:taks_bundle_prepare_start:'").fetchall()
+            self.db.execute("DELETE FROM audit WHERE kind='tool' AND label='devops:taks_bundle_prepare_start:'")
+            for node,instance in affected:
+                self.db.execute("UPDATE nodes SET last_tool=(SELECT MAX(at) FROM audit WHERE node=? AND instance=? AND kind='tool') WHERE node=? AND instance=?",(node,instance,node,instance))
 
     def close(self):self.db.close()
     def ensure(self,node,instance,now):
@@ -53,7 +66,10 @@ class ActivityStore:
     def note_tool(self,node,instance,domain,name,args,now=None):
         if monitoring(domain,name,args):return False
         now=time.time() if now is None else now
-        label=(domain+':'+name+':'+str(args.get('operation','')))[:160]
+        operation=args.get('operation','')
+        operation=operation if isinstance(operation,str) and re.fullmatch(r'[A-Za-z0-9_]{0,64}',operation) else 'invalid_operation'
+        safe_name=name if isinstance(name,str) and re.fullmatch(r'[A-Za-z0-9_]{1,100}',name) else 'unrecognized_tool'
+        label=(domain+':'+safe_name+':'+operation)[:160]
         with self.lock,self.db:
             self.ensure(node,instance,now)
             self.db.execute('UPDATE nodes SET last_tool=? WHERE node=?',(now,node))
@@ -96,6 +112,22 @@ class ActivityStore:
             self.db.execute('INSERT OR REPLACE INTO channels VALUES(?,?,?,?)',(name,epoch,since,now))
     def invalidate_component(self,name):
         with self.lock,self.db:self.db.execute('DELETE FROM channels WHERE name=?',(name,))
+    def external(self,node,instance,evidence,now=None):
+        import math
+        now=time.time() if now is None else now
+        value=float(evidence.get('last_human_event') or 0);epoch=evidence.get('epoch')
+        if evidence.get('complete') is not True or not isinstance(epoch,str) or not 1<=len(epoch)<=128 or not math.isfinite(value) or value<0:raise ValueError('Incomplete direct-input evidence')
+        with self.lock,self.db:
+            self.ensure(node,instance,now)
+            previous=self.db.execute('SELECT last_external,external_epoch FROM nodes WHERE node=?',(node,)).fetchone()
+            if previous[1]!=epoch:
+                self.db.execute('DELETE FROM channels WHERE name=?',('node_external:'+node,))
+            self.component('node_external:'+node,epoch,now)
+            last=(previous[0] or 0) if previous[1]==epoch else 0
+            if previous[1]==epoch and value>last:
+                self.db.execute('UPDATE nodes SET last_direct=? WHERE node=?',(now,node))
+                self.db.execute('INSERT INTO audit(at,node,instance,kind,label) VALUES(?,?,?,?,?)',(now,node,instance,'direct','XMPP/voice/Martine input'))
+            self.db.execute('UPDATE nodes SET last_external=?,external_epoch=? WHERE node=?',(value,epoch,node))
     def assess(self,node,instance,now=None):
         now=time.time() if now is None else now
         with self.lock:
@@ -117,7 +149,7 @@ class ActivityStore:
             if not channel or not 0<=now-channel[2]<=FRESH_SECONDS:reasons.append(name+' tool audit coverage missing or stale')
             channel_since.append(channel[1] if channel else now)
         since=max(data['tool_since'],data['cot_since'] or now,*channel_since)
-        activity=max(data['last_tool'] or 0,data['last_cot'] or 0,data['last_ambiguous'] or 0)
+        activity=max(data['last_tool'] or 0,data['last_cot'] or 0,data['last_ambiguous'] or 0,data['last_direct'] or 0)
         quiet_since=max(since,activity)
         verified_end=min([data['last_verified'] or 0]+[channels.get(n,('',0,0))[2] for n in ('bridge','devops','node_external:'+node)])
         quiet=max(0,verified_end-quiet_since)
@@ -126,8 +158,10 @@ class ActivityStore:
             'coverage_since':since,'verified_through':verified_end,'quiet_since':quiet_since,
             'verified_quiet_seconds':int(quiet),'eligible_for_idle_shutdown':not reasons,
             'last_classified_events':recent,
-            'observed_state':('idle' if data['cot_since'] is not None and (activity==0 or now-activity>IDLE_SECONDS) else 'active_or_unverified'),
+            'observed_state':('unverified' if data['cot_since'] is None else 'idle' if activity==0 or now-activity>IDLE_SECONDS else 'recently_used'),
             'last_non_monitoring_tool_at':data['last_tool'],'last_non_bot_cot_at':data['last_cot'],
+            'native_direct_input_watermark':data['last_external'],
+            'last_direct_input_at':data['last_direct'],
             'last_ambiguous_bot_message_at':data['last_ambiguous'],'ignored_periodic_bot_frames':data['ignored_bot_frames'],
             'observed_frames':data['observed_frames'],'reason':'; '.join(reasons) if reasons else 'Verified quiet for more than four hours',
             'covered_activity':['orchestrator node tool calls','DevOps node tool calls','counter-verified CoT'],

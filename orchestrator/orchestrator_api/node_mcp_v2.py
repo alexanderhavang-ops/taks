@@ -181,10 +181,10 @@ async def product_journal(node_id: str, request: Request):
 @router.get("/nodes/{node_id}/activity")
 def node_activity(node_id: str, request: Request):
     require_operator(request)
-    from orchestrator_core.activity import assessment
+    from orchestrator_core.activity_observer import fresh_assessment
     record=get_node(node_id)
     if not record:raise HTTPException(status_code=404,detail="Unknown node")
-    return {'ok':True,**assessment(record)}
+    return {'ok':True,**fresh_assessment(record)}
 
 
 @router.post("/activity/audit")
