@@ -126,3 +126,19 @@ class ReleaseBoundaryTests(unittest.TestCase):
 
 
 if __name__ == "__main__": unittest.main()
+
+class DiagnosticBundleTests(unittest.TestCase):
+    setUp=ReleaseBoundaryTests.setUp
+    tearDown=ReleaseBoundaryTests.tearDown
+    def test_diagnostic_bundle_requires_native_hooks_but_no_simulation_seed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            archive=Path(tmp)/"diag.tar.gz"
+            with tarfile.open(archive,"w:gz") as tar:
+                members={"takdiag/taks-source/"+p:b"source" for p in self.m.OVERLAYS}
+                members["takdiag/taks-source/simulation-source-commit"]=b"a"*40
+                for name,data in members.items():
+                    info=tarfile.TarInfo(name);info.size=len(data);tar.addfile(info,io.BytesIO(data))
+            with patch.object(self.m,"Path",return_value=archive):
+                result=self.m.verify_built_bundle("takdiag")
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["source_commit"],"a"*40)

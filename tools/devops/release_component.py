@@ -198,12 +198,24 @@ def lifecycle():
     return c.tools
 
 
-def verify_built_bundle():
-    archive = Path("/opt/tak-orch/state/bundles/rendered/taklabs.tar.gz")
+def verify_built_bundle(unit="taklabs"):
+    if unit not in ("taklabs","takdiag"): raise ValueError("Unsupported unit")
+    archive = Path("/opt/tak-orch/state/bundles/rendered/"+unit+".tar.gz")
     before = archive.stat()
     expected = ["taks-source/" + p for p in OVERLAYS]
     commit_key,config_key = "taks-source/simulation-source-commit", "install/taks-bootstrap/config.d/simulation.conf"
     seed_key = "misc/simulation-state.json"
+    if unit=="takdiag":
+        expected += [commit_key]
+        found={}
+        with tarfile.open(archive,"r|gz") as tar:
+            for member in tar:
+                for suffix in expected:
+                    if member.name==suffix or member.name.endswith("/"+suffix):
+                        if not member.isfile():raise ValueError("Invalid source member")
+                        found[suffix]=tar.extractfile(member).read().decode().strip() if suffix==commit_key else True
+        missing=sorted(set(expected)-set(found))
+        return {"ok":not missing,"missing":missing,"bundle":unit+".tar.gz","source_commit":found.get(commit_key),"checked_files":len(found)}
     expected += [commit_key,config_key]
     seed_hash = hashlib.sha256(SEED_PATH.read_bytes()).hexdigest() if SEED_PATH.is_file() else None
     if seed_hash: expected.append(seed_key)
@@ -388,8 +400,8 @@ def dispatch_release(command):
             return tools["taks_backup_select_restore"](UNIT,p[3],True)
         if op == "bundle" and p[2:] == [UNIT,"confirm"]:
             return tools["taks_bundle_prepare_start"](UNIT,True,True)
-        if op == "verify" and p[2:] == [UNIT]:
-            return submit(("verify-mvp",UNIT),verify_built_bundle)
+        if op == "verify" and len(p)==3 and p[2] in ("taklabs","takdiag"):
+            return submit(("verify-mvp",p[2]),lambda:verify_built_bundle(p[2]))
         if op == "service-logs" and len(p)==4 and p[2] in ("taklabs","takdiag") and p[3] in ("takctl-web.service","mumble-server.service","openfire.service"):
             return call("POST", "/api/v2/nodes/"+p[2]+".aws.tak-hv-sandbox.se/mcp/devops", {
                 "jsonrpc":"2.0", "id":1, "method":"tools/call", "params": {
