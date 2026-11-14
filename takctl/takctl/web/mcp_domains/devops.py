@@ -14,7 +14,7 @@ import subprocess
 SERVICES = (
     "takserver.service", "takctl-web.service", "nginx.service",
     "postgresql.service", "slapd.service", "mumble-server.service",
-    "openfire.service", "martine-cot.service", "taks-heartbeat.timer",
+    "openfire.service", "martine-cot.service", "martine-xmpp-inviter.service", "martine-voice-transcribe.service", "taks-simulation.service", "taks-heartbeat.timer",
 )
 PORTS = (80, 443, 8080, 8089, 8443, 8446, 5222, 5432, 389)
 SAFE_PATHS = {

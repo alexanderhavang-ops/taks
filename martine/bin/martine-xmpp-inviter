@@ -905,6 +905,8 @@ class MartineInviter(slixmpp.ClientXMPP):
         self.disconnect()
 
     async def tick(self) -> None:
+        _idle_audit.pulse('xmpp',bool(self._bridge_dict('online')['connected_now']))
+        if any(not bare.startswith(MARTINE_USER+'@') for bare in self.presence_online):_idle_audit.note('xmpp')
         rooms = muc_rooms_from_openfire(self.domain)
         now = int(time.time())
 

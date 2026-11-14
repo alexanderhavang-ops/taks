@@ -236,7 +236,7 @@ async def run():
         while True:
             store().component('bridge',epoch)
             records=await asyncio.to_thread(list_nodes)
-            wanted={r['node_id']:r for r in records if r.get('node_id') and instance_id(r) and r.get('aws_state')=='running' and r.get('install',{}).get('summary',{}).get('state') in ('succeeded','failed')}
+            wanted={r['node_id']:r for r in records if r.get('node_id') and instance_id(r) and r.get('aws_state') in ('pending','running') and r.get('install',{}).get('summary',{}).get('state') in ('succeeded','failed')}
             for node,(instance,task) in list(tasks.items()):
                 if node not in wanted or instance_id(wanted[node])!=instance or task.done():
                     task.cancel();await asyncio.gather(task,return_exceptions=True);del tasks[node]

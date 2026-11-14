@@ -402,7 +402,7 @@ def dispatch_release(command):
             return tools["taks_bundle_prepare_start"](UNIT,True,True)
         if op == "verify" and len(p)==3 and p[2] in ("taklabs","takdiag"):
             return submit(("verify-mvp",p[2]),lambda:verify_built_bundle(p[2]))
-        if op == "service-logs" and len(p)==4 and p[2] in ("taklabs","takdiag") and p[3] in ("takctl-web.service","mumble-server.service","openfire.service"):
+        if op == "service-logs" and len(p)==4 and p[2] in ("taklabs","takdiag") and p[3] in ("takctl-web.service","mumble-server.service","openfire.service","martine-cot.service","martine-xmpp-inviter.service","martine-voice-transcribe.service","taks-simulation.service"):
             return call("POST", "/api/v2/nodes/"+p[2]+".aws.tak-hv-sandbox.se/mcp/devops", {
                 "jsonrpc":"2.0", "id":1, "method":"tools/call", "params": {
                     "name":"service_logs", "arguments":{"service":p[3],"lines":40}}})
