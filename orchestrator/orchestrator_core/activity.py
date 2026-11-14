@@ -120,7 +120,7 @@ class ActivityStore:
         with self.lock,self.db:
             self.ensure(node,instance,now)
             previous=self.db.execute('SELECT last_external,external_epoch FROM nodes WHERE node=?',(node,)).fetchone()
-            if previous[1]!=epoch:
+            if previous[1]!=epoch or value<(previous[0] or 0):
                 self.db.execute('DELETE FROM channels WHERE name=?',('node_external:'+node,))
             self.component('node_external:'+node,epoch,now)
             last=(previous[0] or 0) if previous[1]==epoch else 0

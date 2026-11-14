@@ -48,6 +48,12 @@ class DirectWatermarkTests(unittest.TestCase):
   self.s.external('node','i-one',{**evidence,'last_human_event':11},now=14561)
   result=self.s.assess('node','i-one',14561)
   self.assertFalse(result['eligible_for_idle_shutdown']);self.assertEqual(result['last_direct_input_at'],14561)
+ def test_watermark_regression_restarts_coverage(self):
+  self.verified_quiet(watermark=10)
+  self.s.external('node','i-one',{'complete':True,'epoch':'n','last_human_event':0},14560)
+  result=self.s.assess('node','i-one',14560)
+  self.assertEqual(result['coverage_since'],14560)
+  self.assertFalse(result['eligible_for_idle_shutdown'])
  def test_invalid_watermark_never_establishes_coverage(self):
   with self.assertRaises(ValueError):self.s.external('node','i-one',{'complete':True,'epoch':'n','last_human_event':float('inf')},now=100)
 
