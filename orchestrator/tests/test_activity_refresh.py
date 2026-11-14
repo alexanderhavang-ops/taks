@@ -46,3 +46,12 @@ class ShutdownGuardTests(unittest.TestCase):
    f,terminate,error=self.function()
    with self.assertRaises(error):f('node',object(),body)
    terminate.assert_not_called()
+
+class NativeEnvelopeTests(unittest.TestCase):
+ def test_both_v1_wire_formats_preserve_completeness(self):
+  import json
+  evidence={'version':1,'complete':True,'epoch':'fixture','last_human_event':None}
+  for payload in (evidence,{'content':[{'type':'text','text':json.dumps(evidence)}]}):
+   self.assertEqual(activity_observer.decode_external_result({'result':payload}),evidence)
+ def test_arbitrary_success_is_not_evidence(self):
+  with self.assertRaises(ValueError):activity_observer.decode_external_result({'result':{'ok':True}})

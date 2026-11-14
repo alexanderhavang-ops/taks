@@ -166,7 +166,7 @@ def install(module):
         if name=='service_read' and args.get('service')=='activity':
             if set(args)-{'service','operation','arguments'} or args.get('operation')!='node_evidence' or args.get('arguments') not in ({},None):raise ValueError('Unknown activity read')
             from takctl.services.activity_evidence import snapshot
-            return snapshot()
+            return {"content":[{"type":"text","text":json.dumps(snapshot(),allow_nan=False)}]}
         if name in names:
             return call(name, args)
         if name in ("service_read", "service_write") and args.get("service") in ("simulation", "reference_docs"):

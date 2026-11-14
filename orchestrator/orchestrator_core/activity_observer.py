@@ -123,6 +123,17 @@ def metrics(host,username,password):
     return (str(inputs.get('nodeId','')),counters),bots
 
 
+def decode_external_result(result):
+    payload=result.get('result') if isinstance(result,dict) else None
+    if not isinstance(payload,dict):raise ValueError('Invalid node activity response')
+    if 'content' in payload:
+        payload=json.loads(next(c['text'] for c in payload['content'] if c.get('type')=='text'))
+    # The first version shipped its body directly inside JSON-RPC result.
+    if not isinstance(payload,dict) or payload.get('version')!=1 or type(payload.get('complete')) is not bool:
+        raise ValueError('Invalid node activity evidence')
+    return payload
+
+
 def external_activity(record):
     import urllib.request
     from .units_state import ensure_unit_orchestrator_secret
@@ -135,7 +146,7 @@ def external_activity(record):
         raw=response.read(16385)
         if len(raw)>16384:raise ValueError('External activity response too large')
     result=json.loads(raw)
-    evidence=json.loads(next(c['text'] for c in result['result']['content'] if c.get('type')=='text'))
+    evidence=decode_external_result(result)
     if evidence.get('complete') is not True or not isinstance(evidence.get('epoch'),str):raise ValueError('External activity coverage incomplete')
     return evidence
 

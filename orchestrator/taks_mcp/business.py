@@ -156,6 +156,10 @@ def register_taks_tools(mcp, api_call=call, *, include_legacy_devops_tools=False
         result = api_call("POST", "/api/v2/nodes/" + node_id + "/mcp/taks", rpc)
         if not isinstance(result, dict) or result.get("ok") is False:
             return result if isinstance(result, dict) else {"ok": False, "error": "Business MCP unavailable"}
+        if tool=='service_read' and args and args.get('service')=='activity' and args.get('operation')=='node_evidence':
+            payload=result.get('result')
+            if isinstance(payload,dict) and payload.get('version')==1 and type(payload.get('complete')) is bool:
+                return payload  # Compatibility with first node activity-hook deployment.
         try:
             content = result["result"]["content"]
             payload = json.loads(next(p["text"] for p in content if p.get("type") == "text"))

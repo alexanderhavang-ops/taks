@@ -160,6 +160,14 @@ class SurfaceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 tools.reference(name,a)
 
+    def test_native_activity_read_uses_mcp_content_envelope(self):
+        module=types.SimpleNamespace(TOOLS=[{"name":"service_read","inputSchema":{"properties":{"service":{"enum":[]}}}}],call=lambda *_:{})
+        tools.install(module)
+        evidence={"ok":True,"version":1,"complete":True,"epoch":"fixture","last_human_event":None}
+        with patch('takctl.services.activity_evidence.snapshot',return_value=evidence):
+            response=module.call('service_read',{'service':'activity','operation':'node_evidence'})
+        self.assertEqual(json.loads(response['content'][0]['text']),evidence)
+
     def test_extension_preserves_existing_tools_and_denies_unconfirmed_write(self):
         module = types.SimpleNamespace(TOOLS=[{"name":"original"}], call=lambda name,args:{"original":name})
         tools.install(module)
