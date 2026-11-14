@@ -26,7 +26,7 @@ class BusinessTests(unittest.TestCase):
                 return {"plan": {"role": "tak-node"}}
             return {"ok": True}
         self.registry = Registry()
-        register_taks_tools(self.registry, api)
+        register_taks_tools(self.registry, api, include_legacy_devops_tools=True)
 
     def test_no_devops_tools(self):
         self.assertFalse(any(name.startswith(("fs_", "host_", "aws_", "daemon_"))
@@ -65,16 +65,16 @@ class BusinessTests(unittest.TestCase):
             if path == "/api/v2/nodes":
                 return {"items": [{"node_id": "49hvbat", "aws_state": "running",
                                    "status": "online", "checks": {}}]}
-            if path.endswith("/mcp/devops"):
+            if path.endswith("/mcp/taks"):
                 if data["method"] == "tools/list":
-                    return {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "host_identity"}]}}
+                    return {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "takctl_health"}]}}
                 return {"jsonrpc": "2.0", "id": 2, "result": {"content": []}}
             return {"ok": True}
         registry = Registry()
-        register_taks_tools(registry, api)
+        register_taks_tools(registry, api, include_legacy_devops_tools=True)
         result = registry.tools["taks_node_health"]("49hvbat")
-        self.assertIn("host_identity", str(result["devops_mcp"]))
-        self.assertEqual(self.calls[-1], ("POST", "/api/v2/nodes/49hvbat/mcp/devops"))
+        self.assertIn("takctl_health", str(result["business_mcp"]))
+        self.assertEqual(self.calls[-1], ("POST", "/api/v2/nodes/49hvbat/mcp/taks"))
 
     def test_business_health_includes_shared_takserver_readiness(self):
         def api(method, path, data=None):
@@ -87,7 +87,7 @@ class BusinessTests(unittest.TestCase):
                 return {"result": {"content": [{"type": "text", "text": "ready"}]}}
             return {"result": {}}
         registry = Registry()
-        register_taks_tools(registry, api)
+        register_taks_tools(registry, api, include_legacy_devops_tools=True)
         result = registry.tools["taks_node_health"]("49hvbat")
         self.assertIn("takserver_readiness", result)
         self.assertNotIn("netstat_listeners", result)
@@ -155,3 +155,16 @@ class SimulationProxyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class BusinessScopeTests(unittest.TestCase):
+    def test_default_catalog_keeps_shutdown_in_devops_and_exposes_idle_evidence(self):
+        registry=Registry()
+        calls=[]
+        def api(method,path,data=None):
+            calls.append((method,path,data));return {'ok':True,'observed_state':'idle'}
+        register_taks_tools(registry,api)
+        self.assertNotIn('taks_node_shutdown',registry.tools)
+        self.assertNotIn('taks_node_devops_probe',registry.tools)
+        result=registry.tools['taks_node_service_read']('takdiag.example.test','activity','status')
+        self.assertEqual(result['observed_state'],'idle')
+        self.assertEqual(calls[-1][:2],('GET','/api/v2/nodes/takdiag.example.test/activity'))

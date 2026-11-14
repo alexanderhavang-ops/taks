@@ -22,6 +22,9 @@ UNIT = "taklabs"
 NODE = "taklabs.aws.tak-hv-sandbox.se"
 SEED_PATH = Path("/opt/tak-orch/state/units/taklabs/files/misc/simulation-state.json")
 OVERLAYS = (
+    "takctl/takctl/services/activity_evidence.py",
+    "martine/martine/activity_audit.py", "martine/martine/agent/simple_agent.py",
+    "martine/martine/voice/mumble_ingest.py", "martine/bin/martine-xmpp-inviter",
     "takctl/takctl/simulation/__init__.py", "takctl/takctl/simulation/model.py",
     "takctl/takctl/simulation/background.py", "takctl/takctl/simulation/transports.py",
     "takctl/takctl/simulation/daemon.py", "takctl/takctl/web/mcp_domains/simulation_tools.py",
@@ -356,6 +359,8 @@ def dispatch_release(command):
     try:
         op = p[1]
         tools = lifecycle()
+        if op == "idle-shutdown" and len(p)==7 and p[6]=="confirm":
+            return tools["taks_node_shutdown"](p[2],p[3],p[4],p[5],True,require_idle_evidence=True)
         if op == "monitor" and len(p)==4 and p[2] in ("orchestrator",UNIT,"takdiag") and p[3] in ("top","memory","vmstat"):
             from app import host_monitor
             operation={"top":"process_sample","memory":"memory_read","vmstat":"vmstat_sample"}[p[3]]
@@ -385,6 +390,10 @@ def dispatch_release(command):
             return tools["taks_bundle_prepare_start"](UNIT,True,True)
         if op == "verify" and p[2:] == [UNIT]:
             return submit(("verify-mvp",UNIT),verify_built_bundle)
+        if op == "service-logs" and len(p)==4 and p[2] in ("taklabs","takdiag") and p[3] in ("takctl-web.service","mumble-server.service","openfire.service"):
+            return call("POST", "/api/v2/nodes/"+p[2]+".aws.tak-hv-sandbox.se/mcp/devops", {
+                "jsonrpc":"2.0", "id":1, "method":"tools/call", "params": {
+                    "name":"service_logs", "arguments":{"service":p[3],"lines":40}}})
         if op == "web-logs" and p[2:] == [UNIT]:
             return call("POST", "/api/v2/nodes/"+NODE+"/mcp/devops", {
                 "jsonrpc":"2.0", "id":1, "method":"tools/call", "params": {

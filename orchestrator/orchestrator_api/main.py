@@ -32,3 +32,21 @@ app.include_router(settings_v2_router)
 # API v2 (authoritative)
 app.include_router(api_v2_router)
 app.include_router(node_mcp_v2_router)
+
+from .martine import router as martine_router
+app.include_router(martine_router)
+
+
+@app.on_event("startup")
+async def activity_start():
+    import asyncio
+    from orchestrator_core.activity_observer import run
+    app.state.activity_observer=asyncio.create_task(run())
+
+@app.on_event("shutdown")
+async def activity_stop():
+    import asyncio
+    task=getattr(app.state,'activity_observer',None)
+    if task:
+        task.cancel()
+        await asyncio.gather(task,return_exceptions=True)

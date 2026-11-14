@@ -14,9 +14,10 @@ import urllib.error
 import urllib.request
 import urllib.parse
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from orchestrator_core.config import load_orch_config, load_secrets_config
+from orchestrator_core.backup_verification import verify_unit_backup
 from orchestrator_core.core import NodeRequest, aws_dry_run, aws_launch, aws_list_nodes, aws_reconcile_node_dns, aws_snooze, aws_terminate, aws_wake, plan_node, resolve_ubuntu_ami
 from orchestrator_core.nodes_state import delete_node, get_node, list_nodes, touch_heartbeat, upsert_node
 from orchestrator_core.units_state import clear_unit_restore_backup_selection, create_unit, delete_unit_backup, ensure_unit_orchestrator_secret, get_unit_backup, get_unit_restore_backup_selection, list_unit_backups, list_units, save_unit_backup, set_unit_restore_backup_selection
@@ -410,6 +411,10 @@ def unit_backup_restore_selection(unit_path: str, request: Request) -> Dict[str,
 @router.post("/units/{unit_path:path}/backups/{backup_id}/select-restore")
 def unit_backup_select_restore(unit_path: str, backup_id: str, request: Request) -> Dict[str, Any]:
     require_operator(request)
+    try:
+        verify_unit_backup(unit_path, backup_id)
+    except (OSError, ValueError, KeyError, tarfile.TarError):
+        raise HTTPException(status_code=409, detail="Backup integrity verification failed")
     sel = set_unit_restore_backup_selection(unit_path, backup_id)
     return {
         "ok": True,
@@ -501,6 +506,15 @@ def node_create_backup(node_id: str, req: Dict[str, Any], request: Request) -> D
         "backup": saved,
         "manifest": manifest,
     }
+
+@router.post("/units/{unit_path:path}/backups/{backup_id}/verify")
+def unit_backup_verify(unit_path: str, backup_id: str, request: Request) -> Dict[str, Any]:
+    require_operator(request)
+    try:
+        return verify_unit_backup(unit_path, backup_id)
+    except (OSError, ValueError, KeyError, tarfile.TarError):
+        raise HTTPException(status_code=409, detail="Backup integrity verification failed")
+
 
 @router.get("/units/{unit_path:path}/backups/{backup_id}/manifest")
 def unit_backup_manifest(unit_path: str, backup_id: str, request: Request) -> Dict[str, Any]:
@@ -634,7 +648,7 @@ def _resolve_instance_for_node_record(rec: Dict[str, Any], node_id: str) -> Dict
 
 @router.post("/nodes/{node_id}/shutdown")
 @router.post("/nodes/{node_id}/terminate")
-def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
+def nodes_terminate(node_id: str, request: Request, req: Optional[Dict[str, Any]] = Body(default=None)) -> Dict[str, Any]:
     require_operator(request)
 
     rec = get_node(node_id)
@@ -644,6 +658,13 @@ def nodes_terminate(node_id: str, request: Request) -> Dict[str, Any]:
     resolved = _resolve_instance_for_node_record(rec, node_id)
     instance_id = str(resolved.get("instance_id") or "").strip()
 
+    if isinstance(req, dict) and 'expected_instance_id' in req and req['expected_instance_id'] != instance_id:
+        raise HTTPException(status_code=409, detail="Node instance identity changed")
+
+    if isinstance(req,dict) and req.get('require_idle_evidence') is True:
+        from orchestrator_core.activity import assessment
+        evidence=assessment({**rec,'instance_id':instance_id,'aws_instance_id':instance_id})
+        if not evidence.get('eligible_for_idle_shutdown'):raise HTTPException(status_code=409,detail='Fresh complete idle evidence required')
     term = aws_terminate(instance_id, fqdn=str(rec.get("fqdn") or "").strip())
 
     patch = {
@@ -890,6 +911,8 @@ def nodes_list(request: Request) -> Dict[str, Any]:
         }
         untracked.append(row)
 
+    from orchestrator_core.activity import assessment
+    for row in active: row['activity']=assessment(row)
     active.sort(key=lambda x: -(int(x.get("last_seen_ts") or 0)))
     untracked.sort(key=lambda x: str(x.get("instance_id") or ""))
     orphaned.sort(key=lambda x: -(int(x.get("last_seen_ts") or 0)))
@@ -997,3 +1020,32 @@ def nodes_heartbeat(req: Dict[str, Any], request: Request) -> Dict[str, Any]:
 # ----------------------------
 # Units: simple file-backed org tree (operator auth)
 # ----------------------------
+
+
+@router.get('/nodes/{node_id}/console')
+def node_boot_console(node_id: str, request: Request) -> Dict[str, Any]:
+    """Bounded EC2 boot diagnostics, available before the node MCP starts."""
+    require_operator(request)
+    import boto3
+    from botocore.exceptions import ClientError
+    record = get_node(node_id)
+    if not isinstance(record, dict) or not record:
+        raise HTTPException(status_code=404, detail='Node not found')
+    instance_id = str(record.get('instance_id') or record.get('aws_instance_id') or '')
+    if not re.fullmatch(r'i-[0-9a-f]{8,17}', instance_id):
+        raise HTTPException(status_code=409, detail='Node has no valid EC2 instance')
+    region = str(record.get('region') or load_orch_config().aws.region)
+    try:
+        response = boto3.client('ec2', region_name=region).get_console_output(InstanceId=instance_id, Latest=True)
+    except ClientError as error:
+        raise HTTPException(status_code=502, detail='EC2 console: ' + error.response['Error']['Code']) from error
+    encoded = str(response.get('Output') or '')
+    try:
+        output = base64.b64decode(encoded, validate=True).decode('utf-8', errors='replace')
+    except (ValueError, UnicodeError):
+        output = encoded
+    output = output[-131072:]
+    # Console logs may include installer commands; redact common credential forms.
+    output = re.sub(r'(?im)((?:password|passwd|secret|token|api[_-]?key)\s*[=:]\s*)[^\s,;]+', r'\1[redacted]', output)
+    output = re.sub(r'(?is)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----', '[private key redacted]', output)
+    return {'ok': True, 'node_id': node_id, 'instance_id': instance_id, 'timestamp': str(response.get('Timestamp') or ''), 'output': output}

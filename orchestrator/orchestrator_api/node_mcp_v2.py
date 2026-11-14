@@ -85,6 +85,15 @@ async def node_mcp(node_id: str, domain: str, request: Request):
             raise HTTPException(status_code=400, detail="Tool name required")
         # The node enforces its own per-domain tool authorization. Do not
         # expose this route to MCP service tokens without an explicit tool ACL.
+    if method == "tools/call":
+        from orchestrator_core.activity import store,instance_id
+        record=get_node(node_id) or {}
+        try:store().note_tool(node_id,instance_id(record),domain,params['name'],params.get('arguments',{}))
+        except Exception as exc:raise HTTPException(status_code=503,detail="Activity audit unavailable; node tool not forwarded") from exc
+    return forward_node_rpc(node_id,domain,message,body)
+
+
+def forward_node_rpc(node_id,domain,message,body):
     record = get_node(node_id)
     if not isinstance(record, dict) or not record:
         raise HTTPException(status_code=404, detail="Unknown node")
@@ -156,3 +165,44 @@ def marti_diagnostics(node_id: str, request: Request):
     require_operator(request)
     from orchestrator_core.marti_admin import diagnose
     return diagnose(node_id)
+
+
+@router.post("/nodes/{node_id}/product-journal")
+async def product_journal(node_id: str, request: Request):
+    require_operator(request)
+    if not NODE_ID.fullmatch(node_id):raise HTTPException(status_code=400,detail="Invalid node ID")
+    data=await request.json()
+    if not isinstance(data,dict) or set(data)!={'source','lines'} or data['source']!='takctl' or type(data['lines']) is not int or not 1<=data['lines']<=100:
+        raise HTTPException(status_code=400,detail="Only bounded TAKCTL journal reads are supported")
+    message={'jsonrpc':'2.0','id':1,'method':'tools/call','params':{'name':'service_logs','arguments':{'service':'takctl-web.service','lines':min(data['lines'],80)}}}
+    return forward_node_rpc(node_id,'devops',message,json.dumps(message).encode())
+
+
+@router.get("/nodes/{node_id}/activity")
+def node_activity(node_id: str, request: Request):
+    require_operator(request)
+    from orchestrator_core.activity import assessment
+    record=get_node(node_id)
+    if not record:raise HTTPException(status_code=404,detail="Unknown node")
+    return {'ok':True,**assessment(record)}
+
+
+@router.post("/activity/audit")
+async def activity_audit(request: Request):
+    require_operator(request)
+    from orchestrator_core.activity import store,instance_id
+    from orchestrator_core.nodes_state import list_nodes
+    data=await request.json()
+    if not isinstance(data,dict) or len(json.dumps(data))>2048:raise HTTPException(status_code=400,detail="Invalid audit marker")
+    if data.get('component')=='devops':
+        epoch=data.get('epoch','')
+        if not isinstance(epoch,str) or not re.fullmatch(r'[a-f0-9]{32}',epoch):raise HTTPException(status_code=400,detail="Invalid audit epoch")
+        store().component('devops',epoch);return {'ok':True}
+    target=data.get('target');name=data.get('tool');operation=data.get('operation','')
+    if not isinstance(target,str) or not NODE_ID.fullmatch(target) or not isinstance(name,str) or not re.fullmatch(r'[A-Za-z0-9_]{1,100}',name) or not isinstance(operation,str) or len(operation)>80:
+        raise HTTPException(status_code=400,detail="Invalid audit target or tool")
+    records=[r for r in list_nodes() if target in (r.get('node_id'),r.get('fqdn'),r.get('unit_path')) and instance_id(r)]
+    if not records:return {'ok':True,'recorded':False,'reason':'No current instance for target'}
+    if len(records)!=1:raise HTTPException(status_code=409,detail="Ambiguous audit target")
+    row=records[0];store().note_tool(row['node_id'],instance_id(row),'devops',name,{'operation':operation})
+    return {'ok':True,'recorded':True}

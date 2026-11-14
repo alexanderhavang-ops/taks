@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from martine.activity_audit import node_audit as _idle_audit
 import json
 import logging
 import re
@@ -541,6 +542,7 @@ class MartineInviter(slixmpp.ClientXMPP):
         self.add_event_handler("presence_available", self.presence_available)
         self.add_event_handler("presence_unavailable", self.presence_unavailable)
         self.add_event_handler("message", self.message)
+        self.add_event_handler('disconnected',lambda *_: _idle_audit.pulse('xmpp',False,force=True))
 
     def _presence_is_tak_client(self, pres: Any) -> bool:
         xml = str(pres)
@@ -585,6 +587,8 @@ class MartineInviter(slixmpp.ClientXMPP):
     async def message(self, msg: Any) -> None:
         mtype = str(msg.get("type") or "chat").strip().lower()
         if mtype == "groupchat":
+            if str(msg.get('body') or '').strip() and str(msg.get('from') or '').split('/')[-1].lower()!=MARTINE_NICK.lower() and msg.xml.find('{urn:xmpp:delay}delay') is None:
+                _idle_audit.note('xmpp')
             try:
                 spooled = maybe_spool_xmpp_muc_message(msg, own_nicks={MARTINE_NICK})
                 if spooled:
@@ -611,6 +615,7 @@ class MartineInviter(slixmpp.ClientXMPP):
             # Keep MUC listening for later. For now, answer direct 1:1 only.
             return
 
+        _idle_audit.note('xmpp')
         sender_callsign = self._callsign_for_bare_jid(bare)
         sender_uid = ""
         live = self.presence_online.get(bare)
@@ -629,9 +634,15 @@ class MartineInviter(slixmpp.ClientXMPP):
         try:
             from martine.agent.simple_agent import run_once
 
+            from takctl.services.business_access import account_actor
+            from takctl.services.business_diagnostics import enrich_actor
+            if bare.rsplit('@',1)[-1] != str(self.boundjid.domain).lower():
+                raise PermissionError('A local authenticated account is required')
+            principal = enrich_actor(account_actor(bare.split('@',1)[0],transport='xmpp'))
             result = await asyncio.to_thread(
                 run_once,
                 body,
+                principal=principal,
                 sender_uid=sender_uid,
                 sender_callsign=sender_callsign,
             )
@@ -697,6 +708,8 @@ class MartineInviter(slixmpp.ClientXMPP):
     def write_bridge_state(self, status: str, error: str = "", now: int | None = None) -> None:
         now_i = int(now or time.time())
         bridge = self._bridge_dict(status, error, now_i)
+        _idle_audit.pulse('xmpp',bool(bridge['connected_now']))
+        if bridge['connected_now'] and any(not bare.startswith(MARTINE_USER+'@') for bare in self.presence_online):_idle_audit.note('xmpp')
         martine_jid = f"{MARTINE_USER}@{self.domain}".lower()
 
         martine_ent = {

@@ -28,6 +28,7 @@ import urllib.request
 BASE = Path("/opt/tak/tools/takctl")
 ROOT = Path("/opt/tak/simulation")
 FILES = (
+    "takctl/takctl/services/activity_evidence.py",
     "takctl/takctl/simulation/__init__.py",
     "takctl/takctl/simulation/model.py",
     "takctl/takctl/simulation/daemon.py",

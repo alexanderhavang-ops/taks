@@ -9,6 +9,8 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
+from martine.activity_audit import node_audit as _idle_audit, attach_mumble as _idle_attach_mumble
+
 from .config import ConfigError, VoiceConfig
 
 LOG = logging.getLogger("martine.voice.mumble")
@@ -172,6 +174,7 @@ class MumbleIngest:
         )
         if cbk_sound_received is not None and callback is not None:
             mumble.callbacks.set_callback(cbk_sound_received, callback)
+        _idle_attach_mumble(mumble,mumble_mod,lambda user: not _is_martine_or_probe_user(_user_name(user),self.cfg.username))
         mumble.set_receive_sound(bool(receive_sound))
         mumble.start()
         mumble.is_ready()
@@ -205,6 +208,10 @@ class MumbleIngest:
         self._watcher_thread = None
 
     def poll(self, timeout: float = 0.5) -> ReceivedSoundChunk | None:
+        client=self._watcher if self._watcher is not None else self._mumble
+        healthy=bool(self._started and client is not None and getattr(client,'_idle_audit_connected',False))
+        _idle_audit.pulse('voice',healthy)
+        if healthy and any(not _is_martine_or_probe_user(_user_name(u),self.cfg.username) for u in list(client.users.values())):_idle_audit.note('voice')
         try:
             return self._queue.get(timeout=timeout)
         except queue.Empty:
@@ -335,6 +342,7 @@ class MumbleIngest:
             if _is_martine_or_probe_user(speaker, self.cfg.username):
                 return
 
+            _idle_audit.note('voice')
             session = _user_session(user)
             pcm = bytes(getattr(soundchunk, "pcm", b"") or b"")
             if not pcm:

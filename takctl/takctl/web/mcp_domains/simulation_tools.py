@@ -157,12 +157,16 @@ def install(module):
     for t in module.TOOLS:
         if t["name"] in ("service_read", "service_write"):
             enum = t["inputSchema"]["properties"]["service"].get("enum", [])
-            for service in ("simulation", "reference_docs") if t["name"] == "service_read" else ("simulation",):
+            for service in ("simulation", "reference_docs", "activity") if t["name"] == "service_read" else ("simulation",):
                 if service not in enum:
                     enum.append(service)
 
     def dispatch(name, args):
         args = args or {}
+        if name=='service_read' and args.get('service')=='activity':
+            if set(args)-{'service','operation','arguments'} or args.get('operation')!='node_evidence' or args.get('arguments') not in ({},None):raise ValueError('Unknown activity read')
+            from takctl.services.activity_evidence import snapshot
+            return snapshot()
         if name in names:
             return call(name, args)
         if name in ("service_read", "service_write") and args.get("service") in ("simulation", "reference_docs"):

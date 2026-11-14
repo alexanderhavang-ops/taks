@@ -1,5 +1,6 @@
 """Scoped loopback service authentication for orchestrator MCP operations."""
 import hmac
+import hashlib
 import logging
 import os
 import re
@@ -16,14 +17,35 @@ STATIC_ALLOWED = {
     ("POST", "/api/v2/bundles/readiness"),
     ("POST", "/api/v2/bundles/build"),
 }
+PRODUCT_JOURNAL = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/product-journal$")
+ACTIVITY_READ = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/activity$")
+NODE_TAKS_PROBE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/mcp/taks$")
 NODE_DEVOPS_PROBE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/mcp/devops$")
+MARTI_DIAGNOSTICS = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/marti/diagnostics$")
 LIFECYCLE = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/(?:pause|resume|shutdown|snooze|wake|terminate)$")
+NODE_BACKUP = re.compile(r"^/api/v2/nodes/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/backup$")
+BACKUP_READ = re.compile(r"^/api/v2/units/[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*/backups(?:/restore-selection)?$")
+BACKUP_WRITE = re.compile(r"^/api/v2/units/[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*/backups/[A-Za-z0-9][A-Za-z0-9_.-]{0,127}/(?:verify|select-restore)$")
+
+
+def business_service_token():
+    # Domain separated from browser-session signatures; no DevOps-owned file.
+    from orchestrator_core.config import load_secrets_config
+    secret = load_secrets_config().auth.session_secret
+    if not secret:
+        raise RuntimeError('Orchestrator session secret unavailable')
+    return hmac.new(secret.encode(), b'taks-business-mcp-v1', hashlib.sha256).hexdigest()
 
 
 def service_auth_ok(request):
     method = request.method.upper()
     path = request.url.path.rstrip("/")
-    if (method, path) not in STATIC_ALLOWED and not (method == "POST" and (LIFECYCLE.fullmatch(path) or NODE_DEVOPS_PROBE.fullmatch(path))):
+    if (method, path) not in STATIC_ALLOWED and not (
+        method == "GET" and (BACKUP_READ.fullmatch(path) or ACTIVITY_READ.fullmatch(path))
+        or method == "POST" and (LIFECYCLE.fullmatch(path) or NODE_BACKUP.fullmatch(path)
+        or BACKUP_WRITE.fullmatch(path) or NODE_DEVOPS_PROBE.fullmatch(path)
+        or NODE_TAKS_PROBE.fullmatch(path) or MARTI_DIAGNOSTICS.fullmatch(path) or PRODUCT_JOURNAL.fullmatch(path) or path=="/api/v2/activity/audit")
+    ):
         return False
     # Only the orchestrator host's loopback client may use the service token.
     if not request.client or request.client.host not in ("127.0.0.1", "::1"):
@@ -34,6 +56,14 @@ def service_auth_ok(request):
     supplied = header[7:].strip()
     if not supplied or len(supplied) > 256:
         return False
+    try:
+        business_match = hmac.compare_digest(supplied, business_service_token())
+    except Exception:
+        business_match = False
+    if business_match:
+        return ((method, path) in {('GET','/api/v2/units'),('GET','/api/v2/nodes')}
+                or (method == 'GET' and ACTIVITY_READ.fullmatch(path))
+                or (method == 'POST' and (NODE_TAKS_PROBE.fullmatch(path) or MARTI_DIAGNOSTICS.fullmatch(path) or PRODUCT_JOURNAL.fullmatch(path))))
     try:
         expected = TOKEN_FILE.read_text(encoding="ascii").strip()
     except (OSError, UnicodeError):
