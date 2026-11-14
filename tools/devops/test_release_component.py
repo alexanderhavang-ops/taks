@@ -142,3 +142,31 @@ class DiagnosticBundleTests(unittest.TestCase):
                 result=self.m.verify_built_bundle("takdiag")
             self.assertTrue(result["ok"])
             self.assertEqual(result["source_commit"],"a"*40)
+
+class ActivityBundleHashTests(unittest.TestCase):
+    setUp=ReleaseBoundaryTests.setUp
+    tearDown=ReleaseBoundaryTests.tearDown
+    def test_stale_unit_overlay_and_unexpected_archive_bytes_cannot_pass(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);commit='a'*40;unit='takdiag'
+            source=root/'opt/tak-orch/orchestrator/simulation-releases'/commit
+            overlay=root/'opt/tak-orch/state/units'/unit/'bundle/taks-source'
+            archive=root/'opt/tak-orch/state/bundles/rendered/takdiag.tar.gz';archive.parent.mkdir(parents=True)
+            repo=Path(__file__).resolve().parents[2]
+            data={p:(repo/p).read_bytes() for p in self.m.ACTIVITY_FILES}
+            for path,raw in data.items():
+                dest=source/path;dest.parent.mkdir(parents=True,exist_ok=True);dest.write_bytes(raw)
+            agent='martine/martine/agent/simple_agent.py';custom=overlay/agent;custom.parent.mkdir(parents=True)
+            original_path=Path
+            def routed(value):return root/str(value).lstrip('/')
+            for mode in ('stale_overlay','merged_overlay','tampered'):
+                custom.write_bytes(b'# old agent\n' if mode=='stale_overlay' else data[agent]+b'\n# unit-specific customization\n')
+                members={**data,agent:custom.read_bytes()}
+                if mode=='tampered':members[self.m.ACTIVITY_FILES[0]]+=b'\n# unreviewed archive bytes\n'
+                with tarfile.open(archive,'w:gz') as tar:
+                    for path,raw in {**members,'simulation-source-commit':commit.encode()}.items():
+                        info=tarfile.TarInfo(unit+'/taks-source/'+path);info.size=len(raw);tar.addfile(info,io.BytesIO(raw))
+                with patch.object(self.m,'Path',side_effect=routed):result=self.m.verify_activity_bundle(unit)
+                self.assertEqual(result['ok'],mode=='merged_overlay')
+                if mode=='stale_overlay':self.assertFalse(result['required_hooks_present'])
+                if mode=='tampered':self.assertIn(self.m.ACTIVITY_FILES[0],result['mismatches'])

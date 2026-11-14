@@ -255,6 +255,45 @@ def verify_built_bundle(unit="taklabs"):
             "identity_capacity":capacity,"seed_personnel":len(seed_slots)}
 
 
+ACTIVITY_FILES=(
+    'takctl/takctl/services/activity_evidence.py','martine/martine/activity_audit.py',
+    'martine/martine/agent/simple_agent.py','martine/martine/voice/mumble_ingest.py',
+    'martine/bin/martine-xmpp-inviter','tak-installer/tak_installer/actions/simulation_runtime.py',
+    'takctl/takctl/web/mcp_domains/simulation_tools.py')
+
+def verify_activity_bundle(unit):
+    if unit not in ('takdiag','taklabs'):raise ValueError('Unsupported unit')
+    archive=Path('/opt/tak-orch/state/bundles/rendered')/(unit+'.tar.gz')
+    keys={'taks-source/'+p:p for p in ACTIVITY_FILES}
+    keys['taks-source/simulation-source-commit']='commit'
+    found={};before=archive.stat()
+    with tarfile.open(archive,'r|gz') as tar:
+        for member in tar:
+            for suffix,key in keys.items():
+                if member.name==suffix or member.name.endswith('/'+suffix):
+                    if not member.isfile() or member.size>200000:raise ValueError('Invalid activity source member')
+                    if key in found:raise ValueError('Duplicate activity source member')
+                    found[key]=tar.extractfile(member).read()
+    after=archive.stat()
+    if before.st_mtime_ns!=after.st_mtime_ns or before.st_size!=after.st_size:raise ValueError('Bundle changed during verification')
+    missing=sorted((set(ACTIVITY_FILES)|{'commit'})-set(found))
+    if missing:return {'ok':False,'missing':missing}
+    commit=found.pop('commit').decode().strip()
+    if not re.fullmatch('[a-f0-9]{40}',commit):raise ValueError('Invalid source marker')
+    source=Path('/opt/tak-orch/orchestrator/simulation-releases')/commit
+    overlay=Path('/opt/tak-orch/state/units')/unit/'bundle/taks-source'
+    mismatches=[];hashes={}
+    for path,data in found.items():
+        compile(data,path,'exec')
+        expected=overlay/path if (overlay/path).is_file() else source/path
+        hashes[path]=hashlib.sha256(data).hexdigest()
+        if hashes[path]!=hashlib.sha256(expected.read_bytes()).hexdigest():mismatches.append(path)
+    agent=found['martine/martine/agent/simple_agent.py']
+    xmpp=found['martine/bin/martine-xmpp-inviter'].split(b'async def tick(self) -> None:',1)
+    markers=(b'IDLE_AUDIT_HOOK_VERSION = 1' in agent and b"node_audit.note('agent')" in agent and len(xmpp)==2 and b"_idle_audit.pulse('xmpp'" in xmpp[1][:400] and b'install_activity_hooks(source)' in found['tak-installer/tak_installer/actions/simulation_runtime.py'])
+    return {'ok':not mismatches and markers,'unit':unit,'source_commit':commit,'mismatches':mismatches,'required_hooks_present':markers,'sha256':hashes}
+
+
 def qos_delivery(apply=False):
     # Fixed exercise node and fixed admin endpoints; no URL or credential inputs.
     import ssl
@@ -402,6 +441,8 @@ def dispatch_release(command):
             return tools["taks_bundle_prepare_start"](UNIT,True,True)
         if op == "verify" and len(p)==3 and p[2] in ("taklabs","takdiag"):
             return submit(("verify-mvp",p[2]),lambda:verify_built_bundle(p[2]))
+        if op == "verify-activity" and len(p)==3 and p[2] in ('takdiag','taklabs'):
+            return submit(('verify-activity',p[2]),lambda:verify_activity_bundle(p[2]))
         if op == "service-logs" and len(p)==4 and p[2] in ("taklabs","takdiag") and p[3] in ("takctl-web.service","mumble-server.service","openfire.service","martine-cot.service","martine-xmpp-inviter.service","martine-voice-transcribe.service","taks-simulation.service"):
             return call("POST", "/api/v2/nodes/"+p[2]+".aws.tak-hv-sandbox.se/mcp/devops", {
                 "jsonrpc":"2.0", "id":1, "method":"tools/call", "params": {
