@@ -98,8 +98,13 @@ class Link:
         self.identity=daemon.config['identities'][entity['identity_slot']]
         self.info={'entity_id':entity['id'],'transport':kind,'connected':False,'reconnects':0,'last_error':None,'sent':0,'received':0}
         self.task=asyncio.create_task(self.run())
+        self.task.add_done_callback(self.finished)
         self.writer=None;self.client=None;self.ptt_task=None
         self.write_lock=asyncio.Lock()
+    def finished(self,task):
+        if not task.cancelled():
+            error=task.exception()
+            if error:self.info.update(connected=False,last_error=type(error).__name__)
     async def receive(self,sender,body,channel,event_id=None):
         self.info['received']+=1
         # Each transport callback reflects only what this identity actually received.

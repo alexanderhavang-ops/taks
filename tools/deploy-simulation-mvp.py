@@ -208,6 +208,7 @@ def main():
     memory_budget = simulation_memory_budget(args.identities, memory_mib)
     if os.geteuid() != 0 or not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         raise ValueError("Root, pinned commit and 1..1024 identities required")
+    run(["sudo","-u","tak",str(BASE/".venv/bin/python"),"-m","pip","install","--quiet","slixmpp==1.17.0"])
     sys.path[:0] = [str(BASE), "/opt/tak/tools/martine"]
     ROOT.mkdir(exist_ok=True)
     shutil.chown(ROOT, user="tak", group="tak")
