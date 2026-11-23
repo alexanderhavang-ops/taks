@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import socket
 import ssl
 import sys
@@ -28,7 +29,6 @@ KEY_PEM = f"{IDENTITY_DIR}/client.key"
 CA_PEM = f"{IDENTITY_DIR}/ca.pem"
 CERT_METADATA = "/opt/tak/certs/cert-metadata.sh"
 MARTINE_SECRETS_CONF = "/opt/tak/tools/takctl/secrets.d/martine.conf"
-LEGACY_KEY_PASSWORD = "cert-pass-46-pass"
 
 def _strip_quotes(v: str) -> str:
     s = str(v or "").strip()
@@ -79,7 +79,6 @@ def _cert_password_candidates() -> list[str | None]:
     except Exception:
         pass
 
-    vals.append(LEGACY_KEY_PASSWORD)
 
     out: list[str | None] = []
     seen = set()
@@ -449,6 +448,97 @@ def resolve_username_for_client_uid(client_uid: str) -> str:
         return cn
     return subject_dn
 
+
+def geochat_voice_request(message: str) -> bool:
+    normalized = " ".join(message.casefold().split()).rstrip(".?!")
+    return normalized in {
+        "voice onboarding",
+        "send me my voice channels",
+        "send me new channel data",
+        "resend my vx voice channels",
+        "resend my voice channels",
+        "skicka mina röstkanaler",
+        "skicka mina röstkanaler igen",
+    }
+
+
+def live_voice_accounts() -> dict[str, str]:
+    from takctl.services.marti_api import marti_json
+
+    response = marti_json("/Marti/api/subscriptions/all", timeout=5)
+    rows = response.get("data") if isinstance(response, dict) else None
+    if not isinstance(rows, list):
+        return {}
+    accounts: dict[str, str] = {}
+    ambiguous: set[str] = set()
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        uid = row.get("clientUid")
+        if not isinstance(uid, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:@-]{0,255}", uid):
+            continue
+        if uid in accounts:
+            ambiguous.add(uid)
+        username = str(row.get("username") or "").strip()
+        encrypted = str(row.get("protocol") or "").casefold() == "tls"
+        accounts[uid] = username if encrypted and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", username) else ""
+    return {uid: user for uid, user in accounts.items() if user and uid not in ambiguous}
+
+
+def resolve_live_voice_account(uid: str) -> str:
+    username = live_voice_accounts().get(uid, "")
+    # Require the live subscription and the server's recorded user mapping to agree.
+    if not username or resolve_username_for_client_uid(uid) != username:
+        return ""
+    return username
+
+
+def selected_voice_channels(username: str) -> list[str]:
+    from takctl.onboarding.channels import effective_selected_channels
+    from takctl.onboarding.selection import load_selection
+
+    selection = load_selection(username)
+    if not isinstance(selection, dict) or not selection:
+        return []
+    return effective_selected_channels(selection.get("ctx"), selection=selection)
+
+
+def send_device_voice_package(username: str, uid: str, channels: list[str]) -> dict[str, Any]:
+    from martine.tools.voice_onboarding import send_voice_onboarding
+
+    return send_voice_onboarding(
+        target_callsign=username, target_uid=uid, channels=channels,
+        geochat_self_service=True,
+    )
+
+
+def resend_geochat_voice_channels(uid: str) -> str:
+    from takctl.node_language import node_language
+
+    swedish = node_language() == "sv"
+    unavailable = (
+        "Jag kunde inte skicka röstkanalerna. Kontrollera din anslutning och dina kanalval på soldatkortet."
+        if swedish else "I couldn't send your voice channels. Check your connection and channel selection on your soldier card."
+    )
+    try:
+        username = resolve_live_voice_account(uid)
+        if not username:
+            return unavailable
+        channels = selected_voice_channels(username)
+        if not channels:
+            return unavailable
+        result = send_device_voice_package(username, uid, channels)
+    except Exception as error:
+        log.warning("geochat_voice_resend_failed error_type=%s", type(error).__name__)
+        return unavailable
+    if result.get("ok") and result.get("delivery_status") == "confirmed":
+        return "Jag skickade ditt VX-röstpaket." if swedish else "I sent your VX voice package."
+    if result.get("ok") and result.get("fileshare"):
+        return (
+            "Jag skickade VX-paketet, men kunde inte bekräfta leveransen."
+            if swedish else "I submitted the VX package. Delivery is unconfirmed."
+        )
+    return unavailable
 
 
 def geochat_seed_groups_enabled() -> bool:
@@ -847,9 +937,51 @@ def recv_xml(sock: ssl.SSLSocket, timeout: float = 1.0) -> str | None:
     return data.decode("utf-8", errors="replace")
 
 
+def maybe_bootstrap_voice_package(
+    username: str, uid: str, state: dict[str, Any], now: datetime,
+) -> bool:
+    from takctl.onboarding.watch_voice_profile import live_channel_profile
+
+    attempted_delivery = False
+    try:
+        channels = selected_voice_channels(username)
+        if not channels:
+            return False
+        profile = live_channel_profile(
+            username, {"host": "", "port": 64738, "mission_name": "",
+                       "channels": [{"name": name} for name in channels]},
+        )
+        assignment = stable_hash(profile["channels"])
+        if state.get("voice_package_assignment_hash") == assignment:
+            return False
+        attempted = parse_dt(state.get("voice_package_attempted_at"))
+        if attempted and (now - attempted).total_seconds() < BOOTSTRAP_DELAY_SEC:
+            return False
+        state["voice_package_attempted_at"] = iso_z(now)
+        save_device_state(username, uid, state)
+        attempted_delivery = True
+        result = send_device_voice_package(username, uid, channels)
+        if result.get("ok") and result.get("fileshare"):
+            state["voice_package_assignment_hash"] = assignment
+            state["voice_package_sent_at"] = iso_z(now)
+            save_device_state(username, uid, state)
+        else:
+            log.warning("bootstrap_voice_package_not_sent")
+    except Exception as error:
+        log.warning("bootstrap_voice_package_failed error_type=%s", type(error).__name__)
+    return attempted_delivery
+
+
 def maybe_process_recent_devices(sock: ssl.SSLSocket, cfg) -> None:
     now_dt = datetime.now(timezone.utc)
     rows = list_recent_client_devices()
+    accounts: dict[str, str] = {}
+    attempted_voice_delivery = False
+    if rows:
+        try:
+            accounts = live_voice_accounts()
+        except Exception as error:
+            log.warning("bootstrap_voice_accounts_unavailable error_type=%s", type(error).__name__)
 
     for row in rows:
         client_uid = str(row.get("client_uid") or "").strip()
@@ -950,6 +1082,8 @@ def maybe_process_recent_devices(sock: ssl.SSLSocket, cfg) -> None:
 
         if changed:
             save_device_state(username, client_uid, state)
+        if not attempted_voice_delivery and accounts.get(client_uid) == username:
+            attempted_voice_delivery = maybe_bootstrap_voice_package(username, client_uid, state, now_dt)
 
 
 def _is_message_for_martine(msg: dict[str, Any], cfg) -> bool:
@@ -966,8 +1100,6 @@ def _is_message_for_martine(msg: dict[str, Any], cfg) -> bool:
 
 
 def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
-    from martine.agent.simple_agent import run_once
-
     log.info("incoming_xml bytes=%s", len(text.encode("utf-8", errors="ignore")))
 
     msg = parse_chat_xml(text)
@@ -1002,11 +1134,18 @@ def handle_one_message(sock: ssl.SSLSocket, cfg, text: str) -> None:
         question[:500],
     )
 
-    result = run_once(
-        question,
-        sender_uid=str(msg.get("from_uid") or "").strip(),
-        sender_callsign=str(msg.get("from_callsign") or "").strip(),
-    )
+    sender_uid = str(msg.get("from_uid") or "").strip()
+    direct_uid = str(msg.get("to_uid") or "").strip()
+    if sender_uid and direct_uid and direct_uid == cfg.chat_uid and sender_uid != direct_uid and geochat_voice_request(question):
+        result = {"answer": resend_geochat_voice_channels(sender_uid)}
+    else:
+        from martine.agent.simple_agent import run_once
+
+        result = run_once(
+            question,
+            sender_uid=sender_uid,
+            sender_callsign=str(msg.get("from_callsign") or "").strip(),
+        )
     answer = str(result.get("answer") or "").strip()
 
     log.info(

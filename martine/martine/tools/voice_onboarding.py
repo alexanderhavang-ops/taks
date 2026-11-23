@@ -95,6 +95,7 @@ def send_voice_onboarding(
     force_tcp: bool = False,
     dry_run: bool = False,
     stale_hours: int = 2,
+    geochat_self_service: bool = False,
     **_: Any,
 ) -> dict[str, Any]:
     cfg = load_config()
@@ -117,10 +118,10 @@ def send_voice_onboarding(
     node_name = _host_token(fqdn)
     mission_label = f"Samband-{node_name}"
     voice_port = int(mumble_port or 64738)
-    server_password = _load_murmur_password(defaults)
     explicit_channels = _normalize_channels(channels=channels, channels_csv=channels_csv)
-    topology_channels = _channels_from_identity(target_callsign, target_uid)
+    topology_channels = [] if explicit_channels else _channels_from_identity(target_callsign, target_uid)
     channel_names = explicit_channels or topology_channels or _normalize_channels(defaults=defaults)
+    server_password = "" if geochat_self_service else _load_murmur_password(defaults)
 
     if not channel_names:
         return {
@@ -288,6 +289,7 @@ def send_voice_onboarding(
             tak_host=fqdn,
             zip_path=Path(rendered["package_path"]),
             response_path=upload_resp_path,
+            timeout=10 if geochat_self_service else 300,
         )
         content_ready = _wait_for_uploaded_content(
             tak_host=fqdn,
@@ -298,7 +300,7 @@ def send_voice_onboarding(
         sender_url = f"https://{content_host}:{LOCAL_MARTI_HTTPS_PORT}/Marti/sync/content?hash={marti_hash}"
 
         event_uid, xml_text = _build_fileshare_xml(
-            dest_callsign=target_callsign,
+            dest_callsign="" if geochat_self_service else target_callsign,
             dest_uid=target_uid,
             sender_uid=sender_uid,
             sender_callsign=sender_callsign,

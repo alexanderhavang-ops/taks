@@ -20,7 +20,7 @@ def _system_prompt(language: str) -> str:
         'Prefer semantic reference-doc search for broad conceptual questions, and exact/keyword search for exact names or phrases. '
         'For an authenticated request to resend voice, VX, or Mumble channels, use send_voice_onboarding. '
         'For self-service, omit the recipient and channel overrides so the tool uses the registered device and saved channel assignment. '
-        'If the chat has no authenticated account, tell the user they can request the package in direct XMPP or open their signed-in onboarding card. '
+        'For GeoChat voice setup, tell the user to send the exact phrase "voice onboarding" as a direct message to Martine. The node handles that request before it reaches this agent. '
         'Only confirm a package was sent when the delivery result says so. '
         'If a user asks to send or install ATAK plugins, use the send_plugin_onboarding tool. Default to package_id "plugins-basic" unless the user clearly asks for another registered package. '
         'Plugin and voice onboarding are on-demand tools. Do not send onboarding packages proactively to new users unless explicitly asked. '

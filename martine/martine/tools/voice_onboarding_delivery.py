@@ -31,7 +31,7 @@ from .voice_onboarding_common import (
 _LOG = logging.getLogger(__name__)
 
 
-def _upload_package_https(*, tak_host: str, zip_path: Path, response_path: Path) -> str:
+def _upload_package_https(*, tak_host: str, zip_path: Path, response_path: Path, timeout: int = 300) -> str:
     body_boundary, body = _multipart_body(
         "assetfile",
         zip_path.name,
@@ -45,7 +45,7 @@ def _upload_package_https(*, tak_host: str, zip_path: Path, response_path: Path)
         host=str(tak_host),
         port=LOCAL_MARTI_HTTPS_PORT,
         context=ctx,
-        timeout=300,
+        timeout=timeout,
     )
     try:
         conn.request(
