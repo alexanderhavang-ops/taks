@@ -1,13 +1,16 @@
 import asyncio
 import copy
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+import xml.etree.ElementTree as ET
 
 from takctl.simulation.model import World, distance
-from takctl.simulation.daemon import Daemon
+from takctl.simulation.daemon import Daemon, event
 from takctl.web.mcp_domains import map_context as maps, simulation_tools
 
 
@@ -57,6 +60,37 @@ class WorldV2Tests(unittest.TestCase):
         self.assertTrue(result["ok"])
         w.apply("schedule_cancel", args(2, "cancel", schedule_id="action"))
         self.assertEqual(w.state["scheduled"]["demo:action"]["status"], "cancelled")
+
+
+    def test_actor_sustainment_is_explicit_persistent_and_atomic(self):
+        w = World()
+        w.apply("create", args(position={"lat": 55.71, "lon": 13.21}, count=1, members=[{
+            "sustainment": {"health_pct": 100, "satiation_pct": 70, "hydration_pct": 80, "rations": 3,
+                            "water_ml": 1500, "ammunition": {"training": 4}, "equipment": {"canteen": 1},
+                            "duty_status": "on-duty", "accounted_through_clock_s": 0}}]))
+        w.advance(7200)
+        self.assertEqual(w.entities()[0]["sustainment"]["hydration_pct"], 80)
+        w.apply("entity_patch", args(1, "meal", entity_id="demo-01", sustainment={
+            "satiation_pct": 100, "rations": 2, "water_ml": 1000, "duty_status": "meal",
+            "accounted_through_clock_s": 7200}))
+        w = World(json.loads(json.dumps(w.state)))
+        sustainment = w.entities()[0]["sustainment"]
+        self.assertEqual(sustainment["ammunition"], {"training": 4})
+        self.assertEqual(sustainment["equipment"], {"canteen": 1})
+        self.assertEqual(sustainment["rations"], 2)
+        self.assertEqual(sustainment["duty_status"], "meal")
+        for invalid in ({"accounted_through_clock_s": 7199}, {"accounted_through_clock_s": 7201},
+                        {"water_ml": -1}, {"ammunition": {"training": True}}):
+            with self.assertRaises(ValueError):
+                w.apply("entity_patch", args(2, "invalid", entity_id="demo-01", sustainment=invalid))
+            self.assertEqual(w.entities()[0]["sustainment"], sustainment)
+        w.apply("entity_move", args(2, "start-walk", entity_id="demo-01",
+                                   path=[{"lat": 55.711, "lon": 13.21}], duration_s=100))
+        w.apply("entity_patch", args(3, "fatal", entity_id="demo-01", health_state="kia",
+                                    sustainment={"health_pct": 0, "satiation_pct": 0, "hydration_pct": 0}))
+        self.assertEqual(w.entities()[0]["health_state"], "kia")
+        self.assertEqual(w.entities()[0]["sustainment"]["health_pct"], 0)
+        self.assertIsNone(w.entities()[0]["move"])
 
 
 def way(uid, nodes, coords, **tags):
@@ -169,6 +203,183 @@ class TimelineTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(restarted.world.state["scheduled"]["demo:uncertain"]["status"], "attempt_pending")
             finally:
                 for session in d.sessions.values(): session.task.cancel()
+
+    async def test_recurring_chat_and_voice_keep_phase_and_skip_uncertain_sends(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state.json"
+            state.write_text(json.dumps(world().state))
+            (Path(tmp) / "test.wav").touch()
+            cfg = {"state_file": str(state), "audio_root": tmp, "identities": [{"username": "actor", "voice_channels": ["Exercise"]},
+                                  {"username": "other"}],
+                   "mumble": {"enabled": True}, "xmpp": {"enabled": True, "domain": "example.test"}}
+            d = Daemon(cfg)
+            d.reconcile = lambda: None
+            d.advance = lambda: False  # Drive the exercise clock deterministically.
+            session = SimpleNamespace(send=AsyncMock(return_value=True))
+            link = SimpleNamespace(info={"connected": True, "channel": "Exercise"}, ptt_task=None, ptt=AsyncMock())
+            xmpp = SimpleNamespace(send_chat=AsyncMock(return_value=True))
+            d.sessions[0] = session
+            d.links["demo-01", "mumble"] = link
+            d.links["demo-01", "xmpp"] = xmpp
+
+            for name, operation, fields in [
+                ("chat", "chat", {"message": "Exercise update"}),
+                ("voice", "mumble_ptt", {"entity_id": "demo-01", "clip_id": "test"}),
+                ("xmpp", "xmpp_chat", {"entity_id": "demo-01", "message": "XMPP update",
+                                      "target": "other@example.test"}),
+            ]:
+                await d.command("schedule_put", args(
+                    d.world.state["revision"], name, schedule_id=name, delay_s=10, interval_s=20,
+                    operation=operation, arguments={"unit_id": "demo", **fields}))
+            d.world.advance(55)
+            with patch("takctl.simulation.transports.opus_clip", return_value=[b"opus"]):
+                await d.run_due()
+                await link.ptt_task
+                await d.run_due()
+            session.send.assert_awaited_once()
+            link.ptt.assert_awaited_once_with([b"opus"])
+            xmpp.send_chat.assert_awaited_once_with("other@example.test", "XMPP update")
+            schedules = d.world.state["scheduled"]
+            for row in schedules.values():
+                self.assertEqual(row["last_occurrence"], {"status": "completed", "due_clock_s": 10})
+                self.assertEqual(row["due_clock_s"], 70)
+            chat = schedules["demo:chat"]
+            interrupted = chat["request_id"]
+            d.world.advance(15)
+            chat["status"] = "attempt_pending"
+            await d.save()
+
+            restarted = Daemon(cfg)
+            restarted.reconcile = lambda: None
+            restarted.advance = lambda: False
+            restarted.sessions[0] = session
+            for schedule_id in ("voice", "xmpp"):
+                await restarted.command("schedule_cancel", args(
+                    restarted.world.state["revision"], "cancel-" + schedule_id, schedule_id=schedule_id))
+            chat = restarted.world.state["scheduled"]["demo:chat"]
+            self.assertEqual(chat["last_occurrence"]["status"], "uncertain")
+            self.assertEqual(chat["due_clock_s"], 90)
+            self.assertNotEqual(chat["request_id"], interrupted)
+            await restarted.run_due()
+            session.send.assert_awaited_once()
+            restarted.world.advance(20)
+            await restarted.run_due()
+            self.assertEqual(session.send.await_count, 2)
+            first, second = [ET.fromstring(call.args[0]) for call in session.send.await_args_list]
+            self.assertNotEqual(first.attrib["uid"], second.attrib["uid"])
+
+    async def test_markers_expire_while_paused_and_removal_targets_only_owned_uid(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state.json"
+            state.write_text(json.dumps(world().state))
+            d = Daemon({"state_file": str(state), "identities": [{}, {}]})
+            d.reconcile = lambda: None
+            session = SimpleNamespace(send=AsyncMock(return_value=True))
+            d.sessions[0] = session
+            position = {"lat": 55.71, "lon": 13.21}
+            now = datetime.now(timezone.utc).timestamp()
+            with patch("takctl.simulation.model.time.time", return_value=now):
+                await d.command("marker_put", args(1, "put", marker_id="short", callsign="SIM-SHORT",
+                                                   position=position, ttl_s=15))
+                await d.command("marker_put", args(2, "put-static", marker_id="static", callsign="SIM-STATIC",
+                                                   position=position, ttl_s=None))
+                marker = d.world.state["markers"]["demo:short"]
+                stale = datetime.fromisoformat(ET.fromstring(event(marker)).attrib["stale"]).timestamp()
+                self.assertAlmostEqual(stale, now + 15, places=2)
+                await d.command("pause", {"expected_revision": 3, "request_id": "pause"})
+            restarted = Daemon(d.config)
+            restarted.reconcile = lambda: None
+            restarted.sessions[0] = session
+            with patch("takctl.simulation.model.time.time", return_value=now + 16):
+                await restarted.run_due()
+                revision = restarted.world.state["revision"]
+                self.assertEqual(list(json.loads(state.read_text())["markers"]), ["demo:static"])
+                await restarted.command("marker_remove", args(revision, "remove", marker_id="static"))
+                await restarted.command("marker_remove", args(revision, "remove", marker_id="static"))
+            session.send.assert_awaited_once()
+            removal = ET.fromstring(session.send.await_args.args[0])
+            self.assertEqual(removal.attrib["type"], "t-x-d-d")
+            self.assertEqual(removal.find("detail/link").attrib["uid"], "taks-marker:demo:static")
+            self.assertIsNotNone(removal.find("detail/__forcedelete"))
+            self.assertEqual(json.loads(state.read_text())["markers"], {})
+
+    async def test_scheduled_marker_add_and_remove_can_be_registered_before_marker_exists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state.json"
+            state.write_text(json.dumps(world().state))
+            d = Daemon({"state_file": str(state), "identities": [{}, {}]})
+            d.reconcile = lambda: None
+            d.advance = lambda: False
+            specs = [("add", "marker_put", 10, {"callsign": "SIM-CYCLE", "ttl_s": 15,
+                                                "position": {"lat": 55.71, "lon": 13.21}}),
+                     ("remove", "marker_remove", 20, {})]
+            for key, operation, delay, extra in specs:
+                await d.command("schedule_put", args(
+                    d.world.state["revision"], key, schedule_id=key, operation=operation,
+                    delay_s=delay, interval_s=20, arguments={"unit_id": "demo", "marker_id": "cycle", **extra}))
+            for _ in range(3):
+                d.world.advance(10)
+                await d.run_due()
+                self.assertEqual(len(d.world.state["markers"]), 1)
+                d.world.advance(10)
+                await d.run_due()
+                self.assertEqual(d.world.state["markers"], {})
+
+
+    async def test_unattended_orders_reply_to_the_operator_on_the_originating_transport(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state.json"
+            state.write_text(json.dumps(world().state))
+            d = Daemon({"state_file": str(state), "identities": [{}, {}],
+                        "orders": {"model": "fixture", "xmpp_senders": ["operator@example.test"],
+                                   "geochat_senders": ["operator-uid"]}})
+            d.reconcile = lambda: None
+            await d.command("entity_patch", args(1, "food", entity_id="demo-01",
+                                                 sustainment={"rations": 2, "satiation_pct": 50}))
+            session = SimpleNamespace(send=AsyncMock(return_value=True))
+            xmpp = SimpleNamespace(send_chat=AsyncMock(return_value=True))
+            d.sessions[0] = session
+            d.links["demo-02", "xmpp"] = xmpp
+            actor, second = d.world.entities()
+            await d.receive_chat("fake", "unlisted", actor["uid"], "Move 100m north", actor["callsign"],
+                                 sender_callsign="OPERATOR")
+            await d.receive_chat("broadcast", "operator-uid", "All Chat Rooms", "Move 100m north",
+                                 "All Chat Rooms", sender_callsign="OPERATOR")
+            self.assertTrue(d.orders.empty())
+            await d.receive_chat("move", "operator-uid", actor["uid"], "Move 100m north", actor["callsign"],
+                                 sender_callsign="OPERATOR")
+            await d.receive_chat("move", "operator-uid", actor["uid"], "Move 100m north", actor["callsign"],
+                                 sender_callsign="OPERATOR")
+            d.queue_order("xmpp", second, "food-2", "operator@example.test", "Go grab some food")
+            move = SimpleNamespace(action="move", direction="north", distance_m=100)
+            food = SimpleNamespace(action="eat", direction="none", distance_m=0)
+            with patch("takctl.simulation.daemon.interpret_individual_order", side_effect=[move, food]) as interpret:
+                worker = asyncio.create_task(d.run_orders())
+                try:
+                    for _ in range(100):
+                        if interpret.await_count == 2:
+                            break
+                        await asyncio.sleep(.01)
+                    self.assertEqual(interpret.await_count, 2)
+                    for _ in range(100):
+                        if session.send.await_count and xmpp.send_chat.await_count:
+                            break
+                        await asyncio.sleep(.01)
+                finally:
+                    worker.cancel()
+                    await asyncio.gather(worker, return_exceptions=True)
+            self.assertEqual(d.world.entities()[0]["move"]["duration_s"], 100)
+            self.assertIsNone(d.world.entities()[1].get("move"))
+            reply = ET.fromstring(session.send.await_args.args[0])
+            self.assertIn("Moving 100 metres north", reply.find("detail/remarks").text)
+            self.assertEqual(reply.find("detail/__chat").attrib["id"], "operator-uid")
+            xmpp.send_chat.assert_awaited_once_with("operator@example.test", "Unable. I don't have a ration left.")
+            rejected = await d.apply_individual_order(d.world.entities()[1], move, "bad-order",
+                                                      "Move everyone 100 m north")
+            self.assertTrue(rejected.startswith("Unable"))
+            text = await d.apply_individual_order(d.world.entities()[0], food, "ration-order", "Go grab some food")
+            self.assertIn("eaten", text)
+            self.assertEqual(d.world.entities()[0]["sustainment"]["rations"], 1)
 
 
 if __name__ == "__main__": unittest.main()

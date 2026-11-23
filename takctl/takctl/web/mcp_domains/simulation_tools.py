@@ -10,7 +10,7 @@ import subprocess
 
 SOCKET = "/opt/tak/simulation/control.sock"
 DOC_ROOT = Path("/opt/tak/tools/takctl/state/docs")
-CONTROL_OPS = ("create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel", "knowledge_put", "background_put", "background_pause", "background_resume", "background_remove", "xmpp_chat", "mumble_channel", "mumble_ptt")
+CONTROL_OPS = ("create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "command_configure", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel", "knowledge_put", "background_put", "background_pause", "background_resume", "background_remove", "xmpp_chat", "mumble_channel", "mumble_ptt")
 DOC_TOOLS = {
     "list_reference_docs": ({"only_active": {"type": "boolean"}}, []),
     "search_reference_docs": ({"query": {"type": "string"}, "limit": {"type": "integer"}, "doc_id": {"type": "string"}}, ["query"]),
@@ -30,7 +30,7 @@ TOOLS = [tool("simulation_read", "Read persistent exercise state, sessions and s
               {"unit_id": {"type": "string"}, "since_revision": {"type": "integer"}, "entity_offset": {"type":"integer"}, "entity_limit": {"type":"integer"}, "entity_id":{"type":"string"},"after_seq":{"type":"integer"},"limit":{"type":"integer"},"view": {"type": "string", "enum": ["status", "capabilities", "export", "orbat", "provisioning", "actor", "events"]}}),
          tool("map_read", "Read OSM geometry/tags, inspect a feature, or look up a mapped pedestrian route; never moves simulation entities",
               {"operation": {"type": "string", "enum": ["config", "area", "feature", "route"]}, "arguments": {"type": "object"}}, ["operation"]),
-         tool("simulation_control", "Control units or individuals, patch status, publish markers/custom CoT, send GeoChat, or submit atomic state batches; explicit confirmation required",
+         tool("simulation_control", "Control unit or actor routes, recurring actions, GeoChat, XMPP, Mumble clips, markers and state batches. Explicit confirmation required.",
               {"operation": {"type": "string", "enum": list(CONTROL_OPS)},
                "arguments": {"type": "object"}, "confirm_write": {"type": "boolean"}}, ["operation", "arguments"])]
 TOOLS += [tool(name, "Read Martine reference documents: " + name, props, required)

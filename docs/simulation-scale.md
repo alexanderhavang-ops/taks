@@ -30,13 +30,17 @@ hierarchy, local aliases and unique identities.
 
 Prepared rosters start inactive. `activate` takes the ordinary unit ID, request
 ID and expected revision. Activation validates exclusive ownership of every
-certificate slot. State batches can activate up to 32 units together. Start
+certificate slot. Supply optional `entity_ids` to activate or deactivate named actors within
+a unit. State batches can activate up to 32 units together. Start
 with smaller batches and inspect connections, receive counters and memory.
 `deactivate` stops that unit's connections. No activation or routing inference
 runs automatically.
 
 During installation, service read `simulation/provisioning` reports certificate
-progress without requiring the daemon's Unix socket to be ready.
+progress without requiring the daemon's Unix socket to be ready. The same
+echelon addresses define TAK/LDAP groups, GeoChat groups, XMPP rooms, and
+Mumble channels. On activation SimKeeper joins the assigned XMPP rooms and
+starts in the actor's most specific Mumble channel.
 
 ## Administrative HV example
 
@@ -63,7 +67,8 @@ exercise specification, not a claim about an official Swedish establishment.
 Names come from TAKS's actual `identity_grammar.py`/`fal.py`, cross-checked
 against the uploaded *FAL-A, 2020-04-22*, sections 1.1 and 1.2.3. Groups are
 E–H. The first group's third person in company TQ is locally `EA3`, with
-unique FALFAL identity `EATQ3` and visible simulation callsign `SIM-EATQ3`.
+unique FALFAL identity and visible callsign `EATQ3`. Its CoT remarks identify
+it as simulated.
 `RQ1/RQ2` are company command aliases; `AR1/AR2` refer to platoon AR.
 Company command globally uses `RQVQ1/RQVQ2`. Battalion command uses `VQ1/VQ2`.
 Communications and staff aliases are explicitly exercise-defined, not presented

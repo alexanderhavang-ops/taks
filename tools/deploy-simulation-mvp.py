@@ -53,6 +53,7 @@ User=tak
 Group=tak
 WorkingDirectory=/opt/tak/tools/takctl
 Environment=PYTHONPATH=/opt/tak/tools/takctl
+EnvironmentFile=-/etc/taks/simulation-openai.env
 ExecStart=/opt/tak/tools/takctl/.venv/bin/python -m takctl.simulation.daemon
 Restart=on-failure
 RestartSec=5
@@ -176,10 +177,13 @@ def install_identity(index, config, secret, group, writer=None, profile=None, ac
                        groups=[group]+list(profile.get("tak_groups",[])), certificate_path=str(pem),ctx=profile)
     from takctl.onboarding.xmpp_bookmarks import derive_user_bookmarks
     from takctl.onboarding.channels import build_selection_channels
-    channels=build_selection_channels(profile)
+    channels=build_selection_channels(profile, selected=profile.get("voice_channels"))
     selection={"ctx":profile,"channels":channels['selected']}
     bookmarks=derive_user_bookmarks(username=name,selection=selection,identity={"callsign":(actor or {}).get('callsign',name)},domain=domain or config.get('node_fqdn') or config.get('fqdn') or group)
     if not actor: raise ValueError('Communications require a selected exercise actor for each identity')
+    if profile.get("chat_rooms"):
+        room_domain = bookmarks["domain"]
+        bookmarks["conferences"] = [{"jid": f"{room}@conference.{room_domain}"} for room in profile["chat_rooms"]]
     voice_cert,voice_key=dst/'voice.pem',dst/'voice.key'
     # Match TAKS VX semantics: the voice certificate CN is the live CoT UID.
     voice_uid=dst/'voice.uid'
@@ -197,6 +201,70 @@ def install_identity(index, config, secret, group, writer=None, profile=None, ac
             "voice_cert_file":str(voice_cert),"voice_key_file":str(voice_key),"voice_channels":channels['selected']}
 
 
+
+def provision_simulation_voice_channels(names):
+    """Create exercise channels on the managed, loopback-only Mumble Ice service."""
+    names = sorted(set(names))
+    if not names:
+        return
+    if any(not re.fullmatch(r"sim-[a-z0-9-]{1,48}", name) for name in names):
+        raise ValueError("Invalid provisioned exercise channel")
+    # Ice is installed for the node's existing voice authenticator in system Python.
+    code = r"""
+import json
+from pathlib import Path
+import sys
+import Ice
+
+Ice.loadSlice("-I/usr/share/ice/slice --all /etc/mumble/MumbleServer.ice")
+import MumbleServer
+
+properties = Ice.createProperties()
+properties.setProperty("Ice.ImplicitContext", "Shared")
+data = Ice.InitializationData()
+data.properties = properties
+with Ice.initialize(data) as communicator:
+    secret = Path("/etc/taks/mumble-ice-secret").read_text().strip()
+    communicator.getImplicitContext().setContext({"secret": secret})
+    endpoint = communicator.stringToProxy("Meta:tcp -h 127.0.0.1 -p 6502 -t 5000")
+    meta = MumbleServer.MetaPrx.checkedCast(endpoint)
+    servers = meta.getBootedServers()
+    if len(servers) != 1:
+        raise RuntimeError("Expected one running Mumble server")
+    server = servers[0]
+    existing = {row.name for row in server.getChannels().values() if row.parent == 0}
+    for name in json.loads(sys.argv[1]):
+        if name not in existing:
+            server.addChannel(name, 0)
+"""
+    run(["/usr/bin/python3", "-c", code, json.dumps(names)])
+
+
+def selected_order_settings(source_root):
+    filename = "simulation-orders.conf"
+    runtime = Path("/etc/taks-bootstrap.d/config.d") / filename
+    bundled = Path(source_root).resolve().parent / "install/taks-bootstrap/config.d" / filename if source_root else None
+    values = kv(bundled if bundled and bundled.is_file() else runtime)
+    settings = {
+        channel + "_senders": sorted(set(values.get(channel + "_senders", "").split()))
+        for channel in ("xmpp", "geochat")
+    }
+    if not any(settings.values()):
+        return {}, ""
+    settings["model"] = values.get("openai_model", "gpt-4.1-mini")
+    secrets_dir = Path("/etc/taks-bootstrap.d/secrets.d")
+    sources = [secrets_dir / filename, secrets_dir / "martine.conf",
+               Path("/opt/tak/tools/martine/secrets.d/martine.conf")]
+    key = ""
+    for path in sources:
+        secrets = kv(path)
+        key = secrets.get("OPENAI_API_KEY") or secrets.get("openai_api_key") or ""
+        if key:
+            break
+    if not re.fullmatch(r"[A-Za-z0-9_-]{16,512}", key):
+        raise ValueError("Configured simulator orders require a valid OpenAI API key in a node secret file")
+    return settings, key
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--commit", required=True)
@@ -208,7 +276,11 @@ def main():
     memory_budget = simulation_memory_budget(args.identities, memory_mib)
     if os.geteuid() != 0 or not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         raise ValueError("Root, pinned commit and 1..1024 identities required")
-    run(["sudo","-u","tak",str(BASE/".venv/bin/python"),"-m","pip","install","--quiet","slixmpp==1.17.0"])
+    orders, order_key = selected_order_settings(args.source_root)
+    packages = ["slixmpp==1.17.0"]
+    if orders:
+        packages.append("openai-agents==0.25.0")
+    run(["sudo", "-u", "tak", str(BASE/".venv/bin/python"), "-m", "pip", "install", "--quiet", *packages])
     sys.path[:0] = [str(BASE), "/opt/tak/tools/martine"]
     ROOT.mkdir(exist_ok=True)
     shutil.chown(ROOT, user="tak", group="tak")
@@ -286,6 +358,7 @@ def main():
                 selected_state=json.loads(selected_seed.read_text())
                 actors={e["identity_slot"]:e for u in selected_state.get("units",{}).values() for e in u["entities"]}
                 profiles={slot:e.get("metadata",{}) for slot,e in actors.items()}
+                provision_simulation_voice_channels(name for profile in profiles.values() for name in profile.get("voice_channels", []))
             from takctl.services.backing_user_store import build_backing_user_store
             writer = build_backing_user_store()
             for i in range(args.identities):
@@ -316,6 +389,21 @@ def main():
                     "audio_root":str(ROOT/'audio')}
             (ROOT/"audio").mkdir(exist_ok=True)
             shutil.chown(ROOT/"audio",user="root",group="tak");(ROOT/"audio").chmod(0o750)
+            credential = Path("/etc/taks/simulation-openai.env")
+            if orders:
+                conf["orders"] = orders
+                previous_credential = backup / credential.name
+                if credential.is_file():
+                    shutil.copy2(credential, previous_credential)
+                changed.append((credential, previous_credential))
+                pending = credential.with_suffix(".new")
+                fd = os.open(pending, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                try:
+                    with os.fdopen(fd, "w") as stream:
+                        stream.write("OPENAI_API_KEY=" + order_key + "\n")
+                    os.replace(pending, credential)
+                finally:
+                    pending.unlink(missing_ok=True)
             cfgfile = ROOT / "config.json"
             if cfgfile.exists():
                 shutil.copy2(cfgfile, backup / "config.json")

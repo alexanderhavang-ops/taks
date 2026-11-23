@@ -51,7 +51,7 @@ def register_simulation_tools(mcp, api_call):
     @mcp.tool()
     def taks_node_simulation_control(node_id: str, operation: str, arguments: dict,
                                      confirm_write: bool = False) -> dict:
-        """Create profiles, activate/deactivate units, move/stop individuals or units, atomic batch, patch metadata/health, markers/custom CoT, GeoChat, pause/resume, and explicit timers. Read capabilities before writing. No formation/planning/inference loop."""
+        """Control unit or actor routes, markers, chat, Mumble clips and recurring actions. Read capabilities before writing."""
         if confirm_write is not True:
             return {"ok": False, "confirmation_required": True}
         return call(node_id, "simulation_control", {"operation": operation, "arguments": arguments, "confirm_write": True})

@@ -39,3 +39,44 @@ class BackgroundTest(unittest.TestCase):
         prior=copy.deepcopy(self.w.state)
         with self.assertRaises(ValueError):self.command('background_put',entity_id=self.e['id'],waypoints=[{'position':self.end,'travel_s':20,'wait_s':10}],repeat=True)
         self.assertEqual(prior,self.w.state)
+
+    def test_formation_with_512_waypoints_keeps_offsets_after_many_loops(self):
+        w = World()
+        w.apply("create", {"unit_id": "group", "request_id": "new", "expected_revision": 0,
+                           "count": 3, "position": self.start})
+        waypoints = [{"position": self.end if i % 2 == 0 else self.start,
+                      "travel_s": 10, "wait_s": 5} for i in range(512)]
+        arguments = {"unit_id": "group", "request_id": "route", "expected_revision": 1,
+                     "waypoints": waypoints, "repeat": True}
+        self.assertLess(len(json.dumps({"operation": "background_put", "arguments": arguments})), 65536)
+        result = w.apply("background_put", arguments)
+        self.assertEqual(result["background"]["waypoint_count"], 512)
+        cycle = 512 * 15
+        w.advance(10000 * cycle + cycle - 10)
+        w = World(json.loads(json.dumps(w.state)))
+        w.advance(15)
+        unit = w.state["units"]["group"]
+        self.assertEqual(unit["background"]["cycles"], 10001)
+        self.assertEqual(unit["background"]["waypoint_index"], 0)
+        self.assertAlmostEqual(distance(unit["position"], self.start), 10, places=3)
+        for member in unit["entities"]:
+            position = offset(unit["position"], member["north_m"], member["east_m"])
+            self.assertEqual(member["position"], position)
+        w.apply("stop", {"unit_id": "group", "request_id": "stop", "expected_revision": 2})
+        stopped = copy.deepcopy(w.entities())
+        w.advance(cycle)
+        self.assertEqual(w.entities(), stopped)
+
+    def test_legacy_route_keeps_saved_progress(self):
+        self.put()
+        bg = self.e["background"]
+        from takctl.simulation.model import make_path
+        bg["legs"] = [
+            {"move": make_path(self.start, {"path": [self.end], "duration_s": 20}), "wait_s": 10},
+            {"move": make_path(self.end, {"path": [self.start], "duration_s": 20}), "wait_s": 10},
+        ]
+        del bg["route"], bg["origin"]
+        bg["elapsed_s"] = 15
+        self.w = World(json.loads(json.dumps(self.w.state)))
+        self.w.advance(5)
+        self.assertAlmostEqual(distance(self.start, self.w.entities()[0]["position"]), 15, places=3)

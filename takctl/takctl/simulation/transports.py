@@ -108,8 +108,8 @@ class Link:
     async def receive(self,sender,body,channel,event_id=None):
         self.info['received']+=1
         # Each transport callback reflects only what this identity actually received.
-        await asyncio.to_thread(self.daemon.perception.receive,event_id or self.kind+':'+uuid.uuid4().hex,
-                                sender,[self.entity['uid']],body[:2000],self.kind+':'+channel)
+        return await asyncio.to_thread(self.daemon.perception.receive,event_id or self.kind+':'+uuid.uuid4().hex,
+                                       sender,[self.entity['uid']],body[:2000],self.kind+':'+channel)
     def cancel(self):
         self.task.cancel()
         if self.ptt_task:self.ptt_task.cancel()
@@ -141,8 +141,14 @@ class Xmpp(Link):
                     owner.info.update(connected=True,last_error=None,rooms=[])
                     for room in identity.get('xmpp_rooms',[]):
                         try:
-                            await self.plugin['xep_0045'].join_muc_wait(room,owner.entity['callsign'],maxstanzas=0,timeout=10)
-                            owner.info['rooms'].append(room)
+                            muc = self.plugin["xep_0045"]
+                            joined = await muc.join_muc_wait(room, owner.entity["callsign"], maxstanzas=0, timeout=10)
+                            if joined and room.startswith("sim-") and 201 in joined[0]["muc"]["status_codes"]:
+                                form = await muc.get_room_config(room, timeout=10)
+                                form["values"] = {**form["values"], "muc#roomconfig_persistentroom": True,
+                                                  "muc#roomconfig_publicroom": False}
+                                await muc.set_room_config(room, form, timeout=10)
+                            owner.info["rooms"].append(room)
                         except Exception as exc:owner.info['last_error']='Room join: '+type(exc).__name__
                 async def message(self,msg):
                     if msg['type'] not in ('chat','normal','groupchat') or not str(msg['body']):return
@@ -150,7 +156,10 @@ class Xmpp(Link):
                     sender=str(msg['from']);bare=str(msg['from'].bare)
                     stanza=str(msg['id'])
                     event_id='xmpp:'+hashlib.sha256((sender+'\0'+stanza+'\0'+str(msg['body'])).encode()).hexdigest() if stanza else None
-                    await owner.receive(sender,str(msg['body']),bare,event_id)
+                    received = await owner.receive(sender, str(msg["body"]), bare, event_id)
+                    if event_id and msg["type"] in ("chat", "normal") and not received.get("duplicate"):
+                        if queue_order := getattr(owner.daemon, "queue_order", None):
+                            queue_order("xmpp", owner.entity, event_id, bare, str(msg["body"]))
             client=None
             try:
                 client=Client();self.client=client
@@ -171,6 +180,8 @@ class Xmpp(Link):
     async def send_chat(self,target,message):
         if not self.client or not self.info['connected']:return False
         kind='groupchat' if target in self.identity.get('xmpp_rooms',[]) else 'chat'
+        if kind == "groupchat" and target not in self.info.get("rooms", []):
+            return False
         self.client.send_message(mto=target,mbody=message,mtype=kind)
         self.info['sent']+=1
         return True
@@ -232,7 +243,8 @@ class Mumble(Link):
             except asyncio.CancelledError:raise
             except Exception as exc:self.info['last_error']=type(exc).__name__+(': '+str(exc) if isinstance(exc,ConnectionError) else '')
             finally:
-                self.info['connected']=False;self.writer=None
+                self.info.update(connected=False, channel=None, channel_id=None)
+                self.writer=None
                 if ping:ping.cancel();await asyncio.gather(ping,return_exceptions=True)
                 if writer:
                     writer.close()
@@ -247,13 +259,17 @@ class Mumble(Link):
     async def ptt(self,frames):
         self.info['ptt']='transmitting'
         started=time.monotonic()
+        channel_id = self.info.get("channel_id")
         try:
             for i,frame in enumerate(frames):
-                if not self.info['connected']:raise ConnectionError('Voice disconnected')
                 await asyncio.sleep(max(0,started+i*.02-time.monotonic()))
+                if not self.info["connected"] or channel_id is None or self.info.get("channel_id") != channel_id:
+                    raise ConnectionError("Voice channel no longer available")
                 # Opus type=4, normal target=0; sequence advances in 10ms units.
-                await self.send(1,b'\x80'+mv(self.sequence)+mv(len(frame)|(0x2000 if i==len(frames)-1 else 0))+frame)
-                self.sequence+=2
+                packet = b'\x80' + mv(self.sequence) + mv(len(frame) | (0x2000 if i == len(frames) - 1 else 0)) + frame
+                if not await self.send(1, packet):
+                    raise ConnectionError("Voice write failed")
+                self.sequence += 2
             self.info['ptt']='written_to_tls'
         except asyncio.CancelledError:
             self.info['ptt']='cancelled';raise

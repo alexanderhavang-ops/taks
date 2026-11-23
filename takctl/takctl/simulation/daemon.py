@@ -13,15 +13,18 @@ import math
 import os
 from pathlib import Path
 import random
+import re
 import resource
 import signal
 import shutil
 import ssl
 import time
+import uuid
 import xml.etree.ElementTree as ET
 
-from .model import World, advance_path
-from .perception import PerceptionStore
+from .background import MAX_WAYPOINTS, summary as route_summary
+from .model import World, active_members, advance_path, number, offset
+from .perception import PerceptionStore, interpret_individual_order
 
 SOCKET = "/opt/tak/simulation/control.sock"
 MAX_REQUEST = 65536
@@ -89,9 +92,12 @@ def event(entity, *, message=None, paused=False):
     display_callsign = callsign + (" [WIA]" if health == "wounded" else " [KIA]" if health == "kia" else "")
     if message:
         uid = f"GeoChat.{uid}.{message['target_uid']}.{message['message_id']}"
+    stale = now + timedelta(seconds=300 if message else 90)
+    if entity.get("expires_at") is not None:
+        stale = min(stale, datetime.fromtimestamp(entity["expires_at"], timezone.utc))
     root = ET.Element("event", version="2.0", uid=uid,
         type="b-t-f" if message else entity.get("cot_type", "a-f-G-U-C-I"), how="m-g",
-        time=stamp(now), start=stamp(now), stale=stamp(now + timedelta(seconds=90 if not message else 300)))
+        time=stamp(now), start=stamp(now), stale=stamp(stale))
     pos = entity["position"]
     ET.SubElement(root, "point", lat=f"{pos['lat']:.7f}", lon=f"{pos['lon']:.7f}", hae="0", ce="10", le="999999")
     detail = ET.SubElement(root, "detail")
@@ -99,12 +105,17 @@ def event(entity, *, message=None, paused=False):
         chat = ET.SubElement(detail, "__chat", parent="RootContactGroup", groupOwner="false",
             messageId=message["message_id"], chatroom=message["target_callsign"],
             id=message["target_uid"], senderCallsign=callsign)
-        ET.SubElement(chat, "chatgrp", uid0=entity["uid"], uid1=message["target_uid"], id=message["target_uid"])
+        recipients = message.get("recipients") or [{"uid": message["target_uid"], "callsign": message["target_callsign"]}]
+        group = {"uid0": entity["uid"], "id": message["target_uid"]}
+        group.update({f"uid{index}": recipient["uid"] for index, recipient in enumerate(recipients, 1)})
+        ET.SubElement(chat, "chatgrp", **group)
         ET.SubElement(detail, "link", uid=entity["uid"], type="a-f-G-U-C-I", relation="p-p")
         ET.SubElement(detail, "remarks", source=f"BAO.F.ATAK.{entity['uid']}",
             to=message["target_uid"], time=stamp(now)).text = message["message"]
         if message["target_callsign"] != "All Chat Rooms":
-            ET.SubElement(ET.SubElement(detail, "marti"), "dest", callsign=message["target_callsign"])
+            marti = ET.SubElement(detail, "marti")
+            for recipient in recipients:
+                ET.SubElement(marti, "dest", callsign=recipient["callsign"])
     else:
         contact = ET.SubElement(detail, "contact", callsign=display_callsign)
         if "identity_slot" in entity:
@@ -126,6 +137,27 @@ def event(entity, *, message=None, paused=False):
         display = " | "+identity["full_name"]+" | "+identity.get("designation",entity['role']) if identity.get("full_name") else ""
         ET.SubElement(detail, "remarks").text = f"SIMULATION ONLY | {entity['role']} | {entity['readiness']} | {health.upper()} | {entity.get('platform','person')} | group={entity.get('group_id','')} | vehicle={entity.get('vehicle_id','')} | {entity.get('remarks','')}"+display
     return ET.tostring(root, encoding="utf-8") + b"\n"
+
+
+def marker_delete_event(marker):
+    now = datetime.now(timezone.utc)
+    uid = marker["uid"]
+    root = ET.Element("event", version="2.0", uid=uid, type="t-x-d-d", how="m-g",
+                      time=stamp(now), start=stamp(now), stale=stamp(now + timedelta(seconds=30)))
+    position = marker["position"]
+    ET.SubElement(root, "point", lat=str(position["lat"]), lon=str(position["lon"]),
+                  hae="0", ce="9999999", le="9999999")
+    detail = ET.SubElement(root, "detail")
+    ET.SubElement(detail, "link", uid=uid, type="none", relation="none")
+    ET.SubElement(detail, "__forcedelete")
+    return ET.tostring(root, encoding="utf-8") + b"\n"
+
+
+def public_route_owner(owner):
+    row = {key: copy.deepcopy(value) for key, value in owner.items() if key not in ("background", "entities")}
+    if "background" in owner:
+        row["background"] = route_summary(owner["background"])
+    return row
 
 
 def custom_event(xml):
@@ -207,7 +239,8 @@ class Session:
                                     while len(self.daemon.inbox) > 100: del self.daemon.inbox[next(iter(self.daemon.inbox))]
                                     link = element.find("detail/link")
                                     await self.daemon.receive_chat(uid, link.get("uid", "") if link is not None else chat.get("senderCallsign", ""),
-                                        chat.get("id", ""), (remarks.text or "")[:2000], chat.get("chatroom", ""))
+                                        chat.get("id", ""), (remarks.text or "")[:2000], chat.get("chatroom", ""),
+                                        sender_callsign=chat.get("senderCallsign", ""))
                             if uid in self.daemon.known_uids:
                                 p = element.find("point")
                                 self.daemon.observed[uid] = {
@@ -254,6 +287,11 @@ class Daemon:
         self.state_path = Path(config["state_file"])
         state = json.loads(self.state_path.read_text()) if self.state_path.exists() else None
         self.world = World(state, capacity=len(config["identities"]))
+        self.recovered_schedules = False
+        for row in self.world.state["scheduled"].values():
+            if row["status"] == "attempt_pending" and "interval_s" in row:
+                self.finish_occurrence(row, "uncertain", {"error": "Restart during previous attempt"})
+                self.recovered_schedules = True
         instance = self.world.state.get("orbat", {}).get("instance_id", "default")
         if not isinstance(instance,str) or not all(c.isalnum() or c in '-_' for c in instance): raise ValueError("Invalid exercise instance")
         perception_path=self.state_path.with_name("perception-"+instance+".sqlite")
@@ -261,14 +299,18 @@ class Daemon:
         if not perception_path.exists() and archived.is_file() and not archived.is_symlink(): shutil.copy2(archived,perception_path)
         self.perception = PerceptionStore(perception_path)
         self.lock = asyncio.Lock()
+        self.publish_lock = asyncio.Lock()
         self.wakeup = asyncio.Event()
         self.handshakes = asyncio.Semaphore(4)
         self.sessions = {}
         self.links = {}
         self.observed = {}
         self.inbox = {}
+        self.orders = asyncio.Queue(maxsize=32)
+        self.order_received = {}
         self.known_uids = set()
         self.last_tick = time.monotonic()
+        self.saved_clock_s = self.world.state["clock_s"]
         self.started = time.monotonic()
         self.last_publish = 0
         self.frame_hashes, self.frame_order = set(), deque()
@@ -279,13 +321,105 @@ class Daemon:
         if len(matches)!=1: raise ValueError("Actor must identify one exercise entity")
         return matches[0]
 
-    async def receive_chat(self, event_uid, sender_uid, target, body, room):
+    async def receive_chat(self, event_uid, sender_uid, target, body, room, *, sender_callsign=""):
         entities = self.world.entities()
-        if target in ("All Chat Rooms","AllChatRooms","RootContactGroup"):
+        direct = [e for e in entities if target in (e["uid"], e["id"], e["callsign"])]
+        if target in ("All Chat Rooms", "AllChatRooms", "RootContactGroup"):
             recipients = [e["uid"] for e in entities]
         else:
-            recipients = [e["uid"] for e in entities if target in (e["uid"],e["id"],e["callsign"]) or target in e.get("metadata",{}).get("chat_rooms",[])]
-        return await asyncio.to_thread(self.perception.receive,event_uid,sender_uid,recipients,body,room or "GeoChat")
+            recipients = [e["uid"] for e in entities
+                          if e in direct or target in e.get("metadata", {}).get("chat_rooms", [])]
+        result = await asyncio.to_thread(
+            self.perception.receive, event_uid, sender_uid, recipients, body, room or "GeoChat")
+        if len(direct) == 1 and len(recipients) == 1 and not result["duplicate"] and sender_callsign:
+            self.queue_order("geochat", direct[0], event_uid, sender_uid, body, sender_callsign)
+        return result
+
+    def queue_order(self, transport, entity, event_uid, sender, body, sender_callsign=""):
+        cfg = self.config.get("orders", {})
+        if sender not in cfg.get(transport + "_senders", []) or not (0 < len(body.strip()) <= 400):
+            return
+        now = time.monotonic()
+        uid = entity["uid"]
+        if self.orders.full() or now - self.order_received.get(uid, float("-inf")) < 10:
+            return
+        self.order_received[uid] = now
+        self.orders.put_nowait((now, transport, uid, event_uid, sender, sender_callsign, body))
+
+    async def apply_individual_order(self, entity, order, request, body):
+        if self.world.state["paused"] or entity.get("health_state", "fit") != "fit":
+            return "Unable to act right now."
+        unit = next(unit for unit in self.world.state["units"].values() if entity in unit["entities"])
+        args = {"unit_id": unit["id"], "entity_id": entity["id"],
+                "request_id": request, "expected_revision": self.world.state["revision"]}
+        if order.action == "move":
+            directions = {"north": (1, 0), "south": (-1, 0), "east": (0, 1), "west": (0, -1)}
+            # The literal order must describe only this actor's own displacement.
+            # Do not turn a model classification of a group order into movement.
+            direction = r"(north|south|east|west)"
+            measure = r"(\d+(?:\.\d+)?)\s*(m|meters?|metres?)"
+            text = body.strip().lower().rstrip(".!")
+            before = re.fullmatch(r"(?:please\s+)?(?:move|walk|go)\s+" + measure + r"\s+" + direction, text)
+            after = re.fullmatch(r"(?:please\s+)?(?:move|walk|go)\s+" + direction + r"\s+" + measure, text)
+            if not before and not after:
+                return "Unable. Send me a distance in metres and a cardinal direction."
+            stated_distance, stated_direction = before.group(1, 3) if before else after.group(2, 1)
+            metres = number(order.distance_m, "distance_m", 1, 1000)
+            if order.direction != stated_direction or not math.isclose(metres, float(stated_distance)):
+                return "Unable to confirm the distance or direction."
+            if unit.get("background", {}).get("enabled") or unit.get("move"):
+                return "Unable to leave the current route on an individual order."
+            north, east = directions[order.direction]
+            destination = offset(entity["position"], north * metres, east * metres)
+            await self.command("entity_move", {**args, "path": [destination], "duration_s": max(10, metres)})
+            return f"Roger. Moving {metres:g} metres {order.direction}."
+        if order.action in ("eat", "drink"):
+            keywords = r"\b(?:eat|food|meal|rations?)\b" if order.action == "eat" else r"\b(?:water|drink)\b"
+            if not re.search(keywords, body, flags=re.IGNORECASE):
+                return "Unable to confirm the supply order."
+            needs = entity.get("sustainment", {})
+            supply, meter, amount = ("rations", "satiation_pct", 1) if order.action == "eat" else (
+                "water_ml", "hydration_pct", 250)
+            if needs.get(supply, 0) < amount:
+                return "Unable. I don't have a ration left." if order.action == "eat" else "Unable. I don't have enough water."
+            await self.command("entity_patch", {**args, "sustainment": {
+                supply: needs[supply] - amount, meter: min(100, needs.get(meter, 0) + 25)}})
+            return "Roger. I've eaten a ration." if order.action == "eat" else "Roger. I've had some water."
+        return "Unable. I can take a simple individual move, food, or water order."
+
+    async def run_orders(self):
+        while True:
+            queued, transport, uid, event_uid, sender, callsign, body = await self.orders.get()
+            if time.monotonic() - queued > 120:
+                continue
+            request = "order-" + hashlib.blake2b((uid + "\0" + event_uid).encode(), digest_size=10).hexdigest()
+            try:
+                order = await asyncio.wait_for(
+                    interpret_individual_order(body, self.config["orders"]["model"]), 20)
+            except Exception:
+                order = None
+            entity = next((e for e in self.world.entities() if e["uid"] == uid), None)
+            if not entity:
+                continue
+            reply = "Unable to process that order. Please try again."
+            if order is not None:
+                try:
+                    reply = await self.apply_individual_order(entity, order, request, body)
+                except ValueError:
+                    reply = "Unable to carry out that order right now."
+            if transport == "xmpp":
+                link = self.links.get((entity["id"], "xmpp"))
+                if link:
+                    try:
+                        await link.send_chat(sender, reply)
+                    except (OSError, TimeoutError):
+                        pass
+            else:
+                session = self.sessions.get(entity["identity_slot"])
+                if session:
+                    await session.send(event(entity, message={
+                        "target_uid": sender[:128], "target_callsign": callsign[:128],
+                        "message_id": request + "-reply", "message": reply}))
 
     def accept_frame(self, frame):
         # TAK fan-out sends the same frame to many simulated identities. Drain
@@ -301,6 +435,7 @@ class Daemon:
 
     async def save(self):
         await asyncio.to_thread(atomic_json, self.state_path, copy.deepcopy(self.world.state))
+        self.saved_clock_s = self.world.state["clock_s"]
 
     def advance(self):
         now = time.monotonic()
@@ -337,36 +472,68 @@ class Daemon:
             await self.run_due()
             async with self.lock:
                 self.wakeup.clear()
-                if self.advance():
+                if self.advance() or self.world.state["clock_s"] - self.saved_clock_s >= 60:
                     await self.save()
                 self.reconcile()
-                entities = copy.deepcopy(self.world.entities())
+                entities = self.world.entities()
                 active = {u["id"] for u in self.world.state["units"].values() if u["active"]}
                 senders = {e["id"]:e["identity_slot"] for e in entities}
+                unit_slots = {u["id"]: members[0]["identity_slot"] for u in self.world.state["units"].values()
+                              if (members := active_members(u))}
                 messages = [(e["identity_slot"],event(e, paused=self.world.state["paused"])) for e in entities]
-                messages += [(senders[m["sender_entity_id"]],event(m)) for m in self.world.state["markers"].values()
-                             if m["active"] and m["unit_id"] in active and m["sender_entity_id"] in senders]
+                messages += [(senders.get(m["sender_entity_id"], unit_slots[m["unit_id"]]), event(m))
+                             for m in self.world.state["markers"].values()
+                             if m["active"] and m["unit_id"] in unit_slots]
                 messages += [(senders[c["sender_entity_id"]],custom_event(c["xml"])) for c in self.world.state["cot_templates"].values()
                              if c["unit_id"] in active and c["sender_entity_id"] in senders]
-                due_now = not self.world.state["paused"] and any(s["status"] == "pending" and s["due_clock_s"] <= self.world.state["clock_s"] for s in self.world.state["scheduled"].values())
-            # One write per identity per tick, including its owned map objects.
-            # Do not create many tasks queued behind the same TLS writer lock.
-            grouped = {}
-            for slot, payload in messages: grouped.setdefault(slot, []).append(payload)
-            await asyncio.gather(*(self.sessions[slot].send(b"".join(payloads)) for slot,payloads in grouped.items() if slot in self.sessions))
+                delay = self.config.get("tick_seconds", 10)
+                if not self.world.state["paused"]:
+                    clock = self.world.state["clock_s"]
+                    for row in self.world.state["scheduled"].values():
+                        if row["status"] == "pending":
+                            delay = min(delay, max(.1, row["due_clock_s"] - clock))
+                await self.publish_lock.acquire()
+            try:
+                await self.publish(messages)
+            finally:
+                self.publish_lock.release()
             self.last_publish = time.monotonic()
             try:
-                await asyncio.wait_for(self.wakeup.wait(), .1 if due_now else self.config.get("tick_seconds", 10))
+                await asyncio.wait_for(self.wakeup.wait(), delay)
             except asyncio.TimeoutError:
                 pass
 
+    async def publish(self, messages):
+        # One write per identity, including its owned map objects.
+        grouped = {}
+        for slot, payload in messages:
+            grouped.setdefault(slot, []).append(payload)
+        await asyncio.gather(*(self.sessions[slot].send(b"".join(payloads))
+                               for slot, payloads in grouped.items() if slot in self.sessions))
+
+    def finish_occurrence(self, row, status, result):
+        row["status"] = status
+        row["result"] = {key: value for key, value in result.items() if key != "cot_xml"}
+        if "interval_s" in row:
+            due = row["due_clock_s"]
+            interval = row["interval_s"]
+            clock = self.world.state["clock_s"]
+            row["last_occurrence"] = {"status": status, "due_clock_s": due}
+            # Preserve phase and skip missed slots instead of emitting a backlog.
+            elapsed_intervals = max(0, math.floor((clock - due) / interval))
+            row.update(status="pending", due_clock_s=due + (elapsed_intervals + 1) * interval,
+                       request_id="timed-" + uuid.uuid4().hex[:24])
+        self.world.event("scheduled_action_" + status, unit_id=row["unit_id"], schedule_id=row["id"])
+
     async def run_due(self):
-        """Execute supplied actions once; mark ambiguous crash outcomes, never replay sends."""
+        """Execute each occurrence at most once, with bounded work per tick."""
         # Bound delayed network work so presence publication cannot be starved
         # by a large batch of simultaneously due chat/CoT actions.
         for _ in range(4):
             async with self.lock:
-                if self.advance(): await self.save()
+                if self.advance() or self.recovered_schedules:
+                    await self.save()
+                    self.recovered_schedules = False
                 if self.world.state["paused"]: return
                 due = [(key, row) for key, row in self.world.state["scheduled"].items()
                        if row["status"] == "pending" and row["due_clock_s"] <= self.world.state["clock_s"]]
@@ -387,9 +554,8 @@ class Daemon:
                     row["status"] = "pending"
                     await self.save()
                     return
-                row["status"] = "completed" if result.get("ok") else "failed"
-                row["result"] = {k: v for k, v in result.items() if k != "cot_xml"}
-                self.world.event("scheduled_action_" + row["status"], unit_id=row["unit_id"], schedule_id=row["id"])
+                success = result.get("ok") and result.get("delivery") != "not_written_or_unknown"
+                self.finish_occurrence(row, "completed" if success else "failed", result)
                 await self.save()
 
     async def command(self, op, args, *, scheduled=False):
@@ -413,39 +579,51 @@ class Daemon:
                 if entity is None: raise ValueError("entity_id required")
                 # Only this actor's own truth is present. Other positions/state
                 # enter knowledge exclusively through explicit reported facts.
-                return {"ok":True,"self":copy.deepcopy(entity),**await asyncio.to_thread(self.perception.actor,entity["uid"],args.get("after_seq",0),args.get("limit",50))}
+                from .orbat import actor_command_context
+
+                return {"ok": True, "self": public_route_owner(entity),
+                        "command": actor_command_context(self.world.state, entity),
+                        **await asyncio.to_thread(self.perception.actor, entity["uid"], args.get("after_seq", 0), args.get("limit", 50))}
             if op == "export":
                 if args: raise ValueError("Export takes no arguments")
                 return {"ok": True, "state": copy.deepcopy(self.world.state), "contains_credentials": False}
             if op == "orbat":
                 if args: raise ValueError("ORBAT read takes no arguments")
-                return {"ok": True, "orbat": copy.deepcopy(self.world.state.get("orbat", {}))}
+                from .orbat import command_nodes
+
+                commands, _ = command_nodes(self.world.state)
+                return {"ok": True, "orbat": copy.deepcopy(self.world.state["orbat"]), "command": list(commands.values())}
             if op == "capabilities":
                 if args: raise ValueError("Capabilities takes no arguments")
                 return {"ok": True, "version": "MVP3", "name":"TAKS SimKeeper", "identity_capacity": self.world.capacity,
-                        "tick_seconds": self.config.get("tick_seconds", 10), "daemon_inference": False,
-                        "operations": ["create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel", "background_put", "background_pause", "background_resume", "background_remove", "xmpp_chat", "mumble_channel", "mumble_ptt"],
-                        "limits": {"batch_commands": 32, "path_destinations": 100, "scheduled_actions": 64, "markers": 128, "persistent_custom_cot": 16},
+                        "tick_seconds": self.config.get("tick_seconds", 10), "daemon_inference": bool(self.config.get("orders")),
+                        "individual_orders": "If configured, authorized direct chat can request a bounded personal move, food, or water. Replies use the incoming transport.",
+                        "operations": ["create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "command_configure", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel", "background_put", "background_pause", "background_resume", "background_remove", "xmpp_chat", "mumble_channel", "mumble_ptt"],
+                        "limits": {"batch_commands": 32, "path_destinations": 100, "background_waypoints": MAX_WAYPOINTS, "scheduled_actions": 64, "markers": 128, "persistent_custom_cot": 16},
                         "read_pagination": "status accepts entity_offset (default 0) and entity_limit (default 64, max 128); units contain selected entities plus entity_count. view=orbat reads hierarchy and local/global aliases",
                         "write_contract": "All writes require a unique request_id and matching expected_revision. Unit operations also require unit_id. batch children omit request/revision",
                         "arguments": {"create": "position,count,callsign?,tak_unit_ref?,metadata?,members? (one profile per entity)",
                             "entity_move": "entity_id,path:[{lat,lon}],duration_s", "entity_stop": "entity_id",
-                            "entity_patch": "entity_id,health_state?(fit/wounded/kia),remarks?,callsign?,role?,readiness?,group_id?,vehicle_id?,platform?,cot_type?,metadata? (replacement object <=2KiB)",
-                            "unit_patch": "tak_unit_ref?,metadata?", "batch": "commands:[{operation,arguments}] (state only)",
-                            "marker_put": "marker_id,callsign,position,cot_type?,remarks?", "marker_remove": "marker_id",
+                            "entity_patch": "entity_id,health_state?(fit/wounded/kia),remarks?,callsign?,role?,readiness?,group_id?,vehicle_id?,platform?,cot_type?,metadata? (replacement object <=2KiB),sustainment?",
+                            "sustainment": "create.members[] or entity_patch: health_pct?,satiation_pct?,hydration_pct?,rations?,water_ml?,ammunition?,equipment?,duty_status?,accounted_through_clock_s?; percentage values 0..100, inventory objects replace supplied categories",
+                            "unit_patch": "tak_unit_ref?,metadata?",
+                            "command_configure": "hierarchy_id? (defaults to unit echelon),commander_entity_id?,deputy_entity_id?; null vacates an appointment; custom echelons also accept parent_id?,level?",
+                            "batch": "commands:[{operation,arguments}] (state only)",
+                            "marker_put": "marker_id,callsign,position,cot_type?,remarks?,ttl_s? (wall seconds, default 300; null is persistent)", "marker_remove": "marker_id",
                             "cot_send": "entity_id,xml,persist? (UID taks-custom:UNIT:NAME)", "cot_remove": "cot_uid",
-                            "background_put":"entity_id,waypoints:[{position:{lat,lon},travel_s,wait_s}],repeat?,delay_s?; <=64 waypoints, repeated routes must close; install while inactive allowed",
-                            "background_pause/resume/remove":"entity_id; explicit movement/stop/injury suspends background; replace route after foreground relocation",
+                            "background_put":"entity_id? (omit for unit formation),waypoints:[{position:{lat,lon},travel_s,wait_s}],repeat?,delay_s?; repeated routes must close; install while inactive allowed",
+                            "background_pause/resume/remove":"entity_id? (omit for unit formation); replace route after foreground relocation",
                             "xmpp_chat":"entity_id,target (provisioned account JID or joined room JID),message",
                             "mumble_channel":"entity_id,channel (provisioned channel name)", "mumble_ptt":"entity_id,clip_id (prepared mono PCM16/48kHz WAV, <=10s); queued on shared event loop",
+                            "activate/deactivate": "entity_ids? (optional selected actors; omit for the entire unit)",
                             "chat": "message,entity_id?,target_uid?,target_callsign?", "pause/resume": "no unit_id; connections stay live",
-                            "schedule_put": "schedule_id,delay_s,operation,arguments (explicit unit-scoped action; no request/revision in child)",
+                            "schedule_put": "schedule_id,delay_s,interval_s?,operation,arguments; interval repeats indefinitely (10..86400 seconds on the exercise clock); child omits request/revision",
                             "schedule_cancel": "schedule_id"},
                         "map_reads": "Separate map_read tool or service_read(service=simulation,operation=map_config/map_area/map_feature/map_route)",
                         "metadata_semantics": "Descriptive only. Group/vehicle links do not automatically move other entities. TAKS remains ORBAT authority",
-                        "actor_reads": "actor(entity_id,after_seq?,limit?) returns self, explicitly recorded knowledge and directed inbox only. events(after_seq?,limit?,entity_id?) reads a durable cursor; omit entity_id for god view.",
+                        "actor_reads": "actor(entity_id,after_seq?,limit?) returns self, command contacts, explicitly recorded knowledge and directed inbox. events(after_seq?,limit?,entity_id?) reads a durable cursor; omit entity_id for god view.",
                         "actor_writes": "knowledge_put(entity_id,request_id,expected_actor_revision,knowledge) replaces this actor's <=8KiB knowledge with independent revision/idempotency. No world revision. Incoming chat is data; never automatically executes orders.",
-                        "chat_delivery": "local TLS write; no ATAK acknowledgment", "scheduled_crash_policy": "attempt_pending is uncertain; never automatically retried"}
+                        "chat_delivery": "local TLS write; no ATAK acknowledgment", "scheduled_crash_policy": "Interrupted occurrences are uncertain and never replayed; recurring schedules continue at their next slot"}
             if op == "status":
                 if set(args) - {"unit_id", "since_revision", "entity_offset", "entity_limit"}:
                     raise ValueError("Unknown status arguments")
@@ -462,8 +640,8 @@ class Daemon:
                 selected_units = [units[uid]] if uid else list(units.values())
                 all_entities = [e for u in selected_units for e in u["entities"]]
                 page = {e["uid"] for e in all_entities[offset:offset+limit]}
-                rows = [{**{k:copy.deepcopy(v) for k,v in u.items() if k != "entities"},
-                         "entity_count":len(u["entities"]), "entities":[copy.deepcopy(e) for e in u["entities"] if e["uid"] in page]} for u in selected_units]
+                rows = [{**public_route_owner(u), "entity_count": len(u["entities"]),
+                         "entities": [public_route_owner(e) for e in u["entities"] if e["uid"] in page]} for u in selected_units]
                 return {"ok": True, "revision": self.world.state["revision"],
                     "units": rows,
                     "pagination": {"entity_offset":offset,"entity_limit":limit,"entity_total":len(all_entities),
@@ -485,7 +663,8 @@ class Daemon:
                     "runtime": {"rss_peak_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
                                 "async_tasks": len(asyncio.all_tasks()), "processes": 1, "receive_frames":dict(self.frame_counts)},
                     "uptime_s": round(time.monotonic()-self.started), "tick_seconds": self.config.get("tick_seconds", 10),
-                    "transport": "per-identity mTLS", "execution": "explicit actions; no inference"}
+                    "transport": "per-identity mTLS",
+                    "execution": "explicit actions and individual orders" if self.config.get("orders") else "explicit actions"}
             frames=None
             if op in ('xmpp_chat','mumble_channel','mumble_ptt') and not (isinstance(args.get('request_id'),str) and args['request_id'] in self.world.state['requests']):
                 entity=self.actor_entity(args.get('entity_id'));identity=self.config['identities'][entity['identity_slot']]
@@ -505,8 +684,11 @@ class Daemon:
                     if path.is_symlink() or not path.is_file():raise ValueError('Prepared audio clip not found')
                     link=self.links.get((entity['id'],'mumble'))
                     if not link or not link.info['connected']:raise ValueError('Mumble actor not connected')
+                    if link.info.get("channel") not in identity["voice_channels"]:
+                        raise ValueError("Mumble actor has not joined a configured voice channel")
                     if link.ptt_task and not link.ptt_task.done():raise ValueError('Actor already transmitting')
                     frames=await asyncio.to_thread(opus_clip,path)
+            previous_state = self.world.state
             result = self.world.apply(op, args)
             if op in ("chat", "cot_send", "xmpp_chat", "mumble_channel", "mumble_ptt") and not result.get("duplicate"):
                 # Persist the intent before touching the network. A retry never
@@ -514,6 +696,19 @@ class Daemon:
                 result["delivery"] = "attempt_pending"
                 self.world.state["requests"][args["request_id"]]["result"] = dict(result)
             await self.save()
+            previous_markers = previous_state["markers"]
+            removed = previous_markers.keys() - self.world.state["markers"].keys()
+            if removed:
+                senders = {e["id"]: e["identity_slot"]
+                           for unit in previous_state["units"].values() for e in active_members(unit)}
+                unit_slots = {u["id"]: members[0]["identity_slot"] for u in previous_state["units"].values()
+                              if (members := active_members(u))}
+                deletes = [(senders.get(marker["sender_entity_id"], unit_slots[marker["unit_id"]]), marker_delete_event(marker))
+                           for key in removed if (marker := previous_markers[key])["active"]
+                           and marker["unit_id"] in unit_slots]
+                # Let any in-flight publication finish before sending the deletion.
+                async with self.publish_lock:
+                    await self.publish(deletes)
             self.reconcile()
             self.wakeup.set()
             if op in ('xmpp_chat','mumble_channel','mumble_ptt') and not result.get('duplicate'):
@@ -529,8 +724,18 @@ class Daemon:
             if op in ("chat", "cot_send") and not result.get("duplicate"):
                 entity = next(e for e in self.world.entities() if e["id"] == result["entity_id"])
                 session = self.sessions.get(entity["identity_slot"])
-                payload = event(entity, message=result) if op == "chat" else custom_event(result["cot_xml"])
-                sent = session and await session.send(payload)
+                if op == "chat":
+                    target = result["target_uid"]
+                    known_room = target in entity.get("metadata", {}).get("chat_rooms", ())
+                    recipients = [{"uid": e["uid"], "callsign": e["callsign"]} for e in self.world.entities()
+                                  if e["uid"] != entity["uid"] and target in e.get("metadata", {}).get("chat_rooms", ())]
+                    if known_room:
+                        payload = event(entity, message={**result, "target_callsign": target, "recipients": recipients}) if recipients else None
+                    else:
+                        payload = None if recipients else event(entity, message=result)
+                else:
+                    payload = custom_event(result["cot_xml"])
+                sent = session and payload and await session.send(payload)
                 result["delivery"] = "written_to_tls" if sent else "not_written_or_unknown"
                 self.world.state["requests"][args["request_id"]]["result"] = dict(result)
                 await self.save()
@@ -570,6 +775,7 @@ class Daemon:
         os.chmod(socket, 0o660)
         self.reconcile()
         ticker = asyncio.create_task(self.tick())
+        orders = asyncio.create_task(self.run_orders()) if self.config.get("orders") else None
         stop = asyncio.Event()
         for sig in (signal.SIGTERM, signal.SIGINT):
             asyncio.get_running_loop().add_signal_handler(sig, stop.set)
@@ -582,6 +788,9 @@ class Daemon:
         finally:
             waiter.cancel()
             ticker.cancel()
+            if orders:
+                orders.cancel()
+                await asyncio.gather(orders, return_exceptions=True)
             await asyncio.gather(ticker, return_exceptions=True)
             for link in self.links.values():link.cancel()
             await asyncio.gather(*(s.task for s in self.links.values()),return_exceptions=True)

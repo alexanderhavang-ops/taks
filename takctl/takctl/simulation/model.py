@@ -6,11 +6,13 @@ import hashlib
 import json
 import math
 import re
+import time
 import uuid
 import xml.etree.ElementTree as ET
 
 ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,31}\Z")
 EARTH = 6371008.8
+DEFAULT_MARKER_TTL = 300
 
 
 def number(value, name, low, high):
@@ -139,10 +141,75 @@ def attributes(entity, fields):
             raise ValueError("metadata must be an object <=2KiB")
         entity["metadata"] = copy.deepcopy(value)
     if "callsign" in fields:
-        if not isinstance(fields["callsign"], str) or not re.fullmatch(r"SIM-[A-Z0-9-]{1,40}", fields["callsign"]):
-            raise ValueError("Invalid SIM callsign")
+        if not isinstance(fields["callsign"], str) or not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{0,63}", fields["callsign"]):
+            raise ValueError("Invalid callsign")
         entity["callsign"] = fields["callsign"]
     if "cot_type" in fields: entity["cot_type"] = cot_type(fields["cot_type"])
+
+
+def update_sustainment(entity, fields, clock_s):
+    """Record explicit actor needs and inventory at the operator's accounting cursor."""
+    percentages = {"health_pct", "satiation_pct", "hydration_pct"}
+    amounts = {"rations", "water_ml"}
+    inventories = {"ammunition", "equipment"}
+    cursor_field = "accounted_through_clock_s"
+    if not isinstance(fields, dict) or set(fields) - percentages - amounts - inventories - {cursor_field, "duty_status"}:
+        raise ValueError("Invalid sustainment fields")
+
+    current = entity.get("sustainment", {})
+    updated = dict(current)
+    for key, value in fields.items():
+        if key in percentages:
+            value = number(value, key, 0, 100)
+        elif key in amounts:
+            if type(value) is not int or not 0 <= value <= 1_000_000:
+                raise ValueError(f"{key} must be a nonnegative whole quantity up to 1000000")
+        elif key in inventories:
+            if not isinstance(value, dict) or len(value) > 64 or any(
+                not isinstance(item, str) or not ID.fullmatch(item)
+                or type(quantity) is not int or not 0 <= quantity <= 1_000_000
+                for item, quantity in value.items()
+            ):
+                raise ValueError(f"{key} must contain up to 64 item IDs with nonnegative whole quantities")
+            value = dict(value)
+        elif key == "duty_status":
+            if not isinstance(value, str) or not ID.fullmatch(value):
+                raise ValueError("duty_status must be an ID such as on-duty, resting, or meal")
+        else:
+            value = number(value, key, current.get(cursor_field, 0), clock_s)
+        updated[key] = value
+    entity["sustainment"] = updated
+
+
+def active_members(unit):
+    if not unit["active"]:
+        return []
+    selection = unit.get("active_entity_ids")
+    if selection is None:
+        return unit["entities"]
+    return [entity for entity in unit["entities"] if entity["id"] in selection]
+
+
+def selected_members(unit, args):
+    members = unit["entities"]
+    if "entity_ids" not in args:
+        return members
+    requested = args["entity_ids"]
+    if not isinstance(requested, list) or not requested or any(not isinstance(i, str) for i in requested):
+        raise ValueError("entity_ids must be a nonempty array of actor IDs")
+    ids = set(requested)
+    selected = [entity for entity in members if entity["id"] in ids]
+    if len(selected) != len(requested):
+        raise ValueError("Each entity_id must be distinct and belong to the unit")
+    return selected
+
+
+def set_active_members(unit, selection):
+    unit["active"] = bool(selection)
+    if 0 < len(selection) < len(unit["entities"]):
+        unit["active_entity_ids"] = sorted(selection)
+    else:
+        unit.pop("active_entity_ids", None)
 
 
 class World:
@@ -158,6 +225,7 @@ class World:
         self.state.setdefault("clock_s", 0)
         self.state.setdefault("scheduled", {})
         self.state.setdefault("orbat", {})
+        self.state.setdefault("command_assignments", {})
 
     def event(self, kind, **fields):
         self.state["revision"] += 1
@@ -165,19 +233,38 @@ class World:
         self.state["events"] = (self.state["events"] + [row])[-200:]
 
     def entities(self):
-        return [e for u in self.state["units"].values() if u["active"] for e in u["entities"]]
+        return [e for u in self.state["units"].values() for e in active_members(u)]
+
+    def expire_markers(self):
+        now = time.time()
+        markers = self.state["markers"]
+        expired = [key for key, marker in markers.items() if not marker["active"]
+                   or (marker.get("expires_at") is not None and marker["expires_at"] <= now)]
+        for key in expired:
+            marker = markers.pop(key)
+            if marker["active"]:
+                self.event("marker_expired", unit_id=marker["unit_id"], marker_id=marker["id"])
+        return bool(expired)
 
     def advance(self, seconds):
-        if self.state["paused"]: return False
+        changed = self.expire_markers()
+        if self.state["paused"]:
+            return changed
         seconds = max(0, seconds)
         self.state["clock_s"] += seconds
         from .background import advance as ambient_advance
-        changed = False
         for u in self.state["units"].values():
-            if not u["active"]:
+            members = active_members(u)
+            if not members:
+                continue
+            if ambient_advance(u, seconds):
+                for e in members:
+                    if e.get("health_state", "fit") == "fit":
+                        e["position"] = offset(u["position"], e["north_m"], e["east_m"])
+                changed = True
                 continue
             individual = False
-            for e in u["entities"]:
+            for e in members:
                 if ambient_advance(e, seconds): individual = changed = True
                 move = e.get("move")
                 if move:
@@ -187,8 +274,8 @@ class World:
                         e["move"] = None
                         self.event("entity_move_completed", unit_id=u["id"], entity_id=e["id"], action_id=move["id"])
             if individual and not u.get("move"):
-                u["position"] = dict(u["entities"][0]["position"])
-                for e in u["entities"]:
+                u["position"] = dict(members[0]["position"])
+                for e in members:
                     e["north_m"], e["east_m"] = relative_offset(u["position"], e["position"])
             move = u.get("move")
             if not u["active"] or not move:
@@ -204,7 +291,7 @@ class World:
                     break
                 walked -= length
             u["position"] = dict(target)
-            for e in u["entities"]:
+            for e in members:
                 if e.get("health_state", "fit") == "fit":
                     e["position"] = offset(target, e["north_m"], e["east_m"])
             changed = True
@@ -262,19 +349,20 @@ class World:
             return {"results": results}
         common = {"request_id", "expected_revision", "unit_id"}
         allowed = {"create": {"count", "position", "callsign", "tak_unit_ref", "members", "metadata"},
-                   "move": {"path", "duration_s"}, "stop": set(), "deactivate": set(),
-                   "chat": {"message", "entity_id", "target_uid", "target_callsign"}, "activate": set(),
+                   "move": {"path", "duration_s"}, "stop": set(), "deactivate": {"entity_ids"},
+                   "chat": {"message", "entity_id", "target_uid", "target_callsign"}, "activate": {"entity_ids"},
                    "entity_move": {"entity_id", "path", "duration_s"},
                    "entity_stop": {"entity_id"},
                    "background_put": {"entity_id", "waypoints", "repeat", "delay_s"},
                    "background_pause": {"entity_id"}, "background_resume": {"entity_id"}, "background_remove": {"entity_id"},
                    "xmpp_chat": {"entity_id", "target", "message"},
                    "mumble_channel": {"entity_id", "channel"}, "mumble_ptt": {"entity_id", "clip_id"},
-                   "entity_patch": {"entity_id", "health_state", "remarks", "cot_type", "callsign", "role", "readiness", "group_id", "vehicle_id", "platform", "metadata"},
+                   "entity_patch": {"entity_id", "health_state", "remarks", "cot_type", "callsign", "role", "readiness", "group_id", "vehicle_id", "platform", "metadata", "sustainment"},
                    "unit_patch": {"metadata", "tak_unit_ref"},
-                   "schedule_put": {"schedule_id", "delay_s", "operation", "arguments"},
+                   "command_configure": {"hierarchy_id", "commander_entity_id", "deputy_entity_id", "parent_id", "level"},
+                   "schedule_put": {"schedule_id", "delay_s", "interval_s", "operation", "arguments"},
                    "schedule_cancel": {"schedule_id"}, "cot_remove": {"cot_uid"},
-                   "marker_put": {"marker_id", "position", "callsign", "cot_type", "remarks", "role", "metadata"},
+                   "marker_put": {"marker_id", "position", "callsign", "cot_type", "remarks", "role", "metadata", "ttl_s"},
                    "marker_remove": {"marker_id"},
                    "cot_send": {"entity_id", "xml", "persist"}}
         if op not in allowed or set(a) - common - allowed[op]:
@@ -295,9 +383,9 @@ class World:
             if len(self.state["units"]) >= 128:
                 raise ValueError("Exercise history full; archive before adding units")
             pos = point(a.get("position"))
-            label = a.get("callsign", "SIM-DEMO")
-            if not isinstance(label, str) or not re.fullmatch(r"SIM-[A-Z0-9-]{1,20}", label):
-                raise ValueError("callsign must begin SIM- and use uppercase letters/digits/hyphens")
+            label = a.get("callsign", uid.upper().replace("_", "-"))
+            if not isinstance(label, str) or not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{0,40}", label):
+                raise ValueError("callsign must use uppercase letters, digits, or hyphens")
             ref = a.get("tak_unit_ref", "")
             if not isinstance(ref, str) or len(ref) > 128:
                 raise ValueError("Invalid tak_unit_ref")
@@ -308,13 +396,15 @@ class World:
                 north, east = (0, 0) if i == 0 else (-10 * ((i+1)//2), 8 * (1 if i % 2 else -1))
                 entities.append({"id": f"{uid}-{i+1:02d}", "uid": f"taks-sim:{uid}:{i+1:02d}",
                                  "callsign": f"{label}-{'HQ' if i == 0 else f'{i:02d}'}",
-                                 "identity_slot": free_slots[i], "north_m": north, "east_m": east,
+                                 "identity_slot": free_slots[i], "activated_clock_s": self.state["clock_s"], "north_m": north, "east_m": east,
                                  "position": offset(pos, north, east), "role": "HQ" if i == 0 else "member",
                                  "readiness": "ready"})
                 member = members[i]
-                if not isinstance(member, dict) or set(member) - {"callsign", "role", "readiness", "group_id", "vehicle_id", "platform", "metadata", "cot_type", "position"}:
+                if not isinstance(member, dict) or set(member) - {"callsign", "role", "readiness", "group_id", "vehicle_id", "platform", "metadata", "cot_type", "position", "sustainment"}:
                     raise ValueError("Unknown member profile fields")
                 attributes(entities[-1], member)
+                if "sustainment" in member:
+                    update_sustainment(entities[-1], member["sustainment"], self.state["clock_s"])
                 if "position" in member:
                     entities[-1]["position"] = point(member["position"])
                     entities[-1]["north_m"], entities[-1]["east_m"] = relative_offset(pos, entities[-1]["position"])
@@ -326,39 +416,77 @@ class World:
             return {"unit_id": uid, "entities": [e["callsign"] for e in entities]}
         unit = self.state["units"].get(uid)
         if op == "activate":
-            if not unit or unit["active"]: raise ValueError("Inactive unit required")
-            slots = [e["identity_slot"] for e in unit["entities"]]
+            if not unit:
+                raise ValueError("Unit not found")
+            current = {e["id"] for e in active_members(unit)}
+            incoming = [e for e in selected_members(unit, a) if e["id"] not in current]
+            if not incoming:
+                raise ValueError("Selected actors are already active")
+            slots = [e["identity_slot"] for e in incoming]
             used = {e["identity_slot"] for e in self.entities()}
             if len(set(slots)) != len(slots) or any(type(s) is not int or s < 0 or s >= self.capacity or s in used for s in slots):
                 raise ValueError("Unit identity slots are unavailable")
-            unit["active"] = True
+            for entity in incoming:
+                entity["activated_clock_s"] = self.state["clock_s"]
+            selection = current | {e["id"] for e in incoming}
+            set_active_members(unit, selection)
             self.event("unit_activated", unit_id=uid)
-            return {"unit_id":uid,"active":True,"entity_count":len(slots)}
+            return {"unit_id": uid, "active": True, "entity_count": len(selection)}
         if op.startswith("background_"):
-            from .background import policy, suspend
-            if not unit: raise ValueError("Unit not found")
-            entity = next((e for e in unit['entities'] if e['id']==a.get('entity_id')),None)
-            if entity is None: raise ValueError('Entity not found')
-            if op == 'background_put':
-                if unit.get('move') or entity.get('move'): raise ValueError('Stop foreground movement first')
-                entity['background'] = policy(entity['position'],a)
-            elif op == 'background_remove': entity.pop('background',None)
-            elif op == 'background_pause': suspend(entity)
+            from .background import policy, progress, summary, suspend, waypoints
+
+            if not unit:
+                raise ValueError("Unit not found")
+            owner = unit
+            if "entity_id" in a:
+                owner = next((e for e in unit["entities"] if e["id"] == a["entity_id"]), None)
+                if owner is None:
+                    raise ValueError("Entity not found")
+            if op in ("background_put", "background_resume"):
+                if unit.get("move") or owner.get("move"):
+                    raise ValueError("Stop foreground movement first")
+                if owner is unit:
+                    if any(e.get("move") or e.get("background", {}).get("enabled") for e in unit["entities"]):
+                        raise ValueError("Stop individual movement before starting a unit route")
+                elif unit.get("background", {}).get("enabled"):
+                    raise ValueError("Pause the unit route before starting an individual route")
+            if op == "background_put":
+                route = policy(owner["position"], a)
+                if owner is unit:
+                    for position in waypoints(route):
+                        for entity in unit["entities"]:
+                            offset(position, entity["north_m"], entity["east_m"])
+                owner["background"] = route
+            elif op == "background_remove":
+                owner.pop("background", None)
+            elif op == "background_pause":
+                suspend(owner)
             else:
-                p=entity.get('background')
-                if not p or p['phase']=='completed': raise ValueError('Install a new route after completion')
-                if unit.get('move') or entity.get('move') or entity.get('health_state','fit')!='fit': raise ValueError('Actor must be fit and free of foreground movement')
-                # Resuming at a different position would teleport. Install a new route instead.
-                from .background import advance as ambient_advance
-                probe=copy.deepcopy(entity);probe['background']['enabled']=True;ambient_advance(probe,0)
-                if distance(probe['position'],entity['position'])>.1: raise ValueError('Actor moved; replace background route from current position')
-                p['enabled']=True
-            self.event('background_updated',unit_id=uid,entity_id=entity['id'])
-            return {'entity_id':entity['id'],'background':copy.deepcopy(entity.get('background'))}
-        if not unit or not unit["active"]:
+                route = owner.get("background")
+                if not route or route["phase"] == "completed":
+                    raise ValueError("Install a new route after completion")
+                if owner.get("health_state", "fit") != "fit":
+                    raise ValueError("Actor must be fit to resume its route")
+                position, _, _ = progress(route)
+                if distance(position, owner["position"]) > .1:
+                    raise ValueError("Position changed; replace background route from current position")
+                route["enabled"] = True
+            scope = {} if owner is unit else {"entity_id": owner["id"]}
+            self.event("background_updated", unit_id=uid, **scope)
+            return {**(scope or {"unit_id": uid}), "background": summary(owner.get("background"))}
+        if op == "command_configure":
+            from .orbat import configure_command
+
+            if not unit:
+                raise ValueError("Unit not found")
+            command = configure_command(self.state, unit, a)
+            self.event("command_updated", unit_id=uid, hierarchy_id=command["id"])
+            return {"command": command}
+        if not unit or (not unit["active"] and op not in ("entity_patch", "unit_patch")):
             raise ValueError("Active unit not found")
+        members = active_members(unit)
         if op in ('xmpp_chat','mumble_channel','mumble_ptt'):
-            entity=next((e for e in unit['entities'] if e['id']==a.get('entity_id')),None)
+            entity=next((e for e in members if e['id']==a.get('entity_id')),None)
             if entity is None: raise ValueError('Entity not found')
             field='message' if op=='xmpp_chat' else 'channel' if op=='mumble_channel' else 'clip_id'
             value=a.get(field)
@@ -390,21 +518,40 @@ class World:
                 if not row or row["status"] != "pending": raise ValueError("Only pending actions can be cancelled")
                 row["status"] = "cancelled"
             else:
-                if key in self.state["scheduled"]: raise ValueError("Use a new schedule_id")
-                if len(self.state["scheduled"]) >= 64: raise ValueError("Timeline capacity is 64; archive exercise before adding more")
+                schedules = self.state["scheduled"]
+                if key in schedules:
+                    raise ValueError("Use a new schedule_id")
+                if len(schedules) >= 64:
+                    oldest_finished = next((k for k, row in schedules.items()
+                                            if row["status"] in ("completed", "failed", "cancelled")), None)
+                    if oldest_finished is None:
+                        raise ValueError("Timeline capacity is 64 active or unresolved schedules")
+                    del schedules[oldest_finished]
+                interval = number(a["interval_s"], "interval_s", 10, 86400) if "interval_s" in a else None
                 operation, arguments = a.get("operation"), a.get("arguments")
-                if operation not in {"entity_move", "entity_stop", "entity_patch", "move", "stop", "marker_put", "marker_remove", "cot_send", "cot_remove", "chat", "unit_patch", "batch"}:
+                if not isinstance(operation, str) or operation not in {
+                    "entity_move", "entity_stop", "entity_patch", "move", "stop", "marker_put", "marker_remove",
+                    "cot_send", "cot_remove", "chat", "xmpp_chat", "mumble_channel", "mumble_ptt", "unit_patch", "command_configure", "batch"
+                }:
                     raise ValueError("Operation not allowed in explicit timeline")
                 if not isinstance(arguments, dict) or {"request_id", "expected_revision"} & set(arguments) or len(json.dumps(arguments, allow_nan=False).encode()) > 8192:
                     raise ValueError("Invalid timeline arguments")
-                children = arguments.get("commands", []) if operation == "batch" else [{"arguments": arguments}]
+                children = arguments.get("commands", []) if operation == "batch" else [{"operation": operation, "arguments": arguments}]
                 if not isinstance(children, list) or any(not isinstance(c, dict) or not isinstance(c.get("arguments"), dict) or c["arguments"].get("unit_id") != uid for c in children):
                     raise ValueError("Timeline actions must belong to their unit")
-                # Validate now, without committing or sending. Revalidate at execution.
-                World(self.state, self.capacity)._apply(operation, arguments)
+                if interval is not None and any(c.get("operation") == "marker_put" and c["arguments"].get("ttl_s", DEFAULT_MARKER_TTL) is None
+                                                for c in children):
+                    raise ValueError("Recurring markers require a finite TTL")
+                due = self.state["clock_s"] + number(a.get("delay_s"), "delay_s", 10, 86400)
+                # Validate against today's actor state at the proposed exercise time.
+                trial = World(self.state, self.capacity)
+                trial.state["clock_s"] = due
+                trial._apply(operation, arguments)
                 self.state["scheduled"][key] = {"id": sid, "unit_id": uid, "status": "pending",
-                    "due_clock_s": self.state["clock_s"] + number(a.get("delay_s"), "delay_s", 10, 86400),
+                    "due_clock_s": due,
                     "operation": operation, "arguments": copy.deepcopy(arguments), "request_id": "timed-"+uuid.uuid4().hex[:24]}
+                if interval is not None:
+                    schedules[key]["interval_s"] = interval
             self.event("schedule_updated", unit_id=uid, schedule_id=sid)
             return {"schedule_id": sid, "status": self.state["scheduled"][key]["status"]}
         if op in ("marker_put", "marker_remove"):
@@ -413,18 +560,18 @@ class World:
                 raise ValueError("Invalid marker_id")
             key = uid + ":" + mid
             if op == "marker_remove":
-                if key not in self.state["markers"]:
-                    raise ValueError("Marker not found")
-                self.state["markers"][key]["active"] = False
+                self.state["markers"].pop(key, None)
             else:
                 if key not in self.state["markers"] and len(self.state["markers"]) >= 128:
                     raise ValueError("Marker capacity exceeded")
                 label, remarks = a.get("callsign", ""), a.get("remarks", "")
-                if not isinstance(label, str) or not re.fullmatch(r"SIM-[A-Z0-9-]{1,40}", label):
-                    raise ValueError("Marker callsign must be SIM-prefixed")
+                if not isinstance(label, str) or not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{0,63}", label):
+                    raise ValueError("Invalid marker callsign")
                 if not isinstance(remarks, str) or len(remarks) > 1000:
                     raise ValueError("Invalid marker remarks")
-                self.state["markers"][key] = {"id": mid, "uid": "taks-marker:" + key,
+                ttl = a.get("ttl_s", DEFAULT_MARKER_TTL)
+                expires_at = None if ttl is None else time.time() + number(ttl, "ttl_s", 1, 86400)
+                self.state["markers"][key] = {"id": mid, "expires_at": expires_at, "uid": "taks-marker:" + key,
                     "unit_id": uid, "active": True, "callsign": label, "position": point(a.get("position")),
                     "cot_type": cot_type(a.get("cot_type", "a-u-G")), "remarks": remarks,
                     "role": "exercise marker", "readiness": "simulated", "sender_entity_id": unit["entities"][0]["id"]}
@@ -432,7 +579,8 @@ class World:
             self.event("marker_updated", unit_id=uid, marker_id=mid)
             return {"marker_id": mid, "uid": "taks-marker:" + key}
         if op in ("entity_move", "entity_stop", "entity_patch", "cot_send"):
-            entity = next((e for e in unit["entities"] if e["id"] == a.get("entity_id")), None)
+            candidates = unit["entities"] if op == "entity_patch" else members
+            entity = next((e for e in candidates if e["id"] == a.get("entity_id")), None)
             if entity is None:
                 raise ValueError("Entity not found")
             if op in ("entity_move", "entity_stop") or (op=="entity_patch" and a.get("health_state","fit")!="fit"):
@@ -443,6 +591,7 @@ class World:
                     raise ValueError("Stop the unit move before individual movement")
                 if entity.get("health_state", "fit") != "fit":
                     raise ValueError("A wounded/KIA entity cannot start an unassisted move")
+                suspend(unit)
                 entity["move"] = make_path(entity["position"], a)
                 self.event("entity_move_started", unit_id=uid, entity_id=entity["id"], action_id=entity["move"]["id"])
                 return {"entity_id": entity["id"], "action_id": entity["move"]["id"], "duration_s": entity["move"]["duration_s"]}
@@ -459,6 +608,8 @@ class World:
                     if a["health_state"] != "fit": entity["move"] = None
                 if "cot_type" in a: entity["cot_type"] = cot_type(a["cot_type"])
                 attributes(entity, a)
+                if "sustainment" in a:
+                    update_sustainment(entity, a["sustainment"], self.state["clock_s"])
                 if len({e["callsign"] for e in unit["entities"]}) != len(unit["entities"]): raise ValueError("Duplicate member callsign")
                 if "remarks" in a:
                     if not isinstance(a["remarks"], str) or len(a["remarks"]) > 1000:
@@ -483,6 +634,7 @@ class World:
             if any(e.get("move") for e in unit["entities"]):
                 raise ValueError("Stop individual movement before a unit move")
             from .background import suspend
+            suspend(unit)
             for e in unit["entities"]: suspend(e)
             path = a.get("path")
             if not isinstance(path, list) or not 1 <= len(path) <= 100:
@@ -502,16 +654,21 @@ class World:
             self.event("move_started", unit_id=uid, action_id=action)
             return {"unit_id": uid, "action_id": action, "distance_m": round(length, 1), "duration_s": duration}
         if op in ("stop", "deactivate"):
-            unit["move"] = None
             from .background import suspend
-            for e in unit["entities"]:
+
+            stopped = selected_members(unit, a)
+            if op == "deactivate":
+                selection = {e["id"] for e in members} - {e["id"] for e in stopped}
+                set_active_members(unit, selection)
+            if op == "stop" or not unit["active"]:
+                unit["move"] = None
+                suspend(unit)
+            for e in stopped:
                 e["move"] = None
                 suspend(e)
-            if op == "deactivate":
-                unit["active"] = False
             self.event("movement_stopped" if op == "stop" else "unit_deactivated", unit_id=uid)
-            return {"unit_id": uid, "active": unit["active"]}
-        entity = next((e for e in unit["entities"] if e["id"] == a.get("entity_id", unit["entities"][0]["id"])), None)
+            return {"unit_id": uid, "active": unit["active"], "entity_count": len(active_members(unit))}
+        entity = next((e for e in members if e["id"] == a.get("entity_id", members[0]["id"])), None)
         message = a.get("message")
         if entity is None or not isinstance(message, str) or not message.strip() or len(message) > 1000:
             raise ValueError("Valid entity and message of 1..1000 characters required")

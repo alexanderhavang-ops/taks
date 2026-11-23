@@ -232,7 +232,8 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(d.observed),4)
                 self.assertEqual(len(writers),4)
                 self.assertTrue(all(s.info["connected"] for s in d.sessions.values()))
-                self.assertIn(b"SIM-DEMO-HQ",b"".join(received))
+                self.assertIn(b'callsign="DEMO-HQ"', b"".join(received))
+                self.assertIn(b"SIMULATION ONLY", b"".join(received))
                 marker=await d.command("marker_put",args(1,"marker",marker_id="enemy-1",callsign="SIM-ENEMY-01",
                     cot_type="a-h-G-U-C-I",position={"lat":55.712,"lon":13.21}))
                 self.assertTrue(marker["ok"])

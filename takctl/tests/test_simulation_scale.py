@@ -33,13 +33,42 @@ class RosterTests(unittest.TestCase):
 
     def test_authoritative_identity_grammar_and_local_alias_ambiguity(self):
         rows=self.state["orbat"]["actors"]
-        actor=next(e for e in rows if e["callsign"]=="SIM-EATQ3")
+        actor=next(e for e in rows if e["callsign"]=="EATQ3")
         self.assertEqual(actor["local_callsign"],"EA3")
         parsed=parse_callsign(None,"EATQ3")
         self.assertEqual(parsed["individual"],3)
         self.assertEqual(len(self.state["orbat"]["local_aliases"]["EA3"]),3)
-        self.assertIn("SIM-RQVQ1",{e["callsign"] for e in rows})
+        self.assertIn("RQVQ1",{e["callsign"] for e in rows})
         self.assertEqual(self.state["orbat"]["staff_strengths"],{"S1":2,"S2":2,"S3/5":3,"S4":2,"S6":3})
+
+    def test_roster_contacts_channels_and_selected_activation_survive_restart(self):
+        from takctl.simulation.orbat import actor_command_context
+        w = World(self.state, 520)
+        unit = w.state["units"]["hv-rq-a-e"]
+        actor = unit["entities"][2]
+        for key in ("tak_groups", "chat_rooms", "voice_channels"):
+            self.assertEqual(actor["metadata"][key], ["sim-vq-rq-a-e", "sim-vq-rq-a", "sim-vq-rq", "sim-vq"])
+        before = actor_command_context(w.state, actor)
+        self.assertEqual([row["level"] for row in before["chain"]], ["group", "platoon", "company", "battalion"])
+        self.assertEqual(before["reports_to"]["callsign"], "EARQ1")
+        self.assertEqual(before["chain"][-1]["commander"]["callsign"], "VQ1")
+
+        def apply(op, request, **fields):
+            return w.apply(op, {"unit_id": "hv-rq-a-e", "request_id": request,
+                                "expected_revision": w.state["revision"], **fields})
+
+        apply("command_configure", "handover", hierarchy_id="vq-rq-a", commander_entity_id=actor["id"])
+        apply("activate", "one", entity_ids=[actor["id"]])
+        w = World(json.loads(json.dumps(w.state)), 520)
+        self.assertEqual([e["id"] for e in w.entities()], [actor["id"]])
+        assigned = actor_command_context(w.state, w.entities()[0])
+        self.assertFalse(assigned["chain"][1]["acting_commander"])
+        self.assertEqual(assigned["chain"][1]["commander"]["callsign"], "EARQ3")
+        apply("activate", "all")
+        self.assertEqual(len(w.entities()), 8)
+        apply("deactivate", "remove-one", entity_ids=[actor["id"]])
+        self.assertEqual(len(w.entities()), 7)
+        self.assertNotIn(actor["id"], {e["id"] for e in w.entities()})
 
     def test_hierarchy_has_existing_parents_and_marker_owners(self):
         nodes=self.state["orbat"]["nodes"]; ids={n["id"] for n in nodes}

@@ -2,7 +2,8 @@
 
 ChatGPT supplies explicit decisions. The node owns persistent connections,
 movement interpolation, supplied timers, recipient inboxes and knowledge.
-It has no planner, inference loop or autonomous military decision model.
+The exercise-wide reasoning loop supplies plans. An optional node-local
+Agents SDK handler interprets direct orders for one actor.
 
 ## Delivered foundation
 
@@ -25,10 +26,10 @@ It has no planner, inference loop or autonomous military decision model.
   `request_id`, `expected_actor_revision`, `knowledge`; it does not use the world
   revision. These tools preserve data isolation; ChatGPT must also respect the
   chosen perspective when reasoning, since its god tools remain omniscient.
-- Incoming GeoChat addresses determine recipient delivery. A message never
-  executes MCP commands by itself. A currently active ChatGPT reasoning session
-  reads the recipient event and chooses its response or other explicit action.
-  Finishing a chat turn does not leave ChatGPT continuously reasoning on the node.
+- The command view supplies the actor's squad-to-battalion reporting line and
+  direct subordinate echelons. Use `command_configure` to record commander or
+  deputy handovers. Roster appointments give addresses and reporting lines.
+  Positions and other actors' inboxes stay outside this view.
 
 ## Order workflow for the next exercise
 
@@ -47,19 +48,81 @@ Global time, authoritative latitude/longitude and execution status remain in
 the world model. Actor beliefs can be incomplete, wrong or stale. ChatGPT writes
 observations into the relevant actor's knowledge explicitly.
 
-## Transport and behaviour work remaining
+## Looping routes, recurring actions, and markers
 
-GeoChat is implemented. XMPP and Mumble are not yet simulated transports.
-Before enabling them, use the normal TAKS onboarding identity and room/channel
-membership; preserve credentials privately and measure each transport separately.
-XMPP needs one authenticated stream per actor with the assigned conference
-memberships. Mumble needs authenticated identities, explicit channel membership,
-codec support and rate-limited PTT playback. Generate and queue a few audio clips,
-rather than synthesizing continuously or starting a process per actor.
+Use `background_put` with `unit_id` to move a formation at its stored member
+offsets. Add `entity_id` to move one actor. Supply up to 512 waypoints,
+each with `position`, `travel_s`, and `wait_s`. With `repeat: true`, the last
+waypoint must return to the start. The route repeats until paused, removed, or
+superseded by a foreground move. The daemon saves route progress and resumes
+from that point after restart. A paused exercise freezes movement and its
+schedule clock.
 
-Background movement is last. When added it consists of explicit, bounded patrol,
-errand and vehicle-route timelines prepared by ChatGPT, using mapped roads and
-paths. Stationary presence alone does not imply such activity is implemented.
+Use `schedule_put` with `delay_s` for the first action and optional
+`interval_s` (10–86,400 seconds) for recurring actions. Child arguments use
+the same `unit_id` and omit request and revision fields. Actions include
+`chat`, `xmpp_chat`, `mumble_ptt`, `marker_put`, and `marker_remove`.
+Mumble plays an existing clip over the actor's configured connection and
+channel. Inspect `last_occurrence` for the outcome and `due_clock_s` for the
+next deadline, or use `schedule_cancel` to end the series. A delayed scheduler
+skips missed intervals. After a restart, an uncertain send is recorded and the
+series continues with a fresh request ID at its next deadline.
+
+`marker_put` defaults to a 300-second wall-clock TTL. Set `ttl_s` (1–86,400
+seconds) to choose a different lifetime. The daemon stops publishing expired
+markers, removes them from saved state, and caps each CoT stale timestamp at the
+expiry. The wall-clock TTL still applies during pause or downtime. Only
+deliberately static markers such as ORBAT headquarters use `ttl_s: null`.
+`marker_remove` releases the marker slot and sends a CoT deletion over the
+owner's connection when available. Client receipt is unconfirmed, so the last
+advertised stale timestamp is the fallback.
+
+## Health, supplies, and rotation
+
+Set actor `sustainment` in `create.members` or through `entity_patch`.
+It includes `health_pct`, `satiation_pct`, `hydration_pct`, carried
+`rations` and `water_ml`, and `ammunition` and `equipment` maps of item IDs
+to counts. Set `duty_status` to track the current activity, such as
+`on-duty`, `meal`, or `resting`. A patch changes only the supplied fields. An inventory map replaces
+that category, so an empty map clears it. Omitted values on an existing actor
+are unknown. Read an individual through `actor`, or scan actors through the
+paged `status` response.
+
+The reasoning loop sets how often each actor needs to eat and drink in an
+exercise day. Build in that many reachable stops, stagger them across the
+rotation, and leave enough time at each stop for the planned activity. A
+waypoint wait provides time for the stop. The reasoning loop accounts for the
+elapsed exercise time, checks carried supplies, and records what the actor
+actually consumed or received. Use `accounted_through_clock_s` to record the
+exercise-clock time covered by a patch and pick up from there after restart.
+Use an atomic batch for a supply transfer between actors.
+
+When a stop is missed or supplies run out, the reasoning loop can record
+declining needs and health, swap duties, or revise the route. A fatal outcome is
+an explicit patch setting `health_pct: 0` and `health_state: "kia"`. Existing
+movement rules then keep that actor stationary. Needs and inventory are saved
+as given. With no reasoning session active, only previously scheduled patches
+run, so the next session accounts for time elapsed since the saved cursor.
+
+## Unattended individual orders
+
+On a configured node, an active fictional actor can respond in the same
+transport to a directly addressed XMPP or GeoChat message from a configured
+exercise operator. The OpenAI Agents SDK classifies the message. The daemon
+validates and applies one individual movement, ration, or water action. A
+cardinal move uses an explicit distance in metres, up to 1,000 m. Food and
+water orders use what the actor carries. The reply tells the sender what the
+actor did or why it was unable to act. Group orders and combat are outside the
+handler's scope. Route planning and supply-stop planning stay with the
+exercise-wide reasoning loop.
+
+Set space-separated `xmpp_senders` (bare JIDs) or `geochat_senders` (TAK UIDs)
+in `config.d/simulation-orders.conf` and keep `openai_api_key` in the
+corresponding node secret fragment. `openai_model` is optional. XMPP uses
+the authenticated bare JID. GeoChat uses the received CoT sender UID, so
+enable that path only on the isolated exercise node with trusted senders.
+With empty allowlists the handler stays disabled. The SDK receives the one
+message being interpreted, and SDK tracing is disabled.
 
 ## Resource selection
 
