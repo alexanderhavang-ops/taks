@@ -70,6 +70,45 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(len(w.entities()), 7)
         self.assertNotIn(actor["id"], {e["id"] for e in w.entities()})
 
+    def test_leader_orders_only_affect_active_units_in_appointed_echelon(self):
+        w = World(self.state, 520)
+        squad_a, squad_b, outsider = "hv-rq-a-e", "hv-rq-a-f", "hv-sq-a-e"
+        for i, uid in enumerate((squad_a, squad_b, outsider)):
+            w.apply("activate", {"unit_id": uid, "request_id": f"activate-{i}", "expected_revision": w.state["revision"]})
+        leader = squad_a + "-01"
+
+        def order(key, action, **extra):
+            return w.apply("leader_order", {"unit_id": squad_a, "leader_entity_id": leader,
+                                           "echelon_id": "vq-rq-a", "action": action, "request_id": key,
+                                           "expected_revision": w.state["revision"], **extra})
+
+        with self.assertRaisesRegex(ValueError, "Only the current commander"):
+            order("outside", "formation", echelon_id="vq-sq", formation="line")
+        with self.assertRaisesRegex(ValueError, "Named exercise positions"):
+            order("missing", "position_set", position_set="defensive")
+        order("columns", "formation", formation="two_columns")
+        w.advance(60)
+        for uid in (squad_a, squad_b):
+            row = w.state["units"][uid]
+            self.assertEqual(row["formation"], "two_columns")
+            self.assertEqual({e["east_m"] for e in row["entities"]}, {-2.5, 2.5})
+        self.assertNotIn("formation", w.state["units"][outsider])
+
+        with self.assertRaisesRegex(ValueError, "separate unit"):
+            order("own", "follow", target_kind="unit", target=squad_b)
+        order("operator-follow", "follow", target_kind="operator", target="test-device")
+        w = World(json.loads(json.dumps(w.state)), 520)
+        initial = dict(w.state["units"][squad_a]["position"])
+        w.advance(60)
+        self.assertEqual(w.state["units"][squad_a]["position"], initial)
+        w.advance(60, {"test-device": {"lat": 55.711, "lon": 13.21}})
+        self.assertNotEqual(w.state["units"][squad_a]["position"], initial)
+        held = dict(w.state["units"][squad_a]["position"])
+        w.advance(60)
+        self.assertEqual(w.state["units"][squad_a]["position"], held)
+        order("halt", "halt")
+        self.assertNotIn("exercise_motion", w.state["units"][squad_a])
+
     def test_hierarchy_has_existing_parents_and_marker_owners(self):
         nodes=self.state["orbat"]["nodes"]; ids={n["id"] for n in nodes}
         self.assertTrue(all(n["parent_id"] is None or n["parent_id"] in ids for n in nodes))

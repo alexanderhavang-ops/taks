@@ -246,16 +246,21 @@ class World:
                 self.event("marker_expired", unit_id=marker["unit_id"], marker_id=marker["id"])
         return bool(expired)
 
-    def advance(self, seconds):
+    def advance(self, seconds, operator_positions=None):
         changed = self.expire_markers()
         if self.state["paused"]:
             return changed
         seconds = max(0, seconds)
         self.state["clock_s"] += seconds
-        from .background import advance as ambient_advance
+        from .background import advance as ambient_advance, advance_exercise_order
+        targets = {"unit": {u["id"]: u["position"] for u in self.state["units"].values() if u["active"]},
+                   "operator": operator_positions or {}}
         for u in self.state["units"].values():
             members = active_members(u)
             if not members:
+                continue
+            if u.get("exercise_motion"):
+                changed |= advance_exercise_order(u, members, seconds, targets)
                 continue
             if ambient_advance(u, seconds):
                 for e in members:
@@ -360,6 +365,7 @@ class World:
                    "entity_patch": {"entity_id", "health_state", "remarks", "cot_type", "callsign", "role", "readiness", "group_id", "vehicle_id", "platform", "metadata", "sustainment"},
                    "unit_patch": {"metadata", "tak_unit_ref"},
                    "command_configure": {"hierarchy_id", "commander_entity_id", "deputy_entity_id", "parent_id", "level"},
+                   "leader_order": {"leader_entity_id", "echelon_id", "action", "formation", "target_kind", "target", "position_set"},
                    "schedule_put": {"schedule_id", "delay_s", "interval_s", "operation", "arguments"},
                    "schedule_cancel": {"schedule_id"}, "cot_remove": {"cot_uid"},
                    "marker_put": {"marker_id", "position", "callsign", "cot_type", "remarks", "role", "metadata", "ttl_s"},
@@ -443,6 +449,8 @@ class World:
                 if owner is None:
                     raise ValueError("Entity not found")
             if op in ("background_put", "background_resume"):
+                if unit.get("exercise_motion"):
+                    raise ValueError("Stop the current exercise order first")
                 if unit.get("move") or owner.get("move"):
                     raise ValueError("Stop foreground movement first")
                 if owner is unit:
@@ -474,6 +482,12 @@ class World:
             scope = {} if owner is unit else {"entity_id": owner["id"]}
             self.event("background_updated", unit_id=uid, **scope)
             return {**(scope or {"unit_id": uid}), "background": summary(owner.get("background"))}
+        if op == "leader_order":
+            from .orbat import leader_order
+
+            result = leader_order(self.state, a)
+            self.event("leader_order", unit_id=uid, **result)
+            return result
         if op == "command_configure":
             from .orbat import configure_command
 
@@ -592,6 +606,7 @@ class World:
                 if entity.get("health_state", "fit") != "fit":
                     raise ValueError("A wounded/KIA entity cannot start an unassisted move")
                 suspend(unit)
+                unit.pop("exercise_motion", None)
                 entity["move"] = make_path(entity["position"], a)
                 self.event("entity_move_started", unit_id=uid, entity_id=entity["id"], action_id=entity["move"]["id"])
                 return {"entity_id": entity["id"], "action_id": entity["move"]["id"], "duration_s": entity["move"]["duration_s"]}
@@ -635,6 +650,7 @@ class World:
                 raise ValueError("Stop individual movement before a unit move")
             from .background import suspend
             suspend(unit)
+            unit.pop("exercise_motion", None)
             for e in unit["entities"]: suspend(e)
             path = a.get("path")
             if not isinstance(path, list) or not 1 <= len(path) <= 100:
@@ -662,6 +678,7 @@ class World:
                 set_active_members(unit, selection)
             if op == "stop" or not unit["active"]:
                 unit["move"] = None
+                unit.pop("exercise_motion", None)
                 suspend(unit)
             for e in stopped:
                 e["move"] = None

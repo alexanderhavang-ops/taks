@@ -261,3 +261,99 @@ def apply_communications_roster(state):
             actor.setdefault("sustainment", {"health_pct": 100, "satiation_pct": 75, "hydration_pct": 75,
                                               "rations": 3, "water_ml": 2000, "duty_status": "ready",
                                               "accounted_through_clock_s": 0})
+
+
+def led_echelons(state, actor_id):
+    nodes, _ = command_nodes(state)
+    return [row for row in nodes.values() if (row["commander"] or {}).get("entity_id") == actor_id]
+
+
+def leader_order(state, args):
+    from .background import FORMATIONS, formation_offsets, suspend
+    from .model import active_members, offset
+
+    echelons, primary = command_nodes(state)
+    uid, leader = args["unit_id"], args.get("leader_entity_id")
+    root = args.get("echelon_id")
+    scope = echelons.get(root) if isinstance(root, str) else None
+    if scope is None or not leader or (scope.get("commander") or {}).get("entity_id") != leader:
+        raise ValueError("Only the current commander can direct this exercise echelon")
+    resolution = [u for u in state["units"].values() if active_members(u)
+                  and any(node["id"] == root for node in chain(echelons, primary[u["id"]]))]
+    leader_unit = state["units"].get(uid)
+    if not resolution or leader_unit is None or not any(
+        actor["id"] == leader and actor.get("health_state", "fit") == "fit"
+        for actor in active_members(leader_unit)
+    ):
+        raise ValueError("Leader and commanded actors must be active")
+    commanded_ids = {u["id"] for u in resolution}
+    action = args.get("action")
+    if action not in ("formation", "follow", "position_set", "halt"):
+        raise ValueError("Invalid exercise order")
+    formation = args.get("formation")
+    if (action == "formation" or formation is not None) and formation not in FORMATIONS:
+        raise ValueError("Unsupported exercise formation")
+
+    target_kind, target = args.get("target_kind"), args.get("target")
+    if action == "follow":
+        if not isinstance(target, str) or not 1 <= len(target) <= 128:
+            raise ValueError("Follow requires a known target")
+        if target_kind == "unit":
+            seen = set(commanded_ids)
+            cursor = target
+            while cursor:
+                if cursor in seen or cursor not in state["units"]:
+                    raise ValueError("Follow requires a separate unit without a follow cycle")
+                seen.add(cursor)
+                row = state["units"][cursor].get("exercise_motion", {})
+                cursor = row.get("target") if row.get("kind") == "follow" and row.get("target_kind") == "unit" else None
+            if not active_members(state["units"][target]):
+                raise ValueError("Follow target must be active")
+        elif target_kind != "operator":
+            raise ValueError("Invalid follow target")
+
+    if action == "position_set":
+        name = args.get("position_set")
+        if not isinstance(name, str):
+            raise ValueError("Named exercise position set is required")
+        destinations = []
+        for unit in resolution:
+            configured = unit.get("metadata", {}).get("exercise_positions", {})
+            if not isinstance(configured, dict) or name not in configured:
+                raise ValueError("Named exercise positions must be configured for every commanded unit")
+            destinations.append(point(configured[name]))
+
+    centers = []
+    if formation:
+        separation = max(len(unit["entities"]) for unit in resolution) * 5 + 10
+        centers = formation_offsets(len(resolution), formation, separation)
+    resolution_anchor = leader_unit["position"]
+    for index, unit in enumerate(resolution):
+        unit["move"] = None
+        suspend(unit)
+        members = unit["entities"]
+        for actor in members:
+            actor["move"] = None
+            suspend(actor)
+        if action == "halt":
+            unit.pop("exercise_motion", None)
+            continue
+        if formation:
+            offsets = formation_offsets(len(members), formation)
+            for actor, (north, east) in zip(members, offsets):
+                offset(unit["position"], north, east)
+                actor.update(north_m=north, east_m=east)
+            unit["formation"] = formation
+        if action == "formation":
+            destination = offset(resolution_anchor, *centers[index]) if len(resolution) > 1 else unit["position"]
+            unit["exercise_motion"] = {"kind": "formation", "position": destination}
+        elif action == "position_set":
+            dest = destinations[index]
+            for actor in members:
+                offset(dest, actor["north_m"], actor["east_m"])
+            unit["exercise_motion"] = {"kind": "position", "position": dest, "position_set": name}
+        else:
+            north, east = centers[index] if formation and len(resolution) > 1 else (-index * 15, 0)
+            unit["exercise_motion"] = {"kind": "follow", "target_kind": target_kind, "target": target,
+                                       "north_m": north - 15, "east_m": east}
+    return {"echelon_id": root, "unit_count": len(resolution), "action": action}

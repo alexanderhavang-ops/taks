@@ -382,4 +382,35 @@ class TimelineTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(d.world.entities()[0]["sustainment"]["rations"], 1)
 
 
+    async def test_leader_chat_uses_real_appointment_and_a_present_follow_track(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state.json"
+            state.write_text(json.dumps(world().state))
+            d = Daemon({"state_file": str(state), "identities": [{}, {}],
+                        "orders": {"model": "fixture", "xmpp_senders": ["operator@example.test"],
+                                   "geochat_senders": ["operator-uid"]}})
+            d.reconcile = lambda: None
+            leader, member = d.world.entities()
+            shape = SimpleNamespace(action="formation", echelon=None, formation="line", target=None)
+            wrong = await d.apply_leader_order(member, shape, "order-wrong", "Form a line",
+                                               "xmpp", "operator@example.test")
+            self.assertIn("don't command", wrong)
+            reply = await d.apply_leader_order(leader, shape, "order-shape", "Form a line",
+                                               "xmpp", "operator@example.test")
+            self.assertEqual(reply, "Roger. Forming up.")
+            follow = SimpleNamespace(action="follow", echelon=None, formation="two_columns", target="me")
+            leader = d.world.entities()[0]
+            body = "Follow me in two columns"
+            stale = await d.apply_leader_order(leader, follow, "order-stale", body,
+                                               "xmpp", "operator@example.test")
+            self.assertIn("current position", stale)
+            d.operator_tracks["operator-uid"] = (datetime.now(timezone.utc), {"lat": 55.711, "lon": 13.21})
+            reply = await d.apply_leader_order(leader, follow, "order-follow", body,
+                                               "xmpp", "operator@example.test")
+            self.assertEqual(reply, "Roger. Following.")
+            unit = d.world.state["units"]["demo"]
+            self.assertEqual(unit["formation"], "two_columns")
+            self.assertEqual(unit["exercise_motion"]["target"], "operator-uid")
+
+
 if __name__ == "__main__": unittest.main()

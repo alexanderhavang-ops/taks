@@ -23,7 +23,7 @@ import uuid
 import xml.etree.ElementTree as ET
 
 from .background import MAX_WAYPOINTS, summary as route_summary
-from .model import World, active_members, advance_path, number, offset
+from .model import World, active_members, advance_path, number, offset, point
 from .perception import PerceptionStore, interpret_individual_order
 
 SOCKET = "/opt/tak/simulation/control.sock"
@@ -241,6 +241,8 @@ class Session:
                                     await self.daemon.receive_chat(uid, link.get("uid", "") if link is not None else chat.get("senderCallsign", ""),
                                         chat.get("id", ""), (remarks.text or "")[:2000], chat.get("chatroom", ""),
                                         sender_callsign=chat.get("senderCallsign", ""))
+                            if uid in self.daemon.follow_device_uids:
+                                self.daemon.record_follow_track(uid, element)
                             if uid in self.daemon.known_uids:
                                 p = element.find("point")
                                 self.daemon.observed[uid] = {
@@ -310,6 +312,12 @@ class Daemon:
         self.inbox = {}
         self.orders = asyncio.Queue(maxsize=32)
         self.order_received = {}
+        options = config.get("orders", {})
+        self.operator_links = options.get("follow_operators", {})
+        if not self.operator_links and len(options.get("xmpp_senders", ())) == len(options.get("geochat_senders", ())) == 1:
+            self.operator_links = dict(zip(options["xmpp_senders"], options["geochat_senders"]))
+        self.follow_device_uids = set(options.get("geochat_senders", ())) | set(self.operator_links.values())
+        self.operator_tracks = {}
         self.known_uids = set()
         self.last_tick = time.monotonic()
         self.saved_clock_s = self.world.state["clock_s"]
@@ -348,6 +356,87 @@ class Daemon:
         self.order_received[uid] = now
         self.orders.put_nowait((now, transport, uid, event_uid, sender, sender_callsign, body))
 
+    def record_follow_track(self, uid, root):
+        if not root.get("type", "").startswith("a-"):
+            return
+        location = root.find("point")
+        if location is None:
+            return
+        try:
+            stamp = datetime.fromisoformat(root.get("time", "").replace("Z", "+00:00"))
+            age = (datetime.now(timezone.utc) - stamp).total_seconds()
+            if not -5 <= age <= 45:
+                return
+            position = point({"lat": float(location.get("lat", "")), "lon": float(location.get("lon", ""))})
+        except (TypeError, ValueError):
+            return
+        previous = self.operator_tracks.get(uid)
+        if previous is None or stamp > previous[0]:
+            self.operator_tracks[uid] = (stamp, position)
+
+    def fresh_operator_positions(self):
+        now = datetime.now(timezone.utc)
+        return {uid: position for uid, (stamp, position) in self.operator_tracks.items()
+                if (now - stamp).total_seconds() <= 45}
+
+    async def apply_leader_order(self, entity, order, request, body, transport, sender):
+        from .orbat import command_nodes, led_echelons
+
+        hierarchy = self.world.state
+        scopes = led_echelons(hierarchy, entity["id"])
+        ranks = {"squad": 0, "group": 0, "platoon": 1, "company": 2, "battalion": 3}
+        if order.echelon:
+            name = order.echelon.casefold()
+            if name not in body.casefold() and not (name == "group" and "squad" in body.casefold()):
+                raise ValueError("Requested echelon missing from literal order")
+            scopes = [scope for scope in scopes if name in (scope["id"].lower(), scope["label"].lower(), scope["level"])
+                      or (name == "squad" and scope["level"] == "group")]
+        if not scopes or self.world.state["paused"]:
+            return "Unable. I don't command that echelon."
+        scope = min(scopes, key=lambda row: ranks.get(row["level"], 0))
+        unit = next(u for u in hierarchy["units"].values() if entity in u["entities"])
+        args = {"unit_id": unit["id"], "leader_entity_id": entity["id"], "echelon_id": scope["id"],
+                "action": order.action, "request_id": request, "expected_revision": hierarchy["revision"]}
+        words = body.casefold()
+        if order.action == "formation" or (order.action == "follow" and order.formation is not None):
+            pattern = r"\bline\b" if order.formation == "line" else r"\b(?:two|2)[ -]+columns?\b"
+            if not re.search(pattern, words):
+                raise ValueError("Formation missing from literal order")
+            args["formation"] = order.formation
+        if order.action == "follow":
+            if not order.target or not re.search(r"\bfollow\b", words):
+                raise ValueError("Follow target missing from literal order")
+            target = order.target.casefold()
+            if target == "me":
+                if not re.search(r"\bfollow\s+me\b", words):
+                    raise ValueError("Follow me missing from literal order")
+                device = sender if transport == "geochat" else self.operator_links.get(sender)
+                if device not in self.fresh_operator_positions():
+                    return "Unable. I don't have your current position."
+                args.update(target_kind="operator", target=device)
+            else:
+                if not re.search(r"(?<![\w-])" + re.escape(target) + r"(?![\w-])", words):
+                    raise ValueError("Follow target not confirmed")
+                nodes, _ = command_nodes(hierarchy)
+                matches = {u["id"] for u in hierarchy["units"].values()
+                           if target in (u["id"].casefold(), u["callsign"].casefold())}
+                matches.update(row["unit_id"] for row in nodes.values()
+                               if target in (row["id"].casefold(), row["label"].casefold()))
+                if len(matches) != 1:
+                    return "Unable. Give me one active unit's exact callsign."
+                args.update(target_kind="unit", target=next(iter(matches)))
+        elif order.action == "position_set":
+            label = order.target
+            if not label or not re.search(r"(?<![\w-])" + re.escape(label.casefold()) + r"(?![\w-])", words):
+                raise ValueError("Position set not identified")
+            args["position_set"] = label.casefold()
+        elif order.action == "halt" and not re.search(r"\b(?:halt|hold|stop)\b", words):
+            raise ValueError("Halt missing from literal order")
+
+        await self.command("leader_order", args)
+        return {"formation": "Roger. Forming up.", "follow": "Roger. Following.",
+                "position_set": "Roger. Moving to the assigned exercise positions.", "halt": "Roger. Holding."}[order.action]
+
     async def apply_individual_order(self, entity, order, request, body):
         if self.world.state["paused"] or entity.get("health_state", "fit") != "fit":
             return "Unable to act right now."
@@ -369,7 +458,7 @@ class Daemon:
             metres = number(order.distance_m, "distance_m", 1, 1000)
             if order.direction != stated_direction or not math.isclose(metres, float(stated_distance)):
                 return "Unable to confirm the distance or direction."
-            if unit.get("background", {}).get("enabled") or unit.get("move"):
+            if unit.get("background", {}).get("enabled") or unit.get("move") or unit.get("exercise_motion"):
                 return "Unable to leave the current route on an individual order."
             north, east = directions[order.direction]
             destination = offset(entity["position"], north * metres, east * metres)
@@ -395,9 +484,16 @@ class Daemon:
             if time.monotonic() - queued > 120:
                 continue
             request = "order-" + hashlib.blake2b((uid + "\0" + event_uid).encode(), digest_size=10).hexdigest()
+            from .orbat import led_echelons
+
+            actor = next((e for e in self.world.entities() if e["uid"] == uid), None)
+            if not actor:
+                continue
+            scopes = led_echelons(self.world.state, actor["id"])
             try:
-                order = await asyncio.wait_for(
-                    interpret_individual_order(body, self.config["orders"]["model"]), 20)
+                order = await asyncio.wait_for(interpret_individual_order(
+                    body, self.config["orders"]["model"],
+                    leader_scopes=[{k: row[k] for k in ("id", "level", "label")} for row in scopes]), 45)
             except Exception:
                 order = None
             entity = next((e for e in self.world.entities() if e["uid"] == uid), None)
@@ -406,7 +502,12 @@ class Daemon:
             reply = "Unable to process that order. Please try again."
             if order is not None:
                 try:
-                    reply = await self.apply_individual_order(entity, order, request, body)
+                    if order.action in ("formation", "follow", "position_set", "halt"):
+                        reply = await self.apply_leader_order(entity, order, request, body, transport, sender)
+                    elif order.action == "reference":
+                        reply = (getattr(order, "reply", None) or "I could not confirm that in the exercise references.")[:300]
+                    else:
+                        reply = await self.apply_individual_order(entity, order, request, body)
                 except ValueError:
                     reply = "Unable to carry out that order right now."
             if transport == "xmpp":
@@ -441,7 +542,7 @@ class Daemon:
 
     def advance(self):
         now = time.monotonic()
-        changed = self.world.advance(now - self.last_tick)
+        changed = self.world.advance(now - self.last_tick, self.fresh_operator_positions())
         self.last_tick = now
         return changed
 
@@ -600,7 +701,7 @@ class Daemon:
                 return {"ok": True, "version": "MVP3", "name":"TAKS SimKeeper", "identity_capacity": self.world.capacity,
                         "tick_seconds": self.config.get("tick_seconds", 10), "daemon_inference": bool(self.config.get("orders")),
                         "individual_orders": "If configured, authorized direct chat can request a bounded personal move, food, or water. Replies use the incoming transport.",
-                        "operations": ["create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "command_configure", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel", "background_put", "background_pause", "background_resume", "background_remove", "xmpp_chat", "mumble_channel", "mumble_ptt"],
+                        "operations": ["create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "command_configure", "leader_order", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel", "background_put", "background_pause", "background_resume", "background_remove", "xmpp_chat", "mumble_channel", "mumble_ptt"],
                         "limits": {"batch_commands": 32, "path_destinations": 100, "background_waypoints": MAX_WAYPOINTS, "scheduled_actions": 64, "markers": 128, "persistent_custom_cot": 16},
                         "read_pagination": "status accepts entity_offset (default 0) and entity_limit (default 64, max 128); units contain selected entities plus entity_count. view=orbat reads hierarchy and local/global aliases",
                         "write_contract": "All writes require a unique request_id and matching expected_revision. Unit operations also require unit_id. batch children omit request/revision",
@@ -609,6 +710,7 @@ class Daemon:
                             "entity_patch": "entity_id,health_state?(fit/wounded/kia),remarks?,callsign?,role?,readiness?,group_id?,vehicle_id?,platform?,cot_type?,metadata? (replacement object <=2KiB),sustainment?",
                             "sustainment": "create.members[] or entity_patch: health_pct?,satiation_pct?,hydration_pct?,rations?,water_ml?,ammunition?,equipment?,duty_status?,accounted_through_clock_s?; percentage values 0..100, inventory objects replace supplied categories",
                             "unit_patch": "tak_unit_ref?,metadata?",
+                            "leader_order": "unit_id,leader_entity_id,echelon_id,action (formation,follow,position_set,halt),formation?,target_kind?,target?,position_set?",
                             "command_configure": "hierarchy_id? (defaults to unit echelon),commander_entity_id?,deputy_entity_id?; null vacates an appointment; custom echelons also accept parent_id?,level?",
                             "batch": "commands:[{operation,arguments}] (state only)",
                             "marker_put": "marker_id,callsign,position,cot_type?,remarks?,ttl_s? (wall seconds, default 300; null is persistent)", "marker_remove": "marker_id",

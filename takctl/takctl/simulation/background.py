@@ -98,3 +98,57 @@ def advance(owner, seconds):
     if phase == "completed":
         policy.update(enabled=False, elapsed_s=policy["delay_s"] + policy["cycle_s"])
     return True
+
+
+FORMATIONS = ("line", "two_columns")
+FOLLOW_SPEED_MPS = 1.4
+
+
+def formation_offsets(count, formation, spacing=5):
+    if formation == "line":
+        return [(0, (index - (count - 1) / 2) * spacing) for index in range(count)]
+    return [(-(index // 2) * spacing, (-.5, .5)[index % 2] * spacing) for index in range(count)]
+
+
+def advance_exercise_order(unit, members, seconds, targets):
+    from .model import offset
+
+    motion = unit.get("exercise_motion")
+    if not motion or not seconds:
+        return False
+    destination = motion.get("position")
+    if motion["kind"] == "follow":
+        target = targets.get(motion["target_kind"], {}).get(motion["target"])
+        if target is None:
+            return False
+        try:
+            destination = offset(target, motion["north_m"], motion["east_m"])
+        except ValueError:
+            return False
+    if destination is None:
+        destination = unit["position"]
+
+    def approach(start, end):
+        length = distance(start, end)
+        limit = seconds * FOLLOW_SPEED_MPS
+        return dict(end) if length <= limit else interpolate(start, end, limit / length)
+
+    previous = unit["position"]
+    anchor = approach(previous, destination)
+    try:
+        goals = [(e, offset(anchor, e["north_m"], e["east_m"])) for e in members
+                 if e.get("health_state", "fit") == "fit"]
+    except ValueError:
+        return False
+    changed = anchor != previous
+    unit["position"] = anchor
+    all_arrived = anchor == destination
+    for entity, target in goals:
+        updated = approach(entity["position"], target)
+        changed |= updated != entity["position"]
+        all_arrived &= updated == target
+        entity["position"] = updated
+    if all_arrived and motion["kind"] != "follow":
+        unit.pop("exercise_motion")
+        return True
+    return changed

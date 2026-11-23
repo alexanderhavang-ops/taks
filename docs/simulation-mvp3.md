@@ -124,6 +124,27 @@ enable that path only on the isolated exercise node with trusted senders.
 With empty allowlists the handler stays disabled. The SDK receives the one
 message being interpreted, and SDK tracing is disabled.
 
+## Leader orders and local references
+
+An appointed commander can apply a line or two-column arrangement, halt,
+follow a separately active unit by exact callsign, or follow the sender's
+assigned TAK track. An order can specify the echelon. If the recipient has
+multiple appointments and the order omits it, the smallest appointment is
+used. Orders apply only to active actors in that echelon. Following holds
+position when the operator's track is more than 45 seconds old. An XMPP
+operator needs a corresponding TAK device UID for `follow me`.
+
+A named exercise position set is supplied by the exercise designer in each
+unit's `metadata.exercise_positions` map. An order such as “Take up defensive
+positions” selects the preconfigured `defensive` point for each unit.
+The model cannot select new sites or take coordinates from retrieved documents.
+
+The node agent can call the existing local document search for up to two
+queries per message. It searches the active, indexed exercise documents, so
+newly indexed documents become available during the next order or question.
+Retrieved text is considered reference material. The daemon independently
+validates the operator, commander appointment, scope and requested action.
+
 ## Resource selection
 
 No PostgreSQL tuning or TAK JVM heap overrides were introduced for the exercise.
