@@ -302,6 +302,8 @@ class Daemon:
         self.publish_lock = asyncio.Lock()
         self.wakeup = asyncio.Event()
         self.handshakes = asyncio.Semaphore(4)
+        self.xmpp_room_locks = {}
+        self.xmpp_rooms_ready = set()
         self.sessions = {}
         self.links = {}
         self.observed = {}

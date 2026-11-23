@@ -27,6 +27,8 @@ import urllib.request
 
 BASE = Path("/opt/tak/tools/takctl")
 ROOT = Path("/opt/tak/simulation")
+ORDER_SDK = "0.25.0"
+ORDER_DEPS = ROOT / ("order-deps-" + ORDER_SDK)
 FILES = (
     "takctl/takctl/services/activity_evidence.py",
     "takctl/takctl/simulation/__init__.py",
@@ -52,7 +54,7 @@ Type=simple
 User=tak
 Group=tak
 WorkingDirectory=/opt/tak/tools/takctl
-Environment=PYTHONPATH=/opt/tak/tools/takctl
+Environment=PYTHONPATH=/opt/tak/tools/takctl:__ORDER_DEPS__
 EnvironmentFile=-/etc/taks/simulation-openai.env
 ExecStart=/opt/tak/tools/takctl/.venv/bin/python -m takctl.simulation.daemon
 Restart=on-failure
@@ -255,6 +257,9 @@ def selected_order_settings(source_root):
     secrets_dir = Path("/etc/taks-bootstrap.d/secrets.d")
     sources = [secrets_dir / filename, secrets_dir / "martine.conf",
                Path("/opt/tak/tools/martine/secrets.d/martine.conf")]
+    if bundled:
+        bundled_secrets = bundled.parent.parent / "secrets.d"
+        sources[:0] = [bundled_secrets / filename, bundled_secrets / "martine.conf"]
     key = ""
     for path in sources:
         secrets = kv(path)
@@ -262,8 +267,22 @@ def selected_order_settings(source_root):
         if key:
             break
     if not re.fullmatch(r"[A-Za-z0-9_-]{16,512}", key):
-        raise ValueError("Configured simulator orders require a valid OpenAI API key in a node secret file")
+        print("simulation orders disabled: no OpenAI API key found in node secrets", file=sys.stderr)
+        return {}, ""
     return settings, key
+
+
+def install_order_sdk():
+    if ORDER_DEPS.is_dir():
+        return
+    # Keep optional SDK dependency versions out of the TAKCTL web environment.
+    with tempfile.TemporaryDirectory(dir=ROOT, prefix="order-deps-") as folder:
+        stage = Path(folder)
+        shutil.chown(stage, user="tak", group="tak")
+        target = stage / "packages"
+        run(["sudo", "-u", "tak", str(BASE / ".venv/bin/python"), "-m", "pip", "install",
+             "--quiet", "--target", str(target), "openai-agents==" + ORDER_SDK])
+        target.rename(ORDER_DEPS)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -285,6 +304,8 @@ def main():
     ROOT.mkdir(exist_ok=True)
     shutil.chown(ROOT, user="tak", group="tak")
     ROOT.chmod(0o750)
+    if orders:
+        install_order_sdk()
     backup = ROOT / "releases" / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + args.commit[:12])
     backup.mkdir(parents=True)
     changed = []
@@ -344,7 +365,8 @@ def main():
             def report(stage, count):
                 temp_progress=progress.with_suffix(".tmp")
                 temp_progress.write_text(json.dumps({"ok":True,"stage":stage,"completed_identities":count,
-                    "identity_capacity":args.identities,"capacity_source":capacity_source,"source_commit":args.commit}))
+                    "identity_capacity":args.identities,"capacity_source":capacity_source,"source_commit":args.commit,
+                    "order_transports":[name for name in ("xmpp", "geochat") if orders.get(name + "_senders")]}))
                 shutil.chown(temp_progress,user="root",group="tak"); temp_progress.chmod(0o640)
                 os.replace(temp_progress,progress)
             report("issuing_identities",0)
@@ -435,7 +457,8 @@ def main():
             if unitpath.exists():
                 shutil.copy2(unitpath, backup / "taks-simulation.service")
             changed.append((unitpath, backup / "taks-simulation.service"))
-            unitpath.write_text(UNIT.replace("MemoryMax=256M", f"MemoryMax={memory_budget}M"))
+            unitpath.write_text(UNIT.replace("MemoryMax=256M", f"MemoryMax={memory_budget}M")
+                                .replace("__ORDER_DEPS__", str(ORDER_DEPS)))
             unitpath.chmod(0o644)
             python = str(BASE / ".venv/bin/python")
             env = dict(os.environ, PYTHONPATH=str(BASE) + ":/opt/tak/tools/martine")

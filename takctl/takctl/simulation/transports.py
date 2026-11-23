@@ -117,6 +117,21 @@ class Link:
 
 class Xmpp(Link):
     def __init__(self,daemon,entity):super().__init__(daemon,entity,'xmpp')
+    async def join_room(self, muc, room):
+        nick = self.entity["callsign"]
+        if not room.startswith("sim-") or room in self.daemon.xmpp_rooms_ready:
+            await muc.join_muc_wait(room, nick, maxstanzas=0, timeout=10)
+            return
+        # On the first join, finish opening a new room before other actors join.
+        async with self.daemon.xmpp_room_locks.setdefault(room, asyncio.Lock()):
+            joined = await muc.join_muc_wait(room, nick, maxstanzas=0, timeout=10)
+            if joined and 201 in joined[0]["muc"]["status_codes"]:
+                form = await muc.get_room_config(room, timeout=10)
+                form["values"] = {**form["values"], "muc#roomconfig_persistentroom": True,
+                                  "muc#roomconfig_publicroom": False}
+                await muc.set_room_config(room, form, timeout=10)
+            self.daemon.xmpp_rooms_ready.add(room)
+
     async def run(self):
         import slixmpp
         cfg=self.daemon.config['xmpp'];identity=self.identity
@@ -141,13 +156,7 @@ class Xmpp(Link):
                     owner.info.update(connected=True,last_error=None,rooms=[])
                     for room in identity.get('xmpp_rooms',[]):
                         try:
-                            muc = self.plugin["xep_0045"]
-                            joined = await muc.join_muc_wait(room, owner.entity["callsign"], maxstanzas=0, timeout=10)
-                            if joined and room.startswith("sim-") and 201 in joined[0]["muc"]["status_codes"]:
-                                form = await muc.get_room_config(room, timeout=10)
-                                form["values"] = {**form["values"], "muc#roomconfig_persistentroom": True,
-                                                  "muc#roomconfig_publicroom": False}
-                                await muc.set_room_config(room, form, timeout=10)
+                            await owner.join_room(self.plugin["xep_0045"], room)
                             owner.info["rooms"].append(room)
                         except Exception as exc:owner.info['last_error']='Room join: '+type(exc).__name__
                 async def message(self,msg):
