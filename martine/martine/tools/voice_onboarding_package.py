@@ -126,24 +126,21 @@ def _build_manifest_xml(
 
 
 def _read_mumble_channel_ids() -> dict[str, int]:
-    if not MUMBLE_DB.exists():
-        return {}
-
-    con = sqlite3.connect(str(MUMBLE_DB))
+    con = sqlite3.connect(MUMBLE_DB.resolve().as_uri() + "?mode=ro", uri=True)
     try:
-        cur = con.cursor()
-        rows = cur.execute(
-            "select channel_id, name from channels order by channel_id"
+        rows = con.execute(
+            "select channel_id, name from channels where server_id = 1 order by channel_id"
         ).fetchall()
 
         out: dict[str, int] = {}
         for channel_id, name in rows:
             ch_name = str(name or "").strip()
-            if ch_name and ch_name not in out:
+            if ch_name:
+                if ch_name in out:
+                    out[ch_name] = -1
+                    continue
                 out[ch_name] = int(channel_id)
         return out
-    except Exception:
-        return {}
     finally:
         con.close()
 
@@ -151,7 +148,6 @@ def _read_mumble_channel_ids() -> dict[str, int]:
 def _resolve_channel_name_and_id(
     requested_name: str,
     channel_id_by_name: dict[str, int],
-    fallback_next: int,
 ) -> tuple[str, int]:
     raw = str(requested_name or "").strip()
     if not raw:
@@ -190,7 +186,7 @@ def _resolve_channel_name_and_id(
             if n.lower() == bare_l:
                 return n, int(channel_id)
 
-    return raw, int(fallback_next)
+    raise ValueError(f"Assigned voice channel {raw!r} is missing on the Mumble server")
 
 
 def _render_voice_package(
@@ -213,7 +209,6 @@ def _render_voice_package(
 
     channel_specs: list[dict[str, Any]] = []
     channel_id_by_name = _read_mumble_channel_ids()
-    fallback_next = 1
 
     for raw_name in channels:
         requested_name = str(raw_name or "").strip()
@@ -223,9 +218,9 @@ def _render_voice_package(
         channel_name, server_channel_id = _resolve_channel_name_and_id(
             requested_name,
             channel_id_by_name,
-            fallback_next,
         )
-        fallback_next += 1
+        if server_channel_id <= 0:
+            raise ValueError(f"Assigned voice channel {channel_name!r} is ambiguous or is the root channel")
 
         channel_specs.append(
             {

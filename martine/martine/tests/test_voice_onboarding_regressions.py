@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
+from types import SimpleNamespace
 import unittest
 import zipfile
 from pathlib import Path
@@ -35,7 +37,8 @@ class VoiceOnboardingRegressionTests(unittest.TestCase):
                 "company": "Q",
                 "platoon": "A",
                 "group": "E",
-            }
+            },
+            "channels": {"selected": ["GruppL-EAQQ", "PlutL-AQ"]},
         }
 
         obj = derive_vx_params(
@@ -49,12 +52,12 @@ class VoiceOnboardingRegressionTests(unittest.TestCase):
         self.assertEqual(obj["package_name"], "EAQQ1_46hvbat")
 
         chans = obj["channels"]
-        self.assertEqual(chans[0]["name"], "GruppL-QQEA")
+        self.assertEqual(chans[0]["name"], "GruppL-EAQQ")
         self.assertEqual(chans[0]["server_channel_id"], 5)
         self.assertEqual(chans[1]["name"], "PlutL-AQ")
         self.assertEqual(chans[1]["server_channel_id"], 4)
 
-        self.assertEqual(obj["channel_name"], "GruppL-QQEA")
+        self.assertEqual(obj["channel_name"], "GruppL-EAQQ")
         self.assertEqual(obj["server_channel_id"], 5)
 
     def test_write_vx_mission_zip_preserves_multi_channel_ids(self) -> None:
@@ -143,6 +146,48 @@ class VoiceOnboardingRegressionTests(unittest.TestCase):
 
             self.assertEqual(channels[1]["name"], "PlutL-AQ")
             self.assertEqual(channels[1]["serverChannelId"], 4)
+
+    def test_martine_refuses_to_guess_a_missing_channel_id(self) -> None:
+        from martine.tools.voice_onboarding_package import _resolve_channel_name_and_id
+
+        with self.assertRaisesRegex(ValueError, "is missing"):
+            _resolve_channel_name_and_id("Team", {"Other team": 1})
+
+    def test_self_service_uses_saved_selection_when_device_callsign_changed(self) -> None:
+        from martine.tools.voice_onboarding import _channels_from_identity
+
+        account = SimpleNamespace(authenticated=True, username="member", device_uids=("device",))
+        security = SimpleNamespace(current_principal=lambda: account)
+        selection = {"ctx": {}, "channels": {"selected": ["Assigned"]}}
+        with (
+            patch.dict(sys.modules, {"martine.security": security}),
+            patch("martine.tools.voice_onboarding.load_selection", return_value=selection) as load,
+        ):
+            self.assertEqual(_channels_from_identity("Different callsign", "device"), ["Assigned"])
+            load.assert_called_once_with("member")
+
+    def test_soldier_card_retains_all_assigned_channels_and_live_ids(self) -> None:
+        from takctl.api.onboarding_packages import _write_vx_package
+
+        with tempfile.TemporaryDirectory() as folder:
+            out = Path(folder) / "vx.zip"
+            params = {"package_name": "Voice", "mission_name": "Mission", "host": "node.example", "port": 64738}
+            with (
+                patch("takctl.api.onboarding_packages.load_selection", return_value={}),
+                patch("takctl.api.onboarding_packages.derive_vx_params", return_value=params),
+                patch(
+                    "takctl.onboarding.watch_voice_profile.live_channel_profile",
+                    return_value={"channels": [{"name": "First", "id": 77}, {"name": "Second", "id": 42}]},
+                ),
+            ):
+                _write_vx_package(out, "member", SimpleNamespace(groups=[]), base="https://node.example")
+
+            with zipfile.ZipFile(out) as archive:
+                payload_path = next(name for name in archive.namelist()
+                                    if not name.startswith("MANIFEST/") and not name.endswith("_proto"))
+                channels = json.loads(archive.read(payload_path))["channels"]
+            self.assertEqual([(channel["name"], channel["serverChannelId"]) for channel in channels],
+                             [("First", 77), ("Second", 42)])
 
 
 if __name__ == "__main__":

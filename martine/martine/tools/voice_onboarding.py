@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from martine.config import load_config
-from takctl.onboarding.service_builder import build_service
-from takctl.onboarding.voice_topology import derive_voice_topology
+from takctl.onboarding.channels import effective_selected_channels
+from takctl.onboarding.selection import load_selection
 
 from .voice_onboarding_common import (
     LOCAL_COT_TLS_HOST,
@@ -35,7 +35,18 @@ from .voice_onboarding_delivery import (
 from .voice_onboarding_package import _render_voice_package
 
 
-def _channels_from_identity_topology(target_callsign: str) -> list[str]:
+def _channels_from_identity(target_callsign: str, target_uid: str) -> list[str]:
+    try:
+        from martine.security import current_principal
+    except ImportError:
+        principal = None
+    else:
+        principal = current_principal()
+    if principal and principal.authenticated and target_uid and target_uid in principal.device_uids:
+        selection = load_selection(principal.username)
+        if selection:
+            return effective_selected_channels(selection.get("ctx"), selection=selection)
+
     want = str(target_callsign or "").strip().upper()
     if not want:
         return []
@@ -65,13 +76,7 @@ def _channels_from_identity_topology(target_callsign: str) -> list[str]:
                 if not any(str(x or "").strip().upper() == want for x in candidates):
                     continue
 
-                topo = derive_voice_topology(None, ctx)
-                out = []
-                for x in (topo.get("seed_channels") or []):
-                    ch = str(x or "").strip()
-                    if ch and ch not in out:
-                        out.append(ch)
-                return out
+                return effective_selected_channels(ctx, selection=load_selection(fp.stem))
     except Exception:
         return []
 
@@ -113,13 +118,9 @@ def send_voice_onboarding(
     mission_label = f"Samband-{node_name}"
     voice_port = int(mumble_port or 64738)
     server_password = _load_murmur_password(defaults)
-    explicit_channels = _normalize_channels(
-        channels=channels,
-        channels_csv=channels_csv,
-        defaults=defaults,
-    )
-    topology_channels = _channels_from_identity_topology(target_callsign)
-    channel_names = explicit_channels or topology_channels
+    explicit_channels = _normalize_channels(channels=channels, channels_csv=channels_csv)
+    topology_channels = _channels_from_identity(target_callsign, target_uid)
+    channel_names = explicit_channels or topology_channels or _normalize_channels(defaults=defaults)
 
     if not channel_names:
         return {

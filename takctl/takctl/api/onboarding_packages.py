@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from takctl.onboarding.models import OnboardingRecord, OnboardingStatus, PackageMeta, DeliveryMeta
 import json
 import hashlib
+import sqlite3
 from urllib.parse import quote, urlparse, parse_qsl, urlencode, urlunparse
 
 from fastapi import APIRouter, HTTPException, Request, Form
@@ -641,17 +642,27 @@ def _resolve_public_base(req: Request, username: str) -> str:
 
 
 def _write_vx_package(out, username: str, u, base: str) -> None:
+    from takctl.onboarding.watch_voice_profile import live_channel_profile
+
     sel = load_selection(username) or {}
     groups = list(getattr(u, "groups", []) or [])
     vx = derive_vx_params(username=username, groups=groups, selection=sel, base=base)
+    try:
+        profile = live_channel_profile(username, vx)
+    except ValueError as error:
+        raise HTTPException(409, "The assigned voice channels are unavailable on this server") from error
+    except (OSError, sqlite3.Error) as error:
+        raise HTTPException(503, "Could not read the voice channel list") from error
     write_vx_mission_zip(
         out,
         package_name=vx["package_name"],
         mission_name=vx["mission_name"],
-        channel_name=vx["channel_name"],
+        channels=[
+            {"name": channel["name"], "server_channel_id": channel["id"]}
+            for channel in profile["channels"]
+        ],
         host=vx["host"],
         port=int(vx["port"]),
-        server_channel_id=int(vx["server_channel_id"]),
     )
 
 
