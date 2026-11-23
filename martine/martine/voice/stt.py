@@ -15,6 +15,10 @@ LOCAL_MODEL_DIR_BY_NAME = {
     "small": Path("/opt/tak/tools/martine/state/models/faster-whisper-small"),
     "large-v3": Path("/opt/tak/tools/martine/state/models/faster-whisper-large-v3"),
 }
+LOCAL_MODEL_EXTRA_FILES = {
+    "small": ("vocabulary.txt",),
+    "large-v3": ("vocabulary.json", "preprocessor_config.json"),
+}
 
 WHISPER_PROMPT_CANDIDATES = [
     Path("/opt/tak/tools/martine/conf.d/whisper_prompt.sv.txt"),
@@ -152,11 +156,14 @@ def _resolve_local_model_ref(model_name: str) -> str:
             f"Unsupported local faster-whisper model '{model_name}', expected one of: {allowed}"
         )
 
-    if not path.is_dir():
-        raise ConfigError(
-            f"Missing local faster-whisper model directory: {path} "
-            f"(run tak-installer apply to prefetch it)"
-        )
+    required = ("config.json", "model.bin", "tokenizer.json", *LOCAL_MODEL_EXTRA_FILES[model_name])
+    for filename in required:
+        artifact = path / filename
+        if not artifact.is_file() or artifact.stat().st_size == 0:
+            raise ConfigError(
+                f"Local faster-whisper model {model_name} is incomplete ({filename}). "
+                "Prefetch the model before using local transcription."
+            )
 
     return str(path)
 

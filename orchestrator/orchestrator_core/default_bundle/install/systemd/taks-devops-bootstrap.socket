@@ -1,0 +1,11 @@
+[Unit]
+Description=TAKS bootstrap DevOps socket
+
+[Socket]
+ListenStream=/run/taks-devops-bootstrap.sock
+SocketUser=www-data
+SocketGroup=www-data
+SocketMode=0660
+
+[Install]
+WantedBy=sockets.target

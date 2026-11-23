@@ -37,6 +37,10 @@ FAST_WHISPER_MODEL_DIR_BY_NAME = {
     "small": DST_MARTINE_MODELS_ROOT / "faster-whisper-small",
     "large-v3": DST_MARTINE_MODELS_ROOT / "faster-whisper-large-v3",
 }
+FAST_WHISPER_EXTRA_FILES = {
+    "small": ("vocabulary.txt",),
+    "large-v3": ("vocabulary.json", "preprocessor_config.json"),
+}
 
 
 def _run(cmd: list[str]) -> None:
@@ -129,6 +133,12 @@ def _ensure_prefetched_models(venv_py: Path) -> None:
             f"unsupported martine voice model '{model_name}', expected one of: {allowed}"
         )
 
+    required = ("config.json", "model.bin", "tokenizer.json", *FAST_WHISPER_EXTRA_FILES[model_name])
+    artifacts = (local_dir / filename for filename in required)
+    if all(artifact.is_file() and artifact.stat().st_size > 0 for artifact in artifacts):
+        log.info(f"martine-runtime: using cached faster-whisper model {model_name}")
+        return
+
     local_dir.parent.mkdir(parents=True, exist_ok=True)
 
     log.info(f"martine-runtime: prefetching faster-whisper model {model_name} -> {local_dir}")
@@ -145,13 +155,22 @@ local_dir.parent.mkdir(parents=True, exist_ok=True)
 snapshot_download(
     repo_id=repo_id,
     local_dir=str(local_dir),
+    max_workers=2,
 )
 print(f"OK prefetched {repo_id} -> {local_dir}")
 '''
-    subprocess.run(
-        ["sudo", "-u", "tak", str(venv_py), "-c", script, repo_id, str(local_dir)],
-        check=True,
-    )
+    try:
+        subprocess.run(
+            ["sudo", "-u", "tak", str(venv_py), "-c", script, repo_id, str(local_dir)],
+            check=True,
+            timeout=180,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        log.warning(
+            "martine-runtime: faster-whisper model %s was not cached (%s). "
+            "Continuing bootstrap with local transcription unavailable.",
+            model_name, type(exc).__name__,
+        )
 
 
 def _ensure_venv() -> None:

@@ -60,6 +60,7 @@ read_shell_assignment() {
 run_step() {
   local name="$1"
   local path="$2"
+  shift 2
 
   if [ ! -f "$path" ]; then
     log "skip $name (missing: $path)"
@@ -68,7 +69,7 @@ run_step() {
 
   log_state "$name" "Started"
   log "running $name: $path"
-  bash "$path"
+  bash "$path" "$@"
   log_state "$name" "Succeeded"
 }
 
@@ -505,6 +506,7 @@ main() {
   install_heartbeat
   log_state "install_heartbeat" "Succeeded"
 
+  run_step "devops-mtls" "$BUNDLE_ROOT/install/devops-mtls.sh"
   run_step "os-tuning" "$BUNDLE_ROOT/install/os-tuning.sh"
   run_step "takserver" "$BUNDLE_ROOT/install/takserver.sh"
   run_step "tak-certs-config" "$BUNDLE_ROOT/install/tak-certs-config.sh"
@@ -537,7 +539,7 @@ main() {
     fi
   fi
 
-  run_step "devops-mtls" "$BUNDLE_ROOT/install/devops-mtls.sh"
+  run_step "devops-runtime-permissions" "$BUNDLE_ROOT/install/devops-mtls.sh" --finish
   run_step "taks-node-health" "$BUNDLE_ROOT/install/taks-node-health.sh"
 
   log "install complete"

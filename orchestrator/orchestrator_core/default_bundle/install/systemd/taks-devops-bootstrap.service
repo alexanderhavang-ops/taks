@@ -1,0 +1,16 @@
+[Unit]
+Description=TAKS bootstrap DevOps diagnostics
+Requires=taks-devops-bootstrap.socket
+After=taks-devops-bootstrap.socket
+
+[Service]
+ExecStart=/usr/bin/python3 -m taks_node_devops.server
+Environment=PYTHONPATH=/usr/local/lib
+LoadCredential=node-secret:/etc/taks-bootstrap.d/secrets.d/orchestrator-node.conf
+DynamicUser=yes
+SupplementaryGroups=systemd-journal
+NoNewPrivileges=yes
+ProtectHome=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_UNIX
+Restart=on-failure
