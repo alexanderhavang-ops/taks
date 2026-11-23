@@ -6,11 +6,13 @@ certificate fingerprint in the configured pool is different. Certificate
 provisioning happens during the node build; it does not create resident
 per-person Python processes.
 
-`simulation_identity_capacity` in the unit's simulation bootstrap fragment
-sets the next node's pool, from 1 to 1024. Pools above 64 use a 1024MiB daemon
-memory ceiling. That ceiling is a guard, not a statement of actual memory use.
-The existing four-identity exercise used roughly 27MiB. Measure the target
-server after phased activation before making a production capacity claim.
+`simulation_identity_capacity` controls the number of enrolled TAKS identities
+stored in the roster. SimKeeper opens connections only for active actors.
+The independent `simulation_active_identity_capacity` in
+`simulation-runtime-limits.conf` defaults to eight or the roster size, whichever
+is smaller. The concurrent limit controls the memory ceiling and launch size.
+An enrolled battalion with eight simultaneous actors fits the default
+`t3.medium` profile with a 128 MiB SimKeeper ceiling.
 
 Every simulated connection drains incoming traffic. A shared bounded cache
 of 4096 frame digests avoids decoding identical XML hundreds of times when

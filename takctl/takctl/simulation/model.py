@@ -213,8 +213,11 @@ def set_active_members(unit, selection):
 
 
 class World:
-    def __init__(self, state=None, capacity=8):
+    def __init__(self, state=None, capacity=8, active_capacity=None):
         self.capacity = capacity
+        self.active_capacity = capacity if active_capacity is None else active_capacity
+        if type(self.active_capacity) is not int or not min(1, self.capacity) <= self.active_capacity <= self.capacity:
+            raise ValueError("Invalid concurrent simulation actor limit")
         self.state = copy.deepcopy(state) if state else {
             "schema": 1, "revision": 0, "units": {}, "requests": {}, "events": []}
         if self.state.get("schema") != 1:
@@ -320,7 +323,7 @@ class World:
             return {**previous["result"], "duplicate": True}
         if type(args.get("expected_revision")) is not int or args["expected_revision"] != self.state["revision"]:
             raise ValueError(f"expected_revision must match {self.state['revision']}")
-        trial = World(self.state, self.capacity)
+        trial = World(self.state, self.capacity, self.active_capacity)
         result = trial._apply(operation, args)
         result.update(ok=True, revision=trial.state["revision"])
         trial.state["requests"][key] = {"fingerprint": fingerprint, "result": result}
@@ -383,6 +386,8 @@ class World:
             if type(count) is not int or not 1 <= count <= self.capacity:
                 raise ValueError("count exceeds provisioned identity capacity")
             used_slots = {e["identity_slot"] for e in self.entities()}
+            if len(used_slots) + count > self.active_capacity:
+                raise ValueError(f"Concurrent simulation limit is {self.active_capacity} actors")
             free_slots = sorted(set(range(self.capacity)) - used_slots)
             if len(free_slots) < count:
                 raise ValueError("Identity pool exhausted; extend pool before adding units")
@@ -432,6 +437,8 @@ class World:
             used = {e["identity_slot"] for e in self.entities()}
             if len(set(slots)) != len(slots) or any(type(s) is not int or s < 0 or s >= self.capacity or s in used for s in slots):
                 raise ValueError("Unit identity slots are unavailable")
+            if len(used) + len(incoming) > self.active_capacity:
+                raise ValueError(f"Concurrent simulation limit is {self.active_capacity} actors")
             for entity in incoming:
                 entity["activated_clock_s"] = self.state["clock_s"]
             selection = current | {e["id"] for e in incoming}
@@ -558,7 +565,7 @@ class World:
                     raise ValueError("Recurring markers require a finite TTL")
                 due = self.state["clock_s"] + number(a.get("delay_s"), "delay_s", 10, 86400)
                 # Validate against today's actor state at the proposed exercise time.
-                trial = World(self.state, self.capacity)
+                trial = World(self.state, self.capacity, self.active_capacity)
                 trial.state["clock_s"] = due
                 trial._apply(operation, arguments)
                 self.state["scheduled"][key] = {"id": sid, "unit_id": uid, "status": "pending",

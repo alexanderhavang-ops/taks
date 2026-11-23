@@ -70,6 +70,24 @@ class RosterTests(unittest.TestCase):
         self.assertEqual(len(w.entities()), 7)
         self.assertNotIn(actor["id"], {e["id"] for e in w.entities()})
 
+    def test_enrolled_roster_can_use_high_slots_under_small_active_limit(self):
+        w = World(self.state, 520, active_capacity=8)
+        unit = w.state["units"]["hv-vq-s6"]
+        unit_id = unit["id"]
+        actor = unit["entities"][-1]
+        self.assertGreater(actor["identity_slot"], 500)
+        def apply(op, uid, request, **extra):
+            return w.apply(op, {"unit_id": uid, "request_id": request,
+                                "expected_revision": w.state["revision"], **extra})
+        apply("activate", unit_id, "high-slot", entity_ids=[actor["id"]])
+        with self.assertRaisesRegex(ValueError, "Concurrent simulation limit"):
+            apply("activate", "hv-rq-a-e", "over-limit")
+        self.assertEqual([e["id"] for e in w.entities()], [actor["id"]])
+        apply("deactivate", unit_id, "clear")
+        apply("activate", "hv-rq-a-e", "squad")
+        self.assertEqual(len(w.entities()), 8)
+        self.assertEqual(sum(len(u["entities"]) for u in w.state["units"].values()), 520)
+
     def test_leader_orders_only_affect_active_units_in_appointed_echelon(self):
         w = World(self.state, 520)
         squad_a, squad_b, outsider = "hv-rq-a-e", "hv-rq-a-f", "hv-sq-a-e"

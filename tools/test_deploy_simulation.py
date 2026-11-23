@@ -14,6 +14,17 @@ class SelectedCapacityTest(unittest.TestCase):
         self.assertEqual(deploy.simulation_memory_budget(520,7800),1024)
         for count,ram in ((520,3800),(1024,7800)):
             with self.assertRaises(ValueError): deploy.simulation_memory_budget(count,ram)
+    def test_full_roster_with_small_active_limit_fits_medium(self):
+        with tempfile.TemporaryDirectory() as folder:
+            conf = Path(folder) / "simulation-runtime-limits.conf"
+            self.assertEqual(deploy.selected_active_capacity(None, 520, conf), 8)
+            self.assertEqual(deploy.simulation_memory_budget(8, 3800), 128)
+            conf.write_text("simulation_active_identity_capacity=32\n")
+            self.assertEqual(deploy.selected_active_capacity(None, 520, conf), 32)
+            conf.write_text("simulation_active_identity_capacity=521\n")
+            with self.assertRaises(ValueError):
+                deploy.selected_active_capacity(None, 520, conf)
+
     def test_bundle_overrides_restored_eight(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)

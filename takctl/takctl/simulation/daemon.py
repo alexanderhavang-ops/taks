@@ -288,7 +288,10 @@ class Daemon:
         self.config = config
         self.state_path = Path(config["state_file"])
         state = json.loads(self.state_path.read_text()) if self.state_path.exists() else None
-        self.world = World(state, capacity=len(config["identities"]))
+        self.world = World(state, capacity=len(config["identities"]),
+                           active_capacity=config.get("active_identity_capacity"))
+        if len(self.world.entities()) > self.world.active_capacity:
+            raise ValueError("Saved active roster exceeds the concurrent actor limit")
         self.recovered_schedules = False
         for row in self.world.state["scheduled"].values():
             if row["status"] == "attempt_pending" and "interval_s" in row:
@@ -698,7 +701,7 @@ class Daemon:
                 return {"ok": True, "orbat": copy.deepcopy(self.world.state["orbat"]), "command": list(commands.values())}
             if op == "capabilities":
                 if args: raise ValueError("Capabilities takes no arguments")
-                return {"ok": True, "version": "MVP3", "name":"TAKS SimKeeper", "identity_capacity": self.world.capacity,
+                return {"ok": True, "version": "MVP3", "name":"TAKS SimKeeper", "identity_capacity": self.world.capacity, "active_identity_capacity": self.world.active_capacity,
                         "tick_seconds": self.config.get("tick_seconds", 10), "daemon_inference": bool(self.config.get("orders")),
                         "individual_orders": "If configured, authorized direct chat can request a bounded personal move, food, or water. Replies use the incoming transport.",
                         "operations": ["create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "command_configure", "leader_order", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel", "background_put", "background_pause", "background_resume", "background_remove", "xmpp_chat", "mumble_channel", "mumble_ptt"],
@@ -763,7 +766,7 @@ class Daemon:
                     "custom_cot": [copy.deepcopy(c) for c in self.world.state["cot_templates"].values() if not uid or c["unit_id"]==uid],
                     "paused": self.world.state["paused"], "clock_s": self.world.state["clock_s"],
                     "scheduled": [copy.deepcopy(s) for s in self.world.state["scheduled"].values() if not uid or s["unit_id"] == uid],
-                    "identity_capacity": self.world.capacity,
+                    "identity_capacity": self.world.capacity, "active_identity_capacity": self.world.active_capacity,
                     "runtime": {"rss_peak_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
                                 "async_tasks": len(asyncio.all_tasks()), "processes": 1, "receive_frames":dict(self.frame_counts)},
                     "uptime_s": round(time.monotonic()-self.started), "tick_seconds": self.config.get("tick_seconds", 10),

@@ -111,6 +111,17 @@ def selected_identity_capacity(source_root, requested=None, runtime_config=Path(
 
 
 
+def selected_active_capacity(source_root, identity_capacity,
+                             runtime_config=Path("/etc/taks-bootstrap.d/config.d/simulation-runtime-limits.conf")):
+    bundled = (Path(source_root).resolve().parent / "install/taks-bootstrap/config.d" / runtime_config.name
+               if source_root else None)
+    values = kv(bundled if bundled and bundled.is_file() else runtime_config)
+    capacity = int(values.get("simulation_active_identity_capacity", min(8, identity_capacity)))
+    if not 1 <= capacity <= identity_capacity:
+        raise ValueError("Concurrent simulation actor limit must fit the enrollment roster")
+    return capacity
+
+
 def configure_delivery_rate(capacity):
     """Keep large explicit exercises within their ten-second reporting contract."""
     target = 10 if capacity >= 500 else 200
@@ -292,14 +303,12 @@ def main():
     args = parser.parse_args()
     args.identities, capacity_source = selected_identity_capacity(args.source_root, args.identities)
     memory_mib = int(next(line.split()[1] for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemTotal:'))) // 1024
-    memory_budget = simulation_memory_budget(args.identities, memory_mib)
+    active_capacity = selected_active_capacity(args.source_root, args.identities)
+    memory_budget = simulation_memory_budget(active_capacity, memory_mib)
     if os.geteuid() != 0 or not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         raise ValueError("Root, pinned commit and 1..1024 identities required")
     orders, order_key = selected_order_settings(args.source_root)
-    packages = ["slixmpp==1.17.0"]
-    if orders:
-        packages.append("openai-agents==0.25.0")
-    run(["sudo", "-u", "tak", str(BASE/".venv/bin/python"), "-m", "pip", "install", "--quiet", *packages])
+    run(["sudo", "-u", "tak", str(BASE / ".venv/bin/python"), "-m", "pip", "install", "--quiet", "slixmpp==1.17.0"])
     sys.path[:0] = [str(BASE), "/opt/tak/tools/martine"]
     ROOT.mkdir(exist_ok=True)
     shutil.chown(ROOT, user="tak", group="tak")
@@ -352,7 +361,7 @@ def main():
                 domain.write_text(original + HOOK)
             from takctl.config import load_config, load_secrets
             config, secret = load_config(), load_secrets()
-            configure_delivery_rate(args.identities)
+            configure_delivery_rate(active_capacity)
             node = kv(Path("/etc/taks-bootstrap.d/config.d/node.conf"))
             fqdn = node.get("node_fqdn") or node.get("fqdn")
             group = node.get("unit_path") or node.get("node_name") or (fqdn or "taklabs").split(".")[0]
@@ -365,7 +374,7 @@ def main():
             def report(stage, count):
                 temp_progress=progress.with_suffix(".tmp")
                 temp_progress.write_text(json.dumps({"ok":True,"stage":stage,"completed_identities":count,
-                    "identity_capacity":args.identities,"capacity_source":capacity_source,"source_commit":args.commit,
+                    "identity_capacity":args.identities,"active_identity_capacity":active_capacity,"capacity_source":capacity_source,"source_commit":args.commit,
                     "order_transports":[name for name in ("xmpp", "geochat") if orders.get(name + "_senders")]}))
                 shutil.chown(temp_progress,user="root",group="tak"); temp_progress.chmod(0o640)
                 os.replace(temp_progress,progress)
@@ -405,7 +414,8 @@ def main():
             conf = {"host": "127.0.0.1", "port": 8089, "server_name": fqdn,
                     "server_sha256": pin, "ca_file": str(ROOT / "ca.pem"),
                     "socket": str(ROOT / "control.sock"), "state_file": str(ROOT / "state.json"),
-                    "tick_seconds": 10, "identities": identities, "source_commit": args.commit,
+                    "tick_seconds": 10, "identities": identities, "active_identity_capacity": active_capacity,
+                    "source_commit": args.commit,
                     "xmpp":{"enabled":True,"host":"127.0.0.1","port":5223,"domain":fqdn,"ca_file":str(ROOT/'ca.pem')},
                     "mumble":{"enabled":True,"host":"127.0.0.1","port":64738,"server_name":fqdn},
                     "audio_root":str(ROOT/'audio')}
