@@ -22,8 +22,10 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 
+from takctl.node_language import node_language
+
 from .background import MAX_WAYPOINTS, summary as route_summary
-from .model import World, active_members, advance_path, number, offset, point
+from .model import World, active_members, advance_path, distance, number, offset, point, video_url
 from .perception import PerceptionStore, interpret_individual_order
 
 SOCKET = "/opt/tak/simulation/control.sock"
@@ -72,6 +74,10 @@ class CotFrames:
         return frames
 
 
+def _reply(language, english, swedish):
+    return swedish if language == "sv" else english
+
+
 def stamp(t):
     return t.isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -99,7 +105,13 @@ def event(entity, *, message=None, paused=False):
         type="b-t-f" if message else entity.get("cot_type", "a-f-G-U-C-I"), how="m-g",
         time=stamp(now), start=stamp(now), stale=stamp(stale))
     pos = entity["position"]
-    ET.SubElement(root, "point", lat=f"{pos['lat']:.7f}", lon=f"{pos['lon']:.7f}", hae="0", ce="10", le="999999")
+    metadata = entity.get("metadata", {})
+    altitude = metadata.get("altitude_hae_m", 0)
+    try:
+        altitude = number(altitude, "altitude_hae_m", -500, 10000)
+    except ValueError:
+        altitude = 0
+    ET.SubElement(root, "point", lat=f"{pos['lat']:.7f}", lon=f"{pos['lon']:.7f}", hae=f"{altitude:g}", ce="10", le="999999")
     detail = ET.SubElement(root, "detail")
     if message:
         chat = ET.SubElement(detail, "__chat", parent="RootContactGroup", groupOwner="false",
@@ -133,7 +145,17 @@ def event(entity, *, message=None, paused=False):
         movement = entity.get("move")
         speed = 0 if paused else movement["distance_m"]/movement["duration_s"] if movement else entity.get("speed_mps", 0)
         ET.SubElement(detail, "track", speed=str(speed), course=str(course(entity)))
-        identity = entity.get("metadata",{})
+        if metadata.get("video_url"):
+            try:
+                url = video_url(metadata["video_url"])
+            except ValueError:
+                pass
+            else:
+                feed = ET.SubElement(detail, "__video", uid=uid, url=url)
+                ET.SubElement(feed, "ConnectionEntry", uid=uid, address=url, alias=callsign,
+                              protocol="raw", path="", port="-1", roverPort="-1", networkTimeout="12000",
+                              bufferTime="-1", rtspReliable="1", ignoreEmbeddedKLV="false")
+        identity = metadata
         display = " | "+identity["full_name"]+" | "+identity.get("designation",entity['role']) if identity.get("full_name") else ""
         ET.SubElement(detail, "remarks").text = f"SIMULATION ONLY | {entity['role']} | {entity['readiness']} | {health.upper()} | {entity.get('platform','person')} | group={entity.get('group_id','')} | vehicle={entity.get('vehicle_id','')} | {entity.get('remarks','')}"+display
     return ET.tostring(root, encoding="utf-8") + b"\n"
@@ -286,10 +308,16 @@ class Session:
 class Daemon:
     def __init__(self, config):
         self.config = config
+        self.buildings = None
+        if "ground_buildings" in config:
+            from takctl.web.mcp_domains.map_context import BuildingFootprints
+
+            self.buildings = BuildingFootprints(config["ground_buildings"])
         self.state_path = Path(config["state_file"])
         state = json.loads(self.state_path.read_text()) if self.state_path.exists() else None
         self.world = World(state, capacity=len(config["identities"]),
-                           active_capacity=config.get("active_identity_capacity"))
+                           active_capacity=config.get("active_identity_capacity"),
+                           path_validator=self.check_ground_path if self.buildings is not None else None)
         if len(self.world.entities()) > self.world.active_capacity:
             raise ValueError("Saved active roster exceeds the concurrent actor limit")
         self.recovered_schedules = False
@@ -315,6 +343,7 @@ class Daemon:
         self.inbox = {}
         self.orders = asyncio.Queue(maxsize=32)
         self.order_received = {}
+        self.voice_segments = deque(maxlen=1024)
         options = config.get("orders", {})
         self.operator_links = options.get("follow_operators", {})
         if not self.operator_links and len(options.get("xmpp_senders", ())) == len(options.get("geochat_senders", ())) == 1:
@@ -348,16 +377,45 @@ class Daemon:
             self.queue_order("geochat", direct[0], event_uid, sender_uid, body, sender_callsign)
         return result
 
-    def queue_order(self, transport, entity, event_uid, sender, body, sender_callsign=""):
+    def queue_order(self, transport, entity, event_uid, sender, body, sender_callsign="", channel=None):
         cfg = self.config.get("orders", {})
         if sender not in cfg.get(transport + "_senders", []) or not (0 < len(body.strip()) <= 400):
-            return
+            return False
         now = time.monotonic()
         uid = entity["uid"]
         if self.orders.full() or now - self.order_received.get(uid, float("-inf")) < 10:
-            return
+            return False
         self.order_received[uid] = now
-        self.orders.put_nowait((now, transport, uid, event_uid, sender, sender_callsign, body))
+        self.orders.put_nowait((now, transport, uid, event_uid, sender, sender_callsign, body, channel))
+        return True
+
+    def voice_order(self, args):
+        from .speech import spoken_target, voice_identity
+
+        cfg = self.config.get("orders", {})
+        if set(args) != {"segment_id", "speaker", "user_id", "channel", "text"}:
+            raise ValueError("Invalid voice order fields")
+        segment, channel = args["segment_id"], args["channel"]
+        if not isinstance(segment, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,96}", segment):
+            raise ValueError("Invalid voice segment")
+        identity = voice_identity(args["speaker"], args["user_id"], cfg.get("mumble_senders", ()))
+        if not identity:
+            return {"ok": True, "queued": False}
+        target = spoken_target(args["text"], self.world.entities())
+        if not target:
+            return {"ok": True, "queued": False}
+        actor, body = target
+        link = self.links.get((actor["id"], "mumble"))
+        if not link or not link.info.get("connected") or not channel or link.info.get("channel") != channel:
+            return {"ok": True, "queued": False}
+        sender, callsign = identity
+        key = (sender, segment)
+        if key in self.voice_segments:
+            return {"ok": True, "queued": False}
+        queued = self.queue_order("mumble", actor, "ptt-" + segment, sender, body, callsign, channel)
+        if queued:
+            self.voice_segments.append(key)
+        return {"ok": True, "queued": queued}
 
     def record_follow_track(self, uid, root):
         if not root.get("type", "").startswith("a-"):
@@ -382,7 +440,7 @@ class Daemon:
         return {uid: position for uid, (stamp, position) in self.operator_tracks.items()
                 if (now - stamp).total_seconds() <= 45}
 
-    async def apply_leader_order(self, entity, order, request, body, transport, sender):
+    async def apply_leader_order(self, entity, order, request, body, transport, sender, *, language="en"):
         from .orbat import command_nodes, led_echelons
 
         hierarchy = self.world.state
@@ -390,32 +448,38 @@ class Daemon:
         ranks = {"squad": 0, "group": 0, "platoon": 1, "company": 2, "battalion": 3}
         if order.echelon:
             name = order.echelon.casefold()
-            if name not in body.casefold() and not (name == "group" and "squad" in body.casefold()):
+            aliases = {
+                "group": ("squad", "grupp", "gruppen"), "platoon": ("pluton", "plutonen"),
+                "company": ("kompani", "kompaniet"), "battalion": ("bataljon", "bataljonen"),
+            }
+            if name not in body.casefold() and not any(
+                re.search(r"\b" + term + r"\b", body.casefold()) for term in aliases.get(name, ())
+            ):
                 raise ValueError("Requested echelon missing from literal order")
             scopes = [scope for scope in scopes if name in (scope["id"].lower(), scope["label"].lower(), scope["level"])
                       or (name == "squad" and scope["level"] == "group")]
         if not scopes or self.world.state["paused"]:
-            return "Unable. I don't command that echelon."
+            return _reply(language, "Unable. I don't command that echelon.", "Kan inte. Jag leder inte den enheten.")
         scope = min(scopes, key=lambda row: ranks.get(row["level"], 0))
         unit = next(u for u in hierarchy["units"].values() if entity in u["entities"])
         args = {"unit_id": unit["id"], "leader_entity_id": entity["id"], "echelon_id": scope["id"],
                 "action": order.action, "request_id": request, "expected_revision": hierarchy["revision"]}
         words = body.casefold()
         if order.action == "formation" or (order.action == "follow" and order.formation is not None):
-            pattern = r"\bline\b" if order.formation == "line" else r"\b(?:two|2)[ -]+columns?\b"
+            pattern = r"\b(?:line|linje)\b" if order.formation == "line" else r"\b(?:two|två|2)[ -]+(?:columns?|kolonner)\b"
             if not re.search(pattern, words):
                 raise ValueError("Formation missing from literal order")
             args["formation"] = order.formation
         if order.action == "follow":
-            if not order.target or not re.search(r"\bfollow\b", words):
+            if not order.target or not re.search(r"\b(?:follow|följ)\b", words):
                 raise ValueError("Follow target missing from literal order")
             target = order.target.casefold()
             if target == "me":
-                if not re.search(r"\bfollow\s+me\b", words):
+                if not re.search(r"\b(?:follow\s+me|följ\s+mig)\b", words):
                     raise ValueError("Follow me missing from literal order")
                 device = sender if transport == "geochat" else self.operator_links.get(sender)
                 if device not in self.fresh_operator_positions():
-                    return "Unable. I don't have your current position."
+                    return _reply(language, "Unable. I don't have your current position.", "Kan inte. Jag saknar din aktuella position.")
                 args.update(target_kind="operator", target=device)
             else:
                 if not re.search(r"(?<![\w-])" + re.escape(target) + r"(?![\w-])", words):
@@ -426,23 +490,30 @@ class Daemon:
                 matches.update(row["unit_id"] for row in nodes.values()
                                if target in (row["id"].casefold(), row["label"].casefold()))
                 if len(matches) != 1:
-                    return "Unable. Give me one active unit's exact callsign."
+                    return _reply(language, "Unable. Give me one active unit's exact callsign.", "Ange exakt anropssignal för en aktiv enhet.")
                 args.update(target_kind="unit", target=next(iter(matches)))
         elif order.action == "position_set":
             label = order.target
-            if not label or not re.search(r"(?<![\w-])" + re.escape(label.casefold()) + r"(?![\w-])", words):
+            literal = re.search(r"(?<![\w-])" + re.escape(label.casefold()) + r"(?![\w-])", words) if label else None
+            if not literal and not (label == "defensive" and re.search(r"\bförsvarsställning(?:ar)?\b", words)):
                 raise ValueError("Position set not identified")
             args["position_set"] = label.casefold()
-        elif order.action == "halt" and not re.search(r"\b(?:halt|hold|stop)\b", words):
+        elif order.action == "halt" and not re.search(r"\b(?:halt|hold|stop|stanna)\b", words):
             raise ValueError("Halt missing from literal order")
 
         await self.command("leader_order", args)
+        if language == "sv":
+            return {
+                "formation": "Uppfattat. Grupperar.", "follow": "Uppfattat. Följer.",
+                "position_set": "Uppfattat. Förflyttar till övningens tilldelade positioner.",
+                "halt": "Uppfattat. Stannar.",
+            }[order.action]
         return {"formation": "Roger. Forming up.", "follow": "Roger. Following.",
                 "position_set": "Roger. Moving to the assigned exercise positions.", "halt": "Roger. Holding."}[order.action]
 
-    async def apply_individual_order(self, entity, order, request, body):
+    async def apply_individual_order(self, entity, order, request, body, *, language="en"):
         if self.world.state["paused"] or entity.get("health_state", "fit") != "fit":
-            return "Unable to act right now."
+            return _reply(language, "Unable to act right now.", "Kan inte agera just nu.")
         unit = next(unit for unit in self.world.state["units"].values() if entity in unit["entities"])
         args = {"unit_id": unit["id"], "entity_id": entity["id"],
                 "request_id": request, "expected_revision": self.world.state["revision"]}
@@ -450,40 +521,52 @@ class Daemon:
             directions = {"north": (1, 0), "south": (-1, 0), "east": (0, 1), "west": (0, -1)}
             # The literal order must describe only this actor's own displacement.
             # Do not turn a model classification of a group order into movement.
-            direction = r"(north|south|east|west)"
-            measure = r"(\d+(?:\.\d+)?)\s*(m|meters?|metres?)"
+            direction = r"(north|south|east|west|norr(?:ut)?|söder(?:ut)?|öst|öster(?:ut)?|väst|väster(?:ut)?)"
+            measure = r"(\d+(?:[.,]\d+)?)\s*(m|meters?|metres?)"
             text = body.strip().lower().rstrip(".!")
-            before = re.fullmatch(r"(?:please\s+)?(?:move|walk|go)\s+" + measure + r"\s+" + direction, text)
-            after = re.fullmatch(r"(?:please\s+)?(?:move|walk|go)\s+" + direction + r"\s+" + measure, text)
+            before = re.fullmatch(r"(?:(?:please|vänligen)\s+)?(?:move|walk|go|gå|förflytta\s+dig)\s+" + measure + r"\s+" + direction, text)
+            after = re.fullmatch(r"(?:(?:please|vänligen)\s+)?(?:move|walk|go|gå|förflytta\s+dig)\s+" + direction + r"\s+" + measure, text)
             if not before and not after:
-                return "Unable. Send me a distance in metres and a cardinal direction."
+                return _reply(language, "Unable. Send me a distance in metres and a cardinal direction.", "Ange avståndet i meter och ett väderstreck.")
             stated_distance, stated_direction = before.group(1, 3) if before else after.group(2, 1)
+            stated_direction = {
+                "norr": "north", "norrut": "north", "söder": "south", "söderut": "south",
+                "öst": "east", "öster": "east", "österut": "east",
+                "väst": "west", "väster": "west", "västerut": "west",
+            }.get(stated_direction, stated_direction)
             metres = number(order.distance_m, "distance_m", 1, 1000)
-            if order.direction != stated_direction or not math.isclose(metres, float(stated_distance)):
-                return "Unable to confirm the distance or direction."
+            if order.direction != stated_direction or not math.isclose(metres, float(stated_distance.replace(",", "."))):
+                return _reply(language, "Unable to confirm the distance or direction.", "Kan inte bekräfta avståndet eller riktningen.")
             if unit.get("background", {}).get("enabled") or unit.get("move") or unit.get("exercise_motion"):
-                return "Unable to leave the current route on an individual order."
+                return _reply(language, "Unable to leave the current route on an individual order.", "Kan inte lämna rutten på en enskild order.")
             north, east = directions[order.direction]
             destination = offset(entity["position"], north * metres, east * metres)
             await self.command("entity_move", {**args, "path": [destination], "duration_s": max(10, metres)})
+            if language == "sv":
+                direction_sv = {"north": "norrut", "south": "söderut", "east": "österut", "west": "västerut"}
+                return f"Uppfattat. Går {metres:g} meter {direction_sv[order.direction]}."
             return f"Roger. Moving {metres:g} metres {order.direction}."
         if order.action in ("eat", "drink"):
-            keywords = r"\b(?:eat|food|meal|rations?)\b" if order.action == "eat" else r"\b(?:water|drink)\b"
+            keywords = r"\b(?:eat|food|meal|rations?|ät|äta|mat|portion)\b" if order.action == "eat" else r"\b(?:water|drink|vatten|drick|dricka)\b"
             if not re.search(keywords, body, flags=re.IGNORECASE):
-                return "Unable to confirm the supply order."
+                return _reply(language, "Unable to confirm the supply order.", "Kan inte bekräfta försörjningsordern.")
             needs = entity.get("sustainment", {})
             supply, meter, amount = ("rations", "satiation_pct", 1) if order.action == "eat" else (
                 "water_ml", "hydration_pct", 250)
             if needs.get(supply, 0) < amount:
-                return "Unable. I don't have a ration left." if order.action == "eat" else "Unable. I don't have enough water."
+                if order.action == "eat":
+                    return _reply(language, "Unable. I don't have a ration left.", "Jag har inga portioner kvar.")
+                return _reply(language, "Unable. I don't have enough water.", "Jag har inte tillräckligt med vatten.")
             await self.command("entity_patch", {**args, "sustainment": {
                 supply: needs[supply] - amount, meter: min(100, needs.get(meter, 0) + 25)}})
-            return "Roger. I've eaten a ration." if order.action == "eat" else "Roger. I've had some water."
-        return "Unable. I can take a simple individual move, food, or water order."
+            if order.action == "eat":
+                return _reply(language, "Roger. I've eaten a ration.", "Uppfattat. Jag har ätit en portion.")
+            return _reply(language, "Roger. I've had some water.", "Uppfattat. Jag har druckit vatten.")
+        return _reply(language, "Unable. I can take a simple individual move, food, or water order.", "Jag kan ta en enkel order om att förflytta mig, äta eller dricka.")
 
     async def run_orders(self):
         while True:
-            queued, transport, uid, event_uid, sender, callsign, body = await self.orders.get()
+            queued, transport, uid, event_uid, sender, callsign, body, channel = await self.orders.get()
             if time.monotonic() - queued > 120:
                 continue
             request = "order-" + hashlib.blake2b((uid + "\0" + event_uid).encode(), digest_size=10).hexdigest()
@@ -493,26 +576,28 @@ class Daemon:
             if not actor:
                 continue
             scopes = led_echelons(self.world.state, actor["id"])
+            language = "en"
             try:
+                language = node_language()
                 order = await asyncio.wait_for(interpret_individual_order(
-                    body, self.config["orders"]["model"],
+                    body, self.config["orders"]["model"], language=language,
                     leader_scopes=[{k: row[k] for k in ("id", "level", "label")} for row in scopes]), 45)
             except Exception:
                 order = None
             entity = next((e for e in self.world.entities() if e["uid"] == uid), None)
             if not entity:
                 continue
-            reply = "Unable to process that order. Please try again."
+            reply = _reply(language, "Unable to process that order. Please try again.", "Kan inte tolka ordern. Försök igen.")
             if order is not None:
                 try:
                     if order.action in ("formation", "follow", "position_set", "halt"):
-                        reply = await self.apply_leader_order(entity, order, request, body, transport, sender)
+                        reply = await self.apply_leader_order(entity, order, request, body, "geochat" if transport == "mumble" else transport, sender, language=language)
                     elif order.action == "reference":
-                        reply = (getattr(order, "reply", None) or "I could not confirm that in the exercise references.")[:300]
+                        reply = (getattr(order, "reply", None) or _reply(language, "I could not confirm that in the exercise references.", "Jag kunde inte bekräfta det i övningens referensmaterial."))[:300]
                     else:
-                        reply = await self.apply_individual_order(entity, order, request, body)
+                        reply = await self.apply_individual_order(entity, order, request, body, language=language)
                 except ValueError:
-                    reply = "Unable to carry out that order right now."
+                    reply = _reply(language, "Unable to carry out that order right now.", "Kan inte utföra ordern just nu.")
             if transport == "xmpp":
                 link = self.links.get((entity["id"], "xmpp"))
                 if link:
@@ -526,6 +611,16 @@ class Daemon:
                     await session.send(event(entity, message={
                         "target_uid": sender[:128], "target_callsign": callsign[:128],
                         "message_id": request + "-reply", "message": reply}))
+                if transport == "mumble" and self.config["orders"].get("mumble_voice_replies"):
+                    unit_id = next(u["id"] for u in self.world.state["units"].values()
+                                   if any(member["id"] == entity["id"] for member in u["entities"]))
+                    try:
+                        await self.command("mumble_ptt", {
+                            "unit_id": unit_id, "entity_id": entity["id"], "text": reply[:160],
+                            "request_id": request + "-voice", "expected_revision": self.world.state["revision"],
+                        }, required_voice_channel=channel, reply_language=language)
+                    except (OSError, ValueError, TimeoutError):
+                        pass
 
     def accept_frame(self, frame):
         # TAK fan-out sends the same frame to many simulated identities. Drain
@@ -570,6 +665,26 @@ class Daemon:
         for slot in list(self.sessions.keys() - wanted):
             self.sessions.pop(slot).task.cancel()
 
+    def camera_events(self, actors, unit_slots):
+        airborne = {actor["uid"]: actor for actor in actors if actor.get("platform") == "drone"}
+        events = []
+        for name, config in self.config.get("cameras", {}).items():
+            if "aircraft_uid" in config:
+                continue
+            slot = unit_slots.get(config.get("unit_id"))
+            if slot is None:
+                continue
+            camera = {
+                "uid": "taks-camera:" + name, "callsign": config.get("callsign", name.upper()),
+                "position": point(config["position"]), "cot_type": "b-m-p-s-p-loc",
+                "role": "fixed camera", "readiness": "ready",
+                "metadata": {"video_url": config["video_url"], "altitude_hae_m": config["hae_m"]},
+            }
+            events.append((slot, event(camera)))
+        overlays = {c["aircraft_uid"]: c["video_url"] for c in self.config.get("cameras", {}).values()
+                    if c.get("aircraft_uid") in airborne}
+        return events, overlays
+
     async def tick(self):
         while True:
             interval = min(1, self.config.get("tick_seconds", 10))
@@ -586,7 +701,13 @@ class Daemon:
                 senders = {e["id"]:e["identity_slot"] for e in entities}
                 unit_slots = {u["id"]: members[0]["identity_slot"] for u in self.world.state["units"].values()
                               if (members := active_members(u))}
-                messages = [(e["identity_slot"],event(e, paused=self.world.state["paused"])) for e in entities]
+                fixed_cameras, video_urls = self.camera_events(entities, unit_slots)
+                messages = list(fixed_cameras)
+                for entity in entities:
+                    url = video_urls.get(entity["uid"])
+                    if url:
+                        entity = {**entity, "metadata": {**entity.get("metadata", {}), "video_url": url}}
+                    messages.append((entity["identity_slot"], event(entity, paused=self.world.state["paused"])))
                 messages += [(senders.get(m["sender_entity_id"], unit_slots[m["unit_id"]]), event(m))
                              for m in self.world.state["markers"].values()
                              if m["active"] and m["unit_id"] in unit_slots]
@@ -664,12 +785,77 @@ class Daemon:
                 self.finish_occurrence(row, "completed" if success else "failed", result)
                 await self.save()
 
-    async def command(self, op, args, *, scheduled=False):
+    def check_ground_path(self, state, op, args):
+        if op not in {"entity_move", "move", "background_put"}:
+            return
+        unit = state["units"].get(args.get("unit_id"))
+        if not unit:
+            return
+        raw = args.get("waypoints") if op == "background_put" else args.get("path")
+        if not isinstance(raw, list) or not 1 <= len(raw) <= MAX_WAYPOINTS:
+            return
+        path = [point(p["position"] if op == "background_put" else p) for p in raw]
+        targets = unit["entities"] if op == "background_put" else active_members(unit)
+        for actor in targets:
+            if args.get("entity_id") not in (None, actor["id"]):
+                continue
+            if actor.get("platform") == "drone" and actor.get("cot_type", "").startswith("a-f-A-"):
+                continue
+            route = path
+            if not args.get("entity_id"):
+                route = [offset(p, actor["north_m"], actor["east_m"]) for p in path]
+            segments = [actor["position"], *route]
+            if not all(self.buildings.clear(a, b) for a, b in zip(segments, segments[1:])):
+                raise ValueError("Ground route intersects a mapped building. Use a mapped walking detour.")
+
+    def aircraft_command(self, op, args):
+        cfg = self.config.get("uas", {})
+        if not cfg or args.get("entity_id") != cfg["entity_id"]:
+            raise ValueError("No configured exercise aircraft")
+        unit = self.world.state["units"].get(cfg["unit_id"])
+        actor = next((e for e in active_members(unit) if e["id"] == cfg["entity_id"]), None) if unit else None
+        if (actor is None or actor.get("platform") != "drone"
+                or not actor.get("cot_type", "").startswith("a-f-A-")
+                or actor.get("health_state", "fit") != "fit"
+                or "altitude_hae_m" not in actor.get("metadata", {})):
+            raise ValueError("The configured simulation aircraft is unavailable")
+        if op == "uas_status":
+            if set(args) != {"entity_id"}:
+                raise ValueError("Unknown aircraft status field")
+            return {"ok": True, "actor": public_route_owner(actor)}
+        if set(args) != {"entity_id", "unit_id", "position", "request_id"} or args["unit_id"] != cfg["unit_id"]:
+            raise ValueError("Invalid aircraft command fields")
+        if self.world.state["paused"]:
+            raise ValueError("Exercise is paused")
+        target = args["position"]
+        fields = {
+            "entity_id": actor["id"], "unit_id": unit["id"], "request_id": args["request_id"],
+            "expected_revision": self.world.state["revision"],
+        }
+        if target is None:
+            return self.world.apply("entity_stop", fields)
+        target = point(target)
+        if distance(target, point(cfg["center"])) > cfg.get("radius_m", 500):
+            raise ValueError("Destination outside the exercise area")
+        length = distance(actor["position"], target)
+        if length < .1:
+            return self.world.apply("entity_stop", fields)
+        return self.world.apply("entity_move", {**fields, "path": [target], "duration_s": max(10, length / 12)})
+
+    async def command(self, op, args, *, scheduled=False, required_voice_channel=None, reply_language=None):
         async with self.lock:
             if self.advance():
                 await self.save()
             if not isinstance(args, dict):
                 raise ValueError("arguments must be an object")
+            if op == "voice_order":
+                return self.voice_order(args)
+            if op in ("uas_status", "uas_move"):
+                result = self.aircraft_command(op, args)
+                if op == "uas_move":
+                    await self.save()
+                    self.wakeup.set()
+                return result
             if scheduled:
                 if self.world.state["paused"]: return {"deferred": True}
                 args = {**args, "expected_revision": self.world.state["revision"]}
@@ -721,7 +907,7 @@ class Daemon:
                             "background_put":"entity_id? (omit for unit formation),waypoints:[{position:{lat,lon},travel_s,wait_s}],repeat?,delay_s?; repeated routes must close; install while inactive allowed",
                             "background_pause/resume/remove":"entity_id? (omit for unit formation); replace route after foreground relocation",
                             "xmpp_chat":"entity_id,target (provisioned account JID or joined room JID),message",
-                            "mumble_channel":"entity_id,channel (provisioned channel name)", "mumble_ptt":"entity_id,clip_id (prepared mono PCM16/48kHz WAV, <=10s); queued on shared event loop",
+                            "mumble_channel":"entity_id,channel (provisioned channel name)", "mumble_ptt":"entity_id and exactly one of clip_id (prepared WAV) or text (up to 160 characters); up to 10s",
                             "activate/deactivate": "entity_ids? (optional selected actors; omit for the entire unit)",
                             "chat": "message,entity_id?,target_uid?,target_callsign?", "pause/resume": "no unit_id; connections stay live",
                             "schedule_put": "schedule_id,delay_s,interval_s?,operation,arguments; interval repeats indefinitely (10..86400 seconds on the exercise clock); child omits request/revision",
@@ -783,18 +969,28 @@ class Daemon:
                 elif op=='mumble_channel':
                     if args.get('channel') not in identity.get('voice_channels',[]):raise ValueError('Channel not selected for this actor')
                 else:
-                    import re
+                    from .speech import speech_frames
                     from .transports import opus_clip
-                    clip=args.get('clip_id','')
-                    if not isinstance(clip,str) or not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',clip):raise ValueError('Invalid clip_id')
-                    path=Path(self.config.get('audio_root','/opt/tak/simulation/audio'))/(clip+'.wav')
-                    if path.is_symlink() or not path.is_file():raise ValueError('Prepared audio clip not found')
+                    if ("clip_id" in args) == ("text" in args):
+                        raise ValueError("Specify exactly one of clip_id or text")
+                    clip = args.get("clip_id")
+                    if "clip_id" in args:
+                        if not isinstance(clip, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", clip):
+                            raise ValueError("Invalid clip_id")
+                        path = Path(self.config.get("audio_root", "/opt/tak/simulation/audio")) / (clip + ".wav")
+                        if path.is_symlink() or not path.is_file():
+                            raise ValueError("Prepared audio clip not found")
                     link=self.links.get((entity['id'],'mumble'))
                     if not link or not link.info['connected']:raise ValueError('Mumble actor not connected')
                     if link.info.get("channel") not in identity["voice_channels"]:
                         raise ValueError("Mumble actor has not joined a configured voice channel")
                     if link.ptt_task and not link.ptt_task.done():raise ValueError('Actor already transmitting')
-                    frames=await asyncio.to_thread(opus_clip,path)
+                    if required_voice_channel is not None and required_voice_channel != link.info.get("channel"):
+                        raise ValueError("Actor has left the original voice channel")
+                    frames = (await asyncio.to_thread(opus_clip, path) if "clip_id" in args else
+                              await asyncio.to_thread(speech_frames, args["text"], reply_language or node_language()))
+                    if required_voice_channel is not None and required_voice_channel != link.info.get("channel"):
+                        raise ValueError("Actor has left the original voice channel")
             previous_state = self.world.state
             result = self.world.apply(op, args)
             if op in ("chat", "cot_send", "xmpp_chat", "mumble_channel", "mumble_ptt") and not result.get("duplicate"):
@@ -824,7 +1020,10 @@ class Daemon:
                 if link:
                     if op=='xmpp_chat':sent=await link.send_chat(result['target'],result['message'])
                     elif op=='mumble_channel':sent=await link.channel(result['channel'])
-                    else:link.ptt_task=asyncio.create_task(link.ptt(frames));sent=True
+                    else:
+                        options = {"channel": required_voice_channel} if required_voice_channel is not None else {}
+                        link.ptt_task = asyncio.create_task(link.ptt(frames, **options))
+                        sent = True
                 result['delivery']=('queued' if op=='mumble_ptt' else 'submitted') if sent else 'not_written_or_unknown'
                 self.world.state['requests'][args['request_id']]['result']=dict(result)
                 await self.save()

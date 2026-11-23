@@ -119,10 +119,18 @@ def _read_kv_file(path: Path) -> dict[str, str]:
 
 def _selected_voice_model_name() -> str:
     conf = _read_kv_file(Path("/opt/tak/tools/takctl/conf.d/martine_voice.conf"))
+    mode = conf.get("voice_mode", "").strip().lower()
+    if mode:
+        if mode not in {"fast", "accurate"}:
+            raise ValueError("Invalid Martine voice mode")
+        return {"fast": "small", "accurate": "large-v3"}[mode]
     return conf.get("model", "small").strip() or "small"
 
 
 def _ensure_prefetched_models(venv_py: Path) -> None:
+    conf = _read_kv_file(Path("/opt/tak/tools/takctl/conf.d/martine_voice.conf"))
+    if conf.get("provider") == "openai":
+        return
     model_name = _selected_voice_model_name()
     repo_id = FAST_WHISPER_MODEL_REPO_BY_NAME.get(model_name)
     local_dir = FAST_WHISPER_MODEL_DIR_BY_NAME.get(model_name)
@@ -191,6 +199,7 @@ def _ensure_venv() -> None:
         [
             "sudo", "-u", "tak", str(venv_py), "-m", "pip", "install", "-q",
             "mcp",
+            "openai>=1.90,<3",
             "requests",
             "boto3",
             "psycopg2-binary",

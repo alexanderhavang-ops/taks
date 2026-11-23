@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from takctl.node_language import node_language
+
 
 class ConfigError(RuntimeError):
     pass
@@ -51,6 +53,7 @@ class VoiceConfig:
     transcripts_dir: Path
     runs_dir: Path
     current_jsonl: Path
+    beam_size: int = 1
 
 
 def load_voice_config(paths: VoiceConfigPaths | None = None) -> VoiceConfig:
@@ -63,8 +66,10 @@ def load_voice_config(paths: VoiceConfigPaths | None = None) -> VoiceConfig:
             f"Missing required key 'serverpassword' in {paths.murmur_conf}"
         )
 
-    core = _read_kv_optional(paths.core_conf)
-    language = _normalize_language(core.get("language", "sv"), source=str(paths.core_conf))
+    try:
+        language = node_language(paths.core_conf)
+    except (OSError, ValueError) as exc:
+        raise ConfigError(f"Invalid node language in {paths.core_conf}: {exc}") from exc
 
     host = _get_str(voice, "host", "127.0.0.1")
     port = _get_int(voice, "port", 64738, minimum=1)
@@ -72,7 +77,11 @@ def load_voice_config(paths: VoiceConfigPaths | None = None) -> VoiceConfig:
     username = _get_str(voice, "username", "martine-voice")
 
     provider = _get_str(voice, "provider", "faster_whisper")
-    model = _get_str(voice, "model", "small")
+    mode = voice.get("voice_mode", "").strip().lower()
+    if mode:
+        _validate_choice("voice_mode", mode, {"fast", "accurate"})
+    model = ({"fast": "small", "accurate": "large-v3"}[mode] if mode else _get_str(voice, "model", "small"))
+    beam_size = 5 if model == "large-v3" else 1
     task = _get_str(voice, "task", "transcribe")
     inter_threads = _get_int(voice, "inter_threads", 1, minimum=1)
     intra_threads = _get_int(voice, "intra_threads", 1, minimum=1)
@@ -91,7 +100,7 @@ def load_voice_config(paths: VoiceConfigPaths | None = None) -> VoiceConfig:
     debug_wav_max_per_hour = _get_int(voice, "debug_wav_max_per_hour", 60, minimum=0)
     log_level = _get_str(voice, "log_level", "INFO").upper()
 
-    _validate_choice("provider", provider, {"faster_whisper"})
+    _validate_choice("provider", provider, {"faster_whisper", "openai"})
     _validate_choice("task", task, {"transcribe"})
     _validate_choice("segment_mode", segment_mode, {"ptt_preferred"})
     _validate_choice("output_format", output_format, {"jsonl"})
@@ -136,6 +145,7 @@ def load_voice_config(paths: VoiceConfigPaths | None = None) -> VoiceConfig:
         transcripts_dir=transcripts_dir,
         runs_dir=runs_dir,
         current_jsonl=current_jsonl,
+        beam_size=beam_size,
     )
 
 
@@ -181,27 +191,6 @@ def _read_kv_file(path: Path) -> dict[str, str]:
         out[key] = value
 
     return out
-
-
-def _normalize_language(value: str, source: str) -> str:
-    v = value.strip().lower().replace("-", "_")
-
-    mapping = {
-        "sv": "sv",
-        "sv_se": "sv",
-        "swedish": "sv",
-        "en": "en",
-        "en_us": "en",
-        "en_gb": "en",
-        "english": "en",
-    }
-
-    if v in mapping:
-        return mapping[v]
-
-    raise ConfigError(
-        f"Unsupported martine voice language '{value}' from {source}; expected sv or en"
-    )
 
 
 def _get_str(values: dict[str, str], key: str, default: str) -> str:

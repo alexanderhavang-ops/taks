@@ -4,13 +4,15 @@ import logging
 import signal
 import sys
 import time
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timezone
+
+from takctl.node_language import node_language
 
 from .config import ConfigError, VoiceConfig, load_voice_config
 from .mumble_ingest import MumbleIngest
 from .segmenter import Segmenter
-from .stt import FasterWhisperTranscriber
+from .stt import FasterWhisperTranscriber, OpenAITranscriber
 from .transcript_store import TranscriptStore
 
 
@@ -40,7 +42,7 @@ def main() -> int:
 
     try:
         store = TranscriptStore(cfg)
-        transcriber = FasterWhisperTranscriber(cfg)
+        transcriber = OpenAITranscriber() if cfg.provider == "openai" else FasterWhisperTranscriber(cfg)
         ingest = MumbleIngest(cfg)
         segmenter = Segmenter(cfg)
     except Exception as e:
@@ -72,7 +74,7 @@ def main() -> int:
 def _run_forever(
     cfg: VoiceConfig,
     store: TranscriptStore,
-    transcriber: FasterWhisperTranscriber,
+    transcriber: FasterWhisperTranscriber | OpenAITranscriber,
     ingest: MumbleIngest,
     segmenter: Segmenter,
 ) -> None:
@@ -95,7 +97,7 @@ def _run_forever(
 
 def _process_segments(
     store: TranscriptStore,
-    transcriber: FasterWhisperTranscriber,
+    transcriber: FasterWhisperTranscriber | OpenAITranscriber,
     segments,
 ) -> None:
     for segment in segments:
@@ -109,6 +111,7 @@ def _process_segments(
         )
 
         try:
+            segment = replace(segment, language=node_language())
             result = transcriber.transcribe_segment(segment)
         except Exception:
             LOG.exception(
@@ -130,6 +133,16 @@ def _process_segments(
             )
             continue
 
+        if segment.user_id is not None and not segment.is_split_from_long_tx:
+            from takctl.web.mcp_domains.simulation_tools import simulation
+
+            try:
+                simulation("voice_order", {
+                    "segment_id": segment.segment_id, "speaker": segment.speaker,
+                    "user_id": segment.user_id, "channel": segment.channel, "text": text[:1000],
+                }, timeout=1)
+            except (ValueError, OSError):
+                LOG.warning("SimKeeper voice submission failed for segment %s", segment.segment_id)
         event = store.append_transcript_for_segment(
             segment,
             text=text,

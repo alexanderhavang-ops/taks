@@ -73,6 +73,7 @@ class ReceivedSoundChunk:
     sample_width_bytes: int
     channels: int
     pcm_s16le: bytes
+    user_id: int | None = None
 
 
 class MumbleIngest:
@@ -357,6 +358,7 @@ class MumbleIngest:
                 sample_width_bytes=2,
                 channels=1,
                 pcm_s16le=pcm,
+                user_id=_registered_user_id(user),
             )
 
             try:
@@ -402,6 +404,14 @@ def _user_name(user) -> str:
         pass
 
     return "unknown"
+
+
+def _registered_user_id(user) -> int | None:
+    try:
+        value = user["user_id"]
+    except (AttributeError, KeyError, TypeError):
+        return None
+    return value if type(value) is int and value >= 0 else None
 
 
 def _user_session(user) -> int:

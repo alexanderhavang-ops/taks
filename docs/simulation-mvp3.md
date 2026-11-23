@@ -161,3 +161,86 @@ The local `profile-simulation-memory.py` fixture separates world allocations,
 SSL-context construction and idle mTLS transports. Its relay is a separate
 short-lived test process, excluded from client RSS. It is not a production
 TAK capacity test or a memory guarantee for another Python/OpenSSL build.
+
+## Node language and simulated cameras
+
+The node uses the runtime core `language` setting for new Martine turns,
+SimKeeper replies, and voice transcription segments. The default is `en`.
+Set `language` to `sv` in TAKCTL configuration to switch during runtime.
+Source documents, ORBAT designations, and callsigns keep their original wording.
+Existing voice clips keep their recorded language.
+
+Give a stationary marker or a simulated aircraft a `metadata.video_url` to
+advertise an existing RTSP, RTSPS, or HTTPS feed in ATAK's built-in Video tool.
+The viewer URL goes into CoT and must be reachable by the device. Use a stream
+path without credentials. Aircraft can also advertise a geographic height
+through `metadata.altitude_hae_m`. ATAK UAS Tool integration would require a
+separate simulator control bridge.
+
+The local `tools/simulation-video-demo.py` renderer produces a 320×180 H.264
+proof of concept at 5 frames per second. It extrudes GeoJSON building
+polygons over a flat ground plane and renders active blue simulated ground
+actors when they are in view. A scene JSON has an `origin` point
+with `lat` and `lon`, a `buildings` list from a map area response,
+`ground_hae_m`, and named `cameras`. Each camera supplies its own
+`look_at` and either `position` with `hae_m` or an `aircraft_uid`.
+The renderer reads the SimKeeper state JSON without changing it. Use Pillow,
+FFmpeg, and `PYTHONPATH=takctl` for the local prototype.
+
+```sh
+PYTHONPATH=takctl python tools/simulation-video-demo.py scene.json state.json FIXED fixed.mp4 --seconds 10
+PYTHONPATH=takctl python tools/simulation-video-demo.py scene.json state.json DRONE rtsp://127.0.0.1:8554/exercise/drone
+```
+
+The second command requires a running RTSP server such as MediaMTX. Run the RTSP server separately for this prototype.
+Ground patrols can use the map routing output, which checks mapped closed
+building footprints and endpoint connectors before returning a route.
+
+### Mumble speech and addressed orders
+
+The simulation order fragment accepts `mumble_senders` as a space-separated
+list of TAK device UIDs. The Mumble registration ID must match the enrolled
+VX name and an allowlisted UID, and the addressed actor must be connected to
+the originating exercise channel. Start with the actor's callsign, for
+example `ALPHA-1, eat a ration`. SimKeeper sends a directed GeoChat reply.
+Set `mumble_voice_replies = true` to also speak the reply on that channel.
+The Mumble username by itself carries no authorization.
+
+`mumble_ptt` accepts `text` or an existing `clip_id`. Text uses the node
+language and a local eSpeak NG voice. It lasts at most ten seconds and starts
+with an audible synthetic-voice label. Transcript and reply language follow
+the node's current setting. To try hosted recognition, choose
+`provider = openai` in Martine's voice config and use the node API key.
+The existing local `faster_whisper` provider supports `voice_mode = accurate`
+for large-v3 at beam size five. Hosted transcription receives the recorded
+bursts from Martine's listener.
+
+### Node deployment and ATAK viewing
+
+Add `simulation-video.json` under the unit bundle's `misc` directory and
+set `"mediamtx_release": "v1.21.3"` in the scene JSON for the pinned Linux
+amd64 download. Alternatively provide `simulation-mediamtx` with its
+`mediamtx_sha256`. Configure `video_host` and `viewer_networks` (CIDRs for
+authorized ATAK clients). A fixed camera
+also declares `unit_id` for the active publishing unit, and can set
+`callsign` for its ATAK marker. An aircraft camera's `aircraft_uid` matches
+the simulation actor UID. Use `platform = drone`, a friendly air CoT type,
+and an explicit `altitude_hae_m` on that actor. ATAK's built-in Video tool
+uses the marker's RTSP URL. Make TCP 8554 reachable from the configured
+exercise client network.
+
+MediaMTX starts each H.264 render on demand. The node publishes an updated
+simulation snapshot once a second in camera deployments and renders at
+320×180, 5 fps with a one-second keyframe interval. New explicit ground
+moves and patrol routes are checked against the scene's building polygons.
+Use `map_read` to plan a walking detour. Drone routes remain independent
+of those ground footprints.
+
+For UAS Tool testing, the optional scene object `uas` names the simulation
+`unit_id`, `entity_id`, aircraft `camera`, exercise `center` and
+`radius_m`, and `ground_hae_m`. Configure `bind_address` and
+`controller_address` on a private exercise network, with either endpoint
+port optionally overriding UDP 14550. The bridge reports aircraft position
+and stream metadata, and allows guided reposition and hold at the simulated
+altitude inside the exercise area. Verify against the installed UAS Tool
+version before using it in an exercise.

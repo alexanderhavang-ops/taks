@@ -1,5 +1,5 @@
 coreconfig_path = /opt/tak/CoreConfig.xml
-language = sv
+language = en
 enemy_history_days = 2
 presence_history_hours = 24
 chatter_history_days = 2

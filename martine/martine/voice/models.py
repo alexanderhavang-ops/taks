@@ -32,6 +32,7 @@ class AudioSegment:
     sample_width_bytes: int = 2
     channels: int = 1
     pcm_s16le: bytes = b""
+    user_id: int | None = None
 
 
 @dataclass(frozen=True)

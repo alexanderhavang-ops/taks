@@ -26,6 +26,7 @@ class _ActiveSegment:
     total_bytes: int
     segment_index: int = 0
     is_split_from_long_tx: bool = False
+    user_id: int | None = None
 
 
 class Segmenter:
@@ -53,6 +54,7 @@ class Segmenter:
                 sample_rate_hz=chunk.sample_rate_hz,
                 sample_width_bytes=chunk.sample_width_bytes,
                 channels=chunk.channels,
+                user_id=chunk.user_id,
                 pcm_parts=[],
                 total_bytes=0,
                 segment_index=0,
@@ -123,6 +125,7 @@ class Segmenter:
             sample_width_bytes=active.sample_width_bytes,
             channels=active.channels,
             pcm_s16le=pcm,
+            user_id=active.user_id,
         )
 
         if split_from_long_tx:
@@ -135,6 +138,7 @@ class Segmenter:
                 sample_rate_hz=active.sample_rate_hz,
                 sample_width_bytes=active.sample_width_bytes,
                 channels=active.channels,
+                user_id=active.user_id,
                 pcm_parts=[],
                 total_bytes=0,
                 segment_index=active.segment_index + 1,

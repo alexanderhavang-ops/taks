@@ -32,7 +32,10 @@ ORDER_DEPS = ROOT / ("order-deps-" + ORDER_SDK)
 FILES = (
     "takctl/takctl/services/activity_evidence.py",
     "takctl/takctl/simulation/__init__.py",
+    "takctl/takctl/node_language.py",
     "takctl/takctl/simulation/model.py",
+    "takctl/takctl/simulation/speech.py",
+    "takctl/takctl/simulation/uas.py",
     "takctl/takctl/simulation/daemon.py",
     "takctl/takctl/simulation/background.py", "takctl/takctl/simulation/transports.py",
     "takctl/takctl/simulation/orbat.py", "takctl/takctl/simulation/perception.py",
@@ -260,10 +263,11 @@ def selected_order_settings(source_root):
     values = kv(bundled if bundled and bundled.is_file() else runtime)
     settings = {
         channel + "_senders": sorted(set(values.get(channel + "_senders", "").split()))
-        for channel in ("xmpp", "geochat")
+        for channel in ("xmpp", "geochat", "mumble")
     }
     if not any(settings.values()):
         return {}, ""
+    settings["mumble_voice_replies"] = values.get("mumble_voice_replies", "false").lower() == "true"
     settings["model"] = values.get("openai_model", "gpt-4.1-mini")
     secrets_dir = Path("/etc/taks-bootstrap.d/secrets.d")
     sources = [secrets_dir / filename, secrets_dir / "martine.conf",
@@ -308,6 +312,14 @@ def main():
     if os.geteuid() != 0 or not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         raise ValueError("Root, pinned commit and 1..1024 identities required")
     orders, order_key = selected_order_settings(args.source_root)
+    misc = Path(args.source_root).resolve().parent / "misc" if args.source_root else None
+    scene_file = misc / "simulation-video.json" if misc else None
+    media = json.loads(scene_file.read_text()) if scene_file and scene_file.is_file() else None
+    packages = ["ffmpeg", "espeak-ng"]
+    if media:
+        packages.append("python3-pil")
+    subprocess.run(["apt-get", "install", "-y", *packages], check=True, timeout=180)
+
     run(["sudo", "-u", "tak", str(BASE / ".venv/bin/python"), "-m", "pip", "install", "--quiet", "slixmpp==1.17.0"])
     sys.path[:0] = [str(BASE), "/opt/tak/tools/martine"]
     ROOT.mkdir(exist_ok=True)
@@ -375,7 +387,7 @@ def main():
                 temp_progress=progress.with_suffix(".tmp")
                 temp_progress.write_text(json.dumps({"ok":True,"stage":stage,"completed_identities":count,
                     "identity_capacity":args.identities,"active_identity_capacity":active_capacity,"capacity_source":capacity_source,"source_commit":args.commit,
-                    "order_transports":[name for name in ("xmpp", "geochat") if orders.get(name + "_senders")]}))
+                    "order_transports":[name for name in ("xmpp", "geochat", "mumble") if orders.get(name + "_senders")]}))
                 shutil.chown(temp_progress,user="root",group="tak"); temp_progress.chmod(0o640)
                 os.replace(temp_progress,progress)
             report("issuing_identities",0)
@@ -419,6 +431,22 @@ def main():
                     "xmpp":{"enabled":True,"host":"127.0.0.1","port":5223,"domain":fqdn,"ca_file":str(ROOT/'ca.pem')},
                     "mumble":{"enabled":True,"host":"127.0.0.1","port":64738,"server_name":fqdn},
                     "audio_root":str(ROOT/'audio')}
+            if media is not None:
+                conf["tick_seconds"] = 1
+                conf["ground_buildings"] = [
+                    {"tags": {"building": "yes"}, "geometry": [{"lon": lon, "lat": lat} for lon, lat in feature["geometry"]["coordinates"][0]]}
+                    for feature in media["buildings"]
+                    if feature.get("geometry") and feature["geometry"]["type"] == "Polygon"
+                ]
+                conf["cameras"] = {
+                    name: {
+                        **{key: fields[key] for key in ("aircraft_uid", "unit_id", "callsign", "position", "hae_m") if key in fields},
+                        "video_url": f"rtsp://{media['video_host']}:8554/exercise/{name}",
+                    }
+                    for name, fields in media["cameras"].items()
+                }
+                if "uas" in media:
+                    conf["uas"] = {key: media["uas"][key] for key in ("entity_id", "unit_id", "center", "radius_m")}
             (ROOT/"audio").mkdir(exist_ok=True)
             shutil.chown(ROOT/"audio",user="root",group="tak");(ROOT/"audio").chmod(0o750)
             credential = Path("/etc/taks/simulation-openai.env")
@@ -463,6 +491,24 @@ def main():
                     changed.append((statefile,saved))
                     atomic_json(statefile, state)
                     shutil.chown(statefile, user="tak", group="tak")
+            if media and "pilot_actor" in media:
+                from takctl.simulation.model import World
+                from takctl.simulation.daemon import atomic_json
+
+                pilot = media["pilot_actor"]
+                statefile = ROOT / "state.json"
+                world = World(json.loads(statefile.read_text()), len(identities), active_capacity)
+                if not any(actor["id"] == pilot["entity_id"] for actor in world.entities()):
+                    world.apply("activate", {
+                        "unit_id": pilot["unit_id"], "entity_ids": [pilot["entity_id"]],
+                        "request_id": "stage-camera-pilot", "expected_revision": world.state["revision"],
+                    })
+                    saved = backup / "state.json"
+                    if not any(path == statefile for path, _ in changed):
+                        shutil.copy2(statefile, saved)
+                        changed.append((statefile, saved))
+                    atomic_json(statefile, world.state)
+                    shutil.chown(statefile, user="tak", group="tak")
             unitpath = Path("/etc/systemd/system/taks-simulation.service")
             if unitpath.exists():
                 shutil.copy2(unitpath, backup / "taks-simulation.service")
@@ -487,6 +533,14 @@ def main():
                 time.sleep(.5)
             if not ready:
                 raise RuntimeError("Simulation daemon failed its Unix control socket health check")
+            if media is not None:
+                subprocess.run([sys.executable, str(source / "tools/install-simulation-media.py"),
+                                str(source), str(scene_file), str(misc / "simulation-mediamtx")],
+                               check=True, timeout=180)
+            else:
+                for service in ("taks-simulation-media.service", "taks-simulation-uas.service"):
+                    if Path("/etc/systemd/system", service).is_file():
+                        run(["systemctl", "disable", "--now", service])
             (ROOT / "source-commit").write_text(args.commit + "\n")
             report("ready",len(identities))
             print(json.dumps({"ok": True, "commit": args.commit, "identities": len(identities),

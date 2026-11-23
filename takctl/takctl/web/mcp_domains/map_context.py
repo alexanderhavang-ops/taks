@@ -37,13 +37,18 @@ def osm_xml(raw):
         positions[uid] = pos
         elements.append({"type": "node", "id": uid, **pos,
                          "tags": {t.get("k"): t.get("v") for t in node.findall("tag")}})
+    ways = {}
     for way in root.findall("way"):
         nodes = [int(n.get("ref")) for n in way.findall("nd")]
-        elements.append({"type": "way", "id": int(way.get("id")), "nodes": nodes,
-                         "geometry": [positions[n] for n in nodes] if all(n in positions for n in nodes) else [],
+        geometry = [positions[n] for n in nodes] if all(n in positions for n in nodes) else []
+        uid = int(way.get("id"))
+        ways[uid] = geometry
+        elements.append({"type": "way", "id": uid, "nodes": nodes, "geometry": geometry,
                          "tags": {t.get("k"): t.get("v") for t in way.findall("tag")}})
     for relation in root.findall("relation"):
         elements.append({"type": "relation", "id": int(relation.get("id")),
+                         "members": [{"role": "outer", "geometry": ways.get(int(m.get("ref")), [])}
+                                     for m in relation.findall("member[@type='way'][@role='outer']")],
                          "tags": {t.get("k"): t.get("v") for t in relation.findall("tag")}})
     return {"elements": elements}
 
@@ -122,9 +127,75 @@ def provenance(data, cached):
             "limitations": "Mapped features only; completeness, terrain height, current obstacles and building interiors are unknown"}
 
 
+def _bounds(vertices):
+    x, y = zip(*vertices)
+    return min(x), min(y), max(x), max(y)
+
+
+def _cells(bounds):
+    left, bottom, right, top = (math.floor(value * 1000) for value in bounds)
+    if (right - left + 1) * (top - bottom + 1) > 4096:
+        raise ValueError("Map geometry exceeds routing grid")
+    return ((x, y) for x in range(left, right + 1) for y in range(bottom, top + 1))
+
+
+def _crosses(a, b, c, d):
+    def orientation(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    ax, ay, bx, by = _bounds((a, b))
+    cx, cy, dx, dy = _bounds((c, d))
+    if bx < cx or dx < ax or by < cy or dy < ay:
+        return False
+    return orientation(a, b, c) * orientation(a, b, d) <= 0 and orientation(c, d, a) * orientation(c, d, b) <= 0
+
+
+def _inside(p, edges):
+    x, y = p
+    return sum(
+        (ay > y) != (by > y) and x < ax + (bx - ax) * (y - ay) / (by - ay)
+        for (ax, ay), (bx, by) in edges
+    ) % 2 == 1
+
+
+class BuildingFootprints:
+    def __init__(self, elements):
+        self.cells = {}
+        self.count = 0
+        for el in elements:
+            if el.get("tags", {}).get("building") in (None, "no", "roof"):
+                continue
+            geometry = [el.get("geometry", [])]
+            geometry.extend(
+                member["geometry"] for member in el.get("members", [])
+                if member.get("role") == "outer" and member.get("geometry")
+            )
+            for ring in geometry:
+                if len(ring) < 4 or ring[0] != ring[-1]:
+                    continue
+                vertices = tuple((p["lon"], p["lat"]) for p in ring)
+                edges = tuple(zip(vertices, vertices[1:]))
+                for cell in _cells(_bounds(vertices)):
+                    self.cells.setdefault(cell, []).append((self.count, edges))
+                self.count += 1
+
+    def clear(self, start, end):
+        a = start["lon"], start["lat"]
+        b = end["lon"], end["lat"]
+        checked = set()
+        for cell in _cells(_bounds((a, b))):
+            for index, edges in self.cells.get(cell, []):
+                if index not in checked:
+                    checked.add(index)
+                    if _inside(a, edges) or any(_crosses(a, b, c, d) for c, d in edges):
+                        return False
+        return True
+
+
 def walk_route(elements, start, end):
-    """Shortest mapped foot-eligible graph path; no tactical or terrain inference."""
+    """Shortest mapped foot-eligible graph path outside known building footprints."""
     graph, positions = {}, {}
+    buildings = BuildingFootprints(elements)
     accepted = {"yes", "designated", "official", "permissive"}
     excluded = {"motorway", "motorway_link", "trunk", "trunk_link", "construction", "proposed", "raceway", "road"}
     for el in elements:
@@ -138,15 +209,28 @@ def walk_route(elements, start, end):
         for uid, p in zip(nodes, geom):
             positions[uid] = point({"lat": p["lat"], "lon": p["lon"]})
         for a, b in zip(nodes, nodes[1:]):
+            if not buildings.clear(positions[a], positions[b]):
+                continue
             length = distance(positions[a], positions[b])
             if tags.get("oneway:foot") != "-1": graph.setdefault(a, []).append((b, length, el["id"]))
             if tags.get("oneway:foot") != "yes": graph.setdefault(b, []).append((a, length, el["id"]))
     if len(positions) > 20000: raise ValueError("Walking graph too large")
     if not graph: raise ValueError("No mapped walking network in this area")
-    source = min(positions, key=lambda n: distance(start, positions[n]))
-    target = min(positions, key=lambda n: distance(end, positions[n]))
-    snaps = [distance(start, positions[source]), distance(end, positions[target])]
-    if max(snaps) > 100: raise ValueError("Endpoint more than 100m from a mapped foot-eligible node")
+    connected = set(graph)
+    connected.update(neighbor for edges in graph.values() for neighbor, _, _ in edges)
+
+    def snap(endpoint):
+        nearest = sorted((distance(endpoint, positions[n]), n) for n in connected)
+        for gap, n in nearest:
+            if gap > 100:
+                break
+            if buildings.clear(endpoint, positions[n]):
+                return n, gap
+        raise ValueError("No building-clear connector to a mapped footpath within 100m")
+
+    source, first_snap = snap(start)
+    target, last_snap = snap(end)
+    snaps = [first_snap, last_snap]
     queue, costs, parents = [(0, source)], {source: 0}, {}
     while queue:
         cost, node = heapq.heappop(queue)
@@ -165,8 +249,9 @@ def walk_route(elements, start, end):
     if len(chain) > 500: raise ValueError("Route exceeds 500 vertices; request shorter legs")
     return {"path": [positions[n] for n in chain], "distance_m": round(costs[target], 2),
             "way_ids": sorted(set(ways)), "snap_distances_m": [round(x, 2) for x in snaps],
+            "building_footprints_checked": buildings.count,
             "single_move_compatible": 2 <= len(chain) <= 100,
-            "limitations": "Follows shared OSM node IDs and basic foot/access tags. Snap connectors, barriers, conditional restrictions, crossings and temporary closures are unverified. No automatic movement issued"}
+            "limitations": "Checks mapped closed building outlines, shared OSM nodes and basic foot access. Missing geometry, barriers, crossings and closures are unverified. No automatic movement issued"}
 
 
 def read(operation, args):
@@ -194,7 +279,7 @@ def read(operation, args):
         if abs(start["lon"]-end["lon"]) > 180: raise ValueError("Split walking routes near the date line")
         center = {"lat": (start["lat"]+end["lat"])/2, "lon": (start["lon"]+end["lon"])/2}
         radius = min(1500, int(direct/2+200))
-        data, cached = fetch(area_query(center, radius, {"highway"}), bbox_url(center, radius))
+        data, cached = fetch(area_query(center, radius, {"highway", "building"}), bbox_url(center, radius))
         route = walk_route(data["elements"], start, end)
         speed = number(args.get("speed_mps", 1.2), "speed_mps", .1, 3)
         route["duration_s"] = round(route["distance_m"]/speed, 2)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import tempfile
 import wave
@@ -48,10 +49,10 @@ class FasterWhisperTranscriber:
 
         try:
             self._write_wav(tmp_path, segment)
-            text = self._transcribe_wav(tmp_path)
+            text = self._transcribe_wav(tmp_path, segment.language)
             return TranscriptionResult(
                 text=text,
-                language=self.cfg.language,
+                language=segment.language,
                 duration_ms=segment.duration_ms,
             )
         finally:
@@ -60,16 +61,16 @@ class FasterWhisperTranscriber:
             except Exception:
                 pass
 
-    def _transcribe_wav(self, wav_path: Path) -> str:
+    def _transcribe_wav(self, wav_path: Path, language: str) -> str:
         model = self._get_model()
 
         segments, _info = model.transcribe(
             str(wav_path),
-            language=self.cfg.language,
+            language=language,
             task=self.cfg.task,
-            initial_prompt=self._load_initial_prompt(),
+            initial_prompt=self._load_initial_prompt() if language == "sv" else None,
             condition_on_previous_text=False,
-            beam_size=1,
+            beam_size=self.cfg.beam_size,
             vad_filter=False,
             word_timestamps=False,
         )
@@ -196,3 +197,33 @@ def _normalize_prompt(value: str) -> str:
             continue
         lines.append(line)
     return "\n".join(lines)
+
+
+class OpenAITranscriber:
+    def __init__(self, client=None):
+        if client is None:
+            from openai import OpenAI
+            from .config import _read_kv_optional
+
+            secrets = _read_kv_optional(Path("/opt/tak/tools/martine/secrets.d/martine.conf"))
+            key = os.environ.get("OPENAI_API_KEY") or secrets.get("openai_api_key")
+            if not key:
+                raise ConfigError("OpenAI voice transcription requires a node API key")
+            client = OpenAI(api_key=key, timeout=12, max_retries=0)
+        self.client = client
+
+    def transcribe_segment(self, segment: AudioSegment) -> TranscriptionResult:
+        FasterWhisperTranscriber._validate_segment(segment)
+        if segment.duration_ms > 30000 or len(segment.pcm_s16le) > 3_000_000:
+            raise ValueError("Voice segment exceeds transcription limit")
+        buffer = io.BytesIO()
+        with wave.open(buffer, "wb") as wav:
+            wav.setnchannels(segment.channels)
+            wav.setsampwidth(segment.sample_width_bytes)
+            wav.setframerate(segment.sample_rate_hz)
+            wav.writeframes(segment.pcm_s16le)
+        response = self.client.audio.transcriptions.create(
+            model="gpt-transcribe", file=("ptt.wav", buffer.getvalue(), "audio/wav"),
+            extra_body={"languages": [segment.language]},
+        )
+        return TranscriptionResult(text=response.text, language=segment.language, duration_ms=segment.duration_ms)

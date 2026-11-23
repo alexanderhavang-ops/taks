@@ -37,6 +37,19 @@ OVERLAYS = (
     "tak-installer/tak_installer/actions/simulation_runtime.py",
     "tak-installer/plans/tak-node.d/zz-simulation-runtime",
     "takctl/conf.d/simulation.conf.template", "tools/deploy-simulation-mvp.py",
+    "martine/martine/voice/config.py",
+    "martine/martine/voice/main.py",
+    "martine/martine/voice/models.py",
+    "martine/martine/voice/segmenter.py",
+    "martine/martine/voice/stt.py",
+    "takctl/conf.d/core.conf.template",
+    "takctl/confmeta/core.json",
+    "takctl/takctl/config_store.py",
+    "takctl/takctl/node_language.py",
+    "takctl/takctl/simulation/speech.py",
+    "takctl/takctl/simulation/uas.py",
+    "tools/install-simulation-media.py",
+    "tools/simulation-video-demo.py",
 )
 
 

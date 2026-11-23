@@ -3,6 +3,14 @@
   "title": "Core / user store",
   "settings": [
     {
+      "key": "language",
+      "label": "Node language",
+      "type": "select",
+      "default": "en",
+      "options": ["en", "sv"],
+      "description": "English or Swedish for generated text and speech. Applies to new turns and transmissions."
+    },
+    {
       "key": "backing_user_store",
       "label": "Backing user store",
       "type": "select",

@@ -270,6 +270,13 @@ def apply_runtime_updates(
     config_updates: dict[str, Any] | None = None,
     secret_updates: dict[str, Any] | None = None,
 ) -> tuple[KVView, KVView]:
+    if config_updates and "language" in config_updates:
+        from takctl.node_language import normalize_language
+
+        config_updates = {
+            **config_updates, "language": normalize_language(config_updates["language"]),
+        }
+
     cfg = load_runtime_config_view()
     sec = load_runtime_secrets_view()
 

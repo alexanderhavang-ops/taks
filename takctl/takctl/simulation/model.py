@@ -139,12 +139,32 @@ def attributes(entity, fields):
         value = fields["metadata"]
         if not isinstance(value, dict) or len(json.dumps(value, allow_nan=False).encode()) > 2048:
             raise ValueError("metadata must be an object <=2KiB")
+        if "video_url" in value:
+            video_url(value["video_url"])
+        if "altitude_hae_m" in value:
+            number(value["altitude_hae_m"], "altitude_hae_m", -500, 10000)
         entity["metadata"] = copy.deepcopy(value)
     if "callsign" in fields:
         if not isinstance(fields["callsign"], str) or not re.fullmatch(r"[A-Z0-9][A-Z0-9-]{0,63}", fields["callsign"]):
             raise ValueError("Invalid callsign")
         entity["callsign"] = fields["callsign"]
     if "cot_type" in fields: entity["cot_type"] = cot_type(fields["cot_type"])
+
+
+def video_url(value):
+    """An ATAK viewer URL is broadcast to authorized CoT recipients."""
+    from urllib.parse import urlsplit
+
+    if not isinstance(value, str) or not value or len(value) > 512 or any(c.isspace() for c in value):
+        raise ValueError("Invalid video viewer URL")
+    url = urlsplit(value)
+    if (url.scheme not in {"rtsp", "rtsps", "https"} or not url.hostname or url.username is not None
+            or url.query or url.fragment or not url.path):
+        raise ValueError("Use a credential-free RTSP, RTSPS, or HTTPS viewer URL with a stream path")
+    # Accessing port also validates an explicitly supplied port.
+    if url.port == 0:
+        raise ValueError("Invalid video viewer port")
+    return value
 
 
 def update_sustainment(entity, fields, clock_s):
@@ -213,8 +233,9 @@ def set_active_members(unit, selection):
 
 
 class World:
-    def __init__(self, state=None, capacity=8, active_capacity=None):
+    def __init__(self, state=None, capacity=8, active_capacity=None, *, path_validator=None):
         self.capacity = capacity
+        self.path_validator = path_validator
         self.active_capacity = capacity if active_capacity is None else active_capacity
         if type(self.active_capacity) is not int or not min(1, self.capacity) <= self.active_capacity <= self.capacity:
             raise ValueError("Invalid concurrent simulation actor limit")
@@ -323,7 +344,7 @@ class World:
             return {**previous["result"], "duplicate": True}
         if type(args.get("expected_revision")) is not int or args["expected_revision"] != self.state["revision"]:
             raise ValueError(f"expected_revision must match {self.state['revision']}")
-        trial = World(self.state, self.capacity, self.active_capacity)
+        trial = World(self.state, self.capacity, self.active_capacity, path_validator=self.path_validator)
         result = trial._apply(operation, args)
         result.update(ok=True, revision=trial.state["revision"])
         trial.state["requests"][key] = {"fingerprint": fingerprint, "result": result}
@@ -364,7 +385,7 @@ class World:
                    "background_put": {"entity_id", "waypoints", "repeat", "delay_s"},
                    "background_pause": {"entity_id"}, "background_resume": {"entity_id"}, "background_remove": {"entity_id"},
                    "xmpp_chat": {"entity_id", "target", "message"},
-                   "mumble_channel": {"entity_id", "channel"}, "mumble_ptt": {"entity_id", "clip_id"},
+                   "mumble_channel": {"entity_id", "channel"}, "mumble_ptt": {"entity_id", "clip_id", "text"},
                    "entity_patch": {"entity_id", "health_state", "remarks", "cot_type", "callsign", "role", "readiness", "group_id", "vehicle_id", "platform", "metadata", "sustainment"},
                    "unit_patch": {"metadata", "tak_unit_ref"},
                    "command_configure": {"hierarchy_id", "commander_entity_id", "deputy_entity_id", "parent_id", "level"},
@@ -379,6 +400,8 @@ class World:
         uid = a.get("unit_id")
         if not isinstance(uid, str) or not ID.fullmatch(uid):
             raise ValueError("Invalid unit_id")
+        if self.path_validator is not None:
+            self.path_validator(self.state, op, a)
         if op == "create":
             if uid in self.state["units"]:
                 raise ValueError("unit_id already exists; use a new ID")
@@ -510,12 +533,16 @@ class World:
             entity=next((e for e in members if e['id']==a.get('entity_id')),None)
             if entity is None: raise ValueError('Entity not found')
             field='message' if op=='xmpp_chat' else 'channel' if op=='mumble_channel' else 'clip_id'
+            if op == "mumble_ptt":
+                if ("clip_id" in a) == ("text" in a):
+                    raise ValueError("Specify exactly one of clip_id or text")
+                field = "text" if "text" in a else "clip_id"
             value=a.get(field)
             if not isinstance(value,str) or not value.strip() or len(value)>(1000 if field=='message' else 160): raise ValueError('Invalid '+field)
             if op=='xmpp_chat' and (not isinstance(a.get('target'),str) or not 1<=len(a['target'])<=256): raise ValueError('XMPP target required')
             if op=='mumble_channel': entity['voice_channel']=value
             self.event(op+'_requested',unit_id=uid,entity_id=entity['id'])
-            return {'entity_id':entity['id'],'delivery':'pending',**{k:a[k] for k in ('message','target','channel','clip_id') if k in a}}
+            return {'entity_id':entity['id'],'delivery':'pending',**{k:a[k] for k in ('message','target','channel','clip_id','text') if k in a}}
         if op == "unit_patch":
             if "tak_unit_ref" in a:
                 if not isinstance(a["tak_unit_ref"], str) or len(a["tak_unit_ref"]) > 128: raise ValueError("Invalid TAKS ORBAT reference")
@@ -565,7 +592,7 @@ class World:
                     raise ValueError("Recurring markers require a finite TTL")
                 due = self.state["clock_s"] + number(a.get("delay_s"), "delay_s", 10, 86400)
                 # Validate against today's actor state at the proposed exercise time.
-                trial = World(self.state, self.capacity, self.active_capacity)
+                trial = World(self.state, self.capacity, self.active_capacity, path_validator=self.path_validator)
                 trial.state["clock_s"] = due
                 trial._apply(operation, arguments)
                 self.state["scheduled"][key] = {"id": sid, "unit_id": uid, "status": "pending",

@@ -265,14 +265,15 @@ class Mumble(Link):
         ids=[i for i,n in self.channels.items() if n==name]
         if len(ids)!=1 or not self.info['connected']:return False
         return await self.send(9,proto(f1=self.session,f5=ids[0]))
-    async def ptt(self,frames):
+    async def ptt(self,frames, *, channel=None):
         self.info['ptt']='transmitting'
         started=time.monotonic()
         channel_id = self.info.get("channel_id")
         try:
             for i,frame in enumerate(frames):
                 await asyncio.sleep(max(0,started+i*.02-time.monotonic()))
-                if not self.info["connected"] or channel_id is None or self.info.get("channel_id") != channel_id:
+                if (not self.info["connected"] or channel_id is None or self.info.get("channel_id") != channel_id
+                        or (channel is not None and self.info.get("channel") != channel)):
                     raise ConnectionError("Voice channel no longer available")
                 # Opus type=4, normal target=0; sequence advances in 10ms units.
                 packet = b'\x80' + mv(self.sequence) + mv(len(frame) | (0x2000 if i == len(frames) - 1 else 0)) + frame

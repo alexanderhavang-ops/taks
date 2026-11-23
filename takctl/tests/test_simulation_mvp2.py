@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 
 from takctl.simulation.model import World, distance
 from takctl.simulation.daemon import Daemon, event
+from takctl.node_language import node_language
 from takctl.web.mcp_domains import map_context as maps, simulation_tools
 
 
@@ -27,6 +28,32 @@ def world():
 
 
 class WorldV2Tests(unittest.TestCase):
+    def test_camera_marker_and_aircraft_share_compatible_video_details(self):
+        w = world()
+        url = "rtsp://video.example.test:8554/exercise/camera"
+        metadata = {"video_url": url, "altitude_hae_m": 120}
+        w.apply("marker_put", args(1, "camera", marker_id="camera", callsign="CAMERA",
+                                   position={"lat": 55.71, "lon": 13.21}, metadata=metadata))
+        w.apply("entity_patch", args(2, "drone", entity_id="demo-01", platform="drone",
+                                     cot_type="a-f-A-M-F-Q", metadata=metadata))
+        for item in (w.state["markers"]["demo:camera"], w.entities()[0]):
+            root = ET.fromstring(event(item))
+            self.assertEqual(root.find("point").get("hae"), "120")
+            feed = root.find("detail/__video/ConnectionEntry")
+            self.assertEqual((feed.get("protocol"), feed.get("address")), ("raw", url))
+        with self.assertRaises(ValueError):
+            w.apply("entity_patch", args(3, "unsafe-video", entity_id="demo-01",
+                                         metadata={"video_url": "rtsp://name:secret@video.example.test/stream"}))
+
+    def test_node_language_uses_english_default_and_rereads_runtime_changes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            core = Path(directory) / "core.conf"
+            self.assertEqual(node_language(core), "en")
+            core.write_text("language = sv\n", encoding="utf-8")
+            self.assertEqual(node_language(core), "sv")
+            core.write_text("language = en\n", encoding="utf-8")
+            self.assertEqual(node_language(core), "en")
+
     def test_pause_holds_each_position_clock_and_resumes_remaining_time(self):
         w = world()
         w.apply("entity_move", args(1, "walk", entity_id="demo-01", path=[{"lat": 55.711, "lon": 13.21}], duration_s=100))
@@ -98,6 +125,19 @@ def way(uid, nodes, coords, **tags):
 
 
 class MapTests(unittest.TestCase):
+    def test_walking_route_goes_around_building_footprint(self):
+        shortcut = way(1, [1, 2], [(0, 0), (.001, 0)])
+        detour = way(2, [1, 3, 4, 2], [(0, 0), (0, .0005), (.001, .0005), (.001, 0)])
+        building = way(3, [5, 6, 7, 8, 5],
+                       [(.0004, -.0002), (.0006, -.0002), (.0006, .0002), (.0004, .0002), (.0004, -.0002)],
+                       building="yes")
+        building["tags"].pop("highway")
+        route = maps.walk_route([shortcut, detour, building], shortcut["geometry"][0], shortcut["geometry"][-1])
+        self.assertEqual(route["way_ids"], [2])
+        self.assertEqual(route["building_footprints_checked"], 1)
+        with self.assertRaisesRegex(ValueError, "No building-clear connector"):
+            maps.walk_route([shortcut, detour, building], {"lat": 55.71, "lon": 13.2105}, shortcut["geometry"][-1])
+
     def test_raw_osm_preserves_topology_and_never_joins_missing_nodes(self):
         raw = b'<osm version="0.6"><node id="1" lat="55.71" lon="13.21"/><node id="2" lat="55.711" lon="13.21"/><way id="3"><nd ref="1"/><nd ref="2"/><tag k="highway" v="footway"/></way><way id="4"><nd ref="1"/><nd ref="99"/><tag k="highway" v="footway"/></way></osm>'
         elements = maps.osm_xml(raw)["elements"]
@@ -168,6 +208,23 @@ class MapTests(unittest.TestCase):
 
 
 class TimelineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_swedish_order_keeps_literal_gate_and_localizes_acknowledgment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "state.json"
+            state.write_text(json.dumps(world().state))
+            daemon = Daemon({"state_file": str(state), "identities": [{}, {}]})
+            daemon.reconcile = lambda: None
+            actor = daemon.world.entities()[0]
+            move = SimpleNamespace(action="move", direction="north", distance_m=42)
+            reply = await daemon.apply_individual_order(actor, move, "sv-move", "Gå 42 meter norrut",
+                                                        language="sv")
+            self.assertEqual(reply, "Uppfattat. Går 42 meter norrut.")
+            before = daemon.world.state["revision"]
+            denied = await daemon.apply_individual_order(daemon.world.entities()[0], move, "sv-group",
+                                                         "Gå hela gruppen 42 meter norrut", language="sv")
+            self.assertIn("Ange avståndet", denied)
+            self.assertEqual(daemon.world.state["revision"], before)
+
     async def test_once_only_timed_action_pause_failure_and_crash_uncertainty(self):
         with tempfile.TemporaryDirectory() as tmp:
             state = Path(tmp)/"state.json"; state.write_text(json.dumps(world().state))

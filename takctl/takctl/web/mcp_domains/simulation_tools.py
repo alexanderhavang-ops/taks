@@ -37,13 +37,13 @@ TOOLS += [tool(name, "Read Martine reference documents: " + name, props, require
           for name, (props, required) in DOC_TOOLS.items()]
 
 
-def simulation(operation, arguments):
+def simulation(operation, arguments, *, timeout=12):
     payload = json.dumps({"operation": operation, "arguments": arguments}, allow_nan=False).encode() + b"\n"
     if len(payload) > 65536:
         raise ValueError("Simulation request too large")
     try:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
-            client.settimeout(12)
+            client.settimeout(timeout)
             client.connect(SOCKET)
             client.sendall(payload)
             with client.makefile("rb") as f:

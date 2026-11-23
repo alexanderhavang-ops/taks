@@ -5,11 +5,12 @@ from typing import Any, Dict
 from martine_server import AgentLoop, RunContext, load_config, resolve_profile
 from martine_server.tracing import TraceWriter, new_run_id
 from martine.logging import get_logger, setup_martine_logging
+from takctl.node_language import LANGUAGE_NAMES, node_language
 
 
 log = get_logger(__name__)
 
-def _system_prompt() -> str:
+def _system_prompt(language: str) -> str:
     return (
         'You are Martine, a concise TAKS operational assistant. '
         'Use tools when they materially improve correctness. '
@@ -20,7 +21,8 @@ def _system_prompt() -> str:
         'If a user asks to be onboarded for voice, Vx, or Mumble, use the send_voice_onboarding tool rather than only describing the steps. '
         'If a user asks to send or install ATAK plugins, use the send_plugin_onboarding tool. Default to package_id "plugins-basic" unless the user clearly asks for another registered package. '
         'Plugin and voice onboarding are on-demand tools. Do not send onboarding packages proactively to new users unless explicitly asked. '
-        'When send_plugin_onboarding returns user_message_sv/user_message_en or user_guidance_sv/user_guidance_en, reuse that wording in the final answer instead of inventing new install instructions. Prefer Swedish when the user writes in Swedish, otherwise English. '
+        'When send_plugin_onboarding returns localized wording, reuse the wording for the node language. '
+        f'Answer in {LANGUAGE_NAMES[language]}. Preserve callsigns, names, and direct quotes in their original language. '
         'Keep final answers brief and concrete. '
         'If a tool result is missing or insufficient, say so plainly.'
     )
@@ -40,6 +42,7 @@ def run_once(user_question: str, *, sender_uid: str = '', sender_callsign: str =
     setup_martine_logging()
     log.info('run_once_start sender_callsign=%s sender_uid=%s question=%r', sender_callsign, sender_uid, user_question[:500])
     cfg = load_config()
+    language = node_language()
     run_id = new_run_id('martine')
     profile = resolve_profile('martine_chat', 'chat.reply')
     trace = TraceWriter(cfg.trace_dir, run_id)
@@ -49,7 +52,7 @@ def run_once(user_question: str, *, sender_uid: str = '', sender_callsign: str =
         run_id=run_id,
         state_root=cfg.state_dir,
         trace_root=cfg.trace_dir,
-        language='sv',
+        language=language,
         output_schema='',
         max_turns=int(profile.get('max_turns', cfg.default_max_turns)),
         max_tool_calls=int(profile.get('max_tool_calls', cfg.default_max_tool_calls)),
@@ -61,7 +64,7 @@ def run_once(user_question: str, *, sender_uid: str = '', sender_callsign: str =
         extras={"principal": principal or {}, "conversation_id": conversation_id},
     )
     loop = AgentLoop(ctx, trace)
-    result = loop.run(system_prompt=_system_prompt(), user_input=user_question, final_format='plain text answer')
+    result = loop.run(system_prompt=_system_prompt(language), user_input=user_question, final_format='plain text answer')
     out: Dict[str, Any] = {
         'ok': result.ok,
         'run_id': run_id,
