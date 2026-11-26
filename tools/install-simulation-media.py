@@ -165,6 +165,8 @@ PartOf=taks-simulation.service
 User=tak
 Group=tak
 Environment=PYTHONPATH=/opt/tak/tools/takctl:{MEDIA}/uas-deps
+RuntimeDirectory=taks-simulation-uas
+RuntimeDirectoryPreserve=restart
 ExecStart={TAK_PYTHON} -m takctl.simulation.uas {MEDIA}/uas.json
 Restart=on-failure
 NoNewPrivileges=true

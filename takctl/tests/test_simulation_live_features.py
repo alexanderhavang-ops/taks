@@ -13,6 +13,7 @@ from takctl.simulation.daemon import Daemon
 from takctl.simulation.model import World
 from takctl.simulation.speech import spoken_target, voice_identity
 from takctl.simulation.uas import Aircraft, Wire
+from takctl.web.mcp_domains import simulation_tools
 
 
 def exercise(directory, **config):
@@ -160,3 +161,35 @@ class CameraAndUASTests(unittest.IsolatedAsyncioTestCase):
         link.receive(SimpleNamespace(**fields, get_srcSystem=lambda: 255))
         aircraft.move.assert_called_once_with({"lat": 55.71, "lon": 13.21})
         sender.command_ack_send.assert_called_once_with(192, 0, 0, 0, 255, 190)
+
+        link.receive(SimpleNamespace(**fields, get_srcSystem=lambda: 255), aircraft_available=False)
+        link.receive(SimpleNamespace(get_type=lambda: "SET_POSITION_TARGET_GLOBAL_INT",
+                                     get_srcSystem=lambda: 255, target_system=17))
+        sender.command_ack_send.assert_called_once()
+        self.assertEqual(aircraft.move.call_count, 1)
+
+        module = SimpleNamespace(TOOLS=[], call=Mock())
+        simulation_tools.install(module)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "diagnostics.json"
+            with patch.object(simulation_tools, "UAS_DIAGNOSTICS", path):
+                def read():
+                    result = module.call("service_read", {"service": "simulation", "operation": "uas_diagnostics"})
+                    return json.loads(result["content"][0]["text"])
+
+                self.assertFalse(read()["ok"])
+                link.diagnostics.publish(path)
+                result = read()
+                self.assertTrue(result["ok"])
+                self.assertFalse(result["stale"])
+                self.assertEqual(result["counts"]["commands_received"], 3)
+                self.assertEqual(
+                    [(event["reason"], event["ack_sent"]) for event in result["commands"]],
+                    [("unexpected_controller_system", False), ("move_applied", True),
+                     ("aircraft_unavailable", False)],
+                )
+                self.assertEqual(result["commands"][1]["ack_result"], 0)
+                frame = result["last_unhandled_control_frames"]["SET_POSITION_TARGET_GLOBAL_INT"]
+                self.assertEqual((frame["source_system"], frame["target_system"]), (255, 17))
+                with patch.object(simulation_tools.time, "time", return_value=result["updated_at"] + 15):
+                    self.assertTrue(read()["stale"])

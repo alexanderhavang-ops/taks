@@ -7,8 +7,11 @@ from pathlib import Path
 import re
 import socket
 import subprocess
+import time
 
 SOCKET = "/opt/tak/simulation/control.sock"
+UAS_DIAGNOSTICS = Path("/run/taks-simulation-uas/diagnostics.json")
+READ_VIEWS = ("status", "capabilities", "export", "orbat", "provisioning", "actor", "events", "uas_diagnostics")
 DOC_ROOT = Path("/opt/tak/tools/takctl/state/docs")
 CONTROL_OPS = ("create", "move", "stop", "deactivate", "activate", "chat", "batch", "entity_move", "entity_stop", "entity_patch", "unit_patch", "command_configure", "leader_order", "marker_put", "marker_remove", "cot_send", "cot_remove", "pause", "resume", "schedule_put", "schedule_cancel", "knowledge_put", "background_put", "background_pause", "background_resume", "background_remove", "xmpp_chat", "mumble_channel", "mumble_ptt")
 DOC_TOOLS = {
@@ -27,7 +30,7 @@ def tool(name, description, properties, required=()):
 
 
 TOOLS = [tool("simulation_read", "Read persistent exercise state, sessions and server-observed positions",
-              {"unit_id": {"type": "string"}, "since_revision": {"type": "integer"}, "entity_offset": {"type":"integer"}, "entity_limit": {"type":"integer"}, "entity_id":{"type":"string"},"after_seq":{"type":"integer"},"limit":{"type":"integer"},"view": {"type": "string", "enum": ["status", "capabilities", "export", "orbat", "provisioning", "actor", "events"]}}),
+              {"unit_id": {"type": "string"}, "since_revision": {"type": "integer"}, "entity_offset": {"type":"integer"}, "entity_limit": {"type":"integer"}, "entity_id":{"type":"string"},"after_seq":{"type":"integer"},"limit":{"type":"integer"},"view": {"type": "string", "enum": list(READ_VIEWS)}}),
          tool("map_read", "Read OSM geometry/tags, inspect a feature, or look up a mapped pedestrian route; never moves simulation entities",
               {"operation": {"type": "string", "enum": ["config", "area", "feature", "route"]}, "arguments": {"type": "object"}}, ["operation"]),
          tool("simulation_control", "Control unit or actor routes, recurring actions, GeoChat, XMPP, Mumble clips, markers and state batches. Explicit confirmation required.",
@@ -53,6 +56,21 @@ def simulation(operation, arguments, *, timeout=12):
         return json.loads(data)
     except (OSError, TimeoutError):
         return {"ok": False, "error": "Simulation daemon unavailable"}
+
+
+def uas_diagnostics():
+    try:
+        with UAS_DIAGNOSTICS.open("rb") as snapshot:
+            raw = snapshot.read(16385)
+        if len(raw) > 16384:
+            raise ValueError("Snapshot too large")
+        data = json.loads(raw)
+        age = max(0, time.time() - data["updated_at"])
+    except FileNotFoundError:
+        return {"ok": False, "error": "UAS bridge has not published diagnostics"}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {"ok": False, "error": "UAS bridge diagnostics unreadable"}
+    return {"ok": True, "snapshot_age_s": round(age, 1), "stale": age > 10, **data}
 
 
 def reference(name, args):
@@ -124,8 +142,12 @@ def call(name, args):
         if set(args) - {"unit_id", "since_revision", "view", "entity_offset", "entity_limit", "entity_id", "after_seq", "limit"}:
             raise ValueError("Unknown simulation read arguments")
         args = dict(args); view = args.pop("view", "status")
-        if view not in ("status", "capabilities", "export", "orbat", "provisioning", "actor", "events"): raise ValueError("Unknown simulation view")
-        if view == "provisioning":
+        if view not in READ_VIEWS: raise ValueError("Unknown simulation view")
+        if view == "uas_diagnostics":
+            if args:
+                raise ValueError("UAS diagnostics takes no arguments")
+            result = uas_diagnostics()
+        elif view == "provisioning":
             path=Path("/opt/tak/simulation/provisioning.json")
             if not path.is_file(): result={"ok":True,"stage":"not_started"}
             else:
@@ -180,7 +202,7 @@ def install(module):
                 operation = args.get("operation", "")
                 if operation.startswith("map_"):
                     return call("map_read", {"operation": operation[4:], "arguments": args.get("arguments", {})})
-                if operation not in ("status", "capabilities", "export", "orbat", "provisioning", "actor", "events"):
+                if operation not in READ_VIEWS:
                     raise ValueError("Unknown simulation read operation")
                 return call("simulation_read", {**args.get("arguments", {}), "view": operation})
             return call("simulation_control", {k: v for k, v in args.items() if k != "service"})
